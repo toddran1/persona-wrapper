@@ -1,0 +1,42 @@
+import type { ChatResponse, PersonaDefinition, PersonaSummary, ProviderId } from "@persona/shared";
+
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+
+export type ChatPayload = {
+  personaId: string;
+  message: string;
+  provider: ProviderId;
+  audio: boolean;
+  conversationId?: string;
+};
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      "Content-Type": "application/json"
+    },
+    ...init
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export const api = {
+  getPersonas: async (): Promise<PersonaSummary[]> => {
+    const payload = await requestJson<{ personas: PersonaSummary[] }>("/api/personas");
+    return payload.personas;
+  },
+  getPersona: async (id: string): Promise<PersonaDefinition> => {
+    const payload = await requestJson<{ persona: PersonaDefinition }>(`/api/personas/${id}`);
+    return payload.persona;
+  },
+  sendChat: async (payload: ChatPayload): Promise<ChatResponse> =>
+    requestJson<ChatResponse>("/api/chat", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    })
+};

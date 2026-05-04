@@ -1,0 +1,42 @@
+import cors from "cors";
+import express, { type NextFunction, type Request, type Response } from "express";
+import { ZodError } from "zod";
+import { chatRouter } from "./routes/chat.routes.js";
+import { personaRouter } from "./routes/persona.routes.js";
+import { HttpError } from "./utils/httpError.js";
+import { logger } from "./utils/logger.js";
+
+export function createApp() {
+  const app = express();
+
+  app.use(cors());
+  app.use(express.json({ limit: "1mb" }));
+
+  app.get("/health", (_request, response) => {
+    response.status(200).json({ status: "ok" });
+  });
+
+  app.use("/api/chat", chatRouter);
+  app.use("/api/personas", personaRouter);
+
+  app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+    if (error instanceof ZodError) {
+      response.status(400).json({
+        error: "Validation failed",
+        details: error.flatten()
+      });
+      return;
+    }
+
+    if (error instanceof HttpError) {
+      response.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+
+    logger.error("Unhandled API error", error);
+    const message = error instanceof Error ? error.message : "Internal server error";
+    response.status(500).json({ error: message });
+  });
+
+  return app;
+}

@@ -1,0 +1,24 @@
+{
+  "name": "persona-wrapper-app",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c magenta,cyan \"npm run dev -w @persona/api\" \"npm run dev -w @persona/web\"",
+    "dev:api": "npm run dev -w @persona/api",
+    "dev:web": "npm run dev -w @persona/web",
+    "build": "npm run build -w @persona/shared && npm run build -w @persona/api && npm run build -w @persona/web",
+    "typecheck": "npm run build -w @persona/shared && npm run typecheck -w @persona/api && npm run typecheck -w @persona/web",
+    "lint": "npm run lint -w @persona/shared && npm run lint -w @persona/api && npm run lint -w @persona/web",
+    "test": "npm run build -w @persona/shared && npm run test -w @persona/api && npm run test -w @persona/web"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
