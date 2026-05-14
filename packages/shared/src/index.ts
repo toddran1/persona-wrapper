@@ -174,6 +174,22 @@ export const llmOutputSchema = z.object({
 });
 export type LLMOutput = z.infer<typeof llmOutputSchema>;
 
+export const styleTransferInputSchema = z.object({
+  neutralText: z.string().min(1),
+  persona: personaDefinitionSchema,
+  conversationHistory: z.array(chatMessageSchema).default([]),
+  userMessage: z.string(),
+  provider: providerSchema
+});
+export type StyleTransferInput = z.infer<typeof styleTransferInputSchema>;
+
+export const styleTransferOutputSchema = z.object({
+  provider: z.enum(["stub_style_transfer", "local_style_transfer", "remote_style_transfer"]),
+  styledText: z.string(),
+  metadata: z.record(z.unknown()).optional()
+});
+export type StyleTransferOutput = z.infer<typeof styleTransferOutputSchema>;
+
 export const ttsInputSchema = z.object({
   text: z.string().min(1),
   persona: personaDefinitionSchema,

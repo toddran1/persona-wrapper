@@ -20,6 +20,7 @@ describe("ChatService", () => {
       "LaRae, introduce yourself like you just walked into the reunion special."
     );
     expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("I’m LaRae the Baddest");
+    expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("Clock it");
   });
 
   it("persists conversation history across turns", async () => {

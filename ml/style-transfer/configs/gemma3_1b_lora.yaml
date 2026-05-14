@@ -1,0 +1,28 @@
+base_model: DavidAU/gemma-3-1b-it-heretic-extreme-uncensored-abliterated
+adapter_name: larae-style-transfer-gemma3-1b-lora
+dataset_train_path: ml/style-transfer/datasets/processed/style_transfer.train.jsonl
+dataset_eval_path: ml/style-transfer/datasets/processed/style_transfer.eval.jsonl
+output_dir: ml/style-transfer/output/larae-style-transfer-gemma3-1b-lora
+max_seq_length: 2048
+load_in_4bit: true
+num_train_epochs: 3
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 4
+learning_rate: 0.0002
+warmup_ratio: 0.03
+logging_steps: 10
+eval_steps: 50
+save_steps: 100
+seed: 3407
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
