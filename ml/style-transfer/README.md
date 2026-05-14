@@ -85,6 +85,39 @@ datasets/processed/manifest.json
 Raw and processed datasets are gitignored because they may contain private or
 licensed source text.
 
+## Generate Synthetic Pairs
+
+First prepare unpaired style samples:
+
+```bash
+python3 ml/style-transfer/scripts/prepare_dataset.py
+```
+
+Then generate neutral-to-styled pairs. On a GPU pod, use the local base model:
+
+```bash
+python3 ml/style-transfer/scripts/generate_synthetic_pairs.py --provider local
+```
+
+If `OPENAI_API_KEY` is available, OpenAI can be used for better neutralization:
+
+```bash
+python3 ml/style-transfer/scripts/generate_synthetic_pairs.py --provider openai
+```
+
+This writes:
+
+```text
+datasets/processed/style_transfer.pairs.jsonl
+```
+
+Rerun preparation after pair generation so the train/eval files include both
+`style_sample` and `style_transfer_pair` records:
+
+```bash
+python3 ml/style-transfer/scripts/prepare_dataset.py
+```
+
 ## Train LoRA
 
 Install the training dependencies in a CUDA environment:
@@ -111,6 +144,31 @@ The adapter output directory is gitignored:
 ```text
 ml/style-transfer/output/larae-style-transfer-gemma3-1b-lora
 ```
+
+The current default training output is the v2 paired adapter folder:
+
+```text
+ml/style-transfer/output/larae-style-transfer-gemma3-1b-lora-v2-pairs
+```
+
+## Serve Style Transfer
+
+After training or uploading an adapter, serve it over HTTP:
+
+```bash
+python3 ml/style-transfer/scripts/serve_style_transfer.py \
+  --adapter toddran1/larae-style-transfer-gemma3-1b-lora \
+  --host 0.0.0.0 \
+  --port 8000
+```
+
+The app expects:
+
+```text
+POST /style-transfer
+```
+
+with the same request/response body described below.
 
 ## Current App Contract
 

@@ -1,9 +1,9 @@
-"""Prepare unpaired style-transfer data from raw transcript text files.
+"""Prepare style-transfer data from raw transcript text files and paired JSONL.
 
 This script turns local raw `.txt` dialogue files into JSONL records that can be
-used for LoRA SFT. The current data is unpaired, so each chunk becomes a
-`style_sample` record. Later synthetic neutral-to-styled examples can be added
-as `style_transfer_pair` records with the same schema.
+used for LoRA SFT. Raw unpaired chunks become `style_sample` records. Synthetic
+neutral-to-styled examples can be added as `style_transfer_pair` records with
+the same schema and are included automatically when present.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ DEFAULT_INSTRUCTION = (
     "Write a short response in the target persona style while preserving the "
     "same attitude, rhythm, and slang profile."
 )
+PAIR_INSTRUCTION = "Rewrite the neutral answer in the target persona style without changing facts."
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +31,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--processed-dir", type=Path, default=PROCESSED_DIR)
     parser.add_argument("--min-chars", type=int, default=180)
     parser.add_argument("--max-chars", type=int, default=900)
+    parser.add_argument("--pairs-path", type=Path, default=PROCESSED_DIR / "style_transfer.pairs.jsonl")
+    parser.add_argument("--pairs-only", action="store_true")
     parser.add_argument("--eval-ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=3407)
     return parser.parse_args()
@@ -101,6 +104,50 @@ def make_record(source_file: Path, index: int, output_text: str) -> dict[str, ob
     }
 
 
+def read_jsonl(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        return []
+
+    records: list[dict[str, object]] = []
+    with path.open("r", encoding="utf-8") as file:
+        for line_number, line in enumerate(file, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            if not isinstance(record, dict):
+                raise ValueError(f"{path}:{line_number} must be a JSON object")
+            records.append(validate_pair_record(record, path, line_number))
+    return records
+
+
+def validate_pair_record(record: dict[str, object], path: Path, line_number: int) -> dict[str, object]:
+    input_text = record.get("input")
+    output_text = record.get("output")
+    if not isinstance(input_text, str) or not input_text.strip():
+        raise ValueError(f"{path}:{line_number} must include non-empty input")
+    if not isinstance(output_text, str) or not output_text.strip():
+        raise ValueError(f"{path}:{line_number} must include non-empty output")
+
+    instruction = record.get("instruction")
+    if not isinstance(instruction, str) or not instruction.strip():
+        instruction = PAIR_INSTRUCTION
+
+    normalized = {
+        **record,
+        "mode": "style_transfer_pair",
+        "instruction": instruction,
+        "input": input_text.strip(),
+        "output": output_text.strip(),
+    }
+    normalized["messages"] = make_messages(
+        str(normalized["instruction"]),
+        str(normalized["input"]),
+        str(normalized["output"]),
+    )
+    return normalized
+
+
 def write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
     with path.open("w", encoding="utf-8") as file:
         for record in records:
@@ -112,14 +159,20 @@ def main() -> None:
     args.processed_dir.mkdir(parents=True, exist_ok=True)
 
     records: list[dict[str, object]] = []
+    style_sample_count = 0
     file_counts: dict[str, int] = {}
     text_files = sorted(args.raw_dir.glob("*.txt"))
 
-    for text_file in text_files:
-        text = normalize_text(text_file.read_text(encoding="utf-8"))
-        chunks = chunk_blocks(iter_blocks(text), args.min_chars, args.max_chars)
-        file_counts[text_file.name] = len(chunks)
-        records.extend(make_record(text_file, index + 1, chunk) for index, chunk in enumerate(chunks))
+    if not args.pairs_only:
+        for text_file in text_files:
+            text = normalize_text(text_file.read_text(encoding="utf-8"))
+            chunks = chunk_blocks(iter_blocks(text), args.min_chars, args.max_chars)
+            file_counts[text_file.name] = len(chunks)
+            style_sample_count += len(chunks)
+            records.extend(make_record(text_file, index + 1, chunk) for index, chunk in enumerate(chunks))
+
+    pair_records = read_jsonl(args.pairs_path)
+    records.extend(pair_records)
 
     random.Random(args.seed).shuffle(records)
     eval_count = max(1, round(len(records) * args.eval_ratio)) if records else 0
@@ -132,14 +185,18 @@ def main() -> None:
 
     manifest = {
         "format_version": 1,
-        "mode": "unpaired_style_samples",
+        "mode": "mixed_style_transfer",
         "raw_dir": str(args.raw_dir),
         "processed_dir": str(args.processed_dir),
+        "pairs_path": str(args.pairs_path),
         "min_chars": args.min_chars,
         "max_chars": args.max_chars,
+        "pairs_only": args.pairs_only,
         "eval_ratio": args.eval_ratio,
         "seed": args.seed,
         "source_files": file_counts,
+        "style_sample_count": style_sample_count,
+        "pair_count": len(pair_records),
         "record_count": len(records),
         "train_count": len(train_records),
         "eval_count": len(eval_records),
@@ -150,6 +207,7 @@ def main() -> None:
     )
 
     print(f"Found {len(text_files)} raw text files in {args.raw_dir}")
+    print(f"Included {style_sample_count} style samples and {len(pair_records)} paired examples")
     print(f"Wrote {len(train_records)} train records and {len(eval_records)} eval records")
     print(f"Manifest: {args.processed_dir / 'manifest.json'}")
 

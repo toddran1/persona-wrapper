@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_BASE_MODEL = "DavidAU/gemma-3-1b-it-heretic-extreme-uncensored-abliterated"
 DEFAULT_TRAIN_PATH = ROOT / "ml/style-transfer/datasets/processed/style_transfer.train.jsonl"
 DEFAULT_EVAL_PATH = ROOT / "ml/style-transfer/datasets/processed/style_transfer.eval.jsonl"
-DEFAULT_OUTPUT_DIR = ROOT / "ml/style-transfer/output/larae-style-transfer-gemma3-1b-lora"
+DEFAULT_OUTPUT_DIR = ROOT / "ml/style-transfer/output/larae-style-transfer-gemma3-1b-lora-v2-pairs"
 DEFAULT_TARGET_MODULES = [
     "q_proj",
     "k_proj",

@@ -5,3 +5,6 @@ accelerate
 bitsandbytes
 peft
 transformers
+openai
+fastapi
+uvicorn
