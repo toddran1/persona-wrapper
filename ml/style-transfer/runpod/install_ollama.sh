@@ -3,6 +3,11 @@ set -euo pipefail
 
 MODEL="${OLLAMA_MODEL:-llama3.2:3b}"
 
+if ! command -v zstd >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y zstd
+fi
+
 if ! command -v ollama >/dev/null 2>&1; then
   curl -fsSL https://ollama.com/install.sh | sh
 fi
