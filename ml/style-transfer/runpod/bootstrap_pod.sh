@@ -5,7 +5,7 @@ REPO_URL="${REPO_URL:-https://github.com/toddran1/persona-wrapper.git}"
 BRANCH="${BRANCH:-develop}"
 REPO_DIR="${REPO_DIR:-/workspace/persona-wrapper}"
 INSTALL_OLLAMA="${INSTALL_OLLAMA:-1}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2:3b}"
+OLLAMA_MODELS_TO_PULL="${OLLAMA_MODELS_TO_PULL:-llama3.2:3b qwen2.5:7b}"
 
 if [ ! -d "$REPO_DIR/.git" ]; then
   git clone --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
@@ -37,7 +37,7 @@ npm run build -w @persona/shared
 python ml/style-transfer/scripts/prepare_dataset.py
 
 if [ "$INSTALL_OLLAMA" = "1" ]; then
-  OLLAMA_MODEL="$OLLAMA_MODEL" bash ml/style-transfer/runpod/install_ollama.sh
+  OLLAMA_MODELS_TO_PULL="$OLLAMA_MODELS_TO_PULL" bash ml/style-transfer/runpod/install_ollama.sh
 fi
 
 echo "Bootstrap complete."

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL="${OLLAMA_MODEL:-llama3.2:3b}"
+MODELS="${OLLAMA_MODELS_TO_PULL:-${OLLAMA_MODEL:-llama3.2:3b qwen2.5:7b}}"
 
 if ! command -v zstd >/dev/null 2>&1; then
   apt-get update
@@ -21,5 +21,7 @@ if ! pgrep -x ollama >/dev/null 2>&1; then
   sleep 5
 fi
 
-ollama pull "$MODEL"
+for MODEL in $MODELS; do
+  ollama pull "$MODEL"
+done
 ollama list

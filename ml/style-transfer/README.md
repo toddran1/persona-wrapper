@@ -93,10 +93,13 @@ First prepare unpaired style samples:
 python3 ml/style-transfer/scripts/prepare_dataset.py
 ```
 
-Then generate neutral-to-styled pairs. On a GPU pod, use the local base model:
+Then generate neutral-to-styled pairs. On a RunPod with Ollama, use `qwen2.5:7b`
+for better rewrite quality:
 
 ```bash
-python3 ml/style-transfer/scripts/generate_synthetic_pairs.py --provider local
+python3 ml/style-transfer/scripts/generate_synthetic_pairs.py \
+  --provider ollama \
+  --ollama-model qwen2.5:7b
 ```
 
 If `OPENAI_API_KEY` is available, OpenAI can be used for better neutralization:

@@ -8,6 +8,7 @@ The paired output uses the canonical training record:
 Providers:
     heuristic: deterministic cleanup fallback for dry runs
     local:     uses the base model on a CUDA pod through Unsloth
+    ollama:    uses a local Ollama chat model, recommended for current dev
     openai:    uses OpenAI when OPENAI_API_KEY is available
 """
 
@@ -17,6 +18,8 @@ import argparse
 import json
 import os
 import re
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Protocol
 
@@ -25,6 +28,8 @@ ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_INPUT = ROOT / "ml/style-transfer/datasets/processed/style_transfer.all.jsonl"
 DEFAULT_OUTPUT = ROOT / "ml/style-transfer/datasets/processed/style_transfer.pairs.jsonl"
 DEFAULT_BASE_MODEL = "DavidAU/gemma-3-1b-it-heretic-extreme-uncensored-abliterated"
+DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
+DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 PAIR_INSTRUCTION = "Rewrite the neutral answer in the target persona style without changing facts."
 
 
@@ -37,12 +42,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--provider", choices=["heuristic", "local", "openai"], default="local")
+    parser.add_argument("--provider", choices=["heuristic", "local", "ollama", "openai"], default="ollama")
     parser.add_argument("--base-model", default=DEFAULT_BASE_MODEL)
+    parser.add_argument("--ollama-endpoint", default=os.getenv("OLLAMA_ENDPOINT", DEFAULT_OLLAMA_ENDPOINT))
+    parser.add_argument("--ollama-model", default=os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL))
     parser.add_argument("--openai-model", default="gpt-4.1-mini")
     parser.add_argument("--max-records", type=int)
-    parser.add_argument("--max-new-tokens", type=int, default=220)
-    parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument("--max-new-tokens", type=int, default=180)
+    parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--min-input-chars", type=int, default=40)
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
@@ -143,6 +150,58 @@ class OpenAINeutralizer:
         return clean_neutral_text(response.output_text)
 
 
+class OllamaNeutralizer:
+    def __init__(self, endpoint: str, model: str, max_new_tokens: int, temperature: float) -> None:
+        self.endpoint = endpoint.rstrip("/")
+        self.model = model
+        self.max_new_tokens = max_new_tokens
+        self.temperature = temperature
+
+    def neutralize(self, styled_text: str) -> str:
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You convert stylized, slang-heavy reality-TV dialogue into neutral plain English. "
+                        "Preserve the concrete meaning, intent, and sequence of events. Remove profanity, "
+                        "threats, insults, names, catchphrases, and show-specific framing. Return only one "
+                        "neutral answer. Do not explain."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Styled dialogue:\n{styled_text}\n\nNeutral plain-English version:",
+                },
+            ],
+            "options": {
+                "temperature": self.temperature,
+                "top_p": 0.85,
+                "num_predict": self.max_new_tokens,
+                "repeat_penalty": 1.15,
+            },
+        }
+        request = urllib.request.Request(
+            f"{self.endpoint}/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"Ollama request failed: {error}") from error
+
+        message = data.get("message", {})
+        content = message.get("content") if isinstance(message, dict) else ""
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError("Ollama returned an empty neutralization response")
+        return clean_neutral_text(content)
+
+
 class LocalNeutralizer:
     def __init__(self, model_name: str, max_new_tokens: int, temperature: float) -> None:
         import torch
@@ -194,6 +253,8 @@ def create_neutralizer(args: argparse.Namespace) -> Neutralizer:
         return HeuristicNeutralizer()
     if args.provider == "openai":
         return OpenAINeutralizer(args.openai_model, args.temperature)
+    if args.provider == "ollama":
+        return OllamaNeutralizer(args.ollama_endpoint, args.ollama_model, args.max_new_tokens, args.temperature)
     return LocalNeutralizer(args.base_model, args.max_new_tokens, args.temperature)
 
 

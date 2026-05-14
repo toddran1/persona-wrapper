@@ -29,16 +29,39 @@ This installs:
 - Python training/serving dependencies
 - Node workspaces
 - Ollama
-- `llama3.2:3b` by default
+- `llama3.2:3b` for the app's neutral LLM
+- `qwen2.5:7b` for synthetic pair generation
 
-To use a different Ollama model:
+To use different Ollama models:
 
 ```bash
-OLLAMA_MODEL=llama3.1:8b bash ml/style-transfer/runpod/bootstrap_pod.sh
+OLLAMA_MODELS_TO_PULL="llama3.2:3b qwen2.5:7b" bash ml/style-transfer/runpod/bootstrap_pod.sh
 ```
 
-The 3B model is the faster default for the A5000. The 8B model should fit, but
-will be slower and may compete with the style-transfer server for VRAM.
+The 3B model is the faster default for app testing. `qwen2.5:7b` is preferred
+for neutralizing styled chunks into synthetic training pairs.
+
+## Generate Pairs With Ollama
+
+```bash
+python ml/style-transfer/scripts/prepare_dataset.py
+python ml/style-transfer/scripts/generate_synthetic_pairs.py \
+  --provider ollama \
+  --ollama-model qwen2.5:7b \
+  --overwrite
+python ml/style-transfer/scripts/prepare_dataset.py
+```
+
+For a quick smoke test:
+
+```bash
+python ml/style-transfer/scripts/generate_synthetic_pairs.py \
+  --provider ollama \
+  --ollama-model qwen2.5:7b \
+  --max-records 10 \
+  --output /tmp/ollama_pairs_sample.jsonl \
+  --overwrite
+```
 
 ## Start Services
 
