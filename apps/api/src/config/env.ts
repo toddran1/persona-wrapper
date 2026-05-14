@@ -12,6 +12,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  LOCAL_LLM_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
+  LOCAL_LLM_MODEL: z.string().default("llama3.2:3b"),
   OPENAI_TTS_VOICE: z.string().default("alloy"),
   STYLE_TRANSFER_PROVIDER: z.enum(["stub", "local", "runpod", "huggingface"]).default("stub"),
   STYLE_TRANSFER_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),

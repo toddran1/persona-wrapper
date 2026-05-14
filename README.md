@@ -66,6 +66,27 @@ Default URLs:
 - API: `http://localhost:4000`
 - Web: `http://localhost:5173`
 
+## RunPod Development
+
+RunPod rebuild scripts live in:
+
+```text
+ml/style-transfer/runpod/
+```
+
+For a fresh pod:
+
+```bash
+cd /workspace
+git clone --branch develop https://github.com/toddran1/persona-wrapper.git
+cd persona-wrapper
+bash ml/style-transfer/runpod/bootstrap_pod.sh
+bash ml/style-transfer/runpod/start_app_stack.sh
+```
+
+The default open-source LLM path uses Ollama with `llama3.2:3b` for the neutral
+answer step and the Hugging Face LoRA adapter for style transfer.
+
 ## API Endpoints
 
 ### `POST /api/chat`
