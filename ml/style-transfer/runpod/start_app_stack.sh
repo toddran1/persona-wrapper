@@ -12,6 +12,8 @@ export STYLE_TRANSFER_MODEL_ID="${STYLE_TRANSFER_MODEL_ID:-toddran1/larae-style-
 bash ml/style-transfer/runpod/start_ollama.sh
 bash ml/style-transfer/runpod/start_style_server.sh
 
+npm run build -w @persona/shared
+
 mkdir -p apps/api/logs
 nohup npm run dev:api > apps/api/logs/runpod-api.log 2>&1 &
 echo "api pid=$!"

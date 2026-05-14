@@ -32,6 +32,7 @@ fi
 python -m pip install --upgrade pip
 pip install -r ml/style-transfer/requirements.txt
 npm install
+npm run build -w @persona/shared
 
 python ml/style-transfer/scripts/prepare_dataset.py
 
