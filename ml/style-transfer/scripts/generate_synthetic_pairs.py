@@ -3,7 +3,7 @@
 The paired output uses the canonical training record:
 
     input  = neutralized version of the styled chunk
-    output = original styled chunk
+    output = original styled chunk, or a cleaned single-speaker style target
 
 Providers:
     heuristic: deterministic cleanup fallback for dry runs
@@ -51,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=180)
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--min-input-chars", type=int, default=40)
+    parser.add_argument("--clean-style-output", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -85,6 +86,13 @@ def clean_neutral_text(text: str) -> str:
     return text.strip(" \"'")
 
 
+def clean_styled_text(text: str) -> str:
+    text = text.strip()
+    text = re.sub(r"^styled(?: answer| version| target)?:\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip(" \"'")
+
+
 def make_messages(neutral_text: str, styled_text: str) -> list[dict[str, str]]:
     return [
         {
@@ -98,8 +106,7 @@ def make_messages(neutral_text: str, styled_text: str) -> list[dict[str, str]]:
     ]
 
 
-def make_pair_record(source: dict[str, object], neutral_text: str) -> dict[str, object]:
-    styled_text = str(source["output"]).strip()
+def make_pair_record(source: dict[str, object], neutral_text: str, styled_text: str) -> dict[str, object]:
     record_id = f"pair-{source.get('id', 'unknown')}"
     return {
         "id": record_id,
@@ -201,6 +208,51 @@ class OllamaNeutralizer:
             raise RuntimeError("Ollama returned an empty neutralization response")
         return clean_neutral_text(content)
 
+    def clean_style_output(self, styled_text: str) -> str:
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You turn messy multi-speaker reality-TV transcript chunks into one concise "
+                        "single-speaker answer in the same slang-heavy persona style. Preserve the core "
+                        "meaning and attitude. Do not add new facts. Remove speaker labels, stage notes, "
+                        "and repeated filler. Keep it under four sentences. Return only the styled answer."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Transcript chunk:\n{styled_text}\n\nClean single-speaker styled answer:",
+                },
+            ],
+            "options": {
+                "temperature": max(self.temperature, 0.2),
+                "top_p": 0.85,
+                "num_predict": self.max_new_tokens,
+                "repeat_penalty": 1.25,
+                "num_ctx": 4096,
+            },
+        }
+        request = urllib.request.Request(
+            f"{self.endpoint}/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"Ollama request failed: {error}") from error
+
+        message = data.get("message", {})
+        content = message.get("content") if isinstance(message, dict) else ""
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError("Ollama returned an empty style-cleaning response")
+        return clean_styled_text(content)
+
 
 class LocalNeutralizer:
     def __init__(self, model_name: str, max_new_tokens: int, temperature: float) -> None:
@@ -287,7 +339,14 @@ def main() -> None:
             skipped += 1
             continue
 
-        append_jsonl(args.output, [make_pair_record(source, neutral_text)])
+        output_text = styled_text
+        if args.clean_style_output:
+            cleaner = getattr(neutralizer, "clean_style_output", None)
+            if not callable(cleaner):
+                raise RuntimeError("--clean-style-output is only supported by providers that implement it")
+            output_text = cleaner(styled_text)
+
+        append_jsonl(args.output, [make_pair_record(source, neutral_text, output_text)])
         written += 1
         print(f"wrote {written}: {pair_id}")
 

@@ -46,6 +46,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=220)
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top-p", type=float, default=0.9)
+    parser.add_argument("--repetition-penalty", type=float, default=1.18)
+    parser.add_argument("--no-repeat-ngram-size", type=int, default=4)
     return parser.parse_args()
 
 
@@ -91,6 +93,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
             top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
+            no_repeat_ngram_size=args.no_repeat_ngram_size,
             do_sample=True,
             pad_token_id=tokenizer.eos_token_id,
         )
@@ -102,6 +106,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 "adapter": args.adapter,
                 "personaId": request.personaId,
                 "sourceProvider": request.sourceProvider,
+                "repetitionPenalty": args.repetition_penalty,
+                "noRepeatNgramSize": args.no_repeat_ngram_size,
             },
         )
 

@@ -39,7 +39,7 @@ OLLAMA_MODELS_TO_PULL="llama3.2:3b qwen2.5:7b" bash ml/style-transfer/runpod/boo
 ```
 
 The 3B model is the faster default for app testing. `qwen2.5:7b` is preferred
-for neutralizing styled chunks into synthetic training pairs.
+for generating cleaner synthetic training pairs.
 
 ## Generate Pairs With Ollama
 
@@ -48,9 +48,14 @@ python ml/style-transfer/scripts/prepare_dataset.py
 python ml/style-transfer/scripts/generate_synthetic_pairs.py \
   --provider ollama \
   --ollama-model qwen2.5:7b \
+  --clean-style-output \
   --overwrite
-python ml/style-transfer/scripts/prepare_dataset.py
+python ml/style-transfer/scripts/prepare_dataset.py --pairs-only
 ```
+
+`--clean-style-output` asks Ollama to turn messy multi-speaker transcript chunks
+into concise single-speaker style targets. This is slower, but it avoids
+training the adapter to imitate raw transcript loops.
 
 For a quick smoke test:
 
@@ -58,6 +63,7 @@ For a quick smoke test:
 python ml/style-transfer/scripts/generate_synthetic_pairs.py \
   --provider ollama \
   --ollama-model qwen2.5:7b \
+  --clean-style-output \
   --max-records 10 \
   --output /tmp/ollama_pairs_sample.jsonl \
   --overwrite
