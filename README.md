@@ -97,7 +97,7 @@ Example request:
 {
   "personaId": "larae",
   "message": "Read me for filth, but make it funny.",
-  "provider": "openai",
+  "provider": "local",
   "audio": false
 }
 ```

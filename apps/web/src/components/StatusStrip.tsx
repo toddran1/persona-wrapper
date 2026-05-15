@@ -11,7 +11,7 @@ export function StatusStrip(props: StatusStripProps) {
     <section className={`status-card${props.error ? " status-card-error" : ""}`}>
       <div className="status-item">
         <span>Status</span>
-        <strong>{props.loading ? "Generating stub output..." : props.error ? "Needs attention" : "Ready for MVP testing"}</strong>
+        <strong>{props.loading ? "Generating response..." : props.error ? "Needs attention" : "Ready for MVP testing"}</strong>
       </div>
       <div className="status-item">
         <span>Conversation</span>
@@ -29,4 +29,3 @@ export function StatusStrip(props: StatusStripProps) {
     </section>
   );
 }
-

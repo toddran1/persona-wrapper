@@ -102,7 +102,7 @@ export type ContentBlock = z.infer<typeof contentBlockSchema>;
 export const chatRequestSchema = z.object({
   personaId: z.string().min(1),
   message: z.string().min(1),
-  provider: providerSchema.default("openai"),
+  provider: providerSchema.default("local"),
   audio: z.boolean().default(false),
   conversationId: z.string().optional(),
   history: z.array(chatMessageSchema).default([]),
