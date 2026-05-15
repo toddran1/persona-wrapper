@@ -49,6 +49,8 @@ python ml/style-transfer/scripts/generate_synthetic_pairs.py \
   --provider ollama \
   --ollama-model qwen2.5:7b \
   --clean-style-output \
+  --llm-judge \
+  --retries 2 \
   --overwrite
 python ml/style-transfer/scripts/prepare_dataset.py --pairs-only
 ```
@@ -56,6 +58,10 @@ python ml/style-transfer/scripts/prepare_dataset.py --pairs-only
 `--clean-style-output` asks Ollama to turn messy multi-speaker transcript chunks
 into concise single-speaker style targets. This is slower, but it avoids
 training the adapter to imitate raw transcript loops.
+The generator also writes rejected records to
+`ml/style-transfer/datasets/processed/style_transfer.pairs.rejected.jsonl`
+when outputs fail quality filters for length, repetition, transcript markers,
+sentence count, rough neutral/style content overlap, or the optional LLM judge.
 
 For a quick smoke test:
 
@@ -64,6 +70,8 @@ python ml/style-transfer/scripts/generate_synthetic_pairs.py \
   --provider ollama \
   --ollama-model qwen2.5:7b \
   --clean-style-output \
+  --llm-judge \
+  --retries 2 \
   --max-records 10 \
   --output /tmp/ollama_pairs_sample.jsonl \
   --overwrite
