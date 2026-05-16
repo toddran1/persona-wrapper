@@ -7,6 +7,8 @@ import type {
   ToolName
 } from "@persona/shared";
 
+type StubPromptMode = "full" | "base";
+
 function createSvgDataUrl(title: string, accent: string, subtitle: string): string {
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
@@ -43,6 +45,7 @@ function hasKeyword(message: string, keywords: string[]): boolean {
 
 function buildText(params: {
   provider: ProviderId;
+  mode: StubPromptMode;
   userMessage: string;
   priorMessage?: string;
   wantsChart: boolean;
@@ -51,10 +54,16 @@ function buildText(params: {
   wantsSearch: boolean;
   wantsAnalysis: boolean;
 }): string {
-  const callbacks: Record<ProviderId, string> = {
+  const fullCallbacks: Record<ProviderId, string> = {
     openai: "Baby, let me set this all the way off.",
     claude: "Let me deliver this with style and just enough menace.",
     local: "Local mode, full chaos, no excuses."
+  };
+
+  const baseCallbacks: Record<ProviderId, string> = {
+    openai: "Here’s the answer, plain and polished.",
+    claude: "Here’s the clean version with a little attitude.",
+    local: "Here’s the direct version with a light persona touch."
   };
 
   const introPatterns = [
@@ -65,7 +74,7 @@ function buildText(params: {
   ];
   const isIntroRequest = hasKeyword(params.userMessage.toLowerCase(), introPatterns);
 
-  const coreText = isIntroRequest
+  const fullCoreText = isIntroRequest
     ? "I’m LaRae the Baddest, the glam disaster everybody stares at when I enter the room. I talk big, dress expensive, and turn one little side-eye into a full season finale."
     : params.wantsChart && params.wantsFile
       ? "Here’s the breakdown, baby: the chaos is high, the energy is messy, and the entertainment value is absolutely carrying the whole room. I lined it up with a chart and a downloadable content plan so the girls can follow along."
@@ -81,11 +90,33 @@ function buildText(params: {
                 ? "I looked at this like a proper mess audit. The signals say high drama, strong reaction potential, and enough tension to keep people watching."
                 : "Here’s the vibe: bold, funny, a little reckless, and fully on-brand. I’m giving you a confident answer, not a timid little placeholder.";
 
+  const baseCoreText = isIntroRequest
+    ? "I’m LaRae the Baddest. I’m confident, quick with a read, and never short on presence, but I can still answer directly when that’s what the moment needs."
+    : params.wantsChart && params.wantsFile
+      ? "The rollout looks high-energy and messy in a useful way. I broke it into a chart and a downloadable content plan so the structure is easy to follow."
+      : params.wantsChart
+        ? "The chaos level is high, but the signal is readable. The chart shows strong laughs, solid gasp potential, and plenty of quotable moments."
+        : params.wantsImage
+          ? "The visual concept should feel polished, dramatic, and promo-ready. I framed it as a strong campaign image rather than a vague mood board."
+          : params.wantsFile
+            ? "I packaged this into a usable deliverable so it can move straight into planning, scripting, or content production."
+            : params.wantsSearch
+              ? "This should go through search before anybody gets too loud about it. If we’re gathering tea, we need receipts and timestamps."
+              : params.wantsAnalysis
+                ? "I looked at this analytically. The strongest signals are high reaction potential, good audience engagement, and clear tension points."
+                : "Here’s the answer in a confident, clean voice. It stays on-brand without turning into a full performance.";
+
   const memoryLine = params.priorMessage
-    ? " I’m also keeping up with the thread, so this turn builds on what we were already doing instead of starting from zero."
+    ? params.mode === "full"
+      ? " I’m also keeping up with the thread, so this turn builds on what we were already doing instead of starting from zero."
+      : " I’m also keeping the thread in view, so this answer builds on the prior turn instead of restarting the whole thing."
     : "";
 
-  return `${callbacks[params.provider]} ${coreText}${memoryLine} Clock it.`;
+  if (params.mode === "base") {
+    return `${baseCallbacks[params.provider]} ${baseCoreText}${memoryLine}`;
+  }
+
+  return `${fullCallbacks[params.provider]} ${fullCoreText}${memoryLine} Clock it.`;
 }
 
 function maybeAddToolCall(outputs: ContentBlock[], toolName: ToolName, args: Record<string, unknown>, status: "planned" | "completed"): void {
@@ -97,7 +128,7 @@ function maybeAddToolCall(outputs: ContentBlock[], toolName: ToolName, args: Rec
   });
 }
 
-export function buildStubOutput(input: LLMInput, provider: ProviderId): LLMOutput {
+export function buildStubOutput(input: LLMInput, provider: ProviderId, mode: StubPromptMode = "full"): LLMOutput {
   const lowerMessage = input.userMessage.toLowerCase();
   const requested = new Set(input.requestedOutputs ?? []);
   const wantsChart = requested.has("chart") || hasKeyword(lowerMessage, ["chart", "graph", "data", "breakdown", "analytics"]);
@@ -113,6 +144,7 @@ export function buildStubOutput(input: LLMInput, provider: ProviderId): LLMOutpu
       type: "text",
       text: buildText({
         provider,
+        mode,
         userMessage: input.userMessage,
         wantsChart,
         wantsImage,
@@ -196,6 +228,7 @@ export function buildStubOutput(input: LLMInput, provider: ProviderId): LLMOutpu
     },
     metadata: {
       providerModel: `stub-${provider}-model`,
+      promptTrack: mode,
       scenarioFlags: {
         wantsChart,
         wantsImage,

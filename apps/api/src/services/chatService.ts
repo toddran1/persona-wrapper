@@ -36,6 +36,16 @@ export class ChatService {
         ? firstNeutralTextBlock.text
         : llmOutput.rawText;
 
+    console.log("\n\nNeutral LLM response object data: ", {
+      provider: llmOutput.provider,
+      providerModel: llmOutput.metadata?.providerModel,
+      personaId: persona.id,
+      conversationId: conversation.id,
+      userMessage: request.message
+    });
+
+    console.log(`\n--- Neutral LLM response before style transfer ---\n\n${neutralText}\n`);
+
     const styleTransferProvider = createStyleTransferProvider();
     const styleTransferOutput = await styleTransferProvider.transferStyle({
       neutralText,
@@ -44,6 +54,9 @@ export class ChatService {
       userMessage: request.message,
       provider: llmOutput.provider
     });
+
+    console.log(`--- Gemma style transfer response --- \n\n${styleTransferOutput.styledText}\n\n`);
+
     const styledLlmOutput = {
       ...llmOutput,
       rawText: styleTransferOutput.styledText,

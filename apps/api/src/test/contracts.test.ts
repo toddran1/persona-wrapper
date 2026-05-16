@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatRequestSchema, chatResponseSchema } from "@persona/shared";
+import { chatRequestSchema, chatResponseSchema, llmInputSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
   it("applies chat request defaults", () => {
@@ -53,5 +53,64 @@ describe("shared schemas", () => {
     });
 
     expect(parsed.history).toHaveLength(2);
+  });
+
+  it("accepts separate full-style and base-style llm prompt tracks", () => {
+    const parsed = llmInputSchema.parse({
+      persona: {
+        id: "larae",
+        name: "LaRae the Baddest",
+        tagline: "Tagline",
+        description: "Description",
+        avatarColor: "#ff5f6d",
+        theme: {
+          mode: "dark",
+          themeName: "Test",
+          background: "#000",
+          backgroundAccent: "#111",
+          backgroundAccentSecondary: "#222",
+          surface: "#333",
+          surfaceStrong: "#444",
+          border: "#555",
+          accent: "#666",
+          accent2: "#777",
+          text: "#fff",
+          muted: "#999"
+        },
+        supportedProviders: ["openai"],
+        biography: "Bio",
+        personalityTraits: ["confident"],
+        speechStyle: ["rhythmic"],
+        catchphrases: ["Clock it."],
+        visualStyle: ["glam"],
+        safetyBoundaries: ["No unsafe content."],
+        voiceProfile: {
+          defaultVoiceId: "voice_test",
+          speakingStyle: "animated"
+        },
+        defaultTools: ["web_search"]
+      },
+      systemPrompt: "Full persona prompt",
+      baseSystemPrompt: "Persona-lite prompt",
+      messages: [
+        { role: "system", content: "Full persona prompt" },
+        { role: "user", content: "Who was president in 2010?" }
+      ],
+      baseMessages: [
+        { role: "system", content: "Persona-lite prompt" },
+        { role: "user", content: "Who was president in 2010?" }
+      ],
+      userMessage: "Who was president in 2010?",
+      toolDefinitions: [
+        {
+          name: "web_search",
+          description: "Search the web",
+          inputSchema: {}
+        }
+      ]
+    });
+
+    expect(parsed.baseSystemPrompt).toBe("Persona-lite prompt");
+    expect(parsed.baseMessages).toHaveLength(2);
   });
 });

@@ -16,5 +16,18 @@ describe("PersonaEngine", () => {
     expect(prompt).toContain("Safety boundaries");
     expect(prompt).toContain("Return multimodal output when useful");
   });
-});
 
+  it("builds a persona-lite base prompt without catchphrase-heavy styling", () => {
+    const persona = getPersonaById("larae");
+    const engine = new PersonaEngine();
+
+    expect(persona).toBeDefined();
+
+    const prompt = engine.createBaseSystemPrompt(persona!);
+
+    expect(prompt).toContain("light version of this persona");
+    expect(prompt).toContain("Do not use catchphrases");
+    expect(prompt).not.toContain("Catchphrases:");
+    expect(prompt).not.toContain("Clock it.");
+  });
+});

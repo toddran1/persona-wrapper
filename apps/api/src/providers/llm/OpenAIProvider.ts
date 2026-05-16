@@ -4,6 +4,6 @@ import { buildStubOutput } from "./stubScenarioBuilder.js";
 
 export class OpenAIProvider implements LLMProvider {
   async generateResponse(input: LLMInput): Promise<LLMOutput> {
-    return buildStubOutput(input, "openai");
+    return buildStubOutput(input, "openai", "base");
   }
 }

@@ -22,6 +22,19 @@ export class PersonaEngine {
     ].join("\n");
   }
 
+  createBaseSystemPrompt(persona: PersonaDefinition): string {
+    return [
+      `You are generating a base answer for ${persona.name}.`,
+      `Use a light version of this persona: ${persona.personalityTraits.join(", ")}.`,
+      `Keep the rhythm conversational and confident, with only mild slang when it fits.`,
+      "Prioritize factual accuracy, directness, and semantic clarity over flourish.",
+      "Do not use catchphrases, signature lines, or repeated branded phrases.",
+      "Do not add dramatic filler, reality-TV narration, or extra opinion unless the user asked for it.",
+      "Keep the answer clean enough for a separate style-transfer model to intensify later.",
+      "Return structured tool calls or multimodal content only when the task actually needs them."
+    ].join("\n");
+  }
+
   buildMessages(systemPrompt: string, history: ChatMessage[], userMessage: string): ChatMessage[] {
     return [
       {
@@ -38,16 +51,19 @@ export class PersonaEngine {
 
   prepareInput(persona: PersonaDefinition, request: ChatRequest): LLMInput {
     const systemPrompt = this.createSystemPrompt(persona);
+    const baseSystemPrompt = this.createBaseSystemPrompt(persona);
     const messages = this.buildMessages(systemPrompt, request.history, request.message);
+    const baseMessages = this.buildMessages(baseSystemPrompt, request.history, request.message);
 
     return {
       persona,
       systemPrompt,
+      baseSystemPrompt,
       messages,
+      baseMessages,
       userMessage: request.message,
       toolDefinitions: getToolsByNames(persona.defaultTools),
       requestedOutputs: request.requestedOutputs
     };
   }
 }
-

@@ -155,7 +155,9 @@ export type PersonaDefinition = z.infer<typeof personaDefinitionSchema>;
 export const llmInputSchema = z.object({
   persona: personaDefinitionSchema,
   systemPrompt: z.string(),
+  baseSystemPrompt: z.string().optional(),
   messages: z.array(chatMessageSchema),
+  baseMessages: z.array(chatMessageSchema).optional(),
   userMessage: z.string(),
   toolDefinitions: z.array(toolDefinitionSchema),
   requestedOutputs: z.array(outputTypeSchema).optional()

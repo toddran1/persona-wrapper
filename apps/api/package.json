@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "STYLE_TRANSFER_PROVIDER=stub vitest run"
   },
   "dependencies": {
     "@persona/shared": "*",

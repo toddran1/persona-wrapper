@@ -21,6 +21,10 @@ export class LocalModelProvider implements LLMProvider {
   }
 
   private async generateWithOllama(input: LLMInput): Promise<LLMOutput> {
+    const baseMessages = (input.baseMessages ?? input.messages).filter(
+      (message) => message.role === "user" || message.role === "assistant"
+    );
+
     const response = await fetch(new URL("/api/chat", env.LOCAL_LLM_ENDPOINT), {
       method: "POST",
       headers: {
@@ -33,14 +37,13 @@ export class LocalModelProvider implements LLMProvider {
           {
             role: "system",
             content:
-              "Answer neutrally and directly. Do not imitate a persona, slang style, or voice. The response will be styled by a separate style-transfer model."
+              input.baseSystemPrompt ??
+              "Answer directly with a light persona touch. Avoid catchphrases, signature lines, and heavy style. The response will be intensified by a separate style-transfer model."
           },
-          ...input.messages
-            .filter((message) => message.role === "user" || message.role === "assistant" || message.role === "system")
-            .map((message) => ({
-              role: message.role === "system" ? "system" : message.role,
-              content: message.content
-            }))
+          ...baseMessages.map((message) => ({
+            role: message.role,
+            content: message.content
+          }))
         ],
         options: {
           temperature: 0.4,

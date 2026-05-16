@@ -126,13 +126,9 @@ BAD_STYLE_PATTERNS = [
     for pattern in [
         r"\b(transcript|speaker|stage direction|neutral answer|styled answer)\b",
         r"\bas an ai\b",
-        r"\bas an actress\b",
         r"\bi cannot\b",
         r"\bi can't assist\b",
         r"\bget the message across\b",
-        r"\bnigg(?:a|er)s?\b",
-        r"\bswear on my life\b",
-        r"\bworld of hurt\b",
     ]
 ]
 
@@ -443,8 +439,7 @@ class HeuristicNeutralizer:
         # Remove a small profanity list, flatten whitespace, and remove common
         # transcript separators. The real semantic neutralization happens in the
         # model-backed providers.
-        neutral = re.sub(r"\b(bitch|fuck|shit|ass|mother fucker|motherfucker)\b", "", styled_text, flags=re.I)
-        neutral = re.sub(r"\s+", " ", neutral)
+        neutral = re.sub(r"\s+", " ", styled_text)
         neutral = neutral.replace(" - ", " ")
         return clean_neutral_text(neutral)
 
@@ -474,7 +469,7 @@ class OpenAINeutralizer:
                     "role": "system",
                     "content": (
                         "Convert stylized reality-TV dialogue into a neutral, plain-English answer. "
-                        "Preserve concrete meaning and intent. Remove slang, profanity, threats, names, "
+                        "Preserve concrete meaning and intent. Remove slang, "
                         "and show-specific phrasing. Return only the neutral answer."
                     ),
                 },
@@ -541,8 +536,7 @@ class OllamaNeutralizer:
         prompt = (
             "Convert this stylized, slang-heavy multi-speaker transcript chunk into one neutral, "
             "plain-English summary answer. Preserve only the concrete meaning, intent, and sequence "
-            "of events. Remove profanity, insults, threats, names, catchphrases, speaker labels, and "
-            "show-specific framing. Do not add facts. Write 2-5 plain sentences. Return only the "
+            "of events. Do not add facts. Write 2-5 plain sentences. Return only the "
             "neutral answer."
         )
         if feedback:
@@ -633,8 +627,8 @@ class OllamaNeutralizer:
                         "You are a strict data-quality judge for style-transfer training pairs. "
                         "Compare the neutral answer and styled answer. Reject the styled answer if it "
                         "adds facts, changes who did what, roleplays as a transcript participant instead "
-                        "of commenting as the persona, includes transcript formatting, includes slurs or "
-                        "escalated threats, is incoherent, is unfinished, or repeats phrases. The target "
+                        "of commenting as the persona, includes transcript formatting, is incoherent, "
+                        "is unfinished, or repeats phrases. The target "
                         "style is supposed to use slang, blunt attitude, and some profanity, so do not "
                         "reject for informal language, attitude, or ordinary profanity by itself. Pass the "
                         "pair when the core meaning is mostly preserved and the output is coherent. Return "
@@ -710,7 +704,7 @@ class LocalNeutralizer:
                 "role": "user",
                 "content": (
                     "Convert this stylized dialogue into neutral, plain-English wording. "
-                    "Preserve meaning. Remove slang, profanity, threats, names, and show-specific references. "
+                    "Preserve meaning. Remove slang. "
                     "Return only the neutral wording.\n\n"
                     f"Styled dialogue:\n{styled_text}"
                 ),
