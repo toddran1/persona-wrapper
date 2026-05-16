@@ -42,6 +42,12 @@ def parse_args() -> argparse.Namespace:
         default=CURATED_DIR,
         help="Directory of tracked JSONL pair files to include with generated pairs.",
     )
+    parser.add_argument(
+        "--curated-pair-weight",
+        type=int,
+        default=4,
+        help="Repeat curated pair records to strengthen small high-quality correction sets.",
+    )
     parser.add_argument("--pairs-only", action="store_true")
     parser.add_argument("--eval-ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=3407)
@@ -193,7 +199,8 @@ def main() -> None:
 
     generated_pair_records = read_jsonl(args.pairs_path)
     curated_pair_records = read_curated_pairs(args.curated_pairs_dir)
-    pair_records = [*generated_pair_records, *curated_pair_records]
+    weighted_curated_pair_records = curated_pair_records * max(1, args.curated_pair_weight)
+    pair_records = [*generated_pair_records, *weighted_curated_pair_records]
     records.extend(pair_records)
 
     random.Random(args.seed).shuffle(records)
@@ -212,6 +219,7 @@ def main() -> None:
         "processed_dir": str(args.processed_dir),
         "pairs_path": str(args.pairs_path),
         "curated_pairs_dir": str(args.curated_pairs_dir),
+        "curated_pair_weight": args.curated_pair_weight,
         "min_chars": args.min_chars,
         "max_chars": args.max_chars,
         "pairs_only": args.pairs_only,
@@ -221,6 +229,7 @@ def main() -> None:
         "style_sample_count": style_sample_count,
         "generated_pair_count": len(generated_pair_records),
         "curated_pair_count": len(curated_pair_records),
+        "weighted_curated_pair_count": len(weighted_curated_pair_records),
         "pair_count": len(pair_records),
         "record_count": len(records),
         "train_count": len(train_records),
