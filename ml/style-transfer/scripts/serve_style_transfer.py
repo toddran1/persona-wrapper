@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--max-seq-length", type=int, default=2048)
     parser.add_argument("--max-new-tokens", type=int, default=220)
-    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--temperature", type=float, default=0.3)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--repetition-penalty", type=float, default=1.18)
     parser.add_argument("--no-repeat-ngram-size", type=int, default=4)
@@ -76,7 +76,12 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             {
                 "role": "user",
                 "content": (
-                    "Rewrite the neutral answer in the target persona style without changing facts.\n\n"
+                    "Rewrite the neutral answer in the target persona style.\n"
+                    "Preserve every factual claim exactly. Keep all names, dates, years, numbers, "
+                    "locations, durations, and order of events unchanged. Do not add new facts. "
+                    "Do not make jokes that contradict the neutral answer. Do not imply uncertainty "
+                    "when the neutral answer is certain. If the neutral answer is factual, keep the "
+                    "facts intact and only change tone, rhythm, and attitude.\n\n"
                     f"Neutral answer:\n{request.neutralText}"
                 ),
             }

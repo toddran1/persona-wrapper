@@ -17,12 +17,16 @@ from typing import Iterable
 
 
 RAW_DIR = Path(__file__).resolve().parents[1] / "datasets" / "raw"
+CURATED_DIR = Path(__file__).resolve().parents[1] / "datasets" / "curated"
 PROCESSED_DIR = Path(__file__).resolve().parents[1] / "datasets" / "processed"
 DEFAULT_INSTRUCTION = (
     "Write a short response in the target persona style while preserving the "
     "same attitude, rhythm, and slang profile."
 )
-PAIR_INSTRUCTION = "Rewrite the neutral answer in the target persona style without changing facts."
+PAIR_INSTRUCTION = (
+    "Rewrite the neutral answer in the target persona style. Preserve all names, dates, years, "
+    "numbers, locations, durations, and factual claims exactly."
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +36,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-chars", type=int, default=180)
     parser.add_argument("--max-chars", type=int, default=900)
     parser.add_argument("--pairs-path", type=Path, default=PROCESSED_DIR / "style_transfer.pairs.jsonl")
+    parser.add_argument(
+        "--curated-pairs-dir",
+        type=Path,
+        default=CURATED_DIR,
+        help="Directory of tracked JSONL pair files to include with generated pairs.",
+    )
     parser.add_argument("--pairs-only", action="store_true")
     parser.add_argument("--eval-ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=3407)
@@ -121,6 +131,16 @@ def read_jsonl(path: Path) -> list[dict[str, object]]:
     return records
 
 
+def read_curated_pairs(directory: Path) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    if not directory.exists():
+        return records
+
+    for path in sorted(directory.glob("*.jsonl")):
+        records.extend(read_jsonl(path))
+    return records
+
+
 def validate_pair_record(record: dict[str, object], path: Path, line_number: int) -> dict[str, object]:
     input_text = record.get("input")
     output_text = record.get("output")
@@ -171,7 +191,9 @@ def main() -> None:
             style_sample_count += len(chunks)
             records.extend(make_record(text_file, index + 1, chunk) for index, chunk in enumerate(chunks))
 
-    pair_records = read_jsonl(args.pairs_path)
+    generated_pair_records = read_jsonl(args.pairs_path)
+    curated_pair_records = read_curated_pairs(args.curated_pairs_dir)
+    pair_records = [*generated_pair_records, *curated_pair_records]
     records.extend(pair_records)
 
     random.Random(args.seed).shuffle(records)
@@ -189,6 +211,7 @@ def main() -> None:
         "raw_dir": str(args.raw_dir),
         "processed_dir": str(args.processed_dir),
         "pairs_path": str(args.pairs_path),
+        "curated_pairs_dir": str(args.curated_pairs_dir),
         "min_chars": args.min_chars,
         "max_chars": args.max_chars,
         "pairs_only": args.pairs_only,
@@ -196,6 +219,8 @@ def main() -> None:
         "seed": args.seed,
         "source_files": file_counts,
         "style_sample_count": style_sample_count,
+        "generated_pair_count": len(generated_pair_records),
+        "curated_pair_count": len(curated_pair_records),
         "pair_count": len(pair_records),
         "record_count": len(records),
         "train_count": len(train_records),
