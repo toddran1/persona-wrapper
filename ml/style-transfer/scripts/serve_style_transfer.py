@@ -3,7 +3,7 @@
 Example:
 
     python3 ml/style-transfer/scripts/serve_style_transfer.py \
-      --adapter toddran1/larae-style-transfer-gemma3-1b-lora \
+      --adapter toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs \
       --host 0.0.0.0 \
       --port 8000
 """
@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from unsloth import FastLanguageModel
 
 
-DEFAULT_ADAPTER = "toddran1/larae-style-transfer-gemma3-1b-lora"
+DEFAULT_ADAPTER = "toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs"
 
 
 class StyleTransferRequest(BaseModel):

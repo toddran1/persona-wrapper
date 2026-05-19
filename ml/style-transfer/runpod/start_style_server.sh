@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "${REPO_DIR:-/workspace/persona-wrapper}"
 
-ADAPTER="${STYLE_TRANSFER_ADAPTER:-toddran1/larae-style-transfer-gemma3-1b-lora-v2-pairs}"
+ADAPTER="${STYLE_TRANSFER_ADAPTER:-toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs}"
 PORT="${STYLE_TRANSFER_PORT:-8000}"
 MAX_NEW_TOKENS="${STYLE_TRANSFER_MAX_NEW_TOKENS:-80}"
 TEMPERATURE="${STYLE_TRANSFER_TEMPERATURE:-0.3}"

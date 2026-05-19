@@ -55,7 +55,7 @@ export class ChatService {
       provider: llmOutput.provider
     });
 
-    console.log(`--- Gemma style transfer response --- \n\n${styleTransferOutput.styledText}\n\n`);
+    console.log(`--- Style transfer model response --- \n\n${styleTransferOutput.styledText}\n\n`);
 
     const styledLlmOutput = {
       ...llmOutput,

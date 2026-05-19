@@ -43,7 +43,7 @@ DEFAULT_OUTPUT = ROOT / "ml/style-transfer/datasets/processed/style_transfer.pai
 
 # The local Unsloth provider uses this base model to generate neutral versions
 # when running on a CUDA machine. The Ollama provider is the normal dev default.
-DEFAULT_BASE_MODEL = "DavidAU/gemma-3-1b-it-heretic-extreme-uncensored-abliterated"
+DEFAULT_BASE_MODEL = "Orion-zhen/Qwen2.5-7B-Instruct-Uncensored"
 DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 

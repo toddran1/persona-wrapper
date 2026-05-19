@@ -1,4 +1,4 @@
-"""Train a Gemma 3 style-transfer LoRA adapter with Unsloth.
+"""Train a style-transfer LoRA adapter with Unsloth.
 
 Run from the repo root after preparing JSONL data:
 
@@ -23,10 +23,10 @@ from trl import SFTConfig, SFTTrainer
 
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_BASE_MODEL = "DavidAU/gemma-3-1b-it-heretic-extreme-uncensored-abliterated"
+DEFAULT_BASE_MODEL = "Orion-zhen/Qwen2.5-7B-Instruct-Uncensored"
 DEFAULT_TRAIN_PATH = ROOT / "ml/style-transfer/datasets/processed/style_transfer.train.jsonl"
 DEFAULT_EVAL_PATH = ROOT / "ml/style-transfer/datasets/processed/style_transfer.eval.jsonl"
-DEFAULT_OUTPUT_DIR = ROOT / "ml/style-transfer/output/larae-style-transfer-gemma3-1b-lora-v2-pairs"
+DEFAULT_OUTPUT_DIR = ROOT / "ml/style-transfer/output/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs"
 DEFAULT_TARGET_MODULES = [
     "q_proj",
     "k_proj",
@@ -49,8 +49,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-seq-length", type=int, default=2048)
     parser.add_argument("--load-in-4bit", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--epochs", type=float, default=3)
-    parser.add_argument("--batch-size", type=int, default=2)
-    parser.add_argument("--gradient-accumulation-steps", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--warmup-ratio", type=float, default=0.03)
     parser.add_argument("--logging-steps", type=int, default=10)

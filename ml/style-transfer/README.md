@@ -15,6 +15,7 @@ scripts/
   infer_style.py
 configs/
   gemma3_1b_lora.yaml
+  qwen2p5_7b_uncensored_lora_v1_pairs.yaml
 ```
 
 ## Training Data Format
@@ -174,22 +175,32 @@ Then run:
 python3 ml/style-transfer/scripts/train_lora_unsloth.py
 ```
 
+The current default trainable base model is:
+
+```text
+Orion-zhen/Qwen2.5-7B-Instruct-Uncensored
+```
+
+It is a Safetensors/BF16 Qwen2.5 instruct fine-tune, so it can be used as a
+Transformers/Unsloth LoRA base. The model card lists its license as GPL-3.0.
+
 To push the adapter to Hugging Face:
 
 ```bash
-HF_HUB_MODEL_ID=yourname/larae-style-transfer-gemma3-1b-lora \
+HF_HUB_MODEL_ID=yourname/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs \
 python3 ml/style-transfer/scripts/train_lora_unsloth.py --push-to-hub
 ```
 
 The adapter output directory is gitignored:
 
 ```text
-ml/style-transfer/output/larae-style-transfer-gemma3-1b-lora
+ml/style-transfer/output/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs
 ```
 
-The current default training output is the v2 paired adapter folder:
+Older Gemma adapter output folders may still exist from previous experiments:
 
 ```text
+ml/style-transfer/output/larae-style-transfer-gemma3-1b-lora
 ml/style-transfer/output/larae-style-transfer-gemma3-1b-lora-v2-pairs
 ```
 
@@ -199,7 +210,7 @@ After training or uploading an adapter, serve it over HTTP:
 
 ```bash
 python3 ml/style-transfer/scripts/serve_style_transfer.py \
-  --adapter toddran1/larae-style-transfer-gemma3-1b-lora \
+  --adapter toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs \
   --host 0.0.0.0 \
   --port 8000
 ```
