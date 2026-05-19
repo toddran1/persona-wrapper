@@ -5,7 +5,7 @@ REPO_URL="${REPO_URL:-https://github.com/toddran1/persona-wrapper.git}"
 BRANCH="${BRANCH:-develop}"
 REPO_DIR="${REPO_DIR:-/workspace/persona-wrapper}"
 INSTALL_OLLAMA="${INSTALL_OLLAMA:-1}"
-OLLAMA_MODELS_TO_PULL="${OLLAMA_MODELS_TO_PULL:-llama3.2:3b qwen2.5:7b}"
+OLLAMA_MODELS_TO_PULL="${OLLAMA_MODELS_TO_PULL:-llama3.2:3b hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M}"
 
 if [ ! -d "$REPO_DIR/.git" ]; then
   git clone --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"

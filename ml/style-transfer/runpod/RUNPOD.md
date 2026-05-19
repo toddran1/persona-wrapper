@@ -30,50 +30,42 @@ This installs:
 - Node workspaces
 - Ollama
 - `llama3.2:3b` for the app's neutral LLM
-- `qwen2.5:7b` for synthetic pair generation
+- `hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M` for LLM-curated training pair generation
 
 To use different Ollama models:
 
 ```bash
-OLLAMA_MODELS_TO_PULL="llama3.2:3b qwen2.5:7b" bash ml/style-transfer/runpod/bootstrap_pod.sh
+OLLAMA_MODELS_TO_PULL="llama3.2:3b hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M" \
+  bash ml/style-transfer/runpod/bootstrap_pod.sh
 ```
 
-The 3B model is the faster default for app testing. `qwen2.5:7b` is preferred
-for generating cleaner synthetic training pairs.
+The 3B model is the faster default for app testing. Qwen3 14B is the preferred
+local curator for generating coherent training pairs from raw transcript files.
 
-## Generate Pairs With Ollama
+## Generate LLM-Curated Pairs With Ollama
 
 ```bash
-python ml/style-transfer/scripts/prepare_dataset.py
-python ml/style-transfer/scripts/generate_synthetic_pairs.py \
-  --provider ollama \
-  --ollama-model qwen2.5:7b \
-  --clean-style-output \
-  --llm-judge \
-  --retries 2 \
+python ml/style-transfer/scripts/curate_training_pairs.py \
+  --ollama-model hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M \
   --overwrite
 python ml/style-transfer/scripts/prepare_dataset.py --pairs-only
 ```
 
-`--clean-style-output` asks Ollama to turn messy multi-speaker transcript chunks
-into concise single-speaker style targets. This is slower, but it avoids
-training the adapter to imitate raw transcript loops.
-The generator also writes rejected records to
+`curate_training_pairs.py` reads raw transcript windows directly. It asks the
+curator model to skip cut-off or incoherent fragments, extract complete moments,
+write a neutral answer, write a single-speaker styled target, and preserve
+meaning/facts. Rejected records are written to
 `ml/style-transfer/datasets/processed/style_transfer.pairs.rejected.jsonl`
-when outputs fail quality filters for length, repetition, transcript markers,
-sentence count, rough neutral/style content overlap, or the optional LLM judge.
+for audit.
 
 For a quick smoke test:
 
 ```bash
-python ml/style-transfer/scripts/generate_synthetic_pairs.py \
-  --provider ollama \
-  --ollama-model qwen2.5:7b \
-  --clean-style-output \
-  --llm-judge \
-  --retries 2 \
-  --max-records 10 \
-  --output /tmp/ollama_pairs_sample.jsonl \
+python ml/style-transfer/scripts/curate_training_pairs.py \
+  --ollama-model hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M \
+  --max-windows 2 \
+  --output /tmp/qwen3_curated_pairs.jsonl \
+  --rejections-output /tmp/qwen3_curated_pairs.rejected.jsonl \
   --overwrite
 ```
 

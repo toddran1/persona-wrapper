@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODELS="${OLLAMA_MODELS_TO_PULL:-${OLLAMA_MODEL:-llama3.2:3b qwen2.5:7b}}"
+MODELS="${OLLAMA_MODELS_TO_PULL:-${OLLAMA_MODEL:-llama3.2:3b hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M}}"
 
 if ! command -v zstd >/dev/null 2>&1; then
   apt-get update

@@ -10,6 +10,7 @@ datasets/
   processed/    Generated JSONL datasets for LoRA training.
 scripts/
   prepare_dataset.py
+  curate_training_pairs.py
   train_lora_unsloth.py
   infer_style.py
 configs/
@@ -21,7 +22,8 @@ configs/
 The canonical dataset format is JSONL. Each line is one object with both portable
 fields and a `messages` array that can be consumed by chat fine-tuning tools.
 
-Unpaired raw dialogue is converted into `style_sample` records:
+The older mechanical prep path can convert raw dialogue into `style_sample`
+records:
 
 ```json
 {
@@ -44,7 +46,7 @@ Unpaired raw dialogue is converted into `style_sample` records:
 }
 ```
 
-Later synthetic paired examples should use `style_transfer_pair` records:
+The preferred training examples are `style_transfer_pair` records:
 
 ```json
 {
@@ -67,13 +69,69 @@ Later synthetic paired examples should use `style_transfer_pair` records:
 }
 ```
 
-Run the prep script:
+## Generate LLM-Curated Pairs
 
-```bash
-python3 ml/style-transfer/scripts/prepare_dataset.py
+The preferred pipeline uses a stronger local LLM to read raw transcript windows,
+skip broken/cut-off fragments, and create coherent neutral-to-styled pairs
+directly. Current default curator model:
+
+```text
+hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M
 ```
 
-It writes:
+On a RunPod, bootstrap pulls this model automatically. To install it manually:
+
+```bash
+ollama pull hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M
+```
+
+Generate curated pairs:
+
+```bash
+python3 ml/style-transfer/scripts/curate_training_pairs.py \
+  --ollama-model hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M \
+  --overwrite
+```
+
+For a quick smoke test:
+
+```bash
+python3 ml/style-transfer/scripts/curate_training_pairs.py \
+  --ollama-model hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M \
+  --max-windows 2 \
+  --output /tmp/qwen3_curated_pairs.jsonl \
+  --rejections-output /tmp/qwen3_curated_pairs.rejected.jsonl \
+  --overwrite
+```
+
+The curator is instructed to:
+
+- skip partial, duplicated, or incoherent transcript windows
+- extract complete understandable moments
+- write clear neutral answers
+- write single-speaker styled targets
+- preserve meaning, names, dates, numbers, locations, and facts
+- reject bad pairs with an optional LLM judge
+
+Accepted pairs are written to:
+
+```text
+datasets/processed/style_transfer.pairs.jsonl
+```
+
+Rejected audit records are written to:
+
+```text
+datasets/processed/style_transfer.pairs.rejected.jsonl
+```
+
+Prepare final train/eval splits from paired examples:
+
+```bash
+python3 ml/style-transfer/scripts/prepare_dataset.py --pairs-only
+```
+
+This writes:
 
 ```text
 datasets/processed/style_transfer.train.jsonl
@@ -85,40 +143,21 @@ datasets/processed/manifest.json
 Raw and processed datasets are gitignored because they may contain private or
 licensed source text.
 
-## Generate Synthetic Pairs
+## Legacy Synthetic Pair Flow
 
-First prepare unpaired style samples:
+The previous chunk-based flow is still available for quick experiments, but it
+is not the preferred path because mechanical chunks can cut through incomplete
+dialogue:
 
 ```bash
 python3 ml/style-transfer/scripts/prepare_dataset.py
-```
-
-Then generate neutral-to-styled pairs. On a RunPod with Ollama, use `qwen2.5:7b`
-for better rewrite quality:
-
-```bash
 python3 ml/style-transfer/scripts/generate_synthetic_pairs.py \
   --provider ollama \
-  --ollama-model qwen2.5:7b
-```
-
-If `OPENAI_API_KEY` is available, OpenAI can be used for better neutralization:
-
-```bash
-python3 ml/style-transfer/scripts/generate_synthetic_pairs.py --provider openai
-```
-
-This writes:
-
-```text
-datasets/processed/style_transfer.pairs.jsonl
-```
-
-Rerun preparation after pair generation so the train/eval files include both
-`style_sample` and `style_transfer_pair` records:
-
-```bash
-python3 ml/style-transfer/scripts/prepare_dataset.py
+  --ollama-model qwen2.5:7b \
+  --clean-style-output \
+  --llm-judge \
+  --overwrite
+python3 ml/style-transfer/scripts/prepare_dataset.py --pairs-only
 ```
 
 ## Train LoRA
