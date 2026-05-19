@@ -20,6 +20,7 @@ Then:
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -164,6 +165,7 @@ class OllamaClient:
         payload = {
             "model": self.model,
             "stream": False,
+            "think": False,
             "messages": messages,
             "options": {
                 "temperature": self.temperature if temperature is None else temperature,
@@ -187,6 +189,8 @@ class OllamaClient:
 
         message = data.get("message", {})
         content = message.get("content") if isinstance(message, dict) else ""
+        if (not isinstance(content, str) or not content.strip()) and isinstance(data.get("response"), str):
+            content = data["response"]
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError("Ollama returned an empty chat response")
         return content.strip()
@@ -211,20 +215,33 @@ def clean_text(text: object) -> str:
     return text.strip(" \"'")
 
 
+def normalized_similarity(left: str, right: str) -> float:
+    left_norm = re.sub(r"[^a-z0-9]+", " ", left.lower()).strip()
+    right_norm = re.sub(r"[^a-z0-9]+", " ", right.lower()).strip()
+    if not left_norm or not right_norm:
+        return 0.0
+    return difflib.SequenceMatcher(None, left_norm, right_norm).ratio()
+
+
 def style_pair_prompt(source_file: str, window_index: int, window_text: str, max_records: int) -> list[dict[str, str]]:
     system = (
         "You curate high-quality training data for a text style-transfer model. "
+        "/no_think "
         "You must reason about the transcript silently and output only valid JSON. "
         "Prefer fewer excellent examples over many weak examples."
     )
     user = (
         "From the transcript window below, create coherent complete training pairs.\n\n"
+        "The transcript is the style source. For each record, first extract one complete styled thought, "
+        "clean it into a single-speaker persona response, then write a neutral plain-English version of "
+        "that same thought.\n\n"
         "Rules:\n"
         "- Only use moments that are understandable without missing prior/next context.\n"
         "- Skip cut-off fragments, partial thoughts, duplicate loops, production notes, speaker labels, and unclear arguments.\n"
-        "- Each neutral answer must be plain English, semantically clear, and factual.\n"
-        "- Each styled answer must be one single-speaker response in the target persona style.\n"
-        "- The styled answer must preserve the neutral answer's meaning exactly.\n"
+        "- Each neutral answer must be plain English, semantically clear, and less slang-heavy than the source.\n"
+        "- Each styled answer must sound like the transcript style: blunt, conversational, slang-aware, and human.\n"
+        "- The styled answer must not be formal, generic, or identical/nearly identical to the neutral answer.\n"
+        "- The styled answer must preserve the neutral answer's core meaning.\n"
         "- Do not add new people, dates, numbers, places, motives, threats, or events.\n"
         "- Keep all names, dates, years, numbers, locations, durations, and factual claims exactly when present.\n"
         "- Do not roleplay as a transcript participant. Speak as the persona commenting/responding.\n"
@@ -268,6 +285,8 @@ def validate_pair(record: dict[str, Any], args: argparse.Namespace) -> list[str]
         issues.append("contains meta text")
     if not re.search(r"[.!?]$", styled):
         issues.append("styled text appears unfinished")
+    if neutral and styled and normalized_similarity(neutral, styled) > 0.88:
+        issues.append("styled text is too similar to neutral text")
     return issues
 
 
@@ -278,9 +297,11 @@ def judge_pair(client: OllamaClient, neutral: str, styled: str) -> list[str]:
                 "role": "system",
                 "content": (
                     "You are a strict judge for style-transfer training data. Output only JSON. "
+                    "/no_think "
                     "Reject if the styled answer changes meaning, changes names/dates/numbers, adds facts, "
-                    "is incoherent, is cut off, or roleplays as a transcript participant. Do not reject merely "
-                    "because the style is slang-heavy or blunt."
+                    "is incoherent, is cut off, is formal/generic, is nearly identical to the neutral answer, "
+                    "or roleplays as a transcript participant. Do not reject merely because the style is "
+                    "slang-heavy or blunt."
                 ),
             },
             {
