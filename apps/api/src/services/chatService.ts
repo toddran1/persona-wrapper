@@ -8,6 +8,7 @@ import { ConversationStore } from "./conversationStore.js";
 import { PersonaEngine } from "./personaEngine.js";
 import { ResponseFormatter } from "./responseFormatter.js";
 import { HttpError } from "../utils/httpError.js";
+import { logger } from "../utils/logger.js";
 
 export class ChatService {
   constructor(
@@ -36,26 +37,57 @@ export class ChatService {
         ? firstNeutralTextBlock.text
         : llmOutput.rawText;
 
-    console.log("\n\nNeutral LLM response object data: ", {
+    const neutralResponseMetadata = {
       provider: llmOutput.provider,
       providerModel: llmOutput.metadata?.providerModel,
       personaId: persona.id,
       conversationId: conversation.id,
       userMessage: request.message
+    };
+
+    logger.info("Neutral LLM response metadata", neutralResponseMetadata);
+    logger.info("Neutral LLM response before style transfer", {
+      conversationId: conversation.id,
+      neutralText
     });
 
-    console.log(`\n--- Neutral LLM response before style transfer ---\n\n${neutralText}\n`);
-
     const styleTransferProvider = createStyleTransferProvider();
-    const styleTransferOutput = await styleTransferProvider.transferStyle({
+    const styleTransferInput = {
       neutralText,
       persona,
       conversationHistory: conversation.messages,
       userMessage: request.message,
       provider: llmOutput.provider
+    };
+    const styleTransferOutput = await styleTransferProvider.transferStyle(styleTransferInput);
+
+    logger.info("Style transfer model response", {
+      conversationId: conversation.id,
+      styledText: styleTransferOutput.styledText,
+      metadata: styleTransferOutput.metadata
     });
 
-    console.log(`--- Style transfer model response --- \n\n${styleTransferOutput.styledText}\n\n`);
+    logger.llmTurn({
+      conversationId: conversation.id,
+      personaId: persona.id,
+      userMessage: request.message,
+      provider: request.provider,
+      neutralLlm: {
+        requestMessages: llmInput.messages,
+        responseMetadata: neutralResponseMetadata,
+        responseText: neutralText
+      },
+      styleTransfer: {
+        request: {
+          neutralText: styleTransferInput.neutralText,
+          userMessage: styleTransferInput.userMessage,
+          provider: styleTransferInput.provider,
+          conversationHistoryCount: styleTransferInput.conversationHistory.length
+        },
+        responseText: styleTransferOutput.styledText,
+        responseMetadata: styleTransferOutput.metadata
+      }
+    });
 
     const styledLlmOutput = {
       ...llmOutput,

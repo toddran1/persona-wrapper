@@ -10,6 +10,13 @@ export type ChatPayload = {
   conversationId?: string;
 };
 
+export type StyleTransferEvalCapturePayload = {
+  conversationId: string;
+  idealStyledText: string;
+  notes?: string;
+  tags?: string[];
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
@@ -36,6 +43,13 @@ export const api = {
   },
   sendChat: async (payload: ChatPayload): Promise<ChatResponse> =>
     requestJson<ChatResponse>("/api/chat", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  saveStyleTransferEval: async (
+    payload: StyleTransferEvalCapturePayload
+  ): Promise<{ id: string; path: string }> =>
+    requestJson<{ id: string; path: string }>("/api/chat/style-transfer-evals", {
       method: "POST",
       body: JSON.stringify(payload)
     })

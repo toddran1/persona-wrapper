@@ -5,6 +5,7 @@ import { api } from "./lib/api.js";
 import { ChatComposer } from "./components/ChatComposer.js";
 import { ConversationHistory } from "./components/ConversationHistory.js";
 import { DebugPanel } from "./components/DebugPanel.js";
+import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
 import { PersonaHeader } from "./components/PersonaHeader.js";
 import { StatusStrip } from "./components/StatusStrip.js";
 
@@ -17,6 +18,10 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>();
+  const [testModeEnabled, setTestModeEnabled] = useState(false);
+  const [evalSaving, setEvalSaving] = useState(false);
+  const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
+  const [evalError, setEvalError] = useState<string | undefined>();
 
   useEffect(() => {
     void (async () => {
@@ -53,6 +58,8 @@ export function App() {
 
       setConversationId(result.conversationId);
       setResponse(result);
+      setEvalSavedMessage(undefined);
+      setEvalError(undefined);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to generate response");
     } finally {
@@ -64,6 +71,32 @@ export function App() {
     setConversationId(undefined);
     setResponse(undefined);
     setError(undefined);
+    setEvalSavedMessage(undefined);
+    setEvalError(undefined);
+  }
+
+  async function saveEvalCapture(idealStyledText: string, notes: string): Promise<void> {
+    if (!response?.conversationId) {
+      return;
+    }
+
+    setEvalSaving(true);
+    setEvalSavedMessage(undefined);
+    setEvalError(undefined);
+
+    try {
+      const result = await api.saveStyleTransferEval({
+        conversationId: response.conversationId,
+        idealStyledText,
+        notes,
+        tags: ["ui-review"]
+      });
+      setEvalSavedMessage(`Saved ${result.id}`);
+    } catch (saveError) {
+      setEvalError(saveError instanceof Error ? saveError.message : "Failed to save eval example");
+    } finally {
+      setEvalSaving(false);
+    }
   }
 
   const activeTheme = personaDetail?.theme ?? personas[0]?.theme;
@@ -97,6 +130,15 @@ export function App() {
             onClearError={() => setError(undefined)}
           />
           <DebugPanel outputs={response?.outputs ?? []} />
+          <EvalCapturePanel
+            enabled={testModeEnabled}
+            response={response}
+            saving={evalSaving}
+            savedMessage={evalSavedMessage}
+            error={evalError}
+            onEnabledChange={setTestModeEnabled}
+            onSave={saveEvalCapture}
+          />
         </aside>
         <section className="chat-column">
           <ConversationHistory history={response?.history ?? []} latestOutputs={response?.outputs ?? []} />

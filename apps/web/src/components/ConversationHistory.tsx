@@ -32,7 +32,7 @@ export function ConversationHistory({
               <div className={`chat-avatar chat-avatar-${message.role}`}>{message.role === "user" ? "You" : "LaRae"}</div>
               <div className={`chat-bubble chat-bubble-${message.role}`}>
                 <span className="history-role">{message.role === "user" ? "Prompt" : "Reply"}</span>
-                <p>{message.content}</p>
+                <p className="message-text">{message.content}</p>
                 {message.role === "assistant" && index === lastAssistantIndex && inlineOutputs.length > 0 ? (
                   <div className="inline-artifact-stack">
                     {inlineOutputs.map((output, outputIndex) => (

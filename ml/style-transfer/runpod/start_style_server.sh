@@ -5,8 +5,8 @@ cd "${REPO_DIR:-/workspace/persona-wrapper}"
 
 ADAPTER="${STYLE_TRANSFER_ADAPTER:-toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs}"
 PORT="${STYLE_TRANSFER_PORT:-8000}"
-MAX_NEW_TOKENS="${STYLE_TRANSFER_MAX_NEW_TOKENS:-80}"
-TEMPERATURE="${STYLE_TRANSFER_TEMPERATURE:-0.3}"
+MAX_NEW_TOKENS="${STYLE_TRANSFER_MAX_NEW_TOKENS:-260}"
+TEMPERATURE="${STYLE_TRANSFER_TEMPERATURE:-0.2}"
 
 mkdir -p ml/style-transfer/logs
 
