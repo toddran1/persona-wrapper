@@ -9,12 +9,29 @@ import { PersonaEngine } from "./personaEngine.js";
 import { ResponseFormatter } from "./responseFormatter.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
+import { ToolContextService, type ToolContext } from "./toolContextService.js";
+
+function insertToolContext(input: ChatMessage[], toolContext: ToolContext | undefined): ChatMessage[] {
+  if (!toolContext) {
+    return input;
+  }
+
+  const messages = [...input];
+  const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
+  if (lastUserIndex === -1) {
+    return [...messages, toolContext.message];
+  }
+
+  messages.splice(lastUserIndex, 0, toolContext.message);
+  return messages;
+}
 
 export class ChatService {
   constructor(
     private readonly conversationStore = new ConversationStore(),
     private readonly personaEngine = new PersonaEngine(),
-    private readonly responseFormatter = new ResponseFormatter()
+    private readonly responseFormatter = new ResponseFormatter(),
+    private readonly toolContextService = new ToolContextService()
   ) {}
 
   async handleChat(request: ChatRequest): Promise<ChatResponse> {
@@ -30,6 +47,16 @@ export class ChatService {
       conversationId: conversation.id,
       history: this.conversationStore.getPromptHistory(conversation)
     });
+    const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext);
+    if (toolContext) {
+      llmInput.messages = insertToolContext(llmInput.messages, toolContext);
+      llmInput.baseMessages = insertToolContext(llmInput.baseMessages ?? llmInput.messages, toolContext);
+      console.log(
+        `\n--- Tool context before neutral LLM ---\n\n${toolContext.results
+          .map((result) => `${result.name} (${result.status}): ${result.summary}`)
+          .join("\n\n")}\n`
+      );
+    }
     const llmOutput = await llmProvider.generateResponse(llmInput);
     const firstNeutralTextBlock = llmOutput.content.find((block) => block.type === "text");
     const neutralText =
@@ -45,11 +72,8 @@ export class ChatService {
       userMessage: request.message
     };
 
-    logger.info("Neutral LLM response metadata", neutralResponseMetadata);
-    logger.info("Neutral LLM response before style transfer", {
-      conversationId: conversation.id,
-      neutralText
-    });
+    console.log("\nNeutral LLM response object data:", neutralResponseMetadata);
+    console.log(`\n--- Neutral LLM response before style transfer ---\n\n${neutralText}\n`);
 
     const styleTransferProvider = createStyleTransferProvider();
     const styleTransferInput = {
@@ -61,11 +85,7 @@ export class ChatService {
     };
     const styleTransferOutput = await styleTransferProvider.transferStyle(styleTransferInput);
 
-    logger.info("Style transfer model response", {
-      conversationId: conversation.id,
-      styledText: styleTransferOutput.styledText,
-      metadata: styleTransferOutput.metadata
-    });
+    console.log(`--- Style transfer model response ---\n\n${styleTransferOutput.styledText}\n`);
 
     logger.llmTurn({
       conversationId: conversation.id,
@@ -75,7 +95,8 @@ export class ChatService {
       neutralLlm: {
         requestMessages: llmInput.messages,
         responseMetadata: neutralResponseMetadata,
-        responseText: neutralText
+        responseText: neutralText,
+        toolContext: toolContext?.results ?? []
       },
       styleTransfer: {
         request: {

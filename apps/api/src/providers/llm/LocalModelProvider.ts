@@ -48,7 +48,8 @@ export class LocalModelProvider implements LLMProvider {
         options: {
           temperature: 0.4,
           top_p: 0.9,
-          num_predict: 220
+          num_ctx: env.LOCAL_LLM_NUM_CTX,
+          num_predict: env.LOCAL_LLM_NUM_PREDICT
         }
       })
     });

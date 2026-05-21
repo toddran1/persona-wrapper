@@ -99,6 +99,21 @@ export const contentBlockSchema = z.discriminatedUnion("type", [
 ]);
 export type ContentBlock = z.infer<typeof contentBlockSchema>;
 
+export const clientContextSchema = z.object({
+  locale: z.string().optional(),
+  timeZone: z.string().optional(),
+  currentDateTime: z.string().optional(),
+  utcOffsetMinutes: z.number().optional(),
+  location: z
+    .object({
+      latitude: z.number(),
+      longitude: z.number(),
+      accuracyMeters: z.number().optional()
+    })
+    .optional()
+});
+export type ClientContext = z.infer<typeof clientContextSchema>;
+
 export const chatRequestSchema = z.object({
   personaId: z.string().min(1),
   message: z.string().min(1),
@@ -106,7 +121,8 @@ export const chatRequestSchema = z.object({
   audio: z.boolean().default(false),
   conversationId: z.string().optional(),
   history: z.array(chatMessageSchema).default([]),
-  requestedOutputs: z.array(outputTypeSchema).optional()
+  requestedOutputs: z.array(outputTypeSchema).optional(),
+  clientContext: clientContextSchema.optional()
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 

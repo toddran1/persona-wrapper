@@ -1,4 +1,4 @@
-import type { ChatResponse, PersonaDefinition, PersonaSummary, ProviderId } from "@persona/shared";
+import type { ChatResponse, ClientContext, PersonaDefinition, PersonaSummary, ProviderId } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { api } from "./lib/api.js";
@@ -8,6 +8,20 @@ import { DebugPanel } from "./components/DebugPanel.js";
 import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
 import { PersonaHeader } from "./components/PersonaHeader.js";
 import { StatusStrip } from "./components/StatusStrip.js";
+
+type BrowserLocation = NonNullable<ClientContext["location"]>;
+
+function getClientContext(location?: BrowserLocation): ClientContext {
+  const now = new Date();
+
+  return {
+    locale: navigator.language,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    currentDateTime: now.toISOString(),
+    utcOffsetMinutes: -now.getTimezoneOffset(),
+    ...(location ? { location } : {})
+  };
+}
 
 export function App() {
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
@@ -22,6 +36,8 @@ export function App() {
   const [evalSaving, setEvalSaving] = useState(false);
   const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
   const [evalError, setEvalError] = useState<string | undefined>();
+  const [browserLocation, setBrowserLocation] = useState<BrowserLocation | undefined>();
+  const [locationError, setLocationError] = useState<string | undefined>();
 
   useEffect(() => {
     void (async () => {
@@ -53,6 +69,7 @@ export function App() {
         message,
         provider,
         audio: audioEnabled,
+        clientContext: getClientContext(browserLocation),
         ...(conversationId ? { conversationId } : {})
       });
 
@@ -97,6 +114,33 @@ export function App() {
     } finally {
       setEvalSaving(false);
     }
+  }
+
+  function requestLocation(): void {
+    setLocationError(undefined);
+
+    if (!navigator.geolocation) {
+      setLocationError("Location is not available in this browser.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setBrowserLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracyMeters: position.coords.accuracy
+        });
+      },
+      (locationRequestError) => {
+        setLocationError(locationRequestError.message || "Location permission was not granted.");
+      },
+      {
+        enableHighAccuracy: false,
+        maximumAge: 300000,
+        timeout: 10000
+      }
+    );
   }
 
   const activeTheme = personaDetail?.theme ?? personas[0]?.theme;
@@ -147,9 +191,12 @@ export function App() {
               provider={provider}
               audioEnabled={audioEnabled}
               loading={loading}
+              locationEnabled={Boolean(browserLocation)}
+              locationError={locationError}
               onResetConversation={resetConversation}
               onProviderChange={setProvider}
               onAudioChange={setAudioEnabled}
+              onRequestLocation={requestLocation}
               onSubmit={handleSubmit}
             />
           </div>

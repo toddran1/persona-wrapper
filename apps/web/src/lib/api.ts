@@ -1,4 +1,4 @@
-import type { ChatResponse, PersonaDefinition, PersonaSummary, ProviderId } from "@persona/shared";
+import type { ChatResponse, ClientContext, PersonaDefinition, PersonaSummary, ProviderId } from "@persona/shared";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 
@@ -8,6 +8,7 @@ export type ChatPayload = {
   provider: ProviderId;
   audio: boolean;
   conversationId?: string;
+  clientContext?: ClientContext;
 };
 
 export type StyleTransferEvalCapturePayload = {

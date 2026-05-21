@@ -3,6 +3,18 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ChatComposer } from "../components/ChatComposer";
 
+const defaultProps = {
+  provider: "openai" as const,
+  audioEnabled: false,
+  loading: false,
+  locationEnabled: false,
+  locationError: undefined,
+  onResetConversation: vi.fn(),
+  onProviderChange: vi.fn(),
+  onAudioChange: vi.fn(),
+  onRequestLocation: vi.fn()
+};
+
 describe("ChatComposer", () => {
   it("submits the current message", async () => {
     const user = userEvent.setup();
@@ -10,12 +22,7 @@ describe("ChatComposer", () => {
 
     render(
       <ChatComposer
-        provider="openai"
-        audioEnabled={false}
-        loading={false}
-        onResetConversation={vi.fn()}
-        onProviderChange={vi.fn()}
-        onAudioChange={vi.fn()}
+        {...defaultProps}
         onSubmit={onSubmit}
       />
     );
@@ -33,12 +40,7 @@ describe("ChatComposer", () => {
 
     render(
       <ChatComposer
-        provider="openai"
-        audioEnabled={false}
-        loading={false}
-        onResetConversation={vi.fn()}
-        onProviderChange={vi.fn()}
-        onAudioChange={vi.fn()}
+        {...defaultProps}
         onSubmit={vi.fn().mockResolvedValue(undefined)}
       />
     );
@@ -54,12 +56,7 @@ describe("ChatComposer", () => {
 
     const { container } = render(
       <ChatComposer
-        provider="openai"
-        audioEnabled={false}
-        loading={false}
-        onResetConversation={vi.fn()}
-        onProviderChange={vi.fn()}
-        onAudioChange={vi.fn()}
+        {...defaultProps}
         onSubmit={vi.fn().mockResolvedValue(undefined)}
       />
     );
@@ -78,12 +75,7 @@ describe("ChatComposer", () => {
 
     const { container } = render(
       <ChatComposer
-        provider="openai"
-        audioEnabled={false}
-        loading={false}
-        onResetConversation={vi.fn()}
-        onProviderChange={vi.fn()}
-        onAudioChange={vi.fn()}
+        {...defaultProps}
         onSubmit={vi.fn().mockResolvedValue(undefined)}
       />
     );

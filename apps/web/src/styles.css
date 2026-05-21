@@ -406,6 +406,19 @@ button:disabled {
   box-shadow: none;
 }
 
+.context-button {
+  min-height: 40px;
+  padding: 0 14px;
+  box-shadow: none;
+}
+
+.composer-context-error {
+  margin: -4px 0 12px;
+  color: #ffd4db;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
 .prompt-shell {
   border: 2px solid rgba(214, 181, 94, 0.24);
   border-radius: 24px;

@@ -14,6 +14,8 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   LOCAL_LLM_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   LOCAL_LLM_MODEL: z.string().default("llama3.2:3b"),
+  LOCAL_LLM_NUM_CTX: z.coerce.number().int().positive().default(8192),
+  LOCAL_LLM_NUM_PREDICT: z.coerce.number().int().positive().default(1024),
   OPENAI_TTS_VOICE: z.string().default("alloy"),
   STYLE_TRANSFER_PROVIDER: z.enum(["stub", "local", "runpod", "huggingface"]).default("stub"),
   STYLE_TRANSFER_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
