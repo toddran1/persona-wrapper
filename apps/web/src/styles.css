@@ -102,6 +102,7 @@ textarea {
 .status-card,
 .debug-card,
 .eval-card,
+.neutral-card,
 .error-banner {
   backdrop-filter: blur(24px);
   background:
@@ -231,7 +232,8 @@ textarea {
 .response-card,
 .history-card,
 .debug-card,
-.eval-card {
+.eval-card,
+.neutral-card {
   padding: 26px;
 }
 
@@ -252,7 +254,8 @@ textarea {
   padding: 14px;
 }
 
-.eval-card {
+.eval-card,
+.neutral-card {
   padding: 14px;
 }
 
@@ -651,6 +654,7 @@ button:disabled {
 .history-card .panel-header,
 .response-card .panel-header,
 .debug-card .panel-header,
+.neutral-card .panel-header,
 .eval-card .panel-header {
   margin-bottom: 18px;
 }
@@ -681,7 +685,8 @@ button:disabled {
   gap: 12px;
 }
 
-.eval-body label {
+.eval-body label,
+.review-columns label {
   display: grid;
   gap: 8px;
   color: var(--muted);
@@ -697,6 +702,64 @@ button:disabled {
 
 .eval-body label:nth-of-type(2) textarea {
   min-height: 72px;
+}
+
+.neutral-response,
+.review-columns pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.neutral-response {
+  max-height: 260px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.eval-category-group {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  margin: 0;
+}
+
+.eval-category-group legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.eval-category-grid,
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-checkbox,
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.category-checkbox input {
+  accent-color: var(--accent-2);
 }
 
 .eval-save-button {
@@ -717,6 +780,197 @@ button:disabled {
 
 .eval-error {
   color: #ffd4db;
+}
+
+.review-page {
+  min-height: 100vh;
+  padding: 32px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 200, 87, 0.16), transparent 34rem),
+    #120d18;
+  color: #fff4f0;
+}
+
+.review-header,
+.review-summary,
+.review-item {
+  width: min(1280px, 100%);
+  margin: 0 auto;
+}
+
+.review-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 24px;
+}
+
+.review-header h1,
+.review-item h2 {
+  margin: 4px 0 0;
+}
+
+.review-header p,
+.review-summary p,
+.review-notes {
+  margin: 8px 0 0;
+  color: #cfc3d6;
+  line-height: 1.55;
+}
+
+.review-tabs {
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.review-tabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: transparent;
+  color: #cfc3d6;
+  cursor: pointer;
+}
+
+.review-tabs button.active {
+  background: #ffc857;
+  color: #251426;
+}
+
+.review-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.review-summary > div,
+.review-item {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+}
+
+.review-summary > div,
+.review-item {
+  padding: 18px;
+}
+
+.review-list {
+  display: grid;
+  gap: 16px;
+}
+
+.review-item-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.review-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.review-columns.two-column {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.review-columns pre,
+.review-columns textarea,
+.review-edit-field textarea,
+.review-edit-field input,
+.review-edit-field select {
+  min-height: 160px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.review-columns textarea,
+.review-edit-field textarea,
+.review-edit-field input {
+  width: 100%;
+  color: #fff4f0;
+  font: inherit;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.review-edit-field select {
+  width: 100%;
+  min-height: 44px;
+  max-height: none;
+  color: #fff4f0;
+  font: inherit;
+}
+
+.review-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.4fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.review-edit-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  color: #cfc3d6;
+  font-size: 0.86rem;
+}
+
+.review-edit-field input {
+  min-height: 44px;
+  max-height: none;
+  resize: none;
+}
+
+.tag-chip-button {
+  cursor: pointer;
+}
+
+.tag-chip-button::after {
+  content: "×";
+  color: #ffc857;
+}
+
+.review-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.review-save-button {
+  min-width: 96px;
+  box-shadow: none;
+}
+
+.review-item details {
+  margin-top: 14px;
+}
+
+.review-item summary {
+  cursor: pointer;
+  color: #ffc857;
+}
+
+.inline-error {
+  position: static;
+  width: min(1280px, 100%);
+  margin: 0 auto 16px;
 }
 
 .chat-row {
@@ -998,6 +1252,7 @@ button:disabled {
   .history-card,
   .debug-card,
   .eval-card,
+  .neutral-card,
   .status-card,
   .composer-card {
     padding-left: 16px;

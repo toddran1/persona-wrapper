@@ -6,6 +6,8 @@ import { ChatComposer } from "./components/ChatComposer.js";
 import { ConversationHistory } from "./components/ConversationHistory.js";
 import { DebugPanel } from "./components/DebugPanel.js";
 import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
+import { GoldenPairReviewPage } from "./components/GoldenPairReviewPage.js";
+import { NeutralResponsePanel } from "./components/NeutralResponsePanel.js";
 import { PersonaHeader } from "./components/PersonaHeader.js";
 import { StatusStrip } from "./components/StatusStrip.js";
 
@@ -24,6 +26,8 @@ function getClientContext(location?: BrowserLocation): ClientContext {
 }
 
 export function App() {
+  const testModeEnabled = import.meta.env.VITE_TEST_MODE === "true";
+  const reviewPageEnabled = testModeEnabled && window.location.pathname === "/review";
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
   const [personaDetail, setPersonaDetail] = useState<PersonaDefinition | undefined>();
   const [provider, setProvider] = useState<ProviderId>("local");
@@ -32,7 +36,6 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>();
-  const [testModeEnabled, setTestModeEnabled] = useState(false);
   const [evalSaving, setEvalSaving] = useState(false);
   const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
   const [evalError, setEvalError] = useState<string | undefined>();
@@ -69,6 +72,7 @@ export function App() {
         message,
         provider,
         audio: audioEnabled,
+        testMode: testModeEnabled,
         clientContext: getClientContext(browserLocation),
         ...(conversationId ? { conversationId } : {})
       });
@@ -92,7 +96,7 @@ export function App() {
     setEvalError(undefined);
   }
 
-  async function saveEvalCapture(idealStyledText: string, notes: string): Promise<void> {
+  async function saveEvalCapture(idealStyledText: string, notes: string, tags: string[]): Promise<void> {
     if (!response?.conversationId) {
       return;
     }
@@ -106,7 +110,7 @@ export function App() {
         conversationId: response.conversationId,
         idealStyledText,
         notes,
-        tags: ["ui-review"]
+        tags: ["ui-review", ...tags]
       });
       setEvalSavedMessage(`Saved ${result.id}`);
     } catch (saveError) {
@@ -160,6 +164,9 @@ export function App() {
     : undefined;
 
   return (
+    reviewPageEnabled ? (
+      <GoldenPairReviewPage />
+    ) : (
     <main className="page-shell" style={themeStyle}>
       <div className="background-orb background-orb-a" />
       <div className="background-orb background-orb-b" />
@@ -174,15 +181,16 @@ export function App() {
             onClearError={() => setError(undefined)}
           />
           <DebugPanel outputs={response?.outputs ?? []} />
-          <EvalCapturePanel
-            enabled={testModeEnabled}
-            response={response}
-            saving={evalSaving}
-            savedMessage={evalSavedMessage}
-            error={evalError}
-            onEnabledChange={setTestModeEnabled}
-            onSave={saveEvalCapture}
-          />
+          {testModeEnabled ? <NeutralResponsePanel response={response} /> : null}
+          {testModeEnabled ? (
+            <EvalCapturePanel
+              response={response}
+              saving={evalSaving}
+              savedMessage={evalSavedMessage}
+              error={evalError}
+              onSave={saveEvalCapture}
+            />
+          ) : null}
         </aside>
         <section className="chat-column">
           <ConversationHistory history={response?.history ?? []} latestOutputs={response?.outputs ?? []} />
@@ -204,5 +212,6 @@ export function App() {
         {error ? <div className="error-banner">{error}</div> : null}
       </div>
     </main>
+    )
   );
 }

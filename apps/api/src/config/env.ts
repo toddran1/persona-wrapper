@@ -7,9 +7,18 @@ function emptyStringToUndefined(value: unknown): unknown {
   return value === "" ? undefined : value;
 }
 
+function stringToBoolean(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  return value.toLowerCase() === "true";
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
+  APP_TEST_MODE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   LOCAL_LLM_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),

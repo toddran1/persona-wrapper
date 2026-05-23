@@ -4,12 +4,21 @@ import { getPersonaById } from "../personas/index.js";
 import { createLLMProvider } from "../providers/llm/providerFactory.js";
 import { createStyleTransferProvider } from "../providers/styleTransfer/providerFactory.js";
 import { createTTSProvider } from "../providers/tts/providerFactory.js";
+import { env } from "../config/env.js";
 import { ConversationStore } from "./conversationStore.js";
 import { PersonaEngine } from "./personaEngine.js";
 import { ResponseFormatter } from "./responseFormatter.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
+
+const TEST_MODE_NEUTRAL_SYSTEM_PROMPT = [
+  "You are generating a fully neutral base answer for a downstream style-transfer model.",
+  "Do not use persona voice, slang, catchphrases, theatrical framing, or character-specific wording.",
+  "Answer the user's request directly with clear, factual, plain language.",
+  "Preserve names, dates, years, numbers, locations, durations, lists, bullets, and formatting.",
+  "Do not add flourish or extra opinions unless the user explicitly asks for opinion."
+].join("\n");
 
 function insertToolContext(input: ChatMessage[], toolContext: ToolContext | undefined): ChatMessage[] {
   if (!toolContext) {
@@ -40,6 +49,7 @@ export class ChatService {
       throw new HttpError(`Unknown persona: ${request.personaId}`, 404);
     }
 
+    const testMode = request.testMode || env.APP_TEST_MODE;
     const conversation = this.conversationStore.getOrCreate(request.conversationId, request.history);
     const llmProvider = createLLMProvider(request.provider);
     const llmInput = this.personaEngine.prepareInput(persona, {
@@ -47,6 +57,14 @@ export class ChatService {
       conversationId: conversation.id,
       history: this.conversationStore.getPromptHistory(conversation)
     });
+    if (testMode) {
+      llmInput.baseSystemPrompt = TEST_MODE_NEUTRAL_SYSTEM_PROMPT;
+      llmInput.baseMessages = this.personaEngine.buildMessages(
+        TEST_MODE_NEUTRAL_SYSTEM_PROMPT,
+        this.conversationStore.getPromptHistory(conversation),
+        request.message
+      );
+    }
     const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext);
     if (toolContext) {
       llmInput.messages = insertToolContext(llmInput.messages, toolContext);
@@ -92,8 +110,9 @@ export class ChatService {
       personaId: persona.id,
       userMessage: request.message,
       provider: request.provider,
+      testMode,
       neutralLlm: {
-        requestMessages: llmInput.messages,
+        requestMessages: llmInput.baseMessages ?? llmInput.messages,
         responseMetadata: neutralResponseMetadata,
         responseText: neutralText,
         toolContext: toolContext?.results ?? []
@@ -154,6 +173,10 @@ export class ChatService {
       conversationId: updatedConversation.id,
       history: updatedConversation.messages,
       includeAudio: request.audio,
+      diagnostics: {
+        testMode,
+        ...(testMode ? { neutralResponse: neutralText } : {})
+      },
       ...(ttsOutput ? { ttsOutput } : {})
     });
   }

@@ -119,6 +119,7 @@ export const chatRequestSchema = z.object({
   message: z.string().min(1),
   provider: providerSchema.default("local"),
   audio: z.boolean().default(false),
+  testMode: z.boolean().default(false),
   conversationId: z.string().optional(),
   history: z.array(chatMessageSchema).default([]),
   requestedOutputs: z.array(outputTypeSchema).optional(),
@@ -233,7 +234,9 @@ export const chatResponseSchema = z.object({
   diagnostics: z.object({
     requestedAudio: z.boolean(),
     toolsAvailable: z.array(toolNameSchema),
-    messageCount: z.number().int().nonnegative()
+    messageCount: z.number().int().nonnegative(),
+    testMode: z.boolean().optional(),
+    neutralResponse: z.string().optional()
   }),
   usage: z.object({
     inputTokens: z.number().int().nonnegative(),

@@ -7,6 +7,7 @@ export type ChatPayload = {
   message: string;
   provider: ProviderId;
   audio: boolean;
+  testMode?: boolean;
   conversationId?: string;
   clientContext?: ClientContext;
 };
@@ -16,6 +17,33 @@ export type StyleTransferEvalCapturePayload = {
   idealStyledText: string;
   notes?: string;
   tags?: string[];
+};
+
+export type StyleTransferReviewData = {
+  evals: Record<string, unknown>[];
+  goldenPairs: Record<string, unknown>[];
+  paths: {
+    evals: string;
+    goldenPairs: string;
+  };
+};
+
+export type ReviewRecordKind = "evals" | "golden";
+
+export type ReviewRecordUpdatePayload = {
+  kind: ReviewRecordKind;
+  id: string;
+  updates: Record<string, unknown>;
+};
+
+export type ReviewRecordCreatePayload = {
+  kind: ReviewRecordKind;
+  record: Record<string, unknown>;
+};
+
+export type ReviewRecordDeletePayload = {
+  kind: ReviewRecordKind;
+  id: string;
 };
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -52,6 +80,27 @@ export const api = {
   ): Promise<{ id: string; path: string }> =>
     requestJson<{ id: string; path: string }>("/api/chat/style-transfer-evals", {
       method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  getStyleTransferReview: async (): Promise<StyleTransferReviewData> =>
+    requestJson<StyleTransferReviewData>("/api/chat/style-transfer-review"),
+  updateStyleTransferReviewRecord: async (
+    payload: ReviewRecordUpdatePayload
+  ): Promise<{ id: string; path: string; record: Record<string, unknown> }> =>
+    requestJson<{ id: string; path: string; record: Record<string, unknown> }>("/api/chat/style-transfer-review", {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    }),
+  createStyleTransferReviewRecord: async (
+    payload: ReviewRecordCreatePayload
+  ): Promise<{ id: string; path: string; record: Record<string, unknown> }> =>
+    requestJson<{ id: string; path: string; record: Record<string, unknown> }>("/api/chat/style-transfer-review", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  deleteStyleTransferReviewRecord: async (payload: ReviewRecordDeletePayload): Promise<{ id: string; path: string }> =>
+    requestJson<{ id: string; path: string }>("/api/chat/style-transfer-review", {
+      method: "DELETE",
       body: JSON.stringify(payload)
     })
 };

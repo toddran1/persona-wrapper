@@ -10,6 +10,7 @@ describe("ChatService", () => {
       provider: "openai",
       message: "LaRae, introduce yourself like you just walked into the reunion special.",
       audio: false,
+      testMode: false,
       history: []
     });
 
@@ -31,6 +32,7 @@ describe("ChatService", () => {
       provider: "openai",
       message: "Give me a dramatic intro.",
       audio: false,
+      testMode: false,
       history: []
     });
 
@@ -39,6 +41,7 @@ describe("ChatService", () => {
       provider: "openai",
       message: "Now turn that into a chart and a csv file.",
       audio: false,
+      testMode: false,
       conversationId: first.conversationId,
       history: []
     });

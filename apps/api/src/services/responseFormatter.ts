@@ -13,6 +13,10 @@ export class ResponseFormatter {
     history: ChatMessage[];
     includeAudio: boolean;
     ttsOutput?: TTSOutput;
+    diagnostics?: {
+      testMode?: boolean;
+      neutralResponse?: string;
+    };
   }): ChatResponse {
     const outputs: ContentBlock[] = [...params.llmOutput.content];
 
@@ -49,7 +53,9 @@ export class ResponseFormatter {
       diagnostics: {
         requestedAudio: params.includeAudio,
         toolsAvailable: params.persona.defaultTools,
-        messageCount: params.history.length
+        messageCount: params.history.length,
+        ...(params.diagnostics?.testMode !== undefined ? { testMode: params.diagnostics.testMode } : {}),
+        ...(params.diagnostics?.neutralResponse ? { neutralResponse: params.diagnostics.neutralResponse } : {})
       },
       usage: params.llmOutput.usage
     };

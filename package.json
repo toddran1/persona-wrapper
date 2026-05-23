@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n api,web -c magenta,cyan \"npm run dev -w @persona/api\" \"npm run dev -w @persona/web\"",
+    "dev": "node scripts/dev.mjs",
     "dev:api": "npm run dev -w @persona/api",
     "dev:web": "npm run dev -w @persona/web",
     "build": "npm run build -w @persona/shared && npm run build -w @persona/api && npm run build -w @persona/web",
