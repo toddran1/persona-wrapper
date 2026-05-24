@@ -1,4 +1,4 @@
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
 import type { ProviderId } from "@persona/shared";
 import { useId, useRef, useState } from "react";
 
@@ -25,8 +25,11 @@ const samplePrompts = [
 export function ChatComposer(props: ChatComposerProps) {
   const [message, setMessage] = useState("LaRae, introduce yourself like you just walked into the reunion special.");
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [promptHistory, setPromptHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number | undefined>();
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const draftBeforeHistoryRef = useRef("");
 
   function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>): void {
     const files = Array.from(event.target.files ?? []);
@@ -41,17 +44,71 @@ export function ChatComposer(props: ChatComposerProps) {
     }
   }
 
+  async function submitCurrentMessage(): Promise<void> {
+    const submittedMessage = message;
+    if (!submittedMessage.trim()) {
+      return;
+    }
+
+    await props.onSubmit(submittedMessage);
+    setPromptHistory((currentHistory) => [...currentHistory, submittedMessage]);
+    setMessage("");
+    setHistoryIndex(undefined);
+    draftBeforeHistoryRef.current = "";
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    await submitCurrentMessage();
+  }
+
+  function handlePromptKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void submitCurrentMessage();
+      return;
+    }
+
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+      return;
+    }
+
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || promptHistory.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (event.key === "ArrowUp") {
+      const nextIndex = historyIndex === undefined ? promptHistory.length - 1 : Math.max(0, historyIndex - 1);
+      if (historyIndex === undefined) {
+        draftBeforeHistoryRef.current = message;
+      }
+      setHistoryIndex(nextIndex);
+      setMessage(promptHistory[nextIndex] ?? message);
+      return;
+    }
+
+    if (historyIndex === undefined) {
+      return;
+    }
+
+    const nextIndex = historyIndex + 1;
+    if (nextIndex >= promptHistory.length) {
+      setHistoryIndex(undefined);
+      setMessage(draftBeforeHistoryRef.current);
+      draftBeforeHistoryRef.current = "";
+      return;
+    }
+
+    setHistoryIndex(nextIndex);
+    setMessage(promptHistory[nextIndex] ?? message);
+  }
+
   return (
     <form
       className="composer-card"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        if (!message.trim()) {
-          return;
-        }
-
-        await props.onSubmit(message);
-      }}
+      onSubmit={handleSubmit}
     >
       <div className="composer-header">
         <div>
@@ -88,7 +145,11 @@ export function ChatComposer(props: ChatComposerProps) {
         <textarea
           rows={4}
           value={message}
-          onChange={(event) => setMessage(event.target.value)}
+          onChange={(event) => {
+            setMessage(event.target.value);
+            setHistoryIndex(undefined);
+          }}
+          onKeyDown={handlePromptKeyDown}
           placeholder="Ask anything"
         />
         {attachments.length > 0 ? (

@@ -25,7 +25,7 @@ from unsloth import FastLanguageModel
 DEFAULT_ADAPTER = "toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs"
 PROTECTED_NAME_PATTERN = re.compile(
     r"\b(?:[A-Z][A-Za-z0-9&'-]*|[A-Z]{2,})"
-    r"(?:\s+(?:at|of|the|and|&|[A-Z][A-Za-z0-9&'-]*|[A-Z]{2,}))*"
+    r"(?:\s+(?:at|of|the|and|a|an|in|to|&|[A-Z][A-Za-z0-9&'-]*|[A-Z]{2,}))*"
 )
 PROTECTED_NAME_HINTS = {
     "museum",
@@ -36,12 +36,40 @@ PROTECTED_NAME_HINTS = {
     "cowboys",
     "dallas",
     "texas",
+    "bible",
+    "genesis",
 }
 PROFANITY_PATTERN = re.compile(
     r"\b(?:motherfucker|motherfucking|fucking|fuck|bitch|shit|ass|hoe)\b",
     re.IGNORECASE,
 )
 VENUE_WORDS = {"museum", "plaza", "stadium", "park", "arena", "hall", "center", "theater", "theatre"}
+VERBATIM_REQUEST_PATTERN = re.compile(
+    r"\b(exactly as is|verbatim|word for word|quote|quoted|first\s+\d+\s+(?:lines?|sentences?|verses?|paragraphs?)|"
+    r"bible|scripture|verse|verses|chapter|book of|speech|lyrics?|poem)\b",
+    re.IGNORECASE,
+)
+NUMBERED_LINE_PATTERN = re.compile(r"^\s*\d+[\).]?\s*.+", re.MULTILINE)
+QUOTED_SPAN_PATTERN = re.compile(r"([\"“][^\"”]+[\"”])", re.DOTALL)
+GENERATED_QUOTED_SPAN_PATTERN = re.compile(r"([\"“'‘][^\"”'’]+[\"”'’])", re.DOTALL)
+REFUSAL_PATTERN = re.compile(
+    r"\b(i\s+can(?:not|'t)|i\s+won(?:not|'t)|unable to|can't fulfill|cannot fulfill|not able to)\b",
+    re.IGNORECASE,
+)
+UNCERTAIN_NEUTRAL_PATTERN = re.compile(
+    r"\b("
+    r"i\s+could(?:\s+not|n't)\s+find|"
+    r"could(?:\s+not|n't)\s+find|"
+    r"i\s+do\s+not\s+have|i\s+don't\s+have|"
+    r"not\s+available|not\s+publicly\s+available|"
+    r"no\s+reliable|no\s+information|"
+    r"does\s+not\s+contain|do\s+not\s+contain|"
+    r"not\s+yet\s+occurred|"
+    r"cannot\s+verify|can't\s+verify|"
+    r"exact\s+wording"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 class StyleTransferRequest(BaseModel):
@@ -73,6 +101,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def should_protect_name(candidate: str) -> bool:
+    if len(candidate.strip()) <= 1:
+        return False
+
     words = candidate.split()
     lowered_words = {word.lower().strip(".,:;!?") for word in words}
     title_words = [word for word in words if word[:1].isupper() and word.lower() not in {"at", "of", "the", "and"}]
@@ -108,6 +139,117 @@ def protected_names_prompt(names: list[str]) -> str:
         "paraphrase, split, or insert profanity into these names:\n"
         f"{protected}\n\n"
     )
+
+
+def should_preserve_verbatim_content(user_message: str | None, neutral_text: str) -> bool:
+    combined = f"{user_message or ''}\n{neutral_text}"
+    return bool(VERBATIM_REQUEST_PATTERN.search(combined))
+
+
+def extract_verbatim_blocks(neutral_text: str) -> list[str]:
+    blocks: list[str] = []
+    seen: set[str] = set()
+
+    numbered_lines = [match.group(0).strip() for match in NUMBERED_LINE_PATTERN.finditer(neutral_text)]
+    if numbered_lines:
+        numbered_block = "\n".join(numbered_lines)
+        blocks.append(numbered_block)
+        seen.add(numbered_block)
+
+    for match in QUOTED_SPAN_PATTERN.finditer(neutral_text):
+        block = match.group(1).strip()
+        if block and block not in seen:
+            blocks.append(block)
+            seen.add(block)
+
+    return blocks
+
+
+def verbatim_blocks_prompt(blocks: list[str]) -> str:
+    if not blocks:
+        return ""
+
+    protected = "\n\n".join(f"PROTECTED VERBATIM BLOCK {index + 1}:\n{block}" for index, block in enumerate(blocks))
+    return (
+        "Protected verbatim text that must be copied exactly if included. Do not rewrite, paraphrase, "
+        "summarize, modernize, add profanity inside, change capitalization, change punctuation, change "
+        "book names, change speaker names, change verse lines, or change quoted wording:\n"
+        f"{protected}\n\n"
+    )
+
+
+def replace_numbered_lines_with_neutral(styled_text: str, neutral_text: str) -> str:
+    neutral_lines = [match.group(0).strip() for match in NUMBERED_LINE_PATTERN.finditer(neutral_text)]
+    if not neutral_lines:
+        return styled_text
+
+    styled_lines = styled_text.splitlines()
+    neutral_index = 0
+    replaced_lines: list[str] = []
+
+    for line in styled_lines:
+        if neutral_index < len(neutral_lines) and NUMBERED_LINE_PATTERN.match(line):
+            replaced_lines.append(neutral_lines[neutral_index])
+            neutral_index += 1
+        else:
+            replaced_lines.append(line)
+
+    if neutral_index == 0:
+        return styled_text.rstrip() + "\n\n" + "\n".join(neutral_lines)
+
+    if neutral_index < len(neutral_lines):
+        replaced_lines.append("")
+        replaced_lines.extend(neutral_lines[neutral_index:])
+
+    return "\n".join(replaced_lines).strip()
+
+
+def restore_verbatim_blocks(styled_text: str, neutral_text: str, blocks: list[str]) -> str:
+    restored = replace_numbered_lines_with_neutral(styled_text, neutral_text)
+
+    for block in blocks:
+        if block in restored:
+            continue
+
+        if block in neutral_text and block.startswith(('"', "“")):
+            if GENERATED_QUOTED_SPAN_PATTERN.search(restored):
+                restored = GENERATED_QUOTED_SPAN_PATTERN.sub(block, restored, count=1)
+            else:
+                quote_positions = [position for position in (restored.find(mark) for mark in ['"', "“", "'", "‘"]) if position >= 0]
+                if quote_positions:
+                    restored = restored[: min(quote_positions)].rstrip() + " " + block
+                else:
+                    restored = restored.rstrip() + "\n\n" + block
+
+    return restored
+
+
+def should_bypass_style_for_empty_verbatim_request(neutral_text: str, blocks: list[str]) -> bool:
+    return not blocks and bool(REFUSAL_PATTERN.search(neutral_text))
+
+
+def should_conservatively_style_uncertain_answer(neutral_text: str) -> bool:
+    return bool(UNCERTAIN_NEUTRAL_PATTERN.search(neutral_text))
+
+
+def conservative_uncertainty_style(neutral_text: str) -> str:
+    text = neutral_text.strip()
+    replacements = [
+        ("I couldn't ", "Look, I couldn't "),
+        ("I could not ", "Look, I could not "),
+        ("I don't have ", "Look, I don't have "),
+        ("I do not have ", "Look, I do not have "),
+        ("Unfortunately, ", "Look, "),
+        ("However, ", "But "),
+        ("It is possible that ", "It might be that "),
+    ]
+    for source, target in replacements:
+        text = text.replace(source, target, 1)
+
+    if text == neutral_text.strip():
+        text = f"Look, {text[:1].lower()}{text[1:]}" if text else text
+
+    return text
 
 
 def normalize_name(value: str) -> str:
@@ -203,8 +345,16 @@ def remove_duplicate_name_suffixes(text: str, names: list[str]) -> str:
     return restored
 
 
+def restore_protected_name_case(text: str, names: list[str]) -> str:
+    restored = text
+    for name in sorted(names, key=len, reverse=True):
+        restored = re.sub(re.escape(name), name, restored, flags=re.IGNORECASE)
+    return restored
+
+
 def restore_protected_names(text: str, names: list[str]) -> str:
-    restored = restore_compacted_names(text, names)
+    restored = restore_protected_name_case(text, names)
+    restored = restore_compacted_names(restored, names)
     restored = restore_venue_names(restored, names)
     restored = restore_shortened_names(restored, names)
     return remove_duplicate_name_suffixes(restored, names)
@@ -232,6 +382,25 @@ def create_app(args: argparse.Namespace) -> FastAPI:
     @app.post("/style-transfer", response_model=StyleTransferResponse)
     def style_transfer(request: StyleTransferRequest) -> StyleTransferResponse:
         protected_names = extract_protected_names(request.neutralText)
+        preserve_verbatim = should_preserve_verbatim_content(request.userMessage, request.neutralText)
+        verbatim_blocks = extract_verbatim_blocks(request.neutralText) if preserve_verbatim else []
+        if preserve_verbatim and should_bypass_style_for_empty_verbatim_request(request.neutralText, verbatim_blocks):
+            return StyleTransferResponse(
+                styledText=request.neutralText,
+                metadata={
+                    "adapter": args.adapter,
+                    "personaId": request.personaId,
+                    "sourceProvider": request.sourceProvider,
+                    "temperature": args.temperature,
+                    "topP": args.top_p,
+                    "repetitionPenalty": args.repetition_penalty,
+                    "noRepeatNgramSize": args.no_repeat_ngram_size,
+                    "protectedNameCount": len(protected_names),
+                    "preserveVerbatim": preserve_verbatim,
+                    "protectedVerbatimBlockCount": len(verbatim_blocks),
+                    "styleBypassed": "empty_verbatim_refusal",
+                },
+            )
         messages = [
             {
                 "role": "user",
@@ -245,7 +414,12 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                     "answer's structure when it is useful, including numbered lists, bullets, and "
                     "separate items. Do not rename people, venues, businesses, museums, parks, teams, "
                     "or landmarks. Do not insert profanity inside proper nouns or official names. "
-                    "Do not replace listed places with other places. "
+                    "Do not replace listed places with other places. If the neutral answer contains "
+                    "quoted text, scripture, speech excerpts, book passages, verse lines, poem lines, "
+                    "lyrics, or text the user asked for exactly as-is, copy that content exactly and "
+                    "only style the short setup around it. If the neutral answer says it could not "
+                    "find, cannot verify, lacks exact wording, or does not have enough information, "
+                    "keep that limitation exactly and do not answer from memory. "
                     "The styled answer must still answer the user question directly.\n\n"
                     "Example of the required behavior:\n"
                     "Neutral: 1. Klyde Warren Park is downtown and has food trucks.\n"
@@ -253,6 +427,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                     "That place is downtown with food trucks and it gets lit.\n"
                     "Bad styled answer: Klyde Motherfucker Warren Park is downtown.\n\n"
                     f"{protected_names_prompt(protected_names)}"
+                    f"{verbatim_blocks_prompt(verbatim_blocks)}"
                     f"User question:\n{request.userMessage or ''}\n\n"
                     f"Neutral answer:\n{request.neutralText}"
                 ),
@@ -278,6 +453,10 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         generated = outputs[0][inputs["input_ids"].shape[-1] :]
         styled_text = tokenizer.decode(generated, skip_special_tokens=True).strip()
         styled_text = restore_protected_names(styled_text, protected_names)
+        if preserve_verbatim:
+            styled_text = restore_verbatim_blocks(styled_text, request.neutralText, verbatim_blocks)
+        if should_conservatively_style_uncertain_answer(request.neutralText) and not verbatim_blocks:
+            styled_text = conservative_uncertainty_style(request.neutralText)
         return StyleTransferResponse(
             styledText=styled_text,
             metadata={
@@ -289,6 +468,10 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 "repetitionPenalty": args.repetition_penalty,
                 "noRepeatNgramSize": args.no_repeat_ngram_size,
                 "protectedNameCount": len(protected_names),
+                "preserveVerbatim": preserve_verbatim,
+                "protectedVerbatimBlockCount": len(verbatim_blocks),
+                "conservativeUncertaintyStyle": should_conservatively_style_uncertain_answer(request.neutralText)
+                and not verbatim_blocks,
             },
         )
 

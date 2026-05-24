@@ -12,14 +12,6 @@ import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
 
-const TEST_MODE_NEUTRAL_SYSTEM_PROMPT = [
-  "You are generating a fully neutral base answer for a downstream style-transfer model.",
-  "Do not use persona voice, slang, catchphrases, theatrical framing, or character-specific wording.",
-  "Answer the user's request directly with clear, factual, plain language.",
-  "Preserve names, dates, years, numbers, locations, durations, lists, bullets, and formatting.",
-  "Do not add flourish or extra opinions unless the user explicitly asks for opinion."
-].join("\n");
-
 function insertToolContext(input: ChatMessage[], toolContext: ToolContext | undefined): ChatMessage[] {
   if (!toolContext) {
     return input;
@@ -57,14 +49,6 @@ export class ChatService {
       conversationId: conversation.id,
       history: this.conversationStore.getPromptHistory(conversation)
     });
-    if (testMode) {
-      llmInput.baseSystemPrompt = TEST_MODE_NEUTRAL_SYSTEM_PROMPT;
-      llmInput.baseMessages = this.personaEngine.buildMessages(
-        TEST_MODE_NEUTRAL_SYSTEM_PROMPT,
-        this.conversationStore.getPromptHistory(conversation),
-        request.message
-      );
-    }
     const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext);
     if (toolContext) {
       llmInput.messages = insertToolContext(llmInput.messages, toolContext);

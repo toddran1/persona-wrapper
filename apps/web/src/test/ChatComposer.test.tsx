@@ -33,6 +33,81 @@ describe("ChatComposer", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(onSubmit).toHaveBeenCalledWith("Test the reunion energy.");
+    expect(textarea).toHaveValue("");
+  });
+
+  it("submits the current message when Enter is pressed", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ChatComposer
+        {...defaultProps}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Ask anything");
+    await user.clear(textarea);
+    await user.type(textarea, "Send this with enter.");
+    await user.keyboard("{Enter}");
+
+    expect(onSubmit).toHaveBeenCalledWith("Send this with enter.");
+  });
+
+  it("keeps Shift+Enter as a newline", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ChatComposer
+        {...defaultProps}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Ask anything");
+    await user.clear(textarea);
+    await user.type(textarea, "Line one");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    await user.type(textarea, "Line two");
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("Line one\nLine two");
+  });
+
+  it("cycles through submitted prompts with arrow keys", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ChatComposer
+        {...defaultProps}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Ask anything");
+    await user.clear(textarea);
+    await user.type(textarea, "First prompt");
+    await user.keyboard("{Enter}");
+    await user.clear(textarea);
+    await user.type(textarea, "Second prompt");
+    await user.keyboard("{Enter}");
+    await user.clear(textarea);
+    await user.type(textarea, "Draft prompt");
+
+    await user.keyboard("{ArrowUp}");
+    expect(textarea).toHaveValue("Second prompt");
+
+    await user.keyboard("{ArrowUp}");
+    expect(textarea).toHaveValue("First prompt");
+
+    await user.keyboard("{ArrowDown}");
+    expect(textarea).toHaveValue("Second prompt");
+
+    await user.keyboard("{ArrowDown}");
+    expect(textarea).toHaveValue("Draft prompt");
   });
 
   it("loads a sample prompt into the textarea", async () => {
