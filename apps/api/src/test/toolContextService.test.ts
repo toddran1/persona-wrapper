@@ -62,6 +62,45 @@ describe("ToolContextService", () => {
     expect(context?.message.content).toContain("https://example.com/evo-smash");
   });
 
+  it("falls back to Wikipedia summaries when DuckDuckGo has no concise result", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(createJsonResponse({ Answer: "", AbstractText: "", RelatedTopics: [] }))
+      .mockResolvedValueOnce(createHtmlResponse(""))
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          query: {
+            search: [
+              {
+                title: "2009 World Series",
+                snippet: "The 2009 World Series was the championship series of Major League Baseball."
+              }
+            ]
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          extract:
+            "The 2009 World Series was contested between the Philadelphia Phillies and the New York Yankees. The Yankees defeated the Phillies, 4 games to 2.",
+          content_urls: {
+            desktop: {
+              page: "https://en.wikipedia.org/wiki/2009_World_Series"
+            }
+          }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const context = await new ToolContextService().buildContext("Who won the MLB 2009 World Series?");
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(context?.results[0]?.name).toBe("web_search");
+    expect(context?.results[0]?.status).toBe("completed");
+    expect(context?.message.content).toContain("The Yankees defeated the Phillies, 4 games to 2");
+    expect(context?.message.content).toContain("2009 World Series");
+  });
+
   it("does not run web search for stable evergreen questions", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
