@@ -55,7 +55,7 @@ export type ReviewRecordDelete = {
 };
 
 const DEFAULT_PAIR_INSTRUCTION =
-  "Rewrite the neutral answer in the target persona style. Preserve all names, dates, years, numbers, locations, durations, formatting, and factual claims exactly. Keep official names clean and use slang as emphasis, not inside names.";
+  "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source content, not as a style example. Train on the output persona voice only. Preserve all names, dates, years, numbers, locations, durations, formatting, and factual claims exactly. Change only tone, rhythm, slang, and attitude. Keep official names clean and use slang as emphasis, not inside names.";
 
 function findRepoRoot(startDir: string): string {
   let current = startDir;

@@ -54,13 +54,13 @@ The preferred training examples are `style_transfer_pair` records:
   "id": "synthetic-0001",
   "mode": "style_transfer_pair",
   "source_file": "synthetic",
-  "instruction": "Rewrite the neutral answer in the target persona style without changing facts.",
+  "instruction": "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source content, not as a style example. Train on the output persona voice only. Preserve all facts exactly. Change only tone, rhythm, slang, and attitude.",
   "input": "Neutral answer here.",
   "output": "Styled answer here.",
   "messages": [
     {
       "role": "user",
-      "content": "Rewrite the neutral answer in the target persona style without changing facts.\n\nNeutral answer:\nNeutral answer here."
+      "content": "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source content, not as a style example. Train on the output persona voice only. Preserve all facts exactly. Change only tone, rhythm, slang, and attitude.\n\nNeutral answer:\nNeutral answer here."
     },
     {
       "role": "assistant",
@@ -111,7 +111,7 @@ The curator is instructed to:
 - extract complete understandable moments
 - write clear neutral answers
 - write single-speaker styled targets
-- preserve meaning, names, dates, numbers, locations, and facts
+- preserve source facts, requested task, useful structure, names, dates, numbers, and locations
 - reject bad pairs with an optional LLM judge
 
 Accepted pairs are written to:

@@ -50,7 +50,11 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 # This exact instruction becomes part of every training record. Keeping it in
 # one constant ensures every generated example teaches the same task contract:
 # transform neutral text into persona style without changing facts.
-PAIR_INSTRUCTION = "Rewrite the neutral answer in the target persona style without changing facts."
+PAIR_INSTRUCTION = (
+    "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source "
+    "content, not as a style example. Train on the output persona voice only. Preserve all facts exactly. "
+    "Change only tone, rhythm, slang, and attitude."
+)
 
 # Stopwords are common English words that do not tell us much about meaning.
 # The validation helpers remove them before measuring overlap/repetition so
@@ -569,13 +573,14 @@ class OllamaNeutralizer:
 
         # When --clean-style-output is enabled, the script does not use the raw
         # transcript chunk as output. Instead, it asks Ollama to produce a clean
-        # styled response that preserves the generated neutral answer's meaning.
+        # styled response that preserves the generated neutral answer's content.
         # This can make training pairs more useful than direct transcript chunks.
         prompt = (
             "You create training targets for a style-transfer model. Rewrite the neutral answer as one "
             "concise single-speaker response in the target persona style. Speak as the persona commenting "
-            "on the situation; do not roleplay as any person in the transcript. Preserve the neutral "
-            "answer's meaning and do not add new people, places, jobs, events, motivations, or facts. "
+            "on the situation; do not roleplay as any person in the transcript. Treat the neutral answer "
+            "only as source content, not as a style example. Preserve its facts, sequence, and requested "
+            "structure; do not add new people, places, jobs, events, motivations, or facts. "
             "Do not turn third-person descriptions into first-person confessions. Keep the voice "
             "slang-heavy, blunt, dramatic, and conversational, but keep the response coherent. No "
             "transcript bullets, speaker labels, stage directions, markdown, explanations, or repeated "

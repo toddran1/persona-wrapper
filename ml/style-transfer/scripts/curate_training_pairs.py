@@ -40,8 +40,10 @@ DEFAULT_OLLAMA_ENDPOINT = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M"
 
 PAIR_INSTRUCTION = (
-    "Rewrite the neutral answer in the target persona style. Preserve all names, dates, years, "
-    "numbers, locations, durations, and factual claims exactly."
+    "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source "
+    "content, not as a style example. Train on the output persona voice only. Preserve all names, dates, "
+    "years, numbers, locations, durations, formatting, and factual claims exactly. Change only tone, "
+    "rhythm, slang, and attitude."
 )
 
 BAD_PATTERNS = [
@@ -241,7 +243,8 @@ def style_pair_prompt(source_file: str, window_index: int, window_text: str, max
         "- Each neutral answer must be plain English, semantically clear, and less slang-heavy than the source.\n"
         "- Each styled answer must sound like the transcript style: blunt, conversational, slang-aware, and human.\n"
         "- The styled answer must not be formal, generic, or identical/nearly identical to the neutral answer.\n"
-        "- The styled answer must preserve the neutral answer's core meaning.\n"
+        "- Treat the neutral answer only as source content, not as a style example.\n"
+        "- The styled answer must preserve the neutral answer's facts, requested task, and useful structure.\n"
         "- Do not add new people, dates, numbers, places, motives, threats, or events.\n"
         "- Keep all names, dates, years, numbers, locations, durations, and factual claims exactly when present.\n"
         "- Do not roleplay as a transcript participant. Speak as the persona commenting/responding.\n"
@@ -252,8 +255,8 @@ def style_pair_prompt(source_file: str, window_index: int, window_text: str, max
         "  \"records\": [\n"
         "    {\n"
         "      \"source_excerpt\": \"short complete excerpt used as evidence\",\n"
-        "      \"neutral\": \"plain answer preserving the concrete meaning\",\n"
-        "      \"styled\": \"single-speaker target persona answer preserving the neutral meaning\",\n"
+        "      \"neutral\": \"plain source-content answer\",\n"
+        "      \"styled\": \"single-speaker target persona answer using the same source content\",\n"
         "      \"quality_notes\": \"brief reason this is coherent\"\n"
         "    }\n"
         "  ]\n"
@@ -298,7 +301,7 @@ def judge_pair(client: OllamaClient, neutral: str, styled: str) -> list[str]:
                 "content": (
                     "You are a strict judge for style-transfer training data. Output only JSON. "
                     "/no_think "
-                    "Reject if the styled answer changes meaning, changes names/dates/numbers, adds facts, "
+                    "Reject if the styled answer changes the source facts, requested task, names/dates/numbers, adds facts, "
                     "is incoherent, is cut off, is formal/generic, is nearly identical to the neutral answer, "
                     "or roleplays as a transcript participant. Do not reject merely because the style is "
                     "slang-heavy or blunt."

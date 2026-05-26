@@ -406,6 +406,9 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 "role": "user",
                 "content": (
                     "Rewrite the neutral answer in the target persona style.\n"
+                    "Treat the neutral answer only as source content, not as a style example. "
+                    "Do not imitate the neutral answer's voice, politeness level, or phrasing. "
+                    "Use the target persona voice only.\n"
                     "Preserve every factual claim exactly. Keep all names, dates, years, numbers, "
                     "locations, durations, and order of events unchanged. Do not add new facts. "
                     "Do not make jokes that contradict the neutral answer. Do not imply uncertainty "
