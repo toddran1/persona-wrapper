@@ -53,8 +53,10 @@ python ml/style-transfer/scripts/prepare_dataset.py --pairs-only
 
 `curate_training_pairs.py` reads raw transcript windows directly. It asks the
 curator model to skip cut-off or incoherent fragments, extract complete moments,
-write a neutral answer, write a single-speaker styled target, and preserve
-meaning/facts. Rejected records are written to
+write a neutral answer, write a single-speaker styled target, and preserve source
+facts, names, numbers, and useful structure. `prepare_dataset.py --pairs-only`
+then builds a 70% generated/synthetic curated and 30% manual golden pair mix.
+Rejected records are written to
 `ml/style-transfer/datasets/processed/style_transfer.pairs.rejected.jsonl`
 for audit.
 

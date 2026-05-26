@@ -9,6 +9,7 @@ the same schema and are included automatically when present.
 from __future__ import annotations
 
 import argparse
+import math
 import json
 import random
 import re
@@ -39,16 +40,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-chars", type=int, default=900)
     parser.add_argument("--pairs-path", type=Path, default=PROCESSED_DIR / "style_transfer.pairs.jsonl")
     parser.add_argument(
-        "--curated-pairs-dir",
+        "--golden-pairs-path",
         type=Path,
-        default=CURATED_DIR,
-        help="Directory of tracked JSONL pair files to include with generated pairs.",
+        default=CURATED_DIR / "golden_style_pairs_seed.jsonl",
+        help="Manual golden pair JSONL file to include with generated/synthetic pairs.",
     )
     parser.add_argument(
-        "--curated-pair-weight",
-        type=int,
-        default=4,
-        help="Repeat curated pair records to strengthen small high-quality correction sets.",
+        "--synthetic-pair-ratio",
+        type=float,
+        default=0.7,
+        help="Target share of generated/synthetic pairs in the final paired training mix.",
     )
     parser.add_argument("--pairs-only", action="store_true")
     parser.add_argument("--eval-ratio", type=float, default=0.1)
@@ -139,16 +140,6 @@ def read_jsonl(path: Path) -> list[dict[str, object]]:
     return records
 
 
-def read_curated_pairs(directory: Path) -> list[dict[str, object]]:
-    records: list[dict[str, object]] = []
-    if not directory.exists():
-        return records
-
-    for path in sorted(directory.glob("*.jsonl")):
-        records.extend(read_jsonl(path))
-    return records
-
-
 def validate_pair_record(record: dict[str, object], path: Path, line_number: int) -> dict[str, object]:
     input_text = record.get("input")
     output_text = record.get("output")
@@ -176,6 +167,70 @@ def validate_pair_record(record: dict[str, object], path: Path, line_number: int
     return normalized
 
 
+def resize_records(records: list[dict[str, object]], target_count: int, seed: int) -> list[dict[str, object]]:
+    if target_count <= 0 or not records:
+        return []
+    if len(records) == target_count:
+        return list(records)
+
+    rng = random.Random(seed)
+    resized = list(records)
+    if len(resized) > target_count:
+        rng.shuffle(resized)
+        return resized[:target_count]
+
+    index = 0
+    while len(resized) < target_count:
+        source = records[index % len(records)]
+        clone = dict(source)
+        clone["id"] = f"{source.get('id', 'pair')}-repeat-{(index // len(records)) + 1:03d}"
+        resized.append(clone)
+        index += 1
+    return resized
+
+
+def build_pair_mix(
+    synthetic_pairs: list[dict[str, object]],
+    golden_pairs: list[dict[str, object]],
+    synthetic_ratio: float,
+    seed: int,
+) -> tuple[list[dict[str, object]], dict[str, int]]:
+    if not 0 < synthetic_ratio < 1:
+        raise ValueError("--synthetic-pair-ratio must be greater than 0 and less than 1")
+
+    if not synthetic_pairs:
+        return list(golden_pairs), {
+            "synthetic_pair_count": 0,
+            "golden_pair_count": len(golden_pairs),
+            "weighted_synthetic_pair_count": 0,
+            "weighted_golden_pair_count": len(golden_pairs),
+        }
+    if not golden_pairs:
+        return list(synthetic_pairs), {
+            "synthetic_pair_count": len(synthetic_pairs),
+            "golden_pair_count": 0,
+            "weighted_synthetic_pair_count": len(synthetic_pairs),
+            "weighted_golden_pair_count": 0,
+        }
+
+    golden_ratio = 1 - synthetic_ratio
+    target_total = max(
+        math.ceil(len(synthetic_pairs) / synthetic_ratio),
+        math.ceil(len(golden_pairs) / golden_ratio),
+    )
+    target_synthetic_count = round(target_total * synthetic_ratio)
+    target_golden_count = target_total - target_synthetic_count
+
+    weighted_synthetic = resize_records(synthetic_pairs, target_synthetic_count, seed)
+    weighted_golden = resize_records(golden_pairs, target_golden_count, seed + 1)
+    return [*weighted_synthetic, *weighted_golden], {
+        "synthetic_pair_count": len(synthetic_pairs),
+        "golden_pair_count": len(golden_pairs),
+        "weighted_synthetic_pair_count": len(weighted_synthetic),
+        "weighted_golden_pair_count": len(weighted_golden),
+    }
+
+
 def write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
     with path.open("w", encoding="utf-8") as file:
         for record in records:
@@ -199,10 +254,14 @@ def main() -> None:
             style_sample_count += len(chunks)
             records.extend(make_record(text_file, index + 1, chunk) for index, chunk in enumerate(chunks))
 
-    generated_pair_records = read_jsonl(args.pairs_path)
-    curated_pair_records = read_curated_pairs(args.curated_pairs_dir)
-    weighted_curated_pair_records = curated_pair_records * max(1, args.curated_pair_weight)
-    pair_records = [*generated_pair_records, *weighted_curated_pair_records]
+    synthetic_pair_records = read_jsonl(args.pairs_path)
+    golden_pair_records = read_jsonl(args.golden_pairs_path)
+    pair_records, pair_mix_counts = build_pair_mix(
+        synthetic_pair_records,
+        golden_pair_records,
+        args.synthetic_pair_ratio,
+        args.seed,
+    )
     records.extend(pair_records)
 
     random.Random(args.seed).shuffle(records)
@@ -220,8 +279,8 @@ def main() -> None:
         "raw_dir": str(args.raw_dir),
         "processed_dir": str(args.processed_dir),
         "pairs_path": str(args.pairs_path),
-        "curated_pairs_dir": str(args.curated_pairs_dir),
-        "curated_pair_weight": args.curated_pair_weight,
+        "golden_pairs_path": str(args.golden_pairs_path),
+        "synthetic_pair_ratio": args.synthetic_pair_ratio,
         "min_chars": args.min_chars,
         "max_chars": args.max_chars,
         "pairs_only": args.pairs_only,
@@ -229,9 +288,7 @@ def main() -> None:
         "seed": args.seed,
         "source_files": file_counts,
         "style_sample_count": style_sample_count,
-        "generated_pair_count": len(generated_pair_records),
-        "curated_pair_count": len(curated_pair_records),
-        "weighted_curated_pair_count": len(weighted_curated_pair_records),
+        **pair_mix_counts,
         "pair_count": len(pair_records),
         "record_count": len(records),
         "train_count": len(train_records),

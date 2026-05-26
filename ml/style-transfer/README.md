@@ -132,6 +132,16 @@ Prepare final train/eval splits from paired examples:
 python3 ml/style-transfer/scripts/prepare_dataset.py --pairs-only
 ```
 
+By default, `prepare_dataset.py --pairs-only` builds the LoRA dataset from:
+
+- 70% generated/synthetic curated pairs from `datasets/processed/style_transfer.pairs.jsonl`
+- 30% manual golden pairs from `datasets/curated/golden_style_pairs_seed.jsonl`
+
+It oversamples whichever side is short so the final paired mix stays close to
+that ratio. The separate factual-preservation JSONL has been removed from the
+training mix; factual preservation should be represented inside the golden pairs
+instead.
+
 This writes:
 
 ```text
