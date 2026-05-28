@@ -13,16 +13,19 @@ const evalCaptureRequestSchema = z.object({
   tags: z.array(z.string()).default([])
 });
 const reviewRecordUpdateSchema = z.object({
-  kind: z.enum(["evals", "golden", "pairs"]),
+  kind: z.enum(["evals", "golden", "pairs", "rejections"]),
   id: z.string().min(1),
   updates: z.record(z.unknown())
 });
 const reviewRecordCreateSchema = z.object({
-  kind: z.enum(["evals", "golden", "pairs"]),
+  kind: z.enum(["evals", "golden", "pairs", "rejections"]),
   record: z.record(z.unknown())
 });
 const reviewRecordDeleteSchema = z.object({
-  kind: z.enum(["evals", "golden", "pairs"]),
+  kind: z.enum(["evals", "golden", "pairs", "rejections"]),
+  id: z.string().min(1)
+});
+const promoteRejectedPairSchema = z.object({
   id: z.string().min(1)
 });
 
@@ -59,4 +62,10 @@ export async function deleteStyleTransferReviewRecord(request: Request, response
   const payload = reviewRecordDeleteSchema.parse(request.body);
   const result = evalCaptureService.deleteReviewRecord(payload);
   response.status(200).json(result);
+}
+
+export async function postPromoteRejectedStylePair(request: Request, response: Response): Promise<void> {
+  const payload = promoteRejectedPairSchema.parse(request.body);
+  const result = evalCaptureService.promoteRejectedToSyntheticPair(payload);
+  response.status(201).json(result);
 }

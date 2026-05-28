@@ -23,14 +23,16 @@ export type StyleTransferReviewData = {
   evals: Record<string, unknown>[];
   goldenPairs: Record<string, unknown>[];
   syntheticPairs: Record<string, unknown>[];
+  heuristicRejections: Record<string, unknown>[];
   paths: {
     evals: string;
     goldenPairs: string;
     syntheticPairs: string;
+    heuristicRejections: string;
   };
 };
 
-export type ReviewRecordKind = "evals" | "golden" | "pairs";
+export type ReviewRecordKind = "evals" | "golden" | "pairs" | "rejections";
 
 export type ReviewRecordUpdatePayload = {
   kind: ReviewRecordKind;
@@ -103,6 +105,11 @@ export const api = {
   deleteStyleTransferReviewRecord: async (payload: ReviewRecordDeletePayload): Promise<{ id: string; path: string }> =>
     requestJson<{ id: string; path: string }>("/api/chat/style-transfer-review", {
       method: "DELETE",
+      body: JSON.stringify(payload)
+    }),
+  promoteRejectedStylePair: async (payload: { id: string }): Promise<{ id: string; path: string; record: Record<string, unknown> }> =>
+    requestJson<{ id: string; path: string; record: Record<string, unknown> }>("/api/chat/style-transfer-review/promote-rejected", {
+      method: "POST",
       body: JSON.stringify(payload)
     })
 };

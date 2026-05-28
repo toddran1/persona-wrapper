@@ -187,6 +187,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-output-chars", type=int, default=650)
     parser.add_argument("--min-overlap", type=float, default=0.16)
     parser.add_argument("--max-sentences", type=int, default=4)
+    parser.add_argument(
+        "--max-source-chars",
+        type=int,
+        default=0,
+        help="Optionally shorten each source style chunk before generating candidates. 0 keeps the full chunk.",
+    )
+    parser.add_argument(
+        "--max-source-sentences",
+        type=int,
+        default=0,
+        help="Optionally keep only this many sentence-like chunks from each source style sample. 0 keeps all sentences.",
+    )
 
     # Retry/quality options. Retries feed the previous rejection reasons back to
     # Ollama so it can correct the next attempt. The LLM judge is optional
@@ -267,6 +279,31 @@ def clean_styled_text(text: str) -> str:
     text = re.sub(r"^\s*[-•]\s*", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip(" \"'")
+
+
+def shorten_source_text(text: str, max_chars: int, max_sentences: int) -> str:
+    """Shorten a raw style sample before synthetic pair generation.
+
+    This is useful for manual/heuristic candidate review. The raw transcript
+    chunks can be long and multi-speaker, which makes rejected rows hard to
+    inspect by hand. Shortening here keeps candidate files readable without
+    changing the original raw dataset.
+    """
+
+    shortened = re.sub(r"\s+", " ", text).strip()
+    if max_sentences > 0:
+        parts = re.split(r"(?<=[.!?])\s+", shortened)
+        shortened = " ".join(part for part in parts[:max_sentences] if part.strip()).strip()
+
+    if max_chars > 0 and len(shortened) > max_chars:
+        boundary = shortened.rfind(" ", 0, max_chars)
+        if boundary < max_chars * 0.6:
+            boundary = max_chars
+        shortened = shortened[:boundary].rstrip(" ,;:-")
+        if not re.search(r"[.!?]$", shortened):
+            shortened = f"{shortened}."
+
+    return shortened
 
 
 def content_tokens(text: str) -> list[str]:
@@ -802,7 +839,11 @@ def main() -> None:
             skipped += 1
             continue
 
-        styled_text = str(source["output"]).strip()
+        styled_text = shorten_source_text(
+            str(source["output"]).strip(),
+            args.max_source_chars,
+            args.max_source_sentences,
+        )
         rejection_reasons: list[str] = []
 
         # Try the initial generation plus the configured number of retries. The

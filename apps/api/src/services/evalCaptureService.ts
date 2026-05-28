@@ -31,14 +31,16 @@ export type StyleTransferReviewData = {
   evals: Record<string, unknown>[];
   goldenPairs: Record<string, unknown>[];
   syntheticPairs: Record<string, unknown>[];
+  heuristicRejections: Record<string, unknown>[];
   paths: {
     evals: string;
     goldenPairs: string;
     syntheticPairs: string;
+    heuristicRejections: string;
   };
 };
 
-export type ReviewRecordKind = "evals" | "golden" | "pairs";
+export type ReviewRecordKind = "evals" | "golden" | "pairs" | "rejections";
 
 export type ReviewRecordUpdate = {
   kind: ReviewRecordKind;
@@ -53,6 +55,10 @@ export type ReviewRecordCreate = {
 
 export type ReviewRecordDelete = {
   kind: ReviewRecordKind;
+  id: string;
+};
+
+export type PromoteRejectedPairInput = {
   id: string;
 };
 
@@ -108,6 +114,10 @@ function getSyntheticPairsPath(): string {
   return resolve(getRepoRoot(), "ml/style-transfer/datasets/processed/style_transfer.pairs.jsonl");
 }
 
+function getHeuristicRejectionsPath(): string {
+  return resolve(getRepoRoot(), "ml/style-transfer/datasets/processed/heuristic_candidates.rejected.jsonl");
+}
+
 function parseJsonl(path: string): LlmTurnLog[] {
   if (!existsSync(path)) {
     return [];
@@ -144,6 +154,9 @@ function pathForKind(kind: ReviewRecordKind): string {
   if (kind === "pairs") {
     return getSyntheticPairsPath();
   }
+  if (kind === "rejections") {
+    return getHeuristicRejectionsPath();
+  }
 
   return getGoldenPairsPath();
 }
@@ -166,8 +179,25 @@ function createRecordId(kind: ReviewRecordKind, records: Record<string, unknown>
   if (kind === "pairs") {
     return `synthetic-pair-${new Date().toISOString().replace(/[-:.]/g, "").replace("T", "_").slice(0, 16)}_${randomUUID()}`;
   }
+  if (kind === "rejections") {
+    return `rejected-candidate-${new Date().toISOString().replace(/[-:.]/g, "").replace("T", "_").slice(0, 16)}_${randomUUID()}`;
+  }
 
   return `eval_${new Date().toISOString().replace(/[-:.]/g, "").replace("T", "_").slice(0, 16)}_${randomUUID()}`;
+}
+
+function createSyntheticPairId(records: Record<string, unknown>[], sourceId: string): string {
+  const normalizedSourceId = sourceId.trim() || "rejected-candidate";
+  let id = `manual-${normalizedSourceId}`;
+  let suffix = 2;
+  const existingIds = new Set(records.map((record) => (typeof record.id === "string" ? record.id : "")));
+
+  while (existingIds.has(id)) {
+    id = `manual-${normalizedSourceId}-${suffix}`;
+    suffix += 1;
+  }
+
+  return id;
 }
 
 function findLatestTurn(conversationId: string): LlmTurnLog | undefined {
@@ -180,15 +210,18 @@ export class EvalCaptureService {
     const evalsPath = getEvalOutputPath();
     const goldenPairsPath = getGoldenPairsPath();
     const syntheticPairsPath = getSyntheticPairsPath();
+    const heuristicRejectionsPath = getHeuristicRejectionsPath();
 
     return {
       evals: parseJsonlRecords(evalsPath),
       goldenPairs: parseJsonlRecords(goldenPairsPath),
       syntheticPairs: parseJsonlRecords(syntheticPairsPath),
+      heuristicRejections: parseJsonlRecords(heuristicRejectionsPath),
       paths: {
         evals: evalsPath,
         goldenPairs: goldenPairsPath,
-        syntheticPairs: syntheticPairsPath
+        syntheticPairs: syntheticPairsPath,
+        heuristicRejections: heuristicRejectionsPath
       }
     };
   }
@@ -241,7 +274,17 @@ export class EvalCaptureService {
             ...input.record,
             id
           }
-        : {
+        : input.kind === "rejections"
+          ? {
+              source: "manual_rejection_review_entry",
+              source_record_id: "",
+              source_file: "",
+              reasons: [],
+              source_text: "",
+              ...input.record,
+              id
+            }
+          : {
             mode: "style_transfer_pair",
             source: input.kind === "pairs" ? "manual_synthetic_pair_edit" : "manual_golden_seed",
             instruction: DEFAULT_PAIR_INSTRUCTION,
@@ -268,6 +311,47 @@ export class EvalCaptureService {
 
     writeJsonlRecords(path, nextRecords);
     return { id: input.id, path };
+  }
+
+  promoteRejectedToSyntheticPair(input: PromoteRejectedPairInput): {
+    id: string;
+    path: string;
+    record: Record<string, unknown>;
+  } {
+    const rejections = parseJsonlRecords(getHeuristicRejectionsPath());
+    const sourceRecord = rejections.find((record) => record.id === input.id);
+    if (!sourceRecord) {
+      throw new Error(`No rejected candidate found with id ${input.id}`);
+    }
+
+    const syntheticPairsPath = getSyntheticPairsPath();
+    const syntheticPairs = parseJsonlRecords(syntheticPairsPath);
+    const sourceText = typeof sourceRecord.source_text === "string" ? sourceRecord.source_text.trim() : "";
+    if (!sourceText) {
+      throw new Error(`Rejected candidate ${input.id} does not have source_text to promote`);
+    }
+
+    const record = {
+      id: createSyntheticPairId(syntheticPairs, input.id),
+      mode: "style_transfer_pair",
+      source: "manual_promoted_heuristic_rejection",
+      source_file: sourceRecord.source_file,
+      source_record_id: sourceRecord.source_record_id,
+      rejected_candidate_id: sourceRecord.id,
+      original_rejection_reasons: sourceRecord.reasons,
+      instruction: DEFAULT_PAIR_INSTRUCTION,
+      input: typeof sourceRecord.input === "string" ? sourceRecord.input : "",
+      output: sourceText
+    };
+
+    syntheticPairs.push(record);
+    writeJsonlRecords(syntheticPairsPath, syntheticPairs);
+
+    return {
+      id: String(record.id),
+      path: syntheticPairsPath,
+      record
+    };
   }
 
   save(input: EvalCaptureInput): { id: string; path: string } {

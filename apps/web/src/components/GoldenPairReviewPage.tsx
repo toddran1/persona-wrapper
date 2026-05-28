@@ -26,6 +26,7 @@ type EditableReviewCardProps = {
   index: number;
   onSave: (kind: ReviewRecordKind, id: string, updates: Record<string, unknown>) => Promise<void>;
   onDelete: (kind: ReviewRecordKind, id: string) => Promise<void>;
+  onPromoteRejected: (id: string) => Promise<void>;
 };
 
 type AddReviewRecordProps = {
@@ -41,6 +42,11 @@ function getString(record: Record<string, unknown>, key: string): string {
 function getTags(record: Record<string, unknown>): string[] {
   const value = record.tags;
   return Array.isArray(value) ? value.filter((tag): tag is string => typeof tag === "string") : [];
+}
+
+function getReasons(record: Record<string, unknown>): string[] {
+  const value = record.reasons;
+  return Array.isArray(value) ? value.filter((reason): reason is string => typeof reason === "string") : [];
 }
 
 function getRecordId(record: Record<string, unknown>, index: number): string {
@@ -94,10 +100,11 @@ function TagEditor({ value, onChange }: { value: string; onChange: (value: strin
   );
 }
 
-function EditableReviewCard({ kind, record, index, onSave, onDelete }: EditableReviewCardProps) {
+function EditableReviewCard({ kind, record, index, onSave, onDelete, onPromoteRejected }: EditableReviewCardProps) {
   const id = getRecordId(record, index);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [promoting, setPromoting] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [draft, setDraft] = useState<Record<string, string>>({});
 
@@ -112,6 +119,13 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete }: EditableR
             notes: getString(record, "notes"),
             tags: getTags(record).join(", ")
           }
+        : kind === "rejections"
+          ? {
+              source_text: getString(record, "source_text"),
+              reasons: getReasons(record).join("\n"),
+              source_file: getString(record, "source_file"),
+              source_record_id: getString(record, "source_record_id")
+            }
         : {
             instruction: getString(record, "instruction"),
             input: getString(record, "input"),
@@ -142,6 +156,16 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete }: EditableR
               notes: draft.notes ?? "",
               tags: tagsFromText(draft.tags ?? "")
             }
+          : kind === "rejections"
+            ? {
+                source_text: draft.source_text ?? "",
+                reasons: (draft.reasons ?? "")
+                  .split("\n")
+                  .map((reason) => reason.trim())
+                  .filter(Boolean),
+                source_file: draft.source_file ?? "",
+                source_record_id: draft.source_record_id ?? ""
+              }
           : {
               instruction: draft.instruction ?? "",
               input: draft.input ?? "",
@@ -174,7 +198,23 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete }: EditableR
     }
   }
 
-  const title = getString(record, "user_prompt") || getString(record, "input") || "Training pair";
+  async function promoteRejected(): Promise<void> {
+    setPromoting(true);
+    setError(undefined);
+
+    try {
+      if (editing) {
+        await saveDraft();
+      }
+      await onPromoteRejected(id);
+    } catch (promoteError) {
+      setError(promoteError instanceof Error ? promoteError.message : "Failed to add row to synthetic pairs");
+    } finally {
+      setPromoting(false);
+    }
+  }
+
+  const title = getString(record, "user_prompt") || getString(record, "input") || getString(record, "source_text") || "Training pair";
 
   return (
     <article className="review-item">
@@ -227,6 +267,25 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete }: EditableR
             )}
           </label>
         </div>
+      ) : kind === "rejections" ? (
+        <div className="review-columns two-column">
+          <label>
+            Rejection reasons
+            {editing ? (
+              <textarea value={draft.reasons ?? ""} onChange={(event) => updateDraft("reasons", event.target.value)} />
+            ) : (
+              <pre>{getReasons(record).join("\n")}</pre>
+            )}
+          </label>
+          <label>
+            Source text
+            {editing ? (
+              <textarea value={draft.source_text ?? ""} onChange={(event) => updateDraft("source_text", event.target.value)} />
+            ) : (
+              <pre>{getString(record, "source_text")}</pre>
+            )}
+          </label>
+        </div>
       ) : (
         <div className="review-columns two-column">
           <label>
@@ -244,11 +303,24 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete }: EditableR
         </div>
       )}
 
-      {editing && kind !== "evals" ? (
+      {editing && kind !== "evals" && kind !== "rejections" ? (
         <label className="review-edit-field">
           Instruction
           <textarea value={draft.instruction ?? ""} onChange={(event) => updateDraft("instruction", event.target.value)} />
         </label>
+      ) : null}
+
+      {editing && kind === "rejections" ? (
+        <div className="review-edit-grid">
+          <label className="review-edit-field">
+            Source file
+            <input value={draft.source_file ?? ""} onChange={(event) => updateDraft("source_file", event.target.value)} />
+          </label>
+          <label className="review-edit-field">
+            Source record ID
+            <input value={draft.source_record_id ?? ""} onChange={(event) => updateDraft("source_record_id", event.target.value)} />
+          </label>
+        </div>
       ) : null}
 
       {editing && kind === "evals" ? (
@@ -277,6 +349,11 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete }: EditableR
           </>
         ) : (
           <>
+            {kind === "rejections" ? (
+              <button type="button" className="ghost-button" disabled={saving || promoting} onClick={() => void promoteRejected()}>
+                {promoting ? "Adding..." : "Add to synthetic pair file"}
+              </button>
+            ) : null}
             <button type="button" className="ghost-button review-delete-button" disabled={saving} onClick={() => void deleteRecord()}>
               Delete
             </button>
@@ -326,6 +403,16 @@ function AddReviewRecord({ kind, onAdd }: AddReviewRecordProps) {
               notes: draft.notes ?? "",
               tags: tagsFromText(draft.tags ?? "")
             }
+          : kind === "rejections"
+            ? {
+                source_file: draft.source_file ?? "",
+                source_record_id: draft.source_record_id ?? "",
+                reasons: (draft.reasons ?? "")
+                  .split("\n")
+                  .map((reason) => reason.trim())
+                  .filter(Boolean),
+                source_text: draft.source_text ?? ""
+              }
           : {
               instruction: draft.instruction || REVIEW_PAIR_INSTRUCTION,
               input: draft.input ?? "",
@@ -344,6 +431,8 @@ function AddReviewRecord({ kind, onAdd }: AddReviewRecordProps) {
   const canSave =
     kind === "evals"
       ? Boolean((draft.neutral_response ?? "").trim() && (draft.ideal_styled_response ?? "").trim())
+      : kind === "rejections"
+        ? Boolean((draft.source_text ?? "").trim())
       : Boolean((draft.input ?? "").trim() && (draft.output ?? "").trim());
 
   return (
@@ -351,7 +440,15 @@ function AddReviewRecord({ kind, onAdd }: AddReviewRecordProps) {
       <div className="review-item-header">
         <div>
           <span className="eyebrow">Add new</span>
-          <h2>{kind === "evals" ? "New Eval Row" : kind === "golden" ? "New Golden Pair" : "New Synthetic Pair"}</h2>
+          <h2>
+            {kind === "evals"
+              ? "New Eval Row"
+              : kind === "golden"
+                ? "New Golden Pair"
+                : kind === "rejections"
+                  ? "New Rejected Candidate"
+                  : "New Synthetic Pair"}
+          </h2>
         </div>
       </div>
 
@@ -381,6 +478,29 @@ function AddReviewRecord({ kind, onAdd }: AddReviewRecordProps) {
               <textarea value={draft.notes ?? ""} onChange={(event) => updateDraft("notes", event.target.value)} />
             </label>
             <TagEditor value={draft.tags ?? ""} onChange={(value) => updateDraft("tags", value)} />
+          </div>
+        </>
+      ) : kind === "rejections" ? (
+        <>
+          <div className="review-edit-grid">
+            <label className="review-edit-field">
+              Source file
+              <input value={draft.source_file ?? ""} onChange={(event) => updateDraft("source_file", event.target.value)} />
+            </label>
+            <label className="review-edit-field">
+              Source record ID
+              <input value={draft.source_record_id ?? ""} onChange={(event) => updateDraft("source_record_id", event.target.value)} />
+            </label>
+          </div>
+          <div className="review-columns two-column">
+            <label>
+              Rejection reasons
+              <textarea value={draft.reasons ?? ""} onChange={(event) => updateDraft("reasons", event.target.value)} />
+            </label>
+            <label>
+              Source text
+              <textarea value={draft.source_text ?? ""} onChange={(event) => updateDraft("source_text", event.target.value)} />
+            </label>
           </div>
         </>
       ) : (
@@ -444,6 +564,8 @@ export function GoldenPairReviewPage() {
           ? { evals: current.evals.map((record) => (record.id === id ? result.record : record)) }
           : kind === "pairs"
             ? { syntheticPairs: current.syntheticPairs.map((record) => (record.id === id ? result.record : record)) }
+            : kind === "rejections"
+              ? { heuristicRejections: current.heuristicRejections.map((record) => (record.id === id ? result.record : record)) }
             : { goldenPairs: current.goldenPairs.map((record) => (record.id === id ? result.record : record)) })
       };
     });
@@ -463,6 +585,8 @@ export function GoldenPairReviewPage() {
           ? { evals: [...current.evals, result.record] }
           : kind === "pairs"
             ? { syntheticPairs: [...current.syntheticPairs, result.record] }
+            : kind === "rejections"
+              ? { heuristicRejections: [...current.heuristicRejections, result.record] }
             : { goldenPairs: [...current.goldenPairs, result.record] })
       };
     });
@@ -482,16 +606,52 @@ export function GoldenPairReviewPage() {
           ? { evals: current.evals.filter((record) => record.id !== id) }
           : kind === "pairs"
             ? { syntheticPairs: current.syntheticPairs.filter((record) => record.id !== id) }
+            : kind === "rejections"
+              ? { heuristicRejections: current.heuristicRejections.filter((record) => record.id !== id) }
             : { goldenPairs: current.goldenPairs.filter((record) => record.id !== id) })
       };
     });
   }
 
+  async function promoteRejected(id: string): Promise<void> {
+    const result = await api.promoteRejectedStylePair({ id });
+
+    setData((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        syntheticPairs: [...current.syntheticPairs, result.record]
+      };
+    });
+  }
+
   const records =
-    activeTab === "evals" ? data?.evals ?? [] : activeTab === "pairs" ? data?.syntheticPairs ?? [] : data?.goldenPairs ?? [];
-  const title = activeTab === "evals" ? "Eval Failures" : activeTab === "pairs" ? "Synthetic Pairs" : "Golden Pairs";
+    activeTab === "evals"
+      ? data?.evals ?? []
+      : activeTab === "pairs"
+        ? data?.syntheticPairs ?? []
+        : activeTab === "rejections"
+          ? data?.heuristicRejections ?? []
+          : data?.goldenPairs ?? [];
+  const title =
+    activeTab === "evals"
+      ? "Eval Failures"
+      : activeTab === "pairs"
+        ? "Synthetic Pairs"
+        : activeTab === "rejections"
+          ? "Heuristic Rejections"
+          : "Golden Pairs";
   const sourcePath =
-    activeTab === "evals" ? data?.paths.evals : activeTab === "pairs" ? data?.paths.syntheticPairs : data?.paths.goldenPairs;
+    activeTab === "evals"
+      ? data?.paths.evals
+      : activeTab === "pairs"
+        ? data?.paths.syntheticPairs
+        : activeTab === "rejections"
+          ? data?.paths.heuristicRejections
+          : data?.paths.goldenPairs;
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const record of data?.evals ?? []) {
@@ -520,6 +680,9 @@ export function GoldenPairReviewPage() {
           <button type="button" className={activeTab === "pairs" ? "active" : ""} onClick={() => setActiveTab("pairs")}>
             Synthetic ({data?.syntheticPairs.length ?? 0})
           </button>
+          <button type="button" className={activeTab === "rejections" ? "active" : ""} onClick={() => setActiveTab("rejections")}>
+            Rejected ({data?.heuristicRejections.length ?? 0})
+          </button>
         </nav>
       </header>
 
@@ -546,6 +709,7 @@ export function GoldenPairReviewPage() {
             key={getString(record, "id") || index}
             onSave={saveRecord}
             onDelete={deleteRecord}
+            onPromoteRejected={promoteRejected}
           />
         ))}
         <AddReviewRecord kind={activeTab} onAdd={addRecord} />
