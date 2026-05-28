@@ -22,13 +22,15 @@ export type StyleTransferEvalCapturePayload = {
 export type StyleTransferReviewData = {
   evals: Record<string, unknown>[];
   goldenPairs: Record<string, unknown>[];
+  syntheticPairs: Record<string, unknown>[];
   paths: {
     evals: string;
     goldenPairs: string;
+    syntheticPairs: string;
   };
 };
 
-export type ReviewRecordKind = "evals" | "golden";
+export type ReviewRecordKind = "evals" | "golden" | "pairs";
 
 export type ReviewRecordUpdatePayload = {
   kind: ReviewRecordKind;

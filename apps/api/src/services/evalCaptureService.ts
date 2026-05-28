@@ -30,13 +30,15 @@ export type EvalCaptureInput = {
 export type StyleTransferReviewData = {
   evals: Record<string, unknown>[];
   goldenPairs: Record<string, unknown>[];
+  syntheticPairs: Record<string, unknown>[];
   paths: {
     evals: string;
     goldenPairs: string;
+    syntheticPairs: string;
   };
 };
 
-export type ReviewRecordKind = "evals" | "golden";
+export type ReviewRecordKind = "evals" | "golden" | "pairs";
 
 export type ReviewRecordUpdate = {
   kind: ReviewRecordKind;
@@ -102,6 +104,10 @@ function getGoldenPairsPath(): string {
   return resolve(getRepoRoot(), "ml/style-transfer/datasets/curated/golden_style_pairs_seed.jsonl");
 }
 
+function getSyntheticPairsPath(): string {
+  return resolve(getRepoRoot(), "ml/style-transfer/datasets/processed/style_transfer.pairs.jsonl");
+}
+
 function parseJsonl(path: string): LlmTurnLog[] {
   if (!existsSync(path)) {
     return [];
@@ -132,7 +138,14 @@ function writeJsonlRecords(path: string, records: Record<string, unknown>[]): vo
 }
 
 function pathForKind(kind: ReviewRecordKind): string {
-  return kind === "evals" ? getEvalOutputPath() : getGoldenPairsPath();
+  if (kind === "evals") {
+    return getEvalOutputPath();
+  }
+  if (kind === "pairs") {
+    return getSyntheticPairsPath();
+  }
+
+  return getGoldenPairsPath();
 }
 
 function nextGoldenId(records: Record<string, unknown>[]): string {
@@ -150,6 +163,9 @@ function createRecordId(kind: ReviewRecordKind, records: Record<string, unknown>
   if (kind === "golden") {
     return nextGoldenId(records);
   }
+  if (kind === "pairs") {
+    return `synthetic-pair-${new Date().toISOString().replace(/[-:.]/g, "").replace("T", "_").slice(0, 16)}_${randomUUID()}`;
+  }
 
   return `eval_${new Date().toISOString().replace(/[-:.]/g, "").replace("T", "_").slice(0, 16)}_${randomUUID()}`;
 }
@@ -163,13 +179,16 @@ export class EvalCaptureService {
   getReviewData(): StyleTransferReviewData {
     const evalsPath = getEvalOutputPath();
     const goldenPairsPath = getGoldenPairsPath();
+    const syntheticPairsPath = getSyntheticPairsPath();
 
     return {
       evals: parseJsonlRecords(evalsPath),
       goldenPairs: parseJsonlRecords(goldenPairsPath),
+      syntheticPairs: parseJsonlRecords(syntheticPairsPath),
       paths: {
         evals: evalsPath,
-        goldenPairs: goldenPairsPath
+        goldenPairs: goldenPairsPath,
+        syntheticPairs: syntheticPairsPath
       }
     };
   }
@@ -224,7 +243,7 @@ export class EvalCaptureService {
           }
         : {
             mode: "style_transfer_pair",
-            source: "manual_golden_seed",
+            source: input.kind === "pairs" ? "manual_synthetic_pair_edit" : "manual_golden_seed",
             instruction: DEFAULT_PAIR_INSTRUCTION,
             input: "",
             output: "",

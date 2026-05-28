@@ -13,16 +13,16 @@ const evalCaptureRequestSchema = z.object({
   tags: z.array(z.string()).default([])
 });
 const reviewRecordUpdateSchema = z.object({
-  kind: z.enum(["evals", "golden"]),
+  kind: z.enum(["evals", "golden", "pairs"]),
   id: z.string().min(1),
   updates: z.record(z.unknown())
 });
 const reviewRecordCreateSchema = z.object({
-  kind: z.enum(["evals", "golden"]),
+  kind: z.enum(["evals", "golden", "pairs"]),
   record: z.record(z.unknown())
 });
 const reviewRecordDeleteSchema = z.object({
-  kind: z.enum(["evals", "golden"]),
+  kind: z.enum(["evals", "golden", "pairs"]),
   id: z.string().min(1)
 });
 

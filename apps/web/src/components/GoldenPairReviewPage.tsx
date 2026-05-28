@@ -244,7 +244,7 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete }: EditableR
         </div>
       )}
 
-      {editing && kind === "golden" ? (
+      {editing && kind !== "evals" ? (
         <label className="review-edit-field">
           Instruction
           <textarea value={draft.instruction ?? ""} onChange={(event) => updateDraft("instruction", event.target.value)} />
@@ -351,7 +351,7 @@ function AddReviewRecord({ kind, onAdd }: AddReviewRecordProps) {
       <div className="review-item-header">
         <div>
           <span className="eyebrow">Add new</span>
-          <h2>{kind === "evals" ? "New Eval Row" : "New Golden Pair"}</h2>
+          <h2>{kind === "evals" ? "New Eval Row" : kind === "golden" ? "New Golden Pair" : "New Synthetic Pair"}</h2>
         </div>
       </div>
 
@@ -442,7 +442,9 @@ export function GoldenPairReviewPage() {
         ...current,
         ...(kind === "evals"
           ? { evals: current.evals.map((record) => (record.id === id ? result.record : record)) }
-          : { goldenPairs: current.goldenPairs.map((record) => (record.id === id ? result.record : record)) })
+          : kind === "pairs"
+            ? { syntheticPairs: current.syntheticPairs.map((record) => (record.id === id ? result.record : record)) }
+            : { goldenPairs: current.goldenPairs.map((record) => (record.id === id ? result.record : record)) })
       };
     });
   }
@@ -459,7 +461,9 @@ export function GoldenPairReviewPage() {
         ...current,
         ...(kind === "evals"
           ? { evals: [...current.evals, result.record] }
-          : { goldenPairs: [...current.goldenPairs, result.record] })
+          : kind === "pairs"
+            ? { syntheticPairs: [...current.syntheticPairs, result.record] }
+            : { goldenPairs: [...current.goldenPairs, result.record] })
       };
     });
   }
@@ -476,14 +480,18 @@ export function GoldenPairReviewPage() {
         ...current,
         ...(kind === "evals"
           ? { evals: current.evals.filter((record) => record.id !== id) }
-          : { goldenPairs: current.goldenPairs.filter((record) => record.id !== id) })
+          : kind === "pairs"
+            ? { syntheticPairs: current.syntheticPairs.filter((record) => record.id !== id) }
+            : { goldenPairs: current.goldenPairs.filter((record) => record.id !== id) })
       };
     });
   }
 
-  const records = activeTab === "evals" ? data?.evals ?? [] : data?.goldenPairs ?? [];
-  const title = activeTab === "evals" ? "Eval Failures" : "Golden Pairs";
-  const sourcePath = activeTab === "evals" ? data?.paths.evals : data?.paths.goldenPairs;
+  const records =
+    activeTab === "evals" ? data?.evals ?? [] : activeTab === "pairs" ? data?.syntheticPairs ?? [] : data?.goldenPairs ?? [];
+  const title = activeTab === "evals" ? "Eval Failures" : activeTab === "pairs" ? "Synthetic Pairs" : "Golden Pairs";
+  const sourcePath =
+    activeTab === "evals" ? data?.paths.evals : activeTab === "pairs" ? data?.paths.syntheticPairs : data?.paths.goldenPairs;
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const record of data?.evals ?? []) {
@@ -508,6 +516,9 @@ export function GoldenPairReviewPage() {
           </button>
           <button type="button" className={activeTab === "golden" ? "active" : ""} onClick={() => setActiveTab("golden")}>
             Golden ({data?.goldenPairs.length ?? 0})
+          </button>
+          <button type="button" className={activeTab === "pairs" ? "active" : ""} onClick={() => setActiveTab("pairs")}>
+            Synthetic ({data?.syntheticPairs.length ?? 0})
           </button>
         </nav>
       </header>
