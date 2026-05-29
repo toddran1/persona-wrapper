@@ -43,7 +43,9 @@ PAIR_INSTRUCTION = (
     "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source "
     "content, not as a style example. Train on the output persona voice only. Preserve all names, dates, "
     "years, numbers, locations, durations, formatting, and factual claims exactly. Change only tone, "
-    "rhythm, slang, and attitude."
+    "rhythm, slang, and attitude. Preserve the gender, title, role, and type of every person, group, "
+    "place, brand, team, and object. Do not call men women, women men, teams people, places people, "
+    "or objects people unless the input does."
 )
 
 BAD_PATTERNS = [
@@ -247,6 +249,8 @@ def style_pair_prompt(source_file: str, window_index: int, window_text: str, max
         "- The styled answer must preserve the neutral answer's facts, requested task, and useful structure.\n"
         "- Do not add new people, dates, numbers, places, motives, threats, or events.\n"
         "- Keep all names, dates, years, numbers, locations, durations, and factual claims exactly when present.\n"
+        "- Preserve the gender, title, role, and type of every person, group, place, brand, team, and object.\n"
+        "- Do not call men women, women men, teams people, places people, or objects people unless the source does.\n"
         "- Do not roleplay as a transcript participant. Speak as the persona commenting/responding.\n"
         "- Output at most "
         f"{max_records} records.\n\n"
@@ -302,7 +306,7 @@ def judge_pair(client: OllamaClient, neutral: str, styled: str) -> list[str]:
                     "You are a strict judge for style-transfer training data. Output only JSON. "
                     "/no_think "
                     "Reject if the styled answer changes the source facts, requested task, names/dates/numbers, adds facts, "
-                    "is incoherent, is cut off, is formal/generic, is nearly identical to the neutral answer, "
+                    "changes gender/title/entity type, is incoherent, is cut off, is formal/generic, is nearly identical to the neutral answer, "
                     "or roleplays as a transcript participant. Do not reject merely because the style is "
                     "slang-heavy or blunt."
                 ),

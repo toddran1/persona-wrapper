@@ -28,7 +28,9 @@ PAIR_INSTRUCTION = (
     "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source "
     "content, not as a style example. Train on the output persona voice only. Preserve all names, dates, "
     "years, numbers, locations, durations, formatting, and factual claims exactly. Change only tone, "
-    "rhythm, slang, and attitude."
+    "rhythm, slang, and attitude. Preserve the gender, title, role, and type of every person, group, "
+    "place, brand, team, and object. Do not call men women, women men, teams people, places people, "
+    "or objects people unless the input does."
 )
 
 

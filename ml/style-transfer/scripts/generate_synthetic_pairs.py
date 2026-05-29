@@ -53,6 +53,8 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 PAIR_INSTRUCTION = (
     "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source "
     "content, not as a style example. Train on the output persona voice only. Preserve all facts exactly. "
+    "Preserve the gender, title, role, and type of every person, group, place, brand, team, and object. "
+    "Do not call men women, women men, teams people, places people, or objects people unless the input does. "
     "Change only tone, rhythm, slang, and attitude."
 )
 
@@ -618,6 +620,8 @@ class OllamaNeutralizer:
             "on the situation; do not roleplay as any person in the transcript. Treat the neutral answer "
             "only as source content, not as a style example. Preserve its facts, sequence, and requested "
             "structure; do not add new people, places, jobs, events, motivations, or facts. "
+            "Preserve the gender, title, role, and type of every person, group, place, brand, team, and object. "
+            "Do not call men women, women men, teams people, places people, or objects people unless the input does. "
             "Do not turn third-person descriptions into first-person confessions. Keep the voice "
             "slang-heavy, blunt, dramatic, and conversational, but keep the response coherent. No "
             "transcript bullets, speaker labels, stage directions, markdown, explanations, or repeated "
@@ -669,7 +673,7 @@ class OllamaNeutralizer:
                         "You are a strict data-quality judge for style-transfer training pairs. "
                         "Compare the neutral answer and styled answer. Reject the styled answer if it "
                         "adds facts, changes who did what, roleplays as a transcript participant instead "
-                        "of commenting as the persona, includes transcript formatting, is incoherent, "
+                        "of commenting as the persona, changes gender/title/entity type, includes transcript formatting, is incoherent, "
                         "is unfinished, or repeats phrases. The target "
                         "style is supposed to use slang, blunt attitude, and some profanity, so do not "
                         "reject for informal language, attitude, or ordinary profanity by itself. Pass the "

@@ -54,13 +54,13 @@ The preferred training examples are `style_transfer_pair` records:
   "id": "synthetic-0001",
   "mode": "style_transfer_pair",
   "source_file": "synthetic",
-  "instruction": "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source content, not as a style example. Train on the output persona voice only. Preserve all facts exactly. Change only tone, rhythm, slang, and attitude.",
+  "instruction": "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source content, not as a style example. Train on the output persona voice only. Preserve all facts exactly. Preserve the gender, title, role, and type of every person, group, place, brand, team, and object. Do not call men women, women men, teams people, places people, or objects people unless the input does. Change only tone, rhythm, slang, and attitude.",
   "input": "Neutral answer here.",
   "output": "Styled answer here.",
   "messages": [
     {
       "role": "user",
-      "content": "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source content, not as a style example. Train on the output persona voice only. Preserve all facts exactly. Change only tone, rhythm, slang, and attitude.\n\nNeutral answer:\nNeutral answer here."
+      "content": "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source content, not as a style example. Train on the output persona voice only. Preserve all facts exactly. Preserve the gender, title, role, and type of every person, group, place, brand, team, and object. Do not call men women, women men, teams people, places people, or objects people unless the input does. Change only tone, rhythm, slang, and attitude.\n\nNeutral answer:\nNeutral answer here."
     },
     {
       "role": "assistant",
