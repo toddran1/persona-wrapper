@@ -61,6 +61,16 @@ def parse_args() -> argparse.Namespace:
         "--impersonate",
         help="yt-dlp client impersonation target, e.g. chrome, firefox, or chrome:windows-10.",
     )
+    parser.add_argument(
+        "--js-runtime",
+        action="append",
+        help="yt-dlp JavaScript runtime, e.g. node:/usr/bin/node. Can be repeated.",
+    )
+    parser.add_argument(
+        "--remote-component",
+        action="append",
+        help="Allow a yt-dlp remote component, e.g. ejs:github. Can be repeated.",
+    )
     return parser.parse_args()
 
 
@@ -77,6 +87,8 @@ def download_audio(
     cookies: Path | None = None,
     cookies_from_browser: str | None = None,
     impersonate: str | None = None,
+    js_runtime: list[str] | None = None,
+    remote_component: list[str] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     try:
         import yt_dlp
@@ -112,6 +124,15 @@ def download_audio(
         from yt_dlp.networking.impersonate import ImpersonateTarget
 
         options["impersonate"] = ImpersonateTarget.from_str(impersonate)
+    if js_runtime:
+        options["js_runtimes"] = {
+            runtime.split(":", 1)[0].lower(): {
+                "path": runtime.split(":", 1)[1] if ":" in runtime else None
+            }
+            for runtime in js_runtime
+        }
+    if remote_component:
+        options["remote_components"] = set(remote_component)
 
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -173,6 +194,8 @@ def main() -> None:
         cookies=args.cookies,
         cookies_from_browser=args.cookies_from_browser,
         impersonate=args.impersonate,
+        js_runtime=args.js_runtime,
+        remote_component=args.remote_component,
     )
     title = str(info.get("title") or info.get("id") or "youtube_transcript")
     output_path = args.output or (DEFAULT_OUTPUT_DIR / f"{safe_stem(title)}.txt")

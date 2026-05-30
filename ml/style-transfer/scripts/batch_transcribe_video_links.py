@@ -38,6 +38,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cookies-from-browser")
     parser.add_argument("--impersonate")
     parser.add_argument(
+        "--js-runtime",
+        action="append",
+        help="yt-dlp JavaScript runtime, e.g. node:/usr/bin/node. Can be repeated.",
+    )
+    parser.add_argument(
+        "--remote-component",
+        action="append",
+        help="Allow a yt-dlp remote component, e.g. ejs:github. Can be repeated.",
+    )
+    parser.add_argument(
         "--skip-existing",
         action="store_true",
         help="Do not regenerate transcript files that already exist.",
@@ -87,6 +97,8 @@ def main() -> None:
                 cookies=args.cookies,
                 cookies_from_browser=args.cookies_from_browser,
                 impersonate=args.impersonate,
+                js_runtime=args.js_runtime,
+                remote_component=args.remote_component,
             )
             segments = transcribe(audio_path, transcribe_args)
             write_transcript(segments, output_path, args.with_timestamps)
