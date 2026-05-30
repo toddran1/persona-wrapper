@@ -68,10 +68,10 @@ def normalize_text(text: str) -> str:
 
 def iter_blocks(text: str) -> Iterable[str]:
     for block in re.split(r"\n\s*\n", text):
-        normalized = " ".join(line.strip() for line in block.splitlines() if line.strip())
-        normalized = re.sub(r"\s+", " ", normalized).strip()
-        if normalized:
-            yield normalized
+        for line in block.splitlines():
+            normalized = re.sub(r"\s+", " ", line).strip()
+            if normalized:
+                yield normalized
 
 
 def chunk_blocks(blocks: Iterable[str], min_chars: int, max_chars: int) -> list[str]:
@@ -246,13 +246,14 @@ def main() -> None:
     records: list[dict[str, object]] = []
     style_sample_count = 0
     file_counts: dict[str, int] = {}
-    text_files = sorted(args.raw_dir.glob("*.txt"))
+    text_files = sorted(args.raw_dir.rglob("*.txt"))
 
     if not args.pairs_only:
         for text_file in text_files:
             text = normalize_text(text_file.read_text(encoding="utf-8"))
             chunks = chunk_blocks(iter_blocks(text), args.min_chars, args.max_chars)
-            file_counts[text_file.name] = len(chunks)
+            source_name = str(text_file.relative_to(args.raw_dir))
+            file_counts[source_name] = len(chunks)
             style_sample_count += len(chunks)
             records.extend(make_record(text_file, index + 1, chunk) for index, chunk in enumerate(chunks))
 

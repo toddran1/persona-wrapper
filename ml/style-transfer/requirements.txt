@@ -8,3 +8,8 @@ transformers
 openai
 fastapi
 uvicorn
+
+# Optional raw transcript generation from actual audio instead of censored
+# YouTube captions.
+yt-dlp
+faster-whisper

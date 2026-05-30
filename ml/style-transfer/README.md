@@ -154,6 +154,32 @@ datasets/processed/manifest.json
 Raw and processed datasets are gitignored because they may contain private or
 licensed source text.
 
+## Transcribe YouTube Audio
+
+If YouTube captions contain `[ __ ]` placeholders but the video audio itself is
+not censored, generate a new transcript from the actual audio:
+
+```bash
+python3 ml/style-transfer/scripts/transcribe_youtube_audio.py \
+  "https://www.youtube.com/watch?v=VSqQFPDtgIs&t=13s" \
+  --output ml/style-transfer/datasets/raw/other/VIDEO.txt
+```
+
+This uses `yt-dlp` to extract audio and `faster-whisper` to transcribe it. It
+will not recover words that are actually bleeped or muted in the audio, but it
+avoids YouTube's censored caption text when the spoken audio is uncensored.
+
+On a GPU pod, the default `large-v3` model is a good first pass. For a faster
+CPU/local smoke test:
+
+```bash
+python3 ml/style-transfer/scripts/transcribe_youtube_audio.py \
+  "https://www.youtube.com/watch?v=VSqQFPDtgIs&t=13s" \
+  --model-size small \
+  --device cpu \
+  --compute-type int8
+```
+
 ## Legacy Synthetic Pair Flow
 
 The previous chunk-based flow is still available for quick experiments, but it
