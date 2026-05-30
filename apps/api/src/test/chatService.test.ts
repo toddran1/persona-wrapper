@@ -8,7 +8,7 @@ describe("ChatService", () => {
     const response = await service.handleChat({
       personaId: "larae",
       provider: "openai",
-      message: "LaRae, introduce yourself like you just walked into the reunion special.",
+      message: "Hi LaRae, please introduce yourself.",
       audio: false,
       testMode: false,
       history: []
@@ -18,7 +18,7 @@ describe("ChatService", () => {
 
     expect(assistantReply?.type).toBe("text");
     expect(assistantReply?.type === "text" ? assistantReply.text : "").not.toContain(
-      "LaRae, introduce yourself like you just walked into the reunion special."
+      "Hi LaRae, please introduce yourself."
     );
     expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("I’m LaRae the Baddest");
     expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("Gurl, be serious.");

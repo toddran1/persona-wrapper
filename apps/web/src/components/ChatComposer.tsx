@@ -16,14 +16,14 @@ type ChatComposerProps = {
 };
 
 const samplePrompts = [
-  "LaRae, introduce yourself like you just walked into the reunion special.",
+  "Hi LaRae, please introduce yourself.",
   "Give me a chart breaking down the chaos level in this launch plan.",
   "Make me a flashy promo image concept and a CSV content plan.",
   "Search the web for current tea and tell me what tool you would call."
 ];
 
 export function ChatComposer(props: ChatComposerProps) {
-  const [message, setMessage] = useState("LaRae, introduce yourself like you just walked into the reunion special.");
+  const [message, setMessage] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number | undefined>();
