@@ -10,6 +10,7 @@ fastapi
 uvicorn
 
 # Optional raw transcript generation from actual audio instead of censored
-# YouTube captions.
+# platform captions. yt-dlp 2026.03.17 supports curl_cffi through 0.14.x.
 yt-dlp
+curl_cffi>=0.10,<0.15
 faster-whisper

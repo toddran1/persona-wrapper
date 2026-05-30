@@ -154,9 +154,9 @@ datasets/processed/manifest.json
 Raw and processed datasets are gitignored because they may contain private or
 licensed source text.
 
-## Transcribe YouTube Audio
+## Transcribe Online Video Audio
 
-If YouTube captions contain `[ __ ]` placeholders but the video audio itself is
+If platform captions contain `[ __ ]` placeholders but the video audio itself is
 not censored, generate a new transcript from the actual audio:
 
 ```bash
@@ -167,7 +167,42 @@ python3 ml/style-transfer/scripts/transcribe_youtube_audio.py \
 
 This uses `yt-dlp` to extract audio and `faster-whisper` to transcribe it. It
 will not recover words that are actually bleeped or muted in the audio, but it
-avoids YouTube's censored caption text when the spoken audio is uncensored.
+avoids censored caption text when the spoken audio is uncensored.
+
+Some sites block anonymous downloads. Use a browser-exported Netscape cookies
+file when needed:
+
+```bash
+python3 ml/style-transfer/scripts/transcribe_youtube_audio.py \
+  "https://www.youtube.com/watch?v=VSqQFPDtgIs&t=13s" \
+  --cookies /workspace/cookies.txt \
+  --output ml/style-transfer/datasets/raw/other/VIDEO.txt
+```
+
+Some extractors also need browser impersonation:
+
+```bash
+python3 ml/style-transfer/scripts/transcribe_youtube_audio.py \
+  "https://www.dailymotion.com/video/VIDEO_ID" \
+  --impersonate chrome \
+  --output ml/style-transfer/datasets/raw/other/VIDEO.txt
+```
+
+To transcribe every line in the root `video_links.txt` file:
+
+```bash
+python3 ml/style-transfer/scripts/batch_transcribe_video_links.py \
+  video_links.txt \
+  --impersonate chrome \
+  --device cuda \
+  --compute-type float16
+```
+
+Lines should use this format:
+
+```text
+LABEL: https://example.com/video
+```
 
 On a GPU pod, the default `large-v3` model is a good first pass. For a faster
 CPU/local smoke test:

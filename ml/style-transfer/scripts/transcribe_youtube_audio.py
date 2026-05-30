@@ -1,6 +1,6 @@
-"""Transcribe YouTube audio with faster-whisper.
+"""Transcribe online video audio with faster-whisper.
 
-This uses the video's actual audio instead of YouTube captions, so profanity is
+This uses the video's actual audio instead of platform captions, so profanity is
 only censored if it is censored in the audio itself.
 
 Example:
@@ -25,7 +25,7 @@ DEFAULT_OUTPUT_DIR = ROOT / "ml/style-transfer/datasets/raw/other"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("url", help="YouTube video URL.")
+    parser.add_argument("url", help="Video URL supported by yt-dlp.")
     parser.add_argument(
         "--output",
         type=Path,
@@ -45,6 +45,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Write [start -> end] timestamps before each segment.",
     )
+    parser.add_argument(
+        "--cookies",
+        type=Path,
+        help="Netscape-format cookies file for sites that require browser login.",
+    )
+    parser.add_argument(
+        "--cookies-from-browser",
+        help=(
+            "Browser cookie source for yt-dlp, e.g. chrome, firefox, "
+            "or 'chrome:Profile 1'. Use only on a machine with that browser profile."
+        ),
+    )
+    parser.add_argument(
+        "--impersonate",
+        help="yt-dlp client impersonation target, e.g. chrome, firefox, or chrome:windows-10.",
+    )
     return parser.parse_args()
 
 
@@ -54,7 +70,14 @@ def safe_stem(value: str) -> str:
     return value[:120] or "youtube_transcript"
 
 
-def download_audio(url: str, audio_dir: Path) -> tuple[Path, dict[str, Any]]:
+def download_audio(
+    url: str,
+    audio_dir: Path,
+    *,
+    cookies: Path | None = None,
+    cookies_from_browser: str | None = None,
+    impersonate: str | None = None,
+) -> tuple[Path, dict[str, Any]]:
     try:
         import yt_dlp
     except ImportError as exc:
@@ -68,6 +91,10 @@ def download_audio(url: str, audio_dir: Path) -> tuple[Path, dict[str, Any]]:
         "outtmpl": str(audio_dir / "%(id)s.%(ext)s"),
         "noplaylist": True,
         "quiet": False,
+        "noprogress": True,
+        "continuedl": True,
+        "retries": 10,
+        "fragment_retries": 10,
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -76,6 +103,15 @@ def download_audio(url: str, audio_dir: Path) -> tuple[Path, dict[str, Any]]:
             }
         ],
     }
+    if cookies:
+        options["cookiefile"] = str(cookies)
+    if cookies_from_browser:
+        browser_parts = [part.strip() for part in cookies_from_browser.split(":") if part.strip()]
+        options["cookiesfrombrowser"] = tuple(browser_parts)
+    if impersonate:
+        from yt_dlp.networking.impersonate import ImpersonateTarget
+
+        options["impersonate"] = ImpersonateTarget.from_str(impersonate)
 
     with yt_dlp.YoutubeDL(options) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -131,7 +167,13 @@ def write_transcript(
 
 def main() -> None:
     args = parse_args()
-    audio_path, info = download_audio(args.url, args.audio_dir)
+    audio_path, info = download_audio(
+        args.url,
+        args.audio_dir,
+        cookies=args.cookies,
+        cookies_from_browser=args.cookies_from_browser,
+        impersonate=args.impersonate,
+    )
     title = str(info.get("title") or info.get("id") or "youtube_transcript")
     output_path = args.output or (DEFAULT_OUTPUT_DIR / f"{safe_stem(title)}.txt")
     segments = transcribe(audio_path, args)
