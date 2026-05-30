@@ -91,10 +91,41 @@ def normalize_text(text: str) -> str:
     return text.strip()
 
 
+def split_oversized_block(block: str, max_chars: int) -> list[str]:
+    if len(block) <= max_chars:
+        return [block]
+
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", block) if part.strip()]
+    if len(sentences) <= 1:
+        return [block[index : index + max_chars].strip() for index in range(0, len(block), max_chars) if block[index : index + max_chars].strip()]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for sentence in sentences:
+        next_len = current_len + len(sentence) + (1 if current else 0)
+        if current and next_len > max_chars:
+            chunks.append(" ".join(current).strip())
+            current = [sentence]
+            current_len = len(sentence)
+        else:
+            current.append(sentence)
+            current_len = next_len
+
+    if current:
+        chunks.append(" ".join(current).strip())
+    return chunks
+
+
 def split_windows(text: str, max_chars: int, overlap_chars: int) -> list[str]:
     """Split text into large paragraph-aware windows for LLM curation."""
 
-    blocks = [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
+    blocks = [
+        chunk
+        for block in re.split(r"\n\s*\n", text)
+        if block.strip()
+        for chunk in split_oversized_block(block.strip(), max_chars)
+    ]
     windows: list[str] = []
     current: list[str] = []
     current_len = 0
