@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import {
   deleteStyleTransferReviewRecord,
   getStyleTransferReview,
@@ -11,10 +11,16 @@ import {
 
 export const chatRouter = Router();
 
-chatRouter.post("/", postChat);
-chatRouter.get("/style-transfer-review", getStyleTransferReview);
-chatRouter.post("/style-transfer-review", postStyleTransferReviewRecord);
-chatRouter.patch("/style-transfer-review", patchStyleTransferReviewRecord);
-chatRouter.delete("/style-transfer-review", deleteStyleTransferReviewRecord);
-chatRouter.post("/style-transfer-review/promote-rejected", postPromoteRejectedStylePair);
-chatRouter.post("/style-transfer-evals", postStyleTransferEvalCapture);
+function asyncHandler(handler: (request: Request, response: Response) => Promise<void>) {
+  return (request: Request, response: Response, next: NextFunction) => {
+    handler(request, response).catch(next);
+  };
+}
+
+chatRouter.post("/", asyncHandler(postChat));
+chatRouter.get("/style-transfer-review", asyncHandler(getStyleTransferReview));
+chatRouter.post("/style-transfer-review", asyncHandler(postStyleTransferReviewRecord));
+chatRouter.patch("/style-transfer-review", asyncHandler(patchStyleTransferReviewRecord));
+chatRouter.delete("/style-transfer-review", asyncHandler(deleteStyleTransferReviewRecord));
+chatRouter.post("/style-transfer-review/promote-rejected", asyncHandler(postPromoteRejectedStylePair));
+chatRouter.post("/style-transfer-evals", asyncHandler(postStyleTransferEvalCapture));
