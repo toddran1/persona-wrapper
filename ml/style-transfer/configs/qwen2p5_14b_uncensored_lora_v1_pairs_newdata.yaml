@@ -1,0 +1,30 @@
+base_model: Orion-zhen/Qwen2.5-14B-Instruct-Uncensored
+reference_gguf_model: yemiao2745/Qwen2.5-14B-Instruct-Uncensored-Q4_K_M-GGUF
+adapter_name: larae-style-transfer-qwen2p5-14b-uncensored-lora-v1-pairs-newdata
+dataset_pairs_path: ml/style-transfer/datasets/processed/style_transfer.pairs.jsonl
+dataset_train_path: ml/style-transfer/datasets/processed/style_transfer.train.jsonl
+dataset_eval_path: ml/style-transfer/datasets/processed/style_transfer.eval.jsonl
+output_dir: ml/style-transfer/output/larae-style-transfer-qwen2p5-14b-uncensored-lora-v1-pairs-newdata
+max_seq_length: 2048
+load_in_4bit: true
+num_train_epochs: 3
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 0.00015
+warmup_ratio: 0.03
+logging_steps: 10
+eval_steps: 50
+save_steps: 100
+seed: 3407
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
