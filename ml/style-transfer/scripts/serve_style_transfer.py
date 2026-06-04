@@ -124,6 +124,11 @@ UNCERTAIN_NEUTRAL_PATTERN = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+MIN_DYNAMIC_NEW_TOKENS = 96
+DYNAMIC_TOKEN_MULTIPLIER = 1.4
+DYNAMIC_TOKEN_BUFFER = 64
+MAX_OUTPUT_CHAR_RATIO = 2.4
+MAX_OUTPUT_CHAR_BUFFER = 300
 
 
 class StyleTransferRequest(BaseModel):
@@ -376,6 +381,19 @@ def should_bypass_style_for_empty_verbatim_request(neutral_text: str, blocks: li
 
 def should_conservatively_style_uncertain_answer(neutral_text: str) -> bool:
     return bool(UNCERTAIN_NEUTRAL_PATTERN.search(neutral_text))
+
+
+def estimate_dynamic_max_new_tokens(tokenizer: Any, neutral_text: str, configured_max: int) -> int:
+    neutral_token_count = len(tokenizer.encode(neutral_text, add_special_tokens=False))
+    dynamic_limit = int(neutral_token_count * DYNAMIC_TOKEN_MULTIPLIER) + DYNAMIC_TOKEN_BUFFER
+    return min(configured_max, max(MIN_DYNAMIC_NEW_TOKENS, dynamic_limit))
+
+
+def is_runaway_output(styled_text: str, neutral_text: str) -> bool:
+    if len(styled_text) <= len(neutral_text) + MAX_OUTPUT_CHAR_BUFFER:
+        return False
+
+    return len(styled_text) > int(len(neutral_text) * MAX_OUTPUT_CHAR_RATIO) + MAX_OUTPUT_CHAR_BUFFER
 
 
 def conservative_uncertainty_style(neutral_text: str) -> str:
@@ -685,18 +703,53 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             truncation=True,
             max_length=args.max_seq_length,
         ).to("cuda")
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=args.max_new_tokens,
-            temperature=args.temperature,
-            top_p=args.top_p,
-            repetition_penalty=args.repetition_penalty,
-            no_repeat_ngram_size=args.no_repeat_ngram_size,
-            do_sample=True,
-            pad_token_id=tokenizer.eos_token_id,
-        )
-        generated = outputs[0][inputs["input_ids"].shape[-1] :]
-        styled_text = tokenizer.decode(generated, skip_special_tokens=True).strip()
+        dynamic_max_new_tokens = estimate_dynamic_max_new_tokens(tokenizer, request.neutralText, args.max_new_tokens)
+
+        def generate_styled_text(max_new_tokens: int, *, strict_retry: bool = False) -> str:
+            generation_kwargs: dict[str, Any] = {
+                "max_new_tokens": max_new_tokens,
+                "repetition_penalty": args.repetition_penalty,
+                "no_repeat_ngram_size": args.no_repeat_ngram_size,
+                "do_sample": not strict_retry,
+                "pad_token_id": tokenizer.eos_token_id,
+            }
+            if strict_retry:
+                generation_kwargs["top_p"] = 1.0
+            else:
+                generation_kwargs["temperature"] = args.temperature
+                generation_kwargs["top_p"] = args.top_p
+
+            outputs = model.generate(**inputs, **generation_kwargs)
+            generated = outputs[0][inputs["input_ids"].shape[-1] :]
+            return tokenizer.decode(generated, skip_special_tokens=True).strip()
+
+        styled_text = generate_styled_text(dynamic_max_new_tokens)
+        retried_for_length = False
+        if is_runaway_output(styled_text, request.neutralText):
+            retry_max_new_tokens = max(
+                MIN_DYNAMIC_NEW_TOKENS,
+                min(dynamic_max_new_tokens, int(dynamic_max_new_tokens * 0.65)),
+            )
+            retry_messages = [
+                {
+                    "role": "user",
+                    "content": (
+                        messages[0]["content"]
+                        + "\n\nLength correction: keep the styled answer close to the neutral answer's "
+                        "length. Do not list extra topics, capabilities, domains, examples, or services. "
+                        "Do not continue after the direct answer is complete."
+                    ),
+                }
+            ]
+            retry_prompt = tokenizer.apply_chat_template(retry_messages, tokenize=False, add_generation_prompt=True)
+            inputs = tokenizer(
+                [retry_prompt],
+                return_tensors="pt",
+                truncation=True,
+                max_length=args.max_seq_length,
+            ).to("cuda")
+            styled_text = generate_styled_text(retry_max_new_tokens, strict_retry=True)
+            retried_for_length = True
         styled_text = restore_protected_names(styled_text, protected_names)
         styled_text = restore_protected_literals(styled_text, protected_literals)
         if preserve_verbatim:
@@ -713,6 +766,9 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 "topP": args.top_p,
                 "repetitionPenalty": args.repetition_penalty,
                 "noRepeatNgramSize": args.no_repeat_ngram_size,
+                "configuredMaxNewTokens": args.max_new_tokens,
+                "dynamicMaxNewTokens": dynamic_max_new_tokens,
+                "retriedForLength": retried_for_length,
                 "protectedNameCount": len(protected_names),
                 "protectedLiteralCount": len(protected_literals),
                 "preserveVerbatim": preserve_verbatim,
