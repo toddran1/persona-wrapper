@@ -23,10 +23,10 @@ from trl import SFTConfig, SFTTrainer
 
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_BASE_MODEL = "Orion-zhen/Qwen2.5-7B-Instruct-Uncensored"
+DEFAULT_BASE_MODEL = "Orion-zhen/Qwen2.5-14B-Instruct-Uncensored"
 DEFAULT_TRAIN_PATH = ROOT / "ml/style-transfer/datasets/processed/style_transfer.train.jsonl"
 DEFAULT_EVAL_PATH = ROOT / "ml/style-transfer/datasets/processed/style_transfer.eval.jsonl"
-DEFAULT_OUTPUT_DIR = ROOT / "ml/style-transfer/output/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs"
+DEFAULT_OUTPUT_DIR = ROOT / "ml/style-transfer/output/larae-style-transfer-qwen2p5-14b-uncensored-lora-v1-pairs-newdata"
 DEFAULT_TARGET_MODULES = [
     "q_proj",
     "k_proj",
@@ -51,11 +51,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=float, default=3)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
-    parser.add_argument("--learning-rate", type=float, default=2e-4)
+    parser.add_argument("--learning-rate", type=float, default=1.5e-4)
     parser.add_argument("--warmup-ratio", type=float, default=0.03)
     parser.add_argument("--logging-steps", type=int, default=10)
     parser.add_argument("--eval-steps", type=int, default=50)
-    parser.add_argument("--save-steps", type=int, default=100)
+    parser.add_argument("--save-steps", type=int, default=1000)
     parser.add_argument("--lora-r", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--lora-dropout", type=float, default=0.05)

@@ -3,7 +3,7 @@
 Example:
 
     python3 ml/style-transfer/scripts/serve_style_transfer.py \
-      --adapter toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs \
+      --adapter toddran1/larae-style-transfer-qwen2p5-14b-uncensored-lora-v1-pairs-newdata \
       --host 0.0.0.0 \
       --port 8000
 """
@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from unsloth import FastLanguageModel
 
 
-DEFAULT_ADAPTER = "toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs"
+DEFAULT_ADAPTER = "toddran1/larae-style-transfer-qwen2p5-14b-uncensored-lora-v1-pairs-newdata"
 PROTECTED_NAME_PATTERN = re.compile(
     r"\b(?:[A-Z][A-Za-z0-9&'-]*|[A-Z]{2,})"
     r"(?:\s+(?:at|of|the|and|a|an|in|to|&|[A-Z][A-Za-z0-9&'-]*|[A-Z]{2,}))*"

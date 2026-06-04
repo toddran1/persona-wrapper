@@ -92,7 +92,7 @@ LOCAL_LLM_ENDPOINT=http://127.0.0.1:11434
 LOCAL_LLM_MODEL=llama3.2:3b
 STYLE_TRANSFER_PROVIDER=runpod
 STYLE_TRANSFER_ENDPOINT=http://127.0.0.1:8000/style-transfer
-STYLE_TRANSFER_MODEL_ID=toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs
+STYLE_TRANSFER_MODEL_ID=toddran1/larae-style-transfer-qwen2p5-14b-uncensored-lora-v1-pairs-newdata
 ```
 
 ## Train Current Style Adapter
@@ -100,7 +100,7 @@ STYLE_TRANSFER_MODEL_ID=toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora
 The current trainable style-transfer base is:
 
 ```text
-Orion-zhen/Qwen2.5-7B-Instruct-Uncensored
+Orion-zhen/Qwen2.5-14B-Instruct-Uncensored
 ```
 
 Generate or refresh paired data first, then train:
@@ -110,7 +110,7 @@ python ml/style-transfer/scripts/curate_training_pairs.py \
   --ollama-model hf.co/mradermacher/Qwen3-14B-Uncensored-GGUF:Q4_K_M \
   --overwrite
 python ml/style-transfer/scripts/prepare_dataset.py --pairs-only
-HF_HUB_MODEL_ID=toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs \
+HF_HUB_MODEL_ID=toddran1/larae-style-transfer-qwen2p5-14b-uncensored-lora-v1-pairs-newdata \
   python ml/style-transfer/scripts/train_lora_unsloth.py --push-to-hub
 ```
 
@@ -125,7 +125,7 @@ Before terminating a pod, make sure the important pieces are backed up:
 The current important adapter repos are:
 
 ```text
-toddran1/larae-style-transfer-qwen2p5-7b-uncensored-lora-v1-pairs
+toddran1/larae-style-transfer-qwen2p5-14b-uncensored-lora-v1-pairs-newdata
 toddran1/larae-style-transfer-gemma3-1b-lora
 toddran1/larae-style-transfer-gemma3-1b-lora-v2-pairs
 ```
