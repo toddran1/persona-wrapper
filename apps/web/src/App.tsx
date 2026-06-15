@@ -1,6 +1,7 @@
-import type { ChatResponse, ClientContext, PersonaDefinition, PersonaSummary, ProviderId } from "@persona/shared";
+import type { ChatResponse, ClientContext, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
+import { useRef } from "react";
 import { api } from "./lib/api.js";
 import { ChatComposer } from "./components/ChatComposer.js";
 import { ConversationHistory } from "./components/ConversationHistory.js";
@@ -41,6 +42,9 @@ export function App() {
   const [evalError, setEvalError] = useState<string | undefined>();
   const [browserLocation, setBrowserLocation] = useState<BrowserLocation | undefined>();
   const [locationError, setLocationError] = useState<string | undefined>();
+  const [pendingPrompt, setPendingPrompt] = useState<string | undefined>();
+  const [streamingText, setStreamingText] = useState("");
+  const activeRequestRef = useRef<AbortController | undefined>();
 
   useEffect(() => {
     void (async () => {
@@ -58,34 +62,66 @@ export function App() {
     })();
   }, []);
 
-  async function handleSubmit(message: string): Promise<void> {
+  async function handleSubmit(message: string, files: File[], toolOptions: ToolOptions): Promise<void> {
     if (!personaDetail) {
       return;
     }
 
     setLoading(true);
     setError(undefined);
+    setPendingPrompt(message);
+    setStreamingText("");
+    const requestController = new AbortController();
+    activeRequestRef.current = requestController;
 
     try {
-      const result = await api.sendChat({
+      const attachments = files.length > 0 ? await api.uploadFiles(files) : [];
+      let resolvedToolOptions = toolOptions;
+      if (toolOptions.fileSearch && attachments.some((attachment) => attachment.kind === "file")) {
+        const vectorStore = await api.createVectorStore(
+          attachments.filter((attachment) => attachment.kind === "file").map((attachment) => attachment.id)
+        );
+        resolvedToolOptions = { ...toolOptions, vectorStoreIds: [vectorStore.id] };
+      }
+      const payload = {
         personaId: personaDetail.id,
         message,
         provider,
         audio: audioEnabled,
         testMode: testModeEnabled,
         clientContext: getClientContext(browserLocation),
+        attachments,
+        toolOptions: resolvedToolOptions,
         ...(conversationId ? { conversationId } : {})
-      });
+      };
+      const result = provider === "openai"
+        ? await api.sendChatStream(payload, (delta) => setStreamingText((current) => current + delta), requestController.signal)
+        : await api.sendChat(payload, requestController.signal);
 
       setConversationId(result.conversationId);
       setResponse(result);
+      setPendingPrompt(undefined);
+      setStreamingText("");
       setEvalSavedMessage(undefined);
       setEvalError(undefined);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Failed to generate response");
+      setPendingPrompt(undefined);
+      setStreamingText("");
+      if (!requestController.signal.aborted) {
+        setError(submitError instanceof Error ? submitError.message : "Failed to generate response");
+      }
     } finally {
+      if (activeRequestRef.current === requestController) activeRequestRef.current = undefined;
       setLoading(false);
     }
+  }
+
+  function cancelRequest(): void {
+    activeRequestRef.current?.abort();
+    activeRequestRef.current = undefined;
+    setLoading(false);
+    setPendingPrompt(undefined);
+    setStreamingText("");
   }
 
   function resetConversation(): void {
@@ -94,6 +130,8 @@ export function App() {
     setError(undefined);
     setEvalSavedMessage(undefined);
     setEvalError(undefined);
+    setPendingPrompt(undefined);
+    setStreamingText("");
   }
 
   async function saveEvalCapture(idealStyledText: string, notes: string, tags: string[]): Promise<void> {
@@ -193,7 +231,12 @@ export function App() {
           ) : null}
         </aside>
         <section className="chat-column">
-          <ConversationHistory history={response?.history ?? []} latestOutputs={response?.outputs ?? []} />
+          <ConversationHistory
+            history={response?.history ?? []}
+            latestOutputs={response?.outputs ?? []}
+            pendingPrompt={pendingPrompt}
+            streamingText={streamingText}
+          />
           <div className="composer-dock">
             <ChatComposer
               provider={provider}
@@ -205,6 +248,7 @@ export function App() {
               onProviderChange={setProvider}
               onAudioChange={setAudioEnabled}
               onRequestLocation={requestLocation}
+              onCancel={cancelRequest}
               onSubmit={handleSubmit}
             />
           </div>

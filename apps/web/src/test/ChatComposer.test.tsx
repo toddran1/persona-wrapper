@@ -12,7 +12,8 @@ const defaultProps = {
   onResetConversation: vi.fn(),
   onProviderChange: vi.fn(),
   onAudioChange: vi.fn(),
-  onRequestLocation: vi.fn()
+  onRequestLocation: vi.fn(),
+  onCancel: vi.fn()
 };
 
 describe("ChatComposer", () => {
@@ -32,7 +33,7 @@ describe("ChatComposer", () => {
     await user.type(textarea, "Test the reunion energy.");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSubmit).toHaveBeenCalledWith("Test the reunion energy.");
+    expect(onSubmit).toHaveBeenCalledWith("Test the reunion energy.", [], expect.objectContaining({ appFunctions: true }));
     expect(textarea).toHaveValue("");
   });
 
@@ -52,7 +53,7 @@ describe("ChatComposer", () => {
     await user.type(textarea, "Send this with enter.");
     await user.keyboard("{Enter}");
 
-    expect(onSubmit).toHaveBeenCalledWith("Send this with enter.");
+    expect(onSubmit).toHaveBeenCalledWith("Send this with enter.", [], expect.objectContaining({ appFunctions: true }));
   });
 
   it("keeps Shift+Enter as a newline", async () => {
@@ -163,5 +164,13 @@ describe("ChatComposer", () => {
     await user.click(screen.getByRole("button", { name: "Remove receipts.pdf" }));
 
     expect(screen.queryByText("receipts.pdf")).not.toBeInTheDocument();
+  });
+
+  it("shows a stop control while a response is running", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    render(<ChatComposer {...defaultProps} loading onCancel={onCancel} onSubmit={vi.fn().mockResolvedValue(undefined)} />);
+    await user.click(screen.getByRole("button", { name: "Stop response" }));
+    expect(onCancel).toHaveBeenCalledOnce();
   });
 });

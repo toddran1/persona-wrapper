@@ -357,7 +357,7 @@ async function runWebSearch(userMessage: string): Promise<ToolContextResult> {
 }
 
 export class ToolContextService {
-  async buildContext(userMessage: string, clientContext?: ClientContext): Promise<ToolContext | undefined> {
+  async buildContext(userMessage: string, clientContext?: ClientContext, skipWebSearch = false): Promise<ToolContext | undefined> {
     const results: ToolContextResult[] = [];
 
     if (shouldRunDateTool(userMessage)) {
@@ -383,7 +383,7 @@ export class ToolContextService {
       });
     }
 
-    if (shouldRunWebSearch(userMessage)) {
+    if (!skipWebSearch && shouldRunWebSearch(userMessage)) {
       results.push(await runWebSearch(userMessage));
     }
 

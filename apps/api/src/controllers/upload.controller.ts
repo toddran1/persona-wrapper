@@ -1,0 +1,47 @@
+import type { Request, Response } from "express";
+import { z } from "zod";
+import { uploadService } from "../services/uploadService.js";
+import { HttpError } from "../utils/httpError.js";
+
+const vectorStoreRequestSchema = z.object({
+  assetIds: z.array(z.string()).min(1).max(20),
+  name: z.string().max(100).optional()
+});
+
+function ownerId(request: Request): string {
+  const value = request.header("x-owner-id");
+  if (!value || value.length > 200) throw new HttpError("A valid x-owner-id header is required.", 400);
+  return value;
+}
+
+export async function postUploads(request: Request, response: Response): Promise<void> {
+  const files = request.files;
+  if (!Array.isArray(files) || files.length === 0) throw new HttpError("At least one file is required.", 400);
+  const assets = await Promise.all(files.map((file) => uploadService.save(ownerId(request), file)));
+  response.status(201).json({ assets });
+}
+
+export async function getUploads(request: Request, response: Response): Promise<void> {
+  response.status(200).json({ assets: uploadService.list(ownerId(request)) });
+}
+
+export async function getUpload(request: Request, response: Response): Promise<void> {
+  const asset = uploadService.get(ownerId(request), String(request.params.id));
+  response.type(asset.mimeType).download(asset.localPath, asset.fileName);
+}
+
+export async function deleteUpload(request: Request, response: Response): Promise<void> {
+  await uploadService.remove(ownerId(request), String(request.params.id));
+  response.status(204).end();
+}
+
+export async function postVectorStore(request: Request, response: Response): Promise<void> {
+  const payload = vectorStoreRequestSchema.parse(request.body);
+  const vectorStore = await uploadService.createVectorStore(ownerId(request), payload.assetIds, payload.name);
+  response.status(201).json({ vectorStore });
+}
+
+export async function deleteVectorStore(request: Request, response: Response): Promise<void> {
+  await uploadService.removeVectorStore(ownerId(request), String(request.params.id));
+  response.status(204).end();
+}

@@ -6,6 +6,7 @@ import {
   postStyleTransferReviewRecord,
   postPromoteRejectedStylePair,
   postChat,
+  postChatStream,
   postStyleTransferEvalCapture
 } from "../controllers/chat.controller.js";
 
@@ -18,6 +19,7 @@ function asyncHandler(handler: (request: Request, response: Response) => Promise
 }
 
 chatRouter.post("/", asyncHandler(postChat));
+chatRouter.post("/stream", asyncHandler(postChatStream));
 chatRouter.get("/style-transfer-review", asyncHandler(getStyleTransferReview));
 chatRouter.post("/style-transfer-review", asyncHandler(postStyleTransferReviewRecord));
 chatRouter.patch("/style-transfer-review", asyncHandler(patchStyleTransferReviewRecord));

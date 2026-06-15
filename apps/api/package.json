@@ -9,18 +9,22 @@
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "STYLE_TRANSFER_PROVIDER=stub vitest run"
+    "test": "STYLE_TRANSFER_PROVIDER=stub vitest run",
+    "test:integration:openai": "OPENAI_RUN_INTEGRATION_TESTS=true STYLE_TRANSFER_PROVIDER=stub vitest run src/test/openai.integration.test.ts"
   },
   "dependencies": {
     "@persona/shared": "*",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
+    "multer": "^2.2.0",
+    "openai": "^6.42.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
+    "@types/multer": "^2.1.0",
     "@types/node": "^22.8.1",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",

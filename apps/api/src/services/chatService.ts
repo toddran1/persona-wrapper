@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatRequest, ChatResponse } from "@persona/shared";
+import { llmOutputSchema, type ChatMessage, type ChatRequest, type ChatResponse } from "@persona/shared";
 import type { TTSOutput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
 import { createLLMProvider } from "../providers/llm/providerFactory.js";
@@ -11,6 +11,10 @@ import { ResponseFormatter } from "./responseFormatter.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
+
+export type ChatStreamCallbacks = {
+  onTextDelta: (delta: string) => void;
+};
 
 function insertToolContext(input: ChatMessage[], toolContext: ToolContext | undefined): ChatMessage[] {
   if (!toolContext) {
@@ -35,7 +39,8 @@ export class ChatService {
     private readonly toolContextService = new ToolContextService()
   ) {}
 
-  async handleChat(request: ChatRequest): Promise<ChatResponse> {
+  async handleChat(request: ChatRequest, streamCallbacks?: ChatStreamCallbacks, signal?: AbortSignal): Promise<ChatResponse> {
+    signal?.throwIfAborted();
     const persona = getPersonaById(request.personaId);
     if (!persona) {
       throw new HttpError(`Unknown persona: ${request.personaId}`, 404);
@@ -49,8 +54,19 @@ export class ChatService {
       conversationId: conversation.id,
       history: this.conversationStore.getPromptHistory(conversation)
     });
-    const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext);
+    const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext, request.provider === "openai");
     if (toolContext) {
+      if (request.provider === "openai" && toolContext.results.some((result) => result.name === "web_search")) {
+        llmInput.toolOptions = {
+          webSearch: true,
+          fileSearch: llmInput.toolOptions?.fileSearch ?? false,
+          codeInterpreter: llmInput.toolOptions?.codeInterpreter ?? false,
+          imageGeneration: llmInput.toolOptions?.imageGeneration ?? false,
+          appFunctions: llmInput.toolOptions?.appFunctions ?? true,
+          background: llmInput.toolOptions?.background ?? false,
+          vectorStoreIds: llmInput.toolOptions?.vectorStoreIds ?? []
+        };
+      }
       llmInput.messages = insertToolContext(llmInput.messages, toolContext);
       llmInput.baseMessages = insertToolContext(llmInput.baseMessages ?? llmInput.messages, toolContext);
       console.log(
@@ -59,12 +75,19 @@ export class ChatService {
           .join("\n\n")}\n`
       );
     }
-    const llmOutput = await llmProvider.generateResponse(llmInput);
+    const llmOutput = llmOutputSchema.parse(
+      streamCallbacks && llmProvider.generateResponseStream
+        ? await llmProvider.generateResponseStream(llmInput, streamCallbacks, signal)
+        : await llmProvider.generateResponse(llmInput, signal)
+    );
     const firstNeutralTextBlock = llmOutput.content.find((block) => block.type === "text");
     const neutralText =
       firstNeutralTextBlock?.type === "text" && firstNeutralTextBlock.text.trim().length > 0
         ? firstNeutralTextBlock.text
         : llmOutput.rawText;
+    if (streamCallbacks && !llmProvider.generateResponseStream && neutralText) {
+      streamCallbacks.onTextDelta(neutralText);
+    }
 
     const neutralResponseMetadata = {
       provider: llmOutput.provider,
@@ -77,7 +100,6 @@ export class ChatService {
     console.log("\nNeutral LLM response object data:", neutralResponseMetadata);
     console.log(`\n--- Neutral LLM response before style transfer ---\n\n${neutralText}\n`);
 
-    const styleTransferProvider = createStyleTransferProvider();
     const styleTransferInput = {
       neutralText,
       persona,
@@ -85,9 +107,17 @@ export class ChatService {
       userMessage: request.message,
       provider: llmOutput.provider
     };
-    const styleTransferOutput = await styleTransferProvider.transferStyle(styleTransferInput);
+    const styleTransferOutput = neutralText.trim()
+      ? await createStyleTransferProvider().transferStyle(styleTransferInput, signal)
+      : {
+          provider: "stub_style_transfer" as const,
+          styledText: "",
+          metadata: { skipped: "No text content to style." }
+        };
 
-    console.log(`--- Style transfer model response ---\n\n${styleTransferOutput.styledText}\n`);
+    if (styleTransferOutput.styledText) {
+      console.log(`--- Style transfer model response ---\n\n${styleTransferOutput.styledText}\n`);
+    }
 
     logger.llmTurn({
       conversationId: conversation.id,
@@ -113,17 +143,20 @@ export class ChatService {
       }
     });
 
-    const styledLlmOutput = {
+    let styledPrimaryText = false;
+    const styledLlmOutput = llmOutputSchema.parse({
       ...llmOutput,
-      rawText: styleTransferOutput.styledText,
-      content: llmOutput.content.map((block) =>
-        block.type === "text" ? { ...block, text: styleTransferOutput.styledText } : block
-      ),
+      rawText: styleTransferOutput.styledText || llmOutput.rawText,
+      content: llmOutput.content.map((block) => {
+        if (block.type !== "text" || styledPrimaryText) return block;
+        styledPrimaryText = true;
+        return { ...block, text: styleTransferOutput.styledText };
+      }),
       metadata: {
         ...(llmOutput.metadata ?? {}),
         styleTransfer: styleTransferOutput
       }
-    };
+    });
 
     let ttsOutput: TTSOutput | undefined;
     if (request.audio) {
@@ -159,7 +192,9 @@ export class ChatService {
       includeAudio: request.audio,
       diagnostics: {
         testMode,
-        ...(testMode ? { neutralResponse: neutralText } : {})
+        ...(testMode ? { neutralResponse: neutralText } : {}),
+        ...(typeof llmOutput.metadata?.responseId === "string" ? { responseId: llmOutput.metadata.responseId } : {}),
+        ...(typeof llmOutput.metadata?.providerModel === "string" ? { providerModel: llmOutput.metadata.providerModel } : {})
       },
       ...(ttsOutput ? { ttsOutput } : {})
     });

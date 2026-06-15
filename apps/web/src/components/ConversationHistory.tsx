@@ -3,12 +3,20 @@ import { OutputRenderer } from "./OutputRenderer.js";
 
 export function ConversationHistory({
   history,
-  latestOutputs
+  latestOutputs,
+  pendingPrompt,
+  streamingText
 }: {
   history: ChatMessage[];
   latestOutputs: ContentBlock[];
+  pendingPrompt?: string | undefined;
+  streamingText?: string | undefined;
 }) {
-  const visibleMessages = history.filter((message) => message.role === "user" || message.role === "assistant");
+  const visibleMessages = [
+    ...history.filter((message) => message.role === "user" || message.role === "assistant"),
+    ...(pendingPrompt ? [{ role: "user" as const, content: pendingPrompt }] : []),
+    ...(streamingText ? [{ role: "assistant" as const, content: streamingText }] : [])
+  ];
   const inlineOutputs = latestOutputs.filter((output) => output.type !== "text" && output.type !== "json");
   const lastAssistantIndex = [...visibleMessages]
     .map((message, index) => ({ message, index }))
@@ -32,7 +40,9 @@ export function ConversationHistory({
               <div className={`chat-avatar chat-avatar-${message.role}`}>{message.role === "user" ? "You" : "LaRae"}</div>
               <div className={`chat-bubble chat-bubble-${message.role}`}>
                 <span className="history-role">{message.role === "user" ? "Prompt" : "Reply"}</span>
-                <p className="message-text">{message.content}</p>
+                <p className="message-text" aria-live={message.role === "assistant" && streamingText === message.content ? "polite" : undefined}>
+                  {message.content}
+                </p>
                 {message.role === "assistant" && index === lastAssistantIndex && inlineOutputs.length > 0 ? (
                   <div className="inline-artifact-stack">
                     {inlineOutputs.map((output, outputIndex) => (

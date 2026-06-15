@@ -17,7 +17,7 @@ interface HttpStyleTransferResponse {
 export class HttpStyleTransferProvider implements StyleTransferProvider {
   constructor(private readonly options: HttpStyleTransferProviderOptions) {}
 
-  async transferStyle(input: StyleTransferInput): Promise<StyleTransferOutput> {
+  async transferStyle(input: StyleTransferInput, signal?: AbortSignal): Promise<StyleTransferOutput> {
     const response = await fetch(this.options.endpoint, {
       method: "POST",
       headers: {
@@ -30,7 +30,8 @@ export class HttpStyleTransferProvider implements StyleTransferProvider {
         conversationHistory: input.conversationHistory,
         sourceProvider: input.provider,
         modelId: this.options.modelId
-      })
+      }),
+      ...(signal ? { signal } : {})
     });
 
     if (!response.ok) {

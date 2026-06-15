@@ -111,6 +111,12 @@ The API responds with a structured multimodal payload. Output items are typed an
 - `chart`
 - `file`
 - `tool_call`
+- `tool_result`
+- `source_list`
+- `table`
+- `code`
+- `status`
+- `action`
 
 The response also includes:
 
@@ -118,6 +124,73 @@ The response also includes:
 - `history`
 - `generatedAt`
 - diagnostics such as `messageCount`
+
+OpenAI requests use `gpt-5.4-mini` by default through the Responses API and support opt-in web search, file search,
+Code Interpreter, image generation/editing, image understanding, and strict
+application-owned function calls. Expensive tools are enabled per request from
+the composer rather than enabled globally.
+
+### `POST /api/chat/stream`
+
+Streams neutral OpenAI text deltas and then returns the final styled typed response
+as server-sent events while preserving the existing non-streaming `POST /api/chat`
+endpoint. Internal style-transfer status is never exposed to the user. The client
+can abort the stream with the composer Stop button; cancellation propagates to
+OpenAI and the style-transfer HTTP request.
+
+### `POST /api/uploads`
+
+Accepts multipart uploads in the `files` field. Uploads require an `x-owner-id`
+header, are validated by MIME type and size, and expire automatically. When
+OpenAI is configured, the server also creates short-lived OpenAI file references.
+
+### `POST /api/uploads/vector-stores`
+
+Creates an expiring OpenAI vector store from uploaded asset IDs owned by the
+requesting browser session.
+
+Uploaded files are checked against supported MIME signatures, stored with a
+short TTL, and deleted from OpenAI when removed or expired. Vector stores expire
+after one day and can be explicitly removed with
+`DELETE /api/uploads/vector-stores/:id`.
+
+## OpenAI Reliability Controls
+
+- Recent conversation context is bounded by both message count and character
+  count while keeping complete recent turns.
+- Hosted tools are selected automatically when the prompt clearly requires web
+  search, data analysis, image generation/editing, or uploaded-document access.
+- Application-owned tools remain allow-listed and use strict argument schemas.
+- Requests use retry/backoff, timeout, cancellation, per-browser rate limits,
+  and an in-memory daily estimated-spend limit.
+- These controls are intentionally in memory until database persistence is added.
+
+Relevant environment variables:
+
+```text
+OPENAI_MAX_CONTEXT_MESSAGES=24
+OPENAI_MAX_CONTEXT_CHARACTERS=60000
+OPENAI_DAILY_SPEND_LIMIT_USD=5
+OPENAI_DAILY_TOKEN_LIMIT=1000000
+CHAT_RATE_LIMIT_REQUESTS=30
+CHAT_RATE_LIMIT_WINDOW_MS=60000
+```
+
+The token ceiling works without pricing configuration. Set the current model
+pricing environment values for spend enforcement and estimated-cost metadata
+to work accurately.
+
+## Live OpenAI Integration Tests
+
+Normal `npm test` never makes paid OpenAI requests. To run the opt-in live suite:
+
+```bash
+npm run test:integration:openai -w @persona/api
+```
+
+The suite verifies real Responses API text, streaming, hosted web search with
+sources, image understanding, application function calls, Code Interpreter,
+usage, and response metadata.
 
 ### `GET /api/personas`
 
@@ -147,7 +220,7 @@ LLM and TTS integrations use interfaces so you can swap implementations without 
 - `LLMProvider`
 - `TTSProvider`
 
-Included starters:
+Included providers:
 
 - `OpenAIProvider`
 - `ClaudeProvider`
@@ -155,16 +228,22 @@ Included starters:
 - `OpenAITTSProvider`
 - `LocalTTSProvider`
 
-They are stubbed intentionally but already shaped around typed request/response contracts.
+The OpenAI provider uses the Responses API when `OPENAI_API_KEY` is configured
+and falls back to deterministic stub output in tests or without a key. Claude
+remains a stub, and the local provider uses the configured Ollama endpoint.
 
 ### Tool Calling
 
-The system includes a starter tool registry with placeholder tools for:
+The system separates OpenAI-hosted tools from registered application-owned
+function tools. Hosted tools include:
 
 - web search
 - file search
 - data analysis
 - image generation
+
+The application-owned `current_time` function uses a strict JSON schema and is
+executed server-side with a maximum tool-call iteration limit.
 
 Providers can later map these definitions to native function-calling/tool-calling formats.
 

@@ -10,7 +10,13 @@ export const outputTypeSchema = z.enum([
   "image",
   "chart",
   "file",
-  "tool_call"
+  "tool_call",
+  "tool_result",
+  "source_list",
+  "table",
+  "code",
+  "status",
+  "action"
 ]);
 export type OutputType = z.infer<typeof outputTypeSchema>;
 
@@ -18,7 +24,8 @@ export const toolNameSchema = z.enum([
   "web_search",
   "file_search",
   "data_analysis",
-  "image_generation"
+  "image_generation",
+  "current_time"
 ]);
 export type ToolName = z.infer<typeof toolNameSchema>;
 
@@ -32,7 +39,8 @@ export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export const toolDefinitionSchema = z.object({
   name: toolNameSchema,
   description: z.string(),
-  inputSchema: z.record(z.unknown())
+  inputSchema: z.record(z.unknown()),
+  owner: z.enum(["openai", "application"]).default("application")
 });
 export type ToolDefinition = z.infer<typeof toolDefinitionSchema>;
 
@@ -63,7 +71,10 @@ export const imageOutputSchema = z.object({
   type: z.literal("image"),
   url: z.string(),
   alt: z.string(),
-  prompt: z.string().optional()
+  prompt: z.string().optional(),
+  mimeType: z.string().optional(),
+  fileId: z.string().optional(),
+  metadata: z.record(z.unknown()).optional()
 });
 
 export const chartOutputSchema = z.object({
@@ -78,7 +89,9 @@ export const fileOutputSchema = z.object({
   fileName: z.string(),
   url: z.string(),
   mimeType: z.string(),
-  description: z.string().optional()
+  description: z.string().optional(),
+  fileId: z.string().optional(),
+  metadata: z.record(z.unknown()).optional()
 });
 
 export const toolCallOutputSchema = z.object({
@@ -88,6 +101,57 @@ export const toolCallOutputSchema = z.object({
   status: z.enum(["planned", "completed", "failed"])
 });
 
+export const toolResultOutputSchema = z.object({
+  type: z.literal("tool_result"),
+  toolName: toolNameSchema.or(z.string()),
+  status: z.enum(["completed", "failed", "in_progress"]),
+  result: z.unknown().optional()
+});
+
+export const citationSchema = z.object({
+  title: z.string(),
+  url: z.string().url(),
+  snippet: z.string().optional(),
+  publishedAt: z.string().optional(),
+  sourceType: z.string().optional()
+});
+export type Citation = z.infer<typeof citationSchema>;
+
+export const sourceListOutputSchema = z.object({
+  type: z.literal("source_list"),
+  sources: z.array(citationSchema)
+});
+
+export const tableOutputSchema = z.object({
+  type: z.literal("table"),
+  title: z.string().optional(),
+  columns: z.array(z.string()),
+  rows: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])))
+});
+
+export const codeOutputSchema = z.object({
+  type: z.literal("code"),
+  code: z.string(),
+  language: z.string().optional(),
+  title: z.string().optional()
+});
+
+export const statusOutputSchema = z.object({
+  type: z.literal("status"),
+  status: z.enum(["queued", "in_progress", "completed", "failed"]),
+  message: z.string(),
+  progress: z.number().min(0).max(100).optional()
+});
+
+export const actionOutputSchema = z.object({
+  type: z.literal("action"),
+  id: z.string(),
+  label: z.string(),
+  action: z.string(),
+  arguments: z.record(z.unknown()).optional(),
+  style: z.enum(["primary", "secondary", "danger"]).optional()
+});
+
 export const contentBlockSchema = z.discriminatedUnion("type", [
   textOutputSchema,
   jsonOutputSchema,
@@ -95,9 +159,39 @@ export const contentBlockSchema = z.discriminatedUnion("type", [
   imageOutputSchema,
   chartOutputSchema,
   fileOutputSchema,
-  toolCallOutputSchema
+  toolCallOutputSchema,
+  toolResultOutputSchema,
+  sourceListOutputSchema,
+  tableOutputSchema,
+  codeOutputSchema,
+  statusOutputSchema,
+  actionOutputSchema
 ]);
 export type ContentBlock = z.infer<typeof contentBlockSchema>;
+
+export const uploadedAssetSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["image", "file"]),
+  fileName: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  url: z.string().optional(),
+  openaiFileId: z.string().optional(),
+  vectorStoreId: z.string().optional(),
+  expiresAt: z.string().optional()
+});
+export type UploadedAsset = z.infer<typeof uploadedAssetSchema>;
+
+export const toolOptionsSchema = z.object({
+  webSearch: z.boolean().default(false),
+  fileSearch: z.boolean().default(false),
+  codeInterpreter: z.boolean().default(false),
+  imageGeneration: z.boolean().default(false),
+  appFunctions: z.boolean().default(false),
+  background: z.boolean().default(false),
+  vectorStoreIds: z.array(z.string()).default([])
+});
+export type ToolOptions = z.infer<typeof toolOptionsSchema>;
 
 export const clientContextSchema = z.object({
   locale: z.string().optional(),
@@ -123,7 +217,9 @@ export const chatRequestSchema = z.object({
   conversationId: z.string().optional(),
   history: z.array(chatMessageSchema).default([]),
   requestedOutputs: z.array(outputTypeSchema).optional(),
-  clientContext: clientContextSchema.optional()
+  clientContext: clientContextSchema.optional(),
+  attachments: z.array(uploadedAssetSchema).max(10).optional(),
+  toolOptions: toolOptionsSchema.optional()
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 
@@ -177,7 +273,10 @@ export const llmInputSchema = z.object({
   baseMessages: z.array(chatMessageSchema).optional(),
   userMessage: z.string(),
   toolDefinitions: z.array(toolDefinitionSchema),
-  requestedOutputs: z.array(outputTypeSchema).optional()
+  requestedOutputs: z.array(outputTypeSchema).optional(),
+  attachments: z.array(uploadedAssetSchema).optional(),
+  toolOptions: toolOptionsSchema.optional(),
+  clientContext: clientContextSchema.optional()
 });
 export type LLMInput = z.infer<typeof llmInputSchema>;
 
@@ -187,7 +286,11 @@ export const llmOutputSchema = z.object({
   content: z.array(contentBlockSchema),
   usage: z.object({
     inputTokens: z.number().int().nonnegative(),
-    outputTokens: z.number().int().nonnegative()
+    outputTokens: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative().optional(),
+    cachedInputTokens: z.number().int().nonnegative().optional(),
+    reasoningTokens: z.number().int().nonnegative().optional(),
+    estimatedCostUsd: z.number().nonnegative().optional()
   }).optional(),
   metadata: z.record(z.unknown()).optional()
 });
@@ -236,11 +339,17 @@ export const chatResponseSchema = z.object({
     toolsAvailable: z.array(toolNameSchema),
     messageCount: z.number().int().nonnegative(),
     testMode: z.boolean().optional(),
-    neutralResponse: z.string().optional()
+    neutralResponse: z.string().optional(),
+    responseId: z.string().optional(),
+    providerModel: z.string().optional()
   }),
   usage: z.object({
     inputTokens: z.number().int().nonnegative(),
-    outputTokens: z.number().int().nonnegative()
+    outputTokens: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative().optional(),
+    cachedInputTokens: z.number().int().nonnegative().optional(),
+    reasoningTokens: z.number().int().nonnegative().optional(),
+    estimatedCostUsd: z.number().nonnegative().optional()
   }).optional()
 });
 export type ChatResponse = z.infer<typeof chatResponseSchema>;

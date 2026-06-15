@@ -6,10 +6,11 @@ type FileBlockProps = {
 };
 
 export function FileBlock({ fileName, url, mimeType, description }: FileBlockProps) {
+  const resolvedUrl = url.startsWith("/") ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}` : url;
   return (
     <div className="output-file">
       <div className="output-label">{mimeType}</div>
-      <a href={url} target="_blank" rel="noreferrer">
+      <a href={resolvedUrl} target="_blank" rel="noreferrer">
         {fileName}
       </a>
       {description ? <p>{description}</p> : null}

@@ -1,8 +1,11 @@
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import multer from "multer";
 import { ZodError } from "zod";
 import { chatRouter } from "./routes/chat.routes.js";
 import { personaRouter } from "./routes/persona.routes.js";
+import { uploadRouter } from "./routes/upload.routes.js";
+import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
 import { HttpError } from "./utils/httpError.js";
 import { logger } from "./utils/logger.js";
 
@@ -18,8 +21,19 @@ export function createApp() {
 
   app.use("/api/chat", chatRouter);
   app.use("/api/personas", personaRouter);
+  app.use("/api/uploads", uploadRouter);
+  app.get("/api/openai-artifacts/:token", (request, response, next) => {
+    getOpenAIArtifact(request, response).catch(next);
+  });
 
   app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+    if (error instanceof multer.MulterError) {
+      response.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({
+        error: error.message,
+        code: error.code
+      });
+      return;
+    }
     if (error instanceof ZodError) {
       response.status(400).json({
         error: "Validation failed",

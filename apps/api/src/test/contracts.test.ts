@@ -113,4 +113,28 @@ describe("shared schemas", () => {
     expect(parsed.baseSystemPrompt).toBe("Persona-lite prompt");
     expect(parsed.baseMessages).toHaveLength(2);
   });
+
+  it("accepts OpenAI artifact blocks and per-request tool options", () => {
+    const parsed = chatRequestSchema.parse({
+      personaId: "larae",
+      message: "Analyze this file and cite sources.",
+      provider: "openai",
+      attachments: [{
+        id: "asset_1",
+        kind: "file",
+        fileName: "data.csv",
+        mimeType: "text/csv",
+        sizeBytes: 42,
+        openaiFileId: "file_1"
+      }],
+      toolOptions: {
+        webSearch: true,
+        codeInterpreter: true
+      }
+    });
+
+    expect(parsed.attachments?.[0]?.openaiFileId).toBe("file_1");
+    expect(parsed.toolOptions?.webSearch).toBe(true);
+    expect(parsed.toolOptions?.vectorStoreIds).toEqual([]);
+  });
 });

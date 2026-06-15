@@ -7,3 +7,4 @@ coverage
 __pycache__/
 *.pyc
 ml/style-transfer/datasets/raw/audio/
+apps/api/uploads/

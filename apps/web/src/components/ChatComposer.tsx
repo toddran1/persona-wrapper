@@ -1,5 +1,5 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
-import type { ProviderId } from "@persona/shared";
+import type { ProviderId, ToolOptions } from "@persona/shared";
 import { useId, useRef, useState } from "react";
 
 type ChatComposerProps = {
@@ -12,7 +12,8 @@ type ChatComposerProps = {
   onProviderChange: (provider: ProviderId) => void;
   onAudioChange: (audio: boolean) => void;
   onRequestLocation: () => void;
-  onSubmit: (message: string) => Promise<void>;
+  onCancel: () => void;
+  onSubmit: (message: string, files: File[], toolOptions: ToolOptions) => Promise<void>;
 };
 
 const samplePrompts = [
@@ -24,7 +25,16 @@ const samplePrompts = [
 
 export function ChatComposer(props: ChatComposerProps) {
   const [message, setMessage] = useState("");
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [toolOptions, setToolOptions] = useState<ToolOptions>({
+    webSearch: false,
+    fileSearch: false,
+    codeInterpreter: false,
+    imageGeneration: false,
+    appFunctions: true,
+    background: false,
+    vectorStoreIds: []
+  });
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number | undefined>();
   const fileInputId = useId();
@@ -33,7 +43,7 @@ export function ChatComposer(props: ChatComposerProps) {
 
   function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>): void {
     const files = Array.from(event.target.files ?? []);
-    setAttachments(files.map((file) => file.name));
+    setAttachments(files);
   }
 
   function handleRemoveAttachment(attachmentIndex: number): void {
@@ -50,9 +60,11 @@ export function ChatComposer(props: ChatComposerProps) {
       return;
     }
 
-    await props.onSubmit(submittedMessage);
+    await props.onSubmit(submittedMessage, attachments, toolOptions);
     setPromptHistory((currentHistory) => [...currentHistory, submittedMessage]);
     setMessage("");
+    setAttachments([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setHistoryIndex(undefined);
     draftBeforeHistoryRef.current = "";
   }
@@ -141,6 +153,26 @@ export function ChatComposer(props: ChatComposerProps) {
         </button>
       </div>
       {props.locationError ? <p className="composer-context-error">{props.locationError}</p> : null}
+      {props.provider === "openai" ? (
+        <fieldset className="tool-options">
+          <legend>OpenAI tools</legend>
+          {([
+            ["webSearch", "Web"],
+            ["fileSearch", "File search"],
+            ["codeInterpreter", "Analysis"],
+            ["imageGeneration", "Images"]
+          ] as const).map(([key, label]) => (
+            <label key={key} className="toggle">
+              <input
+                type="checkbox"
+                checked={toolOptions[key]}
+                onChange={(event) => setToolOptions((current) => ({ ...current, [key]: event.target.checked }))}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
       <div className="prompt-shell">
         <textarea
           rows={4}
@@ -155,12 +187,12 @@ export function ChatComposer(props: ChatComposerProps) {
         {attachments.length > 0 ? (
           <div className="attachment-row">
             {attachments.map((attachment, index) => (
-              <span key={`${attachment}-${index}`} className="attachment-chip">
-                <span className="attachment-chip-label">{attachment}</span>
+              <span key={`${attachment.name}-${index}`} className="attachment-chip">
+                <span className="attachment-chip-label">{attachment.name}</span>
                 <button
                   type="button"
                   className="attachment-remove-button"
-                  aria-label={`Remove ${attachment}`}
+                  aria-label={`Remove ${attachment.name}`}
                   onClick={() => handleRemoveAttachment(index)}
                 >
                   ×
@@ -183,9 +215,15 @@ export function ChatComposer(props: ChatComposerProps) {
               +
             </label>
           </div>
-          <button type="submit" className="send-button" disabled={props.loading} aria-label="Send message">
-            {props.loading ? "…" : "Send"}
-          </button>
+          {props.loading ? (
+            <button type="button" className="send-button stop-button" onClick={props.onCancel} aria-label="Stop response">
+              Stop
+            </button>
+          ) : (
+            <button type="submit" className="send-button" aria-label="Send message">
+              Send
+            </button>
+          )}
         </div>
       </div>
       <div className="sample-prompt-row">

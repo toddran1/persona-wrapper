@@ -1,6 +1,23 @@
-import type { ChatResponse, ClientContext, PersonaDefinition, PersonaSummary, ProviderId } from "@persona/shared";
+import type {
+  ChatResponse,
+  ClientContext,
+  PersonaDefinition,
+  PersonaSummary,
+  ProviderId,
+  ToolOptions,
+  UploadedAsset
+} from "@persona/shared";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+const OWNER_ID_KEY = "persona-wrapper-owner-id";
+
+function ownerId(): string {
+  const existing = localStorage.getItem(OWNER_ID_KEY);
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  localStorage.setItem(OWNER_ID_KEY, created);
+  return created;
+}
 
 export type ChatPayload = {
   personaId: string;
@@ -10,6 +27,8 @@ export type ChatPayload = {
   testMode?: boolean;
   conversationId?: string;
   clientContext?: ClientContext;
+  attachments?: UploadedAsset[];
+  toolOptions?: ToolOptions;
 };
 
 export type StyleTransferEvalCapturePayload = {
@@ -53,7 +72,8 @@ export type ReviewRecordDeletePayload = {
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "x-owner-id": ownerId()
     },
     ...init
   });
@@ -65,7 +85,88 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { "x-owner-id": ownerId() },
+    ...init
+  });
+  if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+}
+
+async function streamChat(
+  payload: ChatPayload,
+  onTextDelta: (delta: string) => void,
+  signal?: AbortSignal
+): Promise<ChatResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-owner-id": ownerId()
+    },
+    body: JSON.stringify(payload),
+    ...(signal ? { signal } : {})
+  });
+  if (!response.ok || !response.body) throw new Error(`Streaming request failed with status ${response.status}`);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResponse: ChatResponse | undefined;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+
+    for (const frame of frames) {
+      let eventName = "";
+      let data = "";
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("event:")) eventName = line.slice(6).trim();
+        if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!data) continue;
+      const parsed = JSON.parse(data) as Record<string, unknown>;
+      if (eventName === "delta" && typeof parsed.delta === "string") onTextDelta(parsed.delta);
+      if (eventName === "response") finalResponse = parsed as unknown as ChatResponse;
+      if (eventName === "error") throw new Error(typeof parsed.message === "string" ? parsed.message : "Streaming request failed.");
+    }
+
+    if (done) break;
+  }
+
+  if (!finalResponse) throw new Error("Streaming request ended without a final response.");
+  return finalResponse;
+}
+
 export const api = {
+  uploadFiles: async (files: File[]): Promise<UploadedAsset[]> => {
+    const body = new FormData();
+    files.forEach((file) => body.append("files", file));
+    const response = await fetch(`${API_BASE_URL}/api/uploads`, {
+      method: "POST",
+      headers: { "x-owner-id": ownerId() },
+      body
+    });
+    if (!response.ok) throw new Error(`Upload failed with status ${response.status}`);
+    const payload = await response.json() as { assets: UploadedAsset[] };
+    return payload.assets;
+  },
+  createVectorStore: async (assetIds: string[], name?: string): Promise<{ id: string; expiresAt: string }> => {
+    const payload = await requestJson<{ vectorStore: { id: string; expiresAt: string } }>("/api/uploads/vector-stores", {
+      method: "POST",
+      body: JSON.stringify({ assetIds, name })
+    });
+    return payload.vectorStore;
+  },
+  deleteUpload: async (assetId: string): Promise<void> => {
+    await requestNoContent(`/api/uploads/${assetId}`, { method: "DELETE" });
+  },
+  deleteVectorStore: async (vectorStoreId: string): Promise<void> => {
+    await requestNoContent(`/api/uploads/vector-stores/${vectorStoreId}`, { method: "DELETE" });
+  },
   getPersonas: async (): Promise<PersonaSummary[]> => {
     const payload = await requestJson<{ personas: PersonaSummary[] }>("/api/personas");
     return payload.personas;
@@ -74,11 +175,13 @@ export const api = {
     const payload = await requestJson<{ persona: PersonaDefinition }>(`/api/personas/${id}`);
     return payload.persona;
   },
-  sendChat: async (payload: ChatPayload): Promise<ChatResponse> =>
+  sendChat: async (payload: ChatPayload, signal?: AbortSignal): Promise<ChatResponse> =>
     requestJson<ChatResponse>("/api/chat", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      ...(signal ? { signal } : {})
     }),
+  sendChatStream: streamChat,
   saveStyleTransferEval: async (
     payload: StyleTransferEvalCapturePayload
   ): Promise<{ id: string; path: string }> =>

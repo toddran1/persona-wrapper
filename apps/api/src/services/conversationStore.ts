@@ -1,12 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { ChatMessage } from "@persona/shared";
+import { env } from "../config/env.js";
 
 type ConversationRecord = {
   id: string;
   messages: ChatMessage[];
 };
-
-const MAX_PROMPT_HISTORY_MESSAGES = 12;
 
 export class ConversationStore {
   private readonly conversations = new Map<string, ConversationRecord>();
@@ -30,7 +29,18 @@ export class ConversationStore {
   }
 
   getPromptHistory(record: ConversationRecord): ChatMessage[] {
-    return record.messages.slice(-MAX_PROMPT_HISTORY_MESSAGES);
+    const selected: ChatMessage[] = [];
+    let characters = 0;
+    for (let index = record.messages.length - 1; index >= 0; index -= 1) {
+      const message = record.messages[index];
+      if (!message) continue;
+      if (selected.length >= env.OPENAI_MAX_CONTEXT_MESSAGES) break;
+      if (selected.length > 0 && characters + message.content.length > env.OPENAI_MAX_CONTEXT_CHARACTERS) break;
+      selected.unshift(message);
+      characters += message.content.length;
+    }
+    while (selected[0]?.role === "assistant" || selected[0]?.role === "tool") selected.shift();
+    return selected;
   }
 
   appendTurn(record: ConversationRecord, messages: ChatMessage[]): ConversationRecord {
@@ -47,4 +57,3 @@ export class ConversationStore {
     this.conversations.delete(conversationId);
   }
 }
-

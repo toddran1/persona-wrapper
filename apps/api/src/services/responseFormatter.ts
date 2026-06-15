@@ -16,6 +16,8 @@ export class ResponseFormatter {
     diagnostics?: {
       testMode?: boolean;
       neutralResponse?: string;
+      responseId?: string;
+      providerModel?: string;
     };
   }): ChatResponse {
     const outputs: ContentBlock[] = [...params.llmOutput.content];
@@ -55,7 +57,9 @@ export class ResponseFormatter {
         toolsAvailable: params.persona.defaultTools,
         messageCount: params.history.length,
         ...(params.diagnostics?.testMode !== undefined ? { testMode: params.diagnostics.testMode } : {}),
-        ...(params.diagnostics?.neutralResponse ? { neutralResponse: params.diagnostics.neutralResponse } : {})
+        ...(params.diagnostics?.neutralResponse ? { neutralResponse: params.diagnostics.neutralResponse } : {}),
+        ...(params.diagnostics?.responseId ? { responseId: params.diagnostics.responseId } : {}),
+        ...(params.diagnostics?.providerModel ? { providerModel: params.diagnostics.providerModel } : {})
       },
       usage: params.llmOutput.usage
     };

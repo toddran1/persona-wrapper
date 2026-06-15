@@ -63,7 +63,18 @@ export class PersonaEngine {
       baseMessages,
       userMessage: request.message,
       toolDefinitions: getToolsByNames(persona.defaultTools),
-      requestedOutputs: request.requestedOutputs
+      requestedOutputs: request.requestedOutputs,
+      attachments: request.attachments ?? [],
+      toolOptions: request.toolOptions ?? {
+        webSearch: false,
+        fileSearch: false,
+        codeInterpreter: false,
+        imageGeneration: false,
+        appFunctions: true,
+        background: false,
+        vectorStoreIds: []
+      },
+      clientContext: request.clientContext
     };
   }
 }

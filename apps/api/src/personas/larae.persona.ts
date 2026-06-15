@@ -61,5 +61,5 @@ export const laraePersona: PersonaDefinition = {
     defaultVoiceId: "larae-glam",
     speakingStyle: "sassy, animated, rapid-fire, and theatrical"
   },
-  defaultTools: ["web_search", "file_search", "data_analysis", "image_generation"]
+  defaultTools: ["web_search", "file_search", "data_analysis", "image_generation", "current_time"]
 };
