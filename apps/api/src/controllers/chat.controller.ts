@@ -36,7 +36,7 @@ const promoteRejectedPairSchema = z.object({
 export async function postChat(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
   usageControlService.check(identity);
-  const payload = selectTools(resolveOwnedChatAssets(request));
+  const payload = await selectTools(resolveOwnedChatAssets(request));
   const controller = requestAbortController(request);
   const result = await chatService.handleChat(payload, undefined, controller.signal);
   usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
@@ -46,7 +46,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
 export async function postChatStream(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
   usageControlService.check(identity);
-  const payload = selectTools(resolveOwnedChatAssets(request));
+  const payload = await selectTools(resolveOwnedChatAssets(request));
   response.status(200);
   response.setHeader("Content-Type", "text/event-stream");
   response.setHeader("Cache-Control", "no-cache");

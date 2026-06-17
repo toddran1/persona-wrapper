@@ -8,7 +8,7 @@ describe("shared schemas", () => {
       message: "Hello"
     });
 
-    expect(parsed.provider).toBe("local");
+    expect(parsed.provider).toBe("openai");
     expect(parsed.audio).toBe(false);
     expect(parsed.history).toEqual([]);
   });

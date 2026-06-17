@@ -27,6 +27,8 @@ const envSchema = z.object({
   OPENAI_MAX_TOOL_ITERATIONS: z.coerce.number().int().min(1).max(10).default(4),
   OPENAI_MAX_CONTEXT_MESSAGES: z.coerce.number().int().min(2).max(100).default(24),
   OPENAI_MAX_CONTEXT_CHARACTERS: z.coerce.number().int().min(1000).default(60000),
+  OPENAI_TOOL_ROUTER_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  OPENAI_TOOL_ROUTER_MODEL: z.string().default("gpt-5.4-nano"),
   OPENAI_ENABLE_WEB_SEARCH: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_ENABLE_FILE_SEARCH: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_ENABLE_CODE_INTERPRETER: z.preprocess(stringToBoolean, z.boolean().default(true)),

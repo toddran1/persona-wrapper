@@ -27,59 +27,301 @@ PROTECTED_NAME_PATTERN = re.compile(
     r"\b(?:[A-Z][A-Za-z0-9&'-]*|[A-Z]{2,})"
     r"(?:\s+(?:at|of|the|and|a|an|in|to|&|[A-Z][A-Za-z0-9&'-]*|[A-Z]{2,}))*"
 )
-PROTECTED_NAME_HINTS = {
+ENTITY_TYPE_HINTS = {
+    "act",
+    "administration",
+    "agency",
+    "album",
+    "airport",
+    "app",
+    "arena",
+    "award",
+    "band",
+    "bill",
+    "book",
     "botanic",
     "botanical",
+    "brand",
+    "building",
+    "campus",
+    "casino",
+    "case",
+    "cathedral",
+    "center",
+    "chapter",
+    "channel",
+    "character",
+    "championship",
+    "church",
+    "city",
+    "clinic",
+    "club",
+    "college",
+    "company",
+    "conference",
+    "country",
+    "court",
+    "courthouse",
+    "county",
+    "department",
+    "district",
+    "episode",
+    "festival",
+    "film",
+    "finals",
+    "foundation",
+    "gallery",
+    "game",
+    "hall",
+    "hospital",
+    "hotel",
+    "institute",
+    "landmark",
+    "law",
+    "league",
+    "library",
+    "line",
+    "lounge",
+    "mall",
+    "market",
+    "model",
+    "mosque",
     "museum",
-    "plaza",
-    "stadium",
+    "neighborhood",
+    "network",
+    "office",
+    "organization",
     "park",
-    "garden",
-    "gardens",
-    "conservatory",
+    "platform",
+    "plaza",
+    "podcast",
+    "product",
+    "program",
+    "project",
+    "resort",
+    "restaurant",
+    "school",
+    "scripture",
+    "series",
+    "show",
+    "song",
+    "stadium",
+    "state",
+    "station",
+    "street",
+    "studio",
     "team",
-    "cowboys",
-    "dallas",
-    "texas",
-    "bible",
-    "genesis",
+    "temple",
+    "theater",
+    "theatre",
+    "title",
+    "tour",
+    "tournament",
+    "trail",
+    "university",
+    "venue",
+    "verse",
+    "zoo",
 }
-PROFANITY_PATTERN = re.compile(
-    r"\b(?:motherfucker|motherfucking|fucking|fuck|bitch|shit|ass|hoe)\b",
-    re.IGNORECASE,
-)
-VENUE_WORDS = {
+PLACE_TYPE_WORDS = {
     "aquarium",
     "arena",
+    "bar",
+    "beach",
     "botanic",
     "botanical",
+    "bridge",
+    "campus",
     "casino",
+    "cathedral",
     "center",
+    "church",
+    "clinic",
     "conservatory",
+    "courthouse",
+    "gallery",
     "garden",
     "gardens",
     "hall",
+    "hospital",
     "hotel",
+    "library",
+    "lounge",
+    "market",
+    "mosque",
     "museum",
     "park",
     "plaza",
     "resort",
+    "restaurant",
     "stadium",
+    "station",
+    "temple",
     "theater",
     "theatre",
+    "trail",
+    "zoo",
 }
+ENTITY_TRAILING_WORDS = {
+    "agency",
+    "album",
+    "app",
+    "association",
+    "band",
+    "bank",
+    "bill",
+    "book",
+    "brand",
+    "campus",
+    "case",
+    "cathedral",
+    "center",
+    "championship",
+    "channel",
+    "church",
+    "city",
+    "club",
+    "college",
+    "company",
+    "conference",
+    "corporation",
+    "court",
+    "courthouse",
+    "county",
+    "department",
+    "district",
+    "festival",
+    "finals",
+    "foundation",
+    "gallery",
+    "game",
+    "garden",
+    "gardens",
+    "group",
+    "hospital",
+    "hotel",
+    "institute",
+    "law",
+    "league",
+    "library",
+    "line",
+    "lounge",
+    "mall",
+    "market",
+    "model",
+    "mosque",
+    "museum",
+    "network",
+    "office",
+    "park",
+    "platform",
+    "plaza",
+    "podcast",
+    "program",
+    "project",
+    "restaurant",
+    "school",
+    "series",
+    "show",
+    "song",
+    "stadium",
+    "state",
+    "station",
+    "studio",
+    "team",
+    "temple",
+    "theater",
+    "theatre",
+    "tour",
+    "tournament",
+    "trail",
+    "university",
+    "zoo",
+}
+PROFANITY_PATTERN = re.compile(
+    r"\b(?:motherfucker|motherfuckin'|motherfucking|fucking|fuckin'|fuck|bitch|shit|ass|damn|hoe|bitchass|stupidass|bitch-ass|baddass|bitchy)\b",
+    re.IGNORECASE,
+)
+MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
+BARE_URL_PATTERN = re.compile(r"https?://\S+")
 NAME_CONNECTOR_WORDS = {"a", "an", "and", "at", "in", "of", "on", "the", "to"}
 LEADING_NON_NAME_WORDS = {"check", "consider", "explore", "go", "hit", "see", "try", "visit"}
 TRAILING_NON_NAME_WORDS = {"a", "an", "and", "at", "in", "of", "on", "the", "to"}
+COMMON_NON_NAME_SINGLETONS = {
+    "a",
+    "about",
+    "after",
+    "also",
+    "and",
+    "answer",
+    "as",
+    "at",
+    "back",
+    "but",
+    "by",
+    "can",
+    "could",
+    "day",
+    "do",
+    "does",
+    "first",
+    "for",
+    "from",
+    "give",
+    "has",
+    "have",
+    "here",
+    "how",
+    "if",
+    "in",
+    "is",
+    "it",
+    "last",
+    "like",
+    "make",
+    "may",
+    "me",
+    "next",
+    "no",
+    "not",
+    "now",
+    "of",
+    "ok",
+    "on",
+    "one",
+    "or",
+    "second",
+    "so",
+    "some",
+    "sure",
+    "tell",
+    "that",
+    "the",
+    "there",
+    "this",
+    "to",
+    "use",
+    "what",
+    "when",
+    "where",
+    "who",
+    "why",
+    "with",
+    "yes",
+}
 STYLE_NAME_FILLER_WORDS = {
     "badass",
     "baddass",
+    "bitch-ass",
     "baby",
     "bitch",
+    "bitchass",
     "bitchy",
     "damn",
     "fuck",
     "fucking",
+    "fuckin'",
+    "motherfuckin'",
     "motherfucker",
     "motherfucking",
 }
@@ -95,7 +337,8 @@ PROTECTED_LITERAL_PATTERN = re.compile(
     r"\b\d+(?:\.\d+)?\s*(?:°\s*)?(?:C|F|Celsius|Fahrenheit)\b|"
     r"\b\d+(?:\.\d+)?\s*(?:minutes?|hours?|days?|weeks?|months?|years?)\b|"
     r"\$\d+(?:,\d{3})*(?:\.\d{2})?\b|"
-    r"\b\d+(?:\.\d+)?%\b",
+    r"\b\d+(?:\.\d+)?%\b|"
+    r"\b\d+(?:\.\d+)?\b",
     re.IGNORECASE,
 )
 VERBATIM_REQUEST_PATTERN = re.compile(
@@ -166,12 +409,22 @@ def should_protect_name(candidate: str) -> bool:
     words = candidate.split()
     lowered_words = {word.lower().strip(".,:;!?") for word in words}
     title_words = [word for word in words if word[:1].isupper() and word.lower() not in {"at", "of", "the", "and"}]
-    if len(words) >= 2 and (lowered_words & (PROTECTED_NAME_HINTS | VENUE_WORDS)):
+    if len(words) == 1:
+        lowered = candidate.lower().strip(".,:;!?")
+        return (
+            len(candidate) >= 3
+            and lowered not in COMMON_NON_NAME_SINGLETONS
+            and not re.fullmatch(r"(?:AM|PM|am|pm)", candidate)
+            and (candidate[:1].isupper() or candidate.isupper() or lowered in ENTITY_TYPE_HINTS)
+        )
+    if len(words) >= 2 and (lowered_words & (ENTITY_TYPE_HINTS | PLACE_TYPE_WORDS)):
+        return True
+    if len(words) >= 2 and words[-1].lower().strip(".,:;!?") in ENTITY_TRAILING_WORDS:
         return True
     if len(title_words) >= 2 and len(words) <= 4:
         return True
     lowered = candidate.lower()
-    return candidate.isupper() or "&" in candidate or lowered in PROTECTED_NAME_HINTS
+    return candidate.isupper() or "&" in candidate or lowered in ENTITY_TYPE_HINTS
 
 
 def clean_protected_name_candidate(candidate: str) -> str:
@@ -205,8 +458,10 @@ def protected_names_prompt(names: list[str]) -> str:
         return ""
     protected = "\n".join(f"- {name}" for name in names)
     return (
-        "Protected names that must be copied exactly if mentioned. Do not rename, replace, "
-        "paraphrase, split, or insert profanity into these names:\n"
+        "Protected named entities that must be copied exactly if mentioned. These can be people, "
+        "places, characters, brands, teams, organizations, titles, books, songs, albums, products, "
+        "or user-selected options. Do not rename, replace, paraphrase, split, substitute with another "
+        "entity/option, or insert profanity into these entities:\n"
         f"{protected}\n\n"
     )
 
@@ -230,7 +485,10 @@ def protected_literals_prompt(literals: list[str]) -> str:
     protected = "\n".join(f"- {literal}" for literal in literals)
     return (
         "Protected dates, times, numbers, measurements, and amounts that must be copied exactly "
-        "if mentioned. Do not spell them out, rewrite them, approximate them, or change formatting:\n"
+        "if mentioned. Treat each protected literal as a frozen substring, not as language to style. "
+        "Do not add profanity, slang, emphasis markers, Markdown, ordinal suffixes, commas, spaces, "
+        "asterisks, hyphens, words, or jokes inside these literals. Do not spell them out, rewrite "
+        "them, approximate them, or change formatting:\n"
         f"{protected}\n\n"
     )
 
@@ -258,7 +516,7 @@ def restore_time_literal(text: str, literal: str) -> str:
 def restore_month_date_literal(text: str, literal: str) -> str:
     month_match = re.match(
         r"^(January|February|March|April|May|June|July|August|September|October|November|December)\s+"
-        r"\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}$",
+        r"(\d{1,2})(?:st|nd|rd|th)?,?\s+((?:19|20)\d{2})$",
         literal,
         re.IGNORECASE,
     )
@@ -266,11 +524,128 @@ def restore_month_date_literal(text: str, literal: str) -> str:
         return text
 
     month = month_match.group(1)
+    day = month_match.group(2)
+    year = month_match.group(3)
+    corrupted_year_pattern = r"\D*".join(re.escape(character) for character in year)
     pattern = re.compile(
-        rf"\b{re.escape(month)}\s+(?:\d{{1,2}}(?:st|nd|rd|th)?,?\s+)?\d{{4}}\b",
+        rf"\b{re.escape(month)}\s+{re.escape(day)}(?:st|nd|rd|th)?,?\s+{corrupted_year_pattern}\b",
+        re.IGNORECASE,
+    )
+    updated = pattern.sub(literal, text, count=1)
+    if updated != text:
+        return updated
+
+    loose_month_date_pattern = re.compile(
+        rf"\b{re.escape(month)}\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,\s*\d{{1,4}}){{0,2}}",
+        re.IGNORECASE,
+    )
+    return loose_month_date_pattern.sub(literal, text, count=1)
+
+
+def restore_numeric_literal(text: str, literal: str) -> str:
+    if not re.fullmatch(r"\d+(?:\.\d+)?%?", literal):
+        return text
+
+    numeric = literal.rstrip("%")
+    suffix = "%" if literal.endswith("%") else ""
+    if "." in numeric:
+        whole, decimal = numeric.split(".", 1)
+        digit_pattern = r"\D*".join(re.escape(character) for character in whole)
+        decimal_pattern = r"[\.,]\D*".join([digit_pattern, r"\D*".join(re.escape(character) for character in decimal)])
+    else:
+        decimal_pattern = r"\D*".join(re.escape(character) for character in numeric)
+
+    ordinal_suffix = r"(?:st|nd|rd|th)?"
+    suffix_pattern = r"\s*%" if suffix else ""
+    pattern = re.compile(rf"(?<!\d){decimal_pattern}{ordinal_suffix}{suffix_pattern}(?!\d)", re.IGNORECASE)
+    return pattern.sub(literal, text, count=1)
+
+
+def year_tail_words(value: int) -> list[str]:
+    ones = {
+        0: "zero",
+        1: "one",
+        2: "two",
+        3: "three",
+        4: "four",
+        5: "five",
+        6: "six",
+        7: "seven",
+        8: "eight",
+        9: "nine",
+    }
+    teens = {
+        10: "ten",
+        11: "eleven",
+        12: "twelve",
+        13: "thirteen",
+        14: "fourteen",
+        15: "fifteen",
+        16: "sixteen",
+        17: "seventeen",
+        18: "eighteen",
+        19: "nineteen",
+    }
+    tens = {
+        20: "twenty",
+        30: "thirty",
+        40: "forty",
+        50: "fifty",
+        60: "sixty",
+        70: "seventy",
+        80: "eighty",
+        90: "ninety",
+    }
+    if value < 10:
+        return [f"oh {ones[value]}", f"o {ones[value]}", ones[value]]
+    if value in teens:
+        return [teens[value], f"teen {ones[value % 10]}"] if value > 10 else [teens[value]]
+    ten_value = (value // 10) * 10
+    one_value = value % 10
+    if one_value == 0:
+        return [tens[ten_value]]
+    return [f"{tens[ten_value]} {ones[one_value]}", f"{tens[ten_value]}-{ones[one_value]}"]
+
+
+def flexible_word_pattern(phrase: str) -> str:
+    return r"\W*".join(re.escape(part) for part in phrase.split())
+
+
+def restore_wordified_year_literal(text: str, literal: str) -> str:
+    if not re.fullmatch(r"(?:19|20)\d{2}", literal):
+        return text
+
+    year = int(literal)
+    century = literal[:2]
+    tail = int(literal[2:])
+    century_patterns = [r"\D*".join(re.escape(character) for character in century)]
+    if century == "20":
+        century_patterns.extend([r"twenty", r"two\W*thousand"])
+    elif century == "19":
+        century_patterns.extend([r"nineteen"])
+
+    tail_patterns = [r"\D*".join(re.escape(character) for character in f"{tail:02d}")]
+    tail_patterns.extend(flexible_word_pattern(words) for words in year_tail_words(tail))
+    if year >= 2000 and year <= 2009:
+        tail_patterns.extend(flexible_word_pattern(words) for words in year_tail_words(year - 2000))
+
+    pattern = re.compile(
+        rf"(?<!\d)(?:{'|'.join(century_patterns)})\W*(?:{'|'.join(tail_patterns)})(?!\d)",
         re.IGNORECASE,
     )
     return pattern.sub(literal, text, count=1)
+
+
+def strip_untrusted_links(text: str, neutral_text: str) -> str:
+    neutral_urls = set(BARE_URL_PATTERN.findall(neutral_text))
+
+    def replace_link(match: re.Match[str]) -> str:
+        label = match.group(1)
+        url = match.group(2)
+        return match.group(0) if url in neutral_urls else label
+
+    stripped = MARKDOWN_LINK_PATTERN.sub(replace_link, text)
+    return BARE_URL_PATTERN.sub(lambda match: match.group(0) if match.group(0) in neutral_urls else "", stripped)
 
 
 def restore_protected_literals(text: str, literals: list[str]) -> str:
@@ -286,6 +661,16 @@ def restore_protected_literals(text: str, literals: list[str]) -> str:
             continue
 
         updated = restore_month_date_literal(restored, literal)
+        if updated != restored:
+            restored = updated
+            continue
+
+        updated = restore_numeric_literal(restored, literal)
+        if updated != restored:
+            restored = updated
+            continue
+
+        updated = restore_wordified_year_literal(restored, literal)
         if updated != restored:
             restored = updated
 
@@ -458,7 +843,7 @@ def restore_venue_names(text: str, names: list[str]) -> str:
         if re.search(re.escape(name), restored):
             continue
 
-        venue_words = [word for word in reversed(words) if word.lower() in VENUE_WORDS]
+        venue_words = [word for word in reversed(words) if word.lower() in PLACE_TYPE_WORDS]
         if not venue_words:
             continue
 
@@ -522,7 +907,7 @@ def remove_duplicate_name_expansions(text: str, names: list[str]) -> str:
             for raw_word in tail_words:
                 word = raw_word.strip()
                 lowered = word.lower().strip("&'-")
-                is_title_like = word[:1].isupper() or lowered in NAME_CONNECTOR_WORDS or lowered in STYLE_NAME_FILLER_WORDS or lowered in VENUE_WORDS
+                is_title_like = word[:1].isupper() or lowered in NAME_CONNECTOR_WORDS or lowered in STYLE_NAME_FILLER_WORDS or lowered in PLACE_TYPE_WORDS
                 if not is_title_like:
                     break
                 duplicate_words.append(raw_word)
@@ -534,7 +919,7 @@ def remove_duplicate_name_expansions(text: str, names: list[str]) -> str:
                 continue
 
             overlap = len(name_tokens & tail_tokens)
-            has_venue_token = bool(tail_tokens & VENUE_WORDS)
+            has_venue_token = bool(tail_tokens & PLACE_TYPE_WORDS)
             has_style_filler = any(word in duplicate_tail.lower() for word in STYLE_NAME_FILLER_WORDS)
             is_probable_duplicate = overlap >= 1 and (has_venue_token or has_style_filler or overlap >= 2)
             if not is_probable_duplicate:
@@ -614,6 +999,14 @@ def restore_protected_names(text: str, names: list[str]) -> str:
     return remove_duplicate_name_suffixes(restored, names)
 
 
+def missing_protected_names(text: str, names: list[str]) -> list[str]:
+    missing: list[str] = []
+    for name in sorted(names, key=len, reverse=True):
+        if not re.search(rf"\b{re.escape(name)}\b", text, re.IGNORECASE):
+            missing.append(name)
+    return missing
+
+
 def create_app(args: argparse.Namespace) -> FastAPI:
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=args.adapter,
@@ -667,9 +1060,21 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                     "Use the target persona voice only.\n"
                     "Preserve every factual claim exactly. Keep all names, dates, years, numbers, "
                     "locations, durations, and order of events unchanged. Do not add new facts. "
+                    "Dates, times, years, numbers, measurements, and amounts are not style targets; "
+                    "copy them exactly from the neutral answer with the same digits and formatting. "
+                    "Never turn digits into words, words into digits, add ordinal suffixes, split "
+                    "digits with Markdown, or insert slang/profanity inside a date or number. "
+                    "Do not create citations, links, source names, URLs, or markdown link syntax. "
+                    "If the neutral answer has no URL, the styled answer must have no URL. If the "
+                    "neutral answer has citation metadata, leave it outside style transfer and do "
+                    "not rewrite it in prose. "
                     "Preserve the gender, title, role, and type of every person, group, place, brand, "
                     "team, and object. Do not call men women, women men, teams people, places people, "
                     "or objects people unless the neutral answer does. "
+                    "People, places, characters, brands, teams, organizations, titles, books, songs, "
+                    "albums, products, and user-selected options are content, not style. Copy them as "
+                    "the same entity or option; do not swap one for another even if another option "
+                    "sounds more dramatic or familiar. "
                     "Do not make jokes that contradict the neutral answer. Do not imply uncertainty "
                     "when the neutral answer is certain. If the neutral answer is factual, keep the "
                     "facts intact and only change tone, rhythm, and attitude. Preserve the neutral "
@@ -750,8 +1155,39 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             ).to("cuda")
             styled_text = generate_styled_text(retry_max_new_tokens, strict_retry=True)
             retried_for_length = True
-        styled_text = restore_protected_names(styled_text, protected_names)
-        styled_text = restore_protected_literals(styled_text, protected_literals)
+
+        def post_process_generated_text(generated_text: str) -> str:
+            processed = strip_untrusted_links(generated_text, request.neutralText)
+            processed = restore_protected_names(processed, protected_names)
+            processed = restore_protected_literals(processed, protected_literals)
+            return processed
+
+        styled_text = post_process_generated_text(styled_text)
+        missing_names = missing_protected_names(styled_text, protected_names)
+        retried_for_names = False
+        if missing_names:
+            retry_messages = [
+                {
+                    "role": "user",
+                    "content": (
+                        messages[0]["content"]
+                        + "\n\nName preservation correction: your previous styled answer omitted or replaced "
+                        "these protected names:\n"
+                        + "\n".join(f"- {name}" for name in missing_names)
+                        + "\n\nRegenerate the styled answer. Keep every protected name exactly as written. "
+                        "Do not swap a name for another person, character, place, brand, team, option, or object."
+                    ),
+                }
+            ]
+            retry_prompt = tokenizer.apply_chat_template(retry_messages, tokenize=False, add_generation_prompt=True)
+            inputs = tokenizer(
+                [retry_prompt],
+                return_tensors="pt",
+                truncation=True,
+                max_length=args.max_seq_length,
+            ).to("cuda")
+            styled_text = post_process_generated_text(generate_styled_text(dynamic_max_new_tokens, strict_retry=True))
+            retried_for_names = True
         if preserve_verbatim:
             styled_text = restore_verbatim_blocks(styled_text, request.neutralText, verbatim_blocks)
         if should_conservatively_style_uncertain_answer(request.neutralText) and not verbatim_blocks:
@@ -769,6 +1205,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 "configuredMaxNewTokens": args.max_new_tokens,
                 "dynamicMaxNewTokens": dynamic_max_new_tokens,
                 "retriedForLength": retried_for_length,
+                "retriedForNames": retried_for_names,
+                "missingProtectedNamesAfterRetry": missing_protected_names(styled_text, protected_names),
                 "protectedNameCount": len(protected_names),
                 "protectedLiteralCount": len(protected_literals),
                 "preserveVerbatim": preserve_verbatim,

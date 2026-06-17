@@ -27,10 +27,15 @@ DEFAULT_INSTRUCTION = (
 PAIR_INSTRUCTION = (
     "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source "
     "content, not as a style example. Train on the output persona voice only. Preserve all names, dates, "
-    "years, numbers, locations, durations, formatting, and factual claims exactly. Change only tone, "
-    "rhythm, slang, and attitude. Preserve the gender, title, role, and type of every person, group, "
-    "place, brand, team, and object. Do not call men women, women men, teams people, places people, "
-    "or objects people unless the input does."
+    "years, numbers, locations, durations, formatting, and factual claims exactly. Preserve markdown "
+    "links, URLs, citation text, quoted text, code, and source metadata exactly when present. Do not "
+    "invent markdown links, URLs, citations, sources, or source-like metadata when the input does not "
+    "contain them. Dates, years, numbers, URLs, citations, official names, and quoted text are not style "
+    "targets. Preserve proper nouns and named entities exactly, including people, places, characters, "
+    "brands, teams, organizations, titles, books, songs, albums, products, and user-selected options. "
+    "Do not substitute a different entity or option. Change only tone, rhythm, slang, and attitude. "
+    "Preserve the gender, title, role, and type of every person, group, place, brand, team, and object. "
+    "Do not call men women, women men, teams people, places people, or objects people unless the input does."
 )
 
 

@@ -82,6 +82,31 @@ function buildTools(input: LLMInput): OpenAIItem[] {
   return tools;
 }
 
+function responseInstructions(input: LLMInput): string {
+  const instructions = input.baseSystemPrompt ?? input.systemPrompt;
+  if (!input.toolOptions?.imageGeneration) {
+    return instructions;
+  }
+
+  return `${instructions}
+
+The user is requesting an image. Use the image generation tool to produce the image. Do not answer that you cannot generate images when the image_generation tool is available. Keep any text response short and do not send generated image data through persona style transfer.`;
+}
+
+function hasGeneratedImage(response: OpenAIResponse): boolean {
+  return ((response.output as OpenAIItem[] | undefined) ?? []).some((item) => item.type === "image_generation_call" && typeof item.result === "string");
+}
+
+function shouldRetryForImageGeneration(input: LLMInput, response: OpenAIResponse): boolean {
+  if (!input.toolOptions?.imageGeneration || hasGeneratedImage(response)) {
+    return false;
+  }
+
+  return /\b(can't|cannot|unable to|do not have the ability to|don't have the ability to|can’t)\b[\s\S]{0,80}\b(generate|create|make|show|provide)\b[\s\S]{0,80}\b(image|photo|picture|art|illustration)\b/i.test(
+    extractOutputText(response)
+  );
+}
+
 function annotationsToSources(output: OpenAIItem[]): ContentBlock[] {
   const seen = new Set<string>();
   const sources: Array<{ title: string; url: string; snippet?: string }> = [];
@@ -258,6 +283,13 @@ export class OpenAIProvider implements LLMProvider {
     const responseInput = buildInput(input);
     const applicationTrace: ContentBlock[] = [];
     let response = await this.createResponse(client, input, responseInput, tools, signal);
+    if (shouldRetryForImageGeneration(input, response)) {
+      responseInput.push({
+        role: "user",
+        content: "Retry using the image_generation tool now. Generate the requested image instead of explaining that image generation is unavailable."
+      });
+      response = await this.createResponse(client, input, responseInput, tools, signal);
+    }
 
     for (let iteration = 0; iteration < env.OPENAI_MAX_TOOL_ITERATIONS; iteration += 1) {
       const calls = (response.output as OpenAIItem[]).filter((item) => item.type === "function_call");
@@ -413,7 +445,7 @@ export class OpenAIProvider implements LLMProvider {
   private responseParams(input: LLMInput, responseInput: OpenAIItem[], tools: OpenAIItem[]) {
     return {
       model: env.OPENAI_MODEL,
-      instructions: input.baseSystemPrompt ?? input.systemPrompt,
+      instructions: responseInstructions(input),
       input: responseInput as any,
       tools: tools as any,
       background: input.toolOptions?.background ?? false,

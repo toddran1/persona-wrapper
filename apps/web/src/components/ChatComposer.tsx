@@ -56,17 +56,18 @@ export function ChatComposer(props: ChatComposerProps) {
 
   async function submitCurrentMessage(): Promise<void> {
     const submittedMessage = message;
+    const submittedAttachments = attachments;
     if (!submittedMessage.trim()) {
       return;
     }
 
-    await props.onSubmit(submittedMessage, attachments, toolOptions);
     setPromptHistory((currentHistory) => [...currentHistory, submittedMessage]);
     setMessage("");
     setAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
     setHistoryIndex(undefined);
     draftBeforeHistoryRef.current = "";
+    await props.onSubmit(submittedMessage, submittedAttachments, toolOptions);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {

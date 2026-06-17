@@ -211,7 +211,7 @@ export type ClientContext = z.infer<typeof clientContextSchema>;
 export const chatRequestSchema = z.object({
   personaId: z.string().min(1),
   message: z.string().min(1),
-  provider: providerSchema.default("local"),
+  provider: providerSchema.default("openai"),
   audio: z.boolean().default(false),
   testMode: z.boolean().default(false),
   conversationId: z.string().optional(),

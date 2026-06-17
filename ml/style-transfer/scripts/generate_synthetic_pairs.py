@@ -52,10 +52,16 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 # transform neutral text into persona style without changing facts.
 PAIR_INSTRUCTION = (
     "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source "
-    "content, not as a style example. Train on the output persona voice only. Preserve all facts exactly. "
+    "content, not as a style example. Train on the output persona voice only. Preserve all names, dates, "
+    "years, numbers, locations, durations, formatting, and factual claims exactly. Preserve markdown "
+    "links, URLs, citation text, quoted text, code, and source metadata exactly when present. Do not "
+    "invent markdown links, URLs, citations, sources, or source-like metadata when the input does not "
+    "contain them. Dates, years, numbers, URLs, citations, official names, and quoted text are not style "
+    "targets. Preserve proper nouns and named entities exactly, including people, places, characters, "
+    "brands, teams, organizations, titles, books, songs, albums, products, and user-selected options. "
+    "Do not substitute a different entity or option. Change only tone, rhythm, slang, and attitude. "
     "Preserve the gender, title, role, and type of every person, group, place, brand, team, and object. "
-    "Do not call men women, women men, teams people, places people, or objects people unless the input does. "
-    "Change only tone, rhythm, slang, and attitude."
+    "Do not call men women, women men, teams people, places people, or objects people unless the input does."
 )
 
 # Stopwords are common English words that do not tell us much about meaning.
@@ -620,6 +626,9 @@ class OllamaNeutralizer:
             "on the situation; do not roleplay as any person in the transcript. Treat the neutral answer "
             "only as source content, not as a style example. Preserve its facts, sequence, and requested "
             "structure; do not add new people, places, jobs, events, motivations, or facts. "
+            "Preserve proper nouns and named entities exactly, including people, places, characters, "
+            "brands, teams, organizations, titles, books, songs, albums, products, and user-selected options. "
+            "Do not substitute a different entity or option. "
             "Preserve the gender, title, role, and type of every person, group, place, brand, team, and object. "
             "Do not call men women, women men, teams people, places people, or objects people unless the input does. "
             "Do not turn third-person descriptions into first-person confessions. Keep the voice "
