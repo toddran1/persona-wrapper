@@ -831,6 +831,49 @@ def restore_compacted_names(text: str, names: list[str]) -> str:
     return restored
 
 
+def restore_fuzzy_name_spans(text: str, names: list[str]) -> str:
+    restored = text
+    token_pattern = re.compile(r"[A-Za-z][A-Za-z0-9&'.-]*")
+    for name in sorted(names, key=len, reverse=True):
+        if re.search(re.escape(name), restored, re.IGNORECASE):
+            restored = re.sub(re.escape(name), name, restored, flags=re.IGNORECASE)
+            continue
+
+        name_words = [word for word in re.findall(r"[A-Za-z][A-Za-z0-9&'.-]*", name) if word.lower() not in NAME_CONNECTOR_WORDS]
+        if not name_words:
+            continue
+
+        tokens = list(token_pattern.finditer(restored))
+        if not tokens:
+            continue
+
+        normalized_name = normalize_name(name)
+        first_name_word = normalize_name(name_words[0])
+        window_sizes = sorted({len(name_words) - 1, len(name_words), len(name_words) + 1, len(name.split())} - {0})
+        best: tuple[float, int, int] | None = None
+
+        for index, token in enumerate(tokens):
+            first_ratio = SequenceMatcher(None, normalize_name(token.group(0)), first_name_word).ratio()
+            if first_ratio < 0.86:
+                continue
+
+            for size in window_sizes:
+                if index + size > len(tokens):
+                    continue
+                start = tokens[index].start()
+                end = tokens[index + size - 1].end()
+                candidate = strip_profanity(restored[start:end])
+                score = SequenceMatcher(None, normalize_name(candidate), normalized_name).ratio()
+                if score >= 0.82 and (best is None or score > best[0]):
+                    best = (score, start, end)
+
+        if best:
+            _, start, end = best
+            restored = restored[:start] + name + restored[end:]
+
+    return restored
+
+
 def restore_venue_names(text: str, names: list[str]) -> str:
     restored = text
     for name in sorted(names, key=len, reverse=True):
@@ -992,6 +1035,7 @@ def restore_protected_name_case(text: str, names: list[str]) -> str:
 def restore_protected_names(text: str, names: list[str]) -> str:
     restored = restore_protected_name_case(text, names)
     restored = restore_compacted_names(restored, names)
+    restored = restore_fuzzy_name_spans(restored, names)
     restored = restore_venue_names(restored, names)
     restored = restore_shortened_names(restored, names)
     restored = remove_duplicate_name_expansions(restored, names)
