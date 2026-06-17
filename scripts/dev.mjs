@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 
 const testMode = process.argv.slice(2).includes("--test-mode") || process.env.npm_config_test_mode === "true";
 
+console.log(`[dev] test mode: ${testMode ? "enabled" : "disabled"}`);
+
 const child = spawn(
   "npx",
   [

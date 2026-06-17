@@ -801,6 +801,79 @@ def conservative_uncertainty_style(neutral_text: str) -> str:
     return text
 
 
+META_COMMENTARY_REPLACEMENTS = [
+    (re.compile(r"\bI kept\b.*?(?:[.!?](?:\s+|$)|$)", re.IGNORECASE | re.DOTALL), ""),
+    (re.compile(r"\bI made sure\b.*?(?:[.!?](?:\s+|$)|$)", re.IGNORECASE | re.DOTALL), ""),
+    (re.compile(r"\bLet me know\b.*?(?:[.!?](?:\s+|$)|$)", re.IGNORECASE | re.DOTALL), ""),
+    (re.compile(r"\bwhat ya think\b.*?(?:[.!?](?:\s+|$)|$)", re.IGNORECASE | re.DOTALL), ""),
+    (re.compile(r"\bwhat you think\b.*?(?:[.!?](?:\s+|$)|$)", re.IGNORECASE | re.DOTALL), ""),
+    (re.compile(r"\s*\bwhile keeping everything else just like before:?\s*", re.IGNORECASE), ": "),
+]
+
+
+def strip_process_commentary(text: str) -> str:
+    cleaned = text
+    for pattern, replacement in META_COMMENTARY_REPLACEMENTS:
+        cleaned = pattern.sub(replacement, cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def markdown_table_blocks(text: str) -> list[str]:
+    lines = text.splitlines()
+    blocks: list[str] = []
+    current: list[str] = []
+
+    def is_table_line(line: str) -> bool:
+        stripped = line.strip()
+        return stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") >= 2
+
+    def has_separator(block: list[str]) -> bool:
+        return any(re.fullmatch(r"\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*", line) for line in block)
+
+    for line in lines:
+        if is_table_line(line):
+            current.append(line)
+            continue
+
+        if len(current) >= 2 and has_separator(current):
+            blocks.append("\n".join(current))
+        current = []
+
+    if len(current) >= 2 and has_separator(current):
+        blocks.append("\n".join(current))
+
+    return blocks
+
+
+def restore_markdown_tables(styled_text: str, neutral_text: str) -> str:
+    neutral_tables = markdown_table_blocks(neutral_text)
+    if not neutral_tables:
+        return styled_text
+
+    restored = re.sub(
+        r"(:)\s*(\|[^\n]+\|)\n(\|(?:\s*:?-{3,}:?\s*\|)+\s*)",
+        r"\1\n\n\2\n\3",
+        styled_text,
+    )
+    prose_lines: list[str] = []
+    for line in restored.splitlines():
+        if "|" not in line:
+            prose_lines.append(line)
+            continue
+
+        prefix = line.split("|", 1)[0].strip()
+        if prefix:
+            prose_lines.append(prefix if prefix[-1:] in ".!?:;" else prefix + ":")
+
+    prose = "\n".join(prose_lines).strip()
+    tables = "\n\n".join(neutral_tables)
+    restored = f"{prose}\n\n{tables}" if prose else tables
+
+    return restored
+
+
 def normalize_name(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
@@ -1102,6 +1175,11 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                     "Treat the neutral answer only as source content, not as a style example. "
                     "Do not imitate the neutral answer's voice, politeness level, or phrasing. "
                     "Use the target persona voice only.\n"
+                    "Return only the final styled answer. Do not explain your rewrite process. "
+                    "Do not say you preserved names, followed instructions, kept the task exactly, "
+                    "or changed only the style. Do not add review language such as 'let me know', "
+                    "'what do you think', or similar closing commentary unless that exact request "
+                    "is part of the neutral answer. "
                     "Preserve every factual claim exactly. Keep all names, dates, years, numbers, "
                     "locations, durations, and order of events unchanged. Do not add new facts. "
                     "Dates, times, years, numbers, measurements, and amounts are not style targets; "
@@ -1201,7 +1279,9 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             retried_for_length = True
 
         def post_process_generated_text(generated_text: str) -> str:
-            processed = strip_untrusted_links(generated_text, request.neutralText)
+            processed = strip_process_commentary(generated_text)
+            processed = restore_markdown_tables(processed, request.neutralText)
+            processed = strip_untrusted_links(processed, request.neutralText)
             processed = restore_protected_names(processed, protected_names)
             processed = restore_protected_literals(processed, protected_literals)
             return processed

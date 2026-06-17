@@ -79,6 +79,7 @@ describe.runIf(runLive).sequential("OpenAI live integration", () => {
         appFunctions: true, background: false, vectorStoreIds: []
       }
     }));
-    expect(result.content.some((block) => block.type === "tool_result" && block.toolName === "data_analysis")).toBe(true);
+    expect(result.metadata?.openaiTools).toContain("code_interpreter");
+    expect(result.content.some((block) => block.type === "image")).toBe(true);
   }, 120000);
 });

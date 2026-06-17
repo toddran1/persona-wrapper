@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "dev:test": "node scripts/dev.mjs --test-mode",
+    "dev:test-mode": "node scripts/dev.mjs --test-mode",
     "dev:api": "npm run dev -w @persona/api",
     "dev:web": "npm run dev -w @persona/web",
     "build": "npm run build -w @persona/shared && npm run build -w @persona/api && npm run build -w @persona/web",

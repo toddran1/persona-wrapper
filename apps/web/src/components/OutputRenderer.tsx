@@ -11,6 +11,7 @@ import { SourceListBlock } from "./output/SourceListBlock.js";
 import { TableBlock } from "./output/TableBlock.js";
 import { CodeBlock } from "./output/CodeBlock.js";
 import { StatusBlock } from "./output/StatusBlock.js";
+import { VideoBlock } from "./output/VideoBlock.js";
 
 export function OutputRenderer({ output }: { output: ContentBlock }) {
   switch (output.type) {
@@ -22,6 +23,8 @@ export function OutputRenderer({ output }: { output: ContentBlock }) {
       return <AudioBlock {...output} />;
     case "image":
       return <ImageBlock {...output} />;
+    case "video":
+      return <VideoBlock {...output} />;
     case "chart":
       return <ChartBlock title={output.title} chartType={output.chartType} series={output.series} />;
     case "file":

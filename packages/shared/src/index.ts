@@ -8,6 +8,7 @@ export const outputTypeSchema = z.enum([
   "json",
   "audio",
   "image",
+  "video",
   "chart",
   "file",
   "tool_call",
@@ -73,6 +74,16 @@ export const imageOutputSchema = z.object({
   alt: z.string(),
   prompt: z.string().optional(),
   mimeType: z.string().optional(),
+  fileId: z.string().optional(),
+  metadata: z.record(z.unknown()).optional()
+});
+
+export const videoOutputSchema = z.object({
+  type: z.literal("video"),
+  url: z.string(),
+  mimeType: z.string(),
+  title: z.string().optional(),
+  fileName: z.string().optional(),
   fileId: z.string().optional(),
   metadata: z.record(z.unknown()).optional()
 });
@@ -157,6 +168,7 @@ export const contentBlockSchema = z.discriminatedUnion("type", [
   jsonOutputSchema,
   audioOutputSchema,
   imageOutputSchema,
+  videoOutputSchema,
   chartOutputSchema,
   fileOutputSchema,
   toolCallOutputSchema,

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRef } from "react";
 import { api } from "./lib/api.js";
 import { ChatComposer } from "./components/ChatComposer.js";
-import { ConversationHistory } from "./components/ConversationHistory.js";
+import { ConversationHistory, type RenderedTurn } from "./components/ConversationHistory.js";
 import { DebugPanel } from "./components/DebugPanel.js";
 import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
 import { GoldenPairReviewPage } from "./components/GoldenPairReviewPage.js";
@@ -12,38 +12,33 @@ import { NeutralResponsePanel } from "./components/NeutralResponsePanel.js";
 import { PersonaHeader } from "./components/PersonaHeader.js";
 import { StatusStrip } from "./components/StatusStrip.js";
 
-type BrowserLocation = NonNullable<ClientContext["location"]>;
-
-function getClientContext(location?: BrowserLocation): ClientContext {
+function getClientContext(): ClientContext {
   const now = new Date();
 
   return {
     locale: navigator.language,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     currentDateTime: now.toISOString(),
-    utcOffsetMinutes: -now.getTimezoneOffset(),
-    ...(location ? { location } : {})
+    utcOffsetMinutes: -now.getTimezoneOffset()
   };
 }
 
 export function App() {
   const testModeEnabled = import.meta.env.VITE_TEST_MODE === "true";
-  const reviewPageEnabled = testModeEnabled && window.location.pathname === "/review";
+  const reviewPageEnabled = testModeEnabled && window.location.pathname.replace(/\/$/, "") === "/review";
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
   const [personaDetail, setPersonaDetail] = useState<PersonaDefinition | undefined>();
   const [provider, setProvider] = useState<ProviderId>("openai");
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [response, setResponse] = useState<ChatResponse | undefined>();
+  const [renderedTurns, setRenderedTurns] = useState<RenderedTurn[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [evalSaving, setEvalSaving] = useState(false);
   const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
   const [evalError, setEvalError] = useState<string | undefined>();
-  const [browserLocation, setBrowserLocation] = useState<BrowserLocation | undefined>();
-  const [locationError, setLocationError] = useState<string | undefined>();
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>();
-  const [streamingText, setStreamingText] = useState("");
   const activeRequestRef = useRef<AbortController | undefined>();
 
   useEffect(() => {
@@ -70,7 +65,6 @@ export function App() {
     setLoading(true);
     setError(undefined);
     setPendingPrompt(message);
-    setStreamingText("");
     const requestController = new AbortController();
     activeRequestRef.current = requestController;
 
@@ -89,24 +83,30 @@ export function App() {
         provider,
         audio: audioEnabled,
         testMode: testModeEnabled,
-        clientContext: getClientContext(browserLocation),
+        clientContext: getClientContext(),
         attachments,
         toolOptions: resolvedToolOptions,
         ...(conversationId ? { conversationId } : {})
       };
-      const result = provider === "openai"
-        ? await api.sendChatStream(payload, (delta) => setStreamingText((current) => current + delta), requestController.signal)
-        : await api.sendChat(payload, requestController.signal);
+      const result = await api.sendChat(payload, requestController.signal);
+      const assistantTextBlock = result.outputs.find((output) => output.type === "text");
+      const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
 
       setConversationId(result.conversationId);
       setResponse(result);
+      setRenderedTurns((current) => [
+        ...current,
+        {
+          userMessage: message,
+          assistantText,
+          outputs: result.outputs
+        }
+      ]);
       setPendingPrompt(undefined);
-      setStreamingText("");
       setEvalSavedMessage(undefined);
       setEvalError(undefined);
     } catch (submitError) {
       setPendingPrompt(undefined);
-      setStreamingText("");
       if (!requestController.signal.aborted) {
         setError(submitError instanceof Error ? submitError.message : "Failed to generate response");
       }
@@ -121,17 +121,16 @@ export function App() {
     activeRequestRef.current = undefined;
     setLoading(false);
     setPendingPrompt(undefined);
-    setStreamingText("");
   }
 
   function resetConversation(): void {
     setConversationId(undefined);
     setResponse(undefined);
+    setRenderedTurns([]);
     setError(undefined);
     setEvalSavedMessage(undefined);
     setEvalError(undefined);
     setPendingPrompt(undefined);
-    setStreamingText("");
   }
 
   async function saveEvalCapture(idealStyledText: string, notes: string, tags: string[]): Promise<void> {
@@ -156,33 +155,6 @@ export function App() {
     } finally {
       setEvalSaving(false);
     }
-  }
-
-  function requestLocation(): void {
-    setLocationError(undefined);
-
-    if (!navigator.geolocation) {
-      setLocationError("Location is not available in this browser.");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setBrowserLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracyMeters: position.coords.accuracy
-        });
-      },
-      (locationRequestError) => {
-        setLocationError(locationRequestError.message || "Location permission was not granted.");
-      },
-      {
-        enableHighAccuracy: false,
-        maximumAge: 300000,
-        timeout: 10000
-      }
-    );
   }
 
   const activeTheme = personaDetail?.theme ?? personas[0]?.theme;
@@ -232,22 +204,18 @@ export function App() {
         </aside>
         <section className="chat-column">
           <ConversationHistory
-            history={response?.history ?? []}
-            latestOutputs={response?.outputs ?? []}
+            turns={renderedTurns}
             pendingPrompt={pendingPrompt}
-            streamingText={streamingText}
+            thinking={loading && Boolean(pendingPrompt)}
           />
           <div className="composer-dock">
             <ChatComposer
               provider={provider}
               audioEnabled={audioEnabled}
               loading={loading}
-              locationEnabled={Boolean(browserLocation)}
-              locationError={locationError}
               onResetConversation={resetConversation}
               onProviderChange={setProvider}
               onAudioChange={setAudioEnabled}
-              onRequestLocation={requestLocation}
               onCancel={cancelRequest}
               onSubmit={handleSubmit}
             />

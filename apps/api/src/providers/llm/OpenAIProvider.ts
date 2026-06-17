@@ -10,6 +10,10 @@ import { buildStubOutput } from "./stubScenarioBuilder.js";
 type OpenAIResponse = any;
 type OpenAIItem = Record<string, any>;
 
+const CHART_REQUEST_PATTERN = /\b(pie chart|bar chart|line chart|chart|graph|plot|visuali[sz]e|dashboard)\b/i;
+const DATA_OUTPUT_REQUEST_PATTERN =
+  /\b(calculate|analy[sz]e|dataset|spreadsheet|csv|statistics|average|median|sum|pivot|export|downloadable|xlsx|excel)\b/i;
+
 function inputContent(input: LLMInput): OpenAIItem[] {
   const content: OpenAIItem[] = [{ type: "input_text", text: input.userMessage }];
 
@@ -84,17 +88,33 @@ function buildTools(input: LLMInput): OpenAIItem[] {
 
 function responseInstructions(input: LLMInput): string {
   const instructions = input.baseSystemPrompt ?? input.systemPrompt;
-  if (!input.toolOptions?.imageGeneration) {
+  const extraInstructions: string[] = [];
+
+  if (input.toolOptions?.codeInterpreter) {
+    extraInstructions.push(
+      "The user is requesting data analysis, calculations, charts, dashboards, or generated files. Use Code Interpreter for this work when it is available. If the user asks for a chart, graph, plot, dashboard, CSV, spreadsheet, or downloadable file, create the actual artifact instead of only describing it in text. Keep any explanatory text concise."
+    );
+  }
+
+  if (input.toolOptions?.imageGeneration) {
+    extraInstructions.push(
+      "The user is requesting an image. Use the image generation tool to produce the image. Do not answer that you cannot generate images when the image_generation tool is available. Keep any text response short and do not send generated image data through persona style transfer."
+    );
+  }
+
+  if (extraInstructions.length === 0) {
     return instructions;
   }
 
-  return `${instructions}
-
-The user is requesting an image. Use the image generation tool to produce the image. Do not answer that you cannot generate images when the image_generation tool is available. Keep any text response short and do not send generated image data through persona style transfer.`;
+  return `${instructions}\n\n${extraInstructions.join("\n\n")}`;
 }
 
 function hasGeneratedImage(response: OpenAIResponse): boolean {
   return ((response.output as OpenAIItem[] | undefined) ?? []).some((item) => item.type === "image_generation_call" && typeof item.result === "string");
+}
+
+function hasCodeInterpreterCall(response: OpenAIResponse): boolean {
+  return ((response.output as OpenAIItem[] | undefined) ?? []).some((item) => item.type === "code_interpreter_call");
 }
 
 function shouldRetryForImageGeneration(input: LLMInput, response: OpenAIResponse): boolean {
@@ -105,6 +125,14 @@ function shouldRetryForImageGeneration(input: LLMInput, response: OpenAIResponse
   return /\b(can't|cannot|unable to|do not have the ability to|don't have the ability to|can’t)\b[\s\S]{0,80}\b(generate|create|make|show|provide)\b[\s\S]{0,80}\b(image|photo|picture|art|illustration)\b/i.test(
     extractOutputText(response)
   );
+}
+
+function shouldRetryForCodeInterpreter(input: LLMInput, response: OpenAIResponse): boolean {
+  if (!input.toolOptions?.codeInterpreter || hasCodeInterpreterCall(response)) {
+    return false;
+  }
+
+  return CHART_REQUEST_PATTERN.test(input.userMessage) || DATA_OUTPUT_REQUEST_PATTERN.test(input.userMessage);
 }
 
 function annotationsToSources(output: OpenAIItem[]): ContentBlock[] {
@@ -142,14 +170,186 @@ function annotationsToSources(output: OpenAIItem[]): ContentBlock[] {
   return sources.length > 0 ? [{ type: "source_list", sources }] : [];
 }
 
+function fileExtension(fileName: string): string {
+  const cleanName = fileName.split(/[?#]/, 1)[0] ?? fileName;
+  return cleanName.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function mimeTypeForFileName(fileName: string): string {
+  const extension = fileExtension(fileName);
+  if (extension === "png") return "image/png";
+  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
+  if (extension === "webp") return "image/webp";
+  if (extension === "gif") return "image/gif";
+  if (extension === "mp4") return "video/mp4";
+  if (extension === "webm") return "video/webm";
+  if (extension === "mov") return "video/quicktime";
+  if (extension === "mp3") return "audio/mpeg";
+  if (extension === "wav") return "audio/wav";
+  if (extension === "m4a") return "audio/mp4";
+  if (extension === "csv") return "text/csv";
+  if (extension === "json") return "application/json";
+  if (extension === "pdf") return "application/pdf";
+  if (extension === "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (extension === "zip") return "application/zip";
+  return "application/octet-stream";
+}
+
+function artifactKind(fileName: string): "image" | "video" | "audio" | "file" {
+  const mimeType = mimeTypeForFileName(fileName);
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("audio/")) return "audio";
+  return "file";
+}
+
+function artifactFileNameFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const fileName = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() ?? "");
+    return fileName || "generated-file";
+  } catch {
+    return url.split("/").filter(Boolean).pop()?.replace(/[?#].*$/, "") || "generated-file";
+  }
+}
+
+function isArtifactUrl(url: string): boolean {
+  if (url.startsWith("sandbox:/")) return true;
+  return artifactKind(artifactFileNameFromUrl(url)) !== "file" || mimeTypeForFileName(artifactFileNameFromUrl(url)) !== "application/octet-stream";
+}
+
+function blockForUrlArtifact(url: string, label: string | undefined, prompt: string): ContentBlock | undefined {
+  if (!/^https?:\/\//i.test(url) && !url.startsWith("/")) return undefined;
+  const urlFileName = artifactFileNameFromUrl(url);
+  const labelText = label?.trim();
+  const fileName = labelText && mimeTypeForFileName(labelText) !== "application/octet-stream" ? labelText : urlFileName;
+  const displayName = labelText || fileName;
+  const mimeType = mimeTypeForFileName(fileName);
+  const kind = artifactKind(fileName);
+
+  if (kind === "image") {
+    return { type: "image", url, alt: displayName, prompt, mimeType };
+  }
+  if (kind === "video") {
+    return { type: "video", url, mimeType, title: displayName, fileName };
+  }
+  if (kind === "audio") {
+    return { type: "audio", url, mimeType };
+  }
+  if (mimeType !== "application/octet-stream") {
+    return { type: "file", fileName, url, mimeType, description: labelText };
+  }
+
+  return undefined;
+}
+
+function mediaLinkBlocksFromText(text: string, prompt: string): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  const seen = new Set<string>();
+  const markdownPattern = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/gi;
+  const bareUrlPattern = /(^|\s)(https?:\/\/[^\s)]+)/gi;
+
+  for (const match of text.matchAll(markdownPattern)) {
+    const label = match[1];
+    const url = match[2];
+    if (!url || seen.has(url) || !isArtifactUrl(url)) continue;
+    const block = blockForUrlArtifact(url, label, prompt);
+    if (block) {
+      seen.add(url);
+      blocks.push(block);
+    }
+  }
+
+  for (const match of text.matchAll(bareUrlPattern)) {
+    const url = match[2]?.replace(/[.,;:!?]+$/, "");
+    if (!url || seen.has(url) || !isArtifactUrl(url)) continue;
+    const block = blockForUrlArtifact(url, undefined, prompt);
+    if (block) {
+      seen.add(url);
+      blocks.push(block);
+    }
+  }
+
+  return blocks;
+}
+
+function stripArtifactLinks(text: string): string {
+  return text
+    .replace(/\[[^\]]+\]\(sandbox:\/[^)]+\)/gi, "")
+    .replace(/sandbox:\/\S+/gi, "")
+    .replace(/\[[^\]]+\]\((https?:\/\/[^)]+)\)/gi, (full, url) => isArtifactUrl(url) ? "" : full)
+    .replace(/(^|\s)(https?:\/\/[^\s)]+)/gi, (full, prefix, url) => {
+      const cleanUrl = String(url).replace(/[.,;:!?]+$/, "");
+      return isArtifactUrl(cleanUrl) ? prefix : full;
+    })
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function mapOutput(response: OpenAIResponse, prompt: string): ContentBlock[] {
   const output = response.output as OpenAIItem[];
   const blocks: ContentBlock[] = [];
+  const seenArtifactIds = new Set<string>();
+  const artifactBlock = (artifact: { containerId: string; fileId: string; fileName: string }): ContentBlock | undefined => {
+    const key = `${artifact.containerId}:${artifact.fileId}`;
+    if (seenArtifactIds.has(key)) return undefined;
+    seenArtifactIds.add(key);
 
-  const outputText = extractOutputText(response);
+    const url = openAIArtifactService.register(artifact.containerId, artifact.fileId, artifact.fileName);
+    const mimeType = mimeTypeForFileName(artifact.fileName);
+    const metadata = { containerId: artifact.containerId };
+    const kind = artifactKind(artifact.fileName);
+
+    if (kind === "image") {
+      return {
+        type: "image",
+        url,
+        alt: artifact.fileName,
+        prompt,
+        mimeType,
+        fileId: artifact.fileId,
+        metadata
+      };
+    }
+
+    if (kind === "video") {
+      return {
+        type: "video",
+        url,
+        mimeType,
+        title: artifact.fileName,
+        fileName: artifact.fileName,
+        fileId: artifact.fileId,
+        metadata
+      };
+    }
+
+    if (kind === "audio") {
+      return {
+        type: "audio",
+        url,
+        mimeType
+      };
+    }
+
+    return {
+      type: "file",
+      fileName: artifact.fileName,
+      url,
+      mimeType,
+      fileId: artifact.fileId,
+      description: "Generated by OpenAI Code Interpreter",
+      metadata
+    };
+  };
+
+  const rawOutputText = extractOutputText(response);
+  const outputText = stripArtifactLinks(rawOutputText);
   if (outputText.trim()) {
     blocks.push({ type: "text", text: outputText });
   }
+  blocks.push(...mediaLinkBlocksFromText(rawOutputText, prompt));
 
   for (const item of output) {
     if (item.type === "image_generation_call" && typeof item.result === "string") {
@@ -170,33 +370,54 @@ function mapOutput(response: OpenAIResponse, prompt: string): ContentBlock[] {
       });
     } else if (item.type === "web_search_call" || item.type === "file_search_call" || item.type === "code_interpreter_call") {
       if (item.type === "code_interpreter_call") {
-        if (typeof item.code === "string" && item.code.trim()) {
-          blocks.push({ type: "code", code: item.code, language: "python", title: "Code Interpreter" });
-        }
         for (const generated of item.outputs ?? []) {
-          if (generated.type === "image" && typeof generated.url === "string") {
-            blocks.push({
-              type: "image",
-              url: generated.url,
-              alt: "Code Interpreter generated chart",
-              prompt,
-              metadata: { containerId: item.container_id }
+          const generatedFileId = typeof generated.file_id === "string" ? generated.file_id : typeof generated.fileId === "string" ? generated.fileId : undefined;
+          const generatedFileName =
+            typeof generated.filename === "string" ? generated.filename :
+            typeof generated.file_name === "string" ? generated.file_name :
+            typeof generated.path === "string" ? artifactFileNameFromUrl(generated.path) :
+            typeof generated.url === "string" ? artifactFileNameFromUrl(generated.url) :
+            undefined;
+
+          if (typeof item.container_id === "string" && generatedFileId && generatedFileName) {
+            const block = artifactBlock({
+              containerId: item.container_id,
+              fileId: generatedFileId,
+              fileName: generatedFileName
             });
+            if (block) blocks.push(block);
+          } else if (typeof generated.url === "string") {
+            const block = blockForUrlArtifact(generated.url, generatedFileName, prompt);
+            if (block) {
+              blocks.push(block);
+            } else if (generated.type === "image") {
+              blocks.push({
+                type: "image",
+                url: generated.url,
+                alt: "Code Interpreter generated chart",
+                prompt,
+                metadata: { containerId: item.container_id }
+              });
+            }
           }
         }
       }
-      blocks.push({
-        type: "tool_result",
-        toolName:
-          item.type === "web_search_call" ? "web_search" :
-          item.type === "file_search_call" ? "file_search" : "data_analysis",
-        status: item.status === "failed" ? "failed" : item.status === "completed" ? "completed" : "in_progress",
-        result: {
-          id: item.id,
-          ...(item.results ? { results: item.results } : {}),
-          ...(item.outputs ? { outputs: item.outputs } : {})
-        }
-      });
+      const toolName =
+        item.type === "web_search_call" ? "web_search" :
+        item.type === "file_search_call" ? "file_search" : "data_analysis";
+      const status = item.status === "failed" ? "failed" : item.status === "completed" ? "completed" : "in_progress";
+      if (!(toolName === "data_analysis" && status === "completed")) {
+        blocks.push({
+          type: "tool_result",
+          toolName,
+          status,
+          result: {
+            id: item.id,
+            ...(item.results ? { results: item.results } : {}),
+            ...(item.outputs ? { outputs: item.outputs } : {})
+          }
+        });
+      }
     }
   }
 
@@ -205,14 +426,16 @@ function mapOutput(response: OpenAIResponse, prompt: string): ContentBlock[] {
     for (const part of item.content) {
       for (const annotation of part.annotations ?? []) {
         if (annotation.type !== "container_file_citation") continue;
-        blocks.push({
-          type: "file",
-          fileName: annotation.filename,
-          url: openAIArtifactService.register(annotation.container_id, annotation.file_id, annotation.filename),
-          mimeType: "application/octet-stream",
+        const fileName = annotation.filename;
+        if (typeof annotation.container_id !== "string" || typeof annotation.file_id !== "string" || typeof fileName !== "string") {
+          continue;
+        }
+        const block = artifactBlock({
+          containerId: annotation.container_id,
           fileId: annotation.file_id,
-          description: "Generated by OpenAI Code Interpreter"
+          fileName
         });
+        if (block) blocks.push(block);
       }
     }
   }
@@ -287,6 +510,14 @@ export class OpenAIProvider implements LLMProvider {
       responseInput.push({
         role: "user",
         content: "Retry using the image_generation tool now. Generate the requested image instead of explaining that image generation is unavailable."
+      });
+      response = await this.createResponse(client, input, responseInput, tools, signal);
+    }
+    if (shouldRetryForCodeInterpreter(input, response)) {
+      responseInput.push({
+        role: "user",
+        content:
+          "Retry using Code Interpreter now. Create the requested analysis artifact, chart, graph, plot, dashboard, or downloadable file instead of only explaining it in text."
       });
       response = await this.createResponse(client, input, responseInput, tools, signal);
     }

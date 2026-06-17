@@ -1,27 +1,22 @@
-import type { ChatMessage, ContentBlock } from "@persona/shared";
+import type { ContentBlock } from "@persona/shared";
 import { OutputRenderer } from "./OutputRenderer.js";
 
+export type RenderedTurn = {
+  userMessage: string;
+  assistantText: string;
+  outputs: ContentBlock[];
+};
+
 export function ConversationHistory({
-  history,
-  latestOutputs,
+  turns,
   pendingPrompt,
-  streamingText
+  thinking
 }: {
-  history: ChatMessage[];
-  latestOutputs: ContentBlock[];
+  turns: RenderedTurn[];
   pendingPrompt?: string | undefined;
-  streamingText?: string | undefined;
+  thinking?: boolean | undefined;
 }) {
-  const visibleMessages = [
-    ...history.filter((message) => message.role === "user" || message.role === "assistant"),
-    ...(pendingPrompt ? [{ role: "user" as const, content: pendingPrompt }] : []),
-    ...(streamingText ? [{ role: "assistant" as const, content: streamingText }] : [])
-  ];
-  const inlineOutputs = latestOutputs.filter((output) => output.type !== "text" && output.type !== "json");
-  const lastAssistantIndex = [...visibleMessages]
-    .map((message, index) => ({ message, index }))
-    .reverse()
-    .find((entry) => entry.message.role === "assistant")?.index;
+  const messageCount = turns.length * 2 + (pendingPrompt ? 1 : 0) + (thinking ? 1 : 0);
 
   return (
     <section className="history-card">
@@ -29,32 +24,65 @@ export function ConversationHistory({
         <div>
           <div className="eyebrow">Conversation</div>
         </div>
-        <span className="provider-pill">{visibleMessages.length} messages</span>
+        <span className="provider-pill">{messageCount} messages</span>
       </div>
-      {visibleMessages.length === 0 ? (
+      {messageCount === 0 ? (
         <p className="empty-state">No conversation state yet. Send a message to create a tracked thread.</p>
       ) : (
         <div className="chat-thread">
-          {visibleMessages.map((message, index) => (
-            <article key={`${message.role}-${index}`} className={`chat-row chat-row-${message.role}`}>
-              <div className={`chat-avatar chat-avatar-${message.role}`}>{message.role === "user" ? "You" : "LaRae"}</div>
-              <div className={`chat-bubble chat-bubble-${message.role}`}>
-                <span className="history-role">{message.role === "user" ? "Prompt" : "Reply"}</span>
-                <p className="message-text" aria-live={message.role === "assistant" && streamingText === message.content ? "polite" : undefined}>
-                  {message.content}
-                </p>
-                {message.role === "assistant" && index === lastAssistantIndex && inlineOutputs.length > 0 ? (
-                  <div className="inline-artifact-stack">
-                    {inlineOutputs.map((output, outputIndex) => (
-                      <div key={`${output.type}-${outputIndex}`} className="inline-artifact-card">
-                        <OutputRenderer output={output} />
-                      </div>
-                    ))}
+          {turns.map((turn, turnIndex) => {
+            const inlineOutputs = turn.outputs.filter((output) => output.type !== "text" && output.type !== "json");
+
+            return (
+              <div key={`turn-${turnIndex}`} className="chat-turn">
+                <article className="chat-row chat-row-user">
+                  <div className="chat-avatar chat-avatar-user">You</div>
+                  <div className="chat-bubble chat-bubble-user">
+                    <span className="history-role">Prompt</span>
+                    <p className="message-text">{turn.userMessage}</p>
                   </div>
-                ) : null}
+                </article>
+                <article className="chat-row chat-row-assistant">
+                  <div className="chat-avatar chat-avatar-assistant">LaRae</div>
+                  <div className="chat-bubble chat-bubble-assistant">
+                    <span className="history-role">Reply</span>
+                    {turn.assistantText ? <p className="message-text">{turn.assistantText}</p> : null}
+                    {inlineOutputs.length > 0 ? (
+                      <div className="inline-artifact-stack">
+                        {inlineOutputs.map((output, outputIndex) => (
+                          <div key={`${output.type}-${outputIndex}`} className="inline-artifact-card">
+                            <OutputRenderer output={output} />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </article>
+              </div>
+            );
+          })}
+          {pendingPrompt ? (
+            <article className="chat-row chat-row-user">
+              <div className="chat-avatar chat-avatar-user">You</div>
+              <div className="chat-bubble chat-bubble-user">
+                <span className="history-role">Prompt</span>
+                <p className="message-text">{pendingPrompt}</p>
               </div>
             </article>
-          ))}
+          ) : null}
+          {thinking ? (
+            <article className="chat-row chat-row-assistant">
+              <div className="chat-avatar chat-avatar-assistant">LaRae</div>
+              <div className="chat-bubble chat-bubble-assistant">
+                <span className="history-role">Reply</span>
+                <div className="thinking-indicator" aria-live="polite" aria-label="LaRae is thinking">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </div>
+            </article>
+          ) : null}
         </div>
       )}
     </section>

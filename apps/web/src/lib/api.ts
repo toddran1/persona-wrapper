@@ -93,54 +93,6 @@ async function requestNoContent(path: string, init?: RequestInit): Promise<void>
   if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
 }
 
-async function streamChat(
-  payload: ChatPayload,
-  onTextDelta: (delta: string) => void,
-  signal?: AbortSignal
-): Promise<ChatResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-owner-id": ownerId()
-    },
-    body: JSON.stringify(payload),
-    ...(signal ? { signal } : {})
-  });
-  if (!response.ok || !response.body) throw new Error(`Streaming request failed with status ${response.status}`);
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let finalResponse: ChatResponse | undefined;
-
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-
-    for (const frame of frames) {
-      let eventName = "";
-      let data = "";
-      for (const line of frame.split("\n")) {
-        if (line.startsWith("event:")) eventName = line.slice(6).trim();
-        if (line.startsWith("data:")) data += line.slice(5).trim();
-      }
-      if (!data) continue;
-      const parsed = JSON.parse(data) as Record<string, unknown>;
-      if (eventName === "delta" && typeof parsed.delta === "string") onTextDelta(parsed.delta);
-      if (eventName === "response") finalResponse = parsed as unknown as ChatResponse;
-      if (eventName === "error") throw new Error(typeof parsed.message === "string" ? parsed.message : "Streaming request failed.");
-    }
-
-    if (done) break;
-  }
-
-  if (!finalResponse) throw new Error("Streaming request ended without a final response.");
-  return finalResponse;
-}
-
 export const api = {
   uploadFiles: async (files: File[]): Promise<UploadedAsset[]> => {
     const body = new FormData();
@@ -181,7 +133,6 @@ export const api = {
       body: JSON.stringify(payload),
       ...(signal ? { signal } : {})
     }),
-  sendChatStream: streamChat,
   saveStyleTransferEval: async (
     payload: StyleTransferEvalCapturePayload
   ): Promise<{ id: string; path: string }> =>

@@ -80,11 +80,16 @@ function imageFileName(alt: string, prompt?: string, mimeType?: string, metadata
   return `${baseName}${suffix ? `-${suffix}` : ""}.${extension}`;
 }
 
+function resolveMediaUrl(url: string): string {
+  return url.startsWith("/") ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}` : url;
+}
+
 export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
+  const resolvedUrl = resolveMediaUrl(url);
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -120,10 +125,10 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
       <figure className="media-card image-card">
         <div className="image-frame">
           <button type="button" className="image-preview-button" onClick={() => setModalOpen(true)} aria-label="Open image full size">
-            <img src={url} alt={alt} />
+            <img src={resolvedUrl} alt={alt} />
           </button>
           <div className="image-action-bar" aria-label="Image actions">
-            <a className="image-icon-button" href={url} download={imageFileName(alt, prompt, mimeType, metadata)} aria-label="Download image" title="Download image">
+            <a className="image-icon-button" href={resolvedUrl} download={imageFileName(alt, prompt, mimeType, metadata)} aria-label="Download image" title="Download image">
               <Icon name="download" />
             </a>
             <div className="image-menu-wrap" ref={menuRef}>
@@ -141,7 +146,7 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
               </button>
               {menuOpen ? (
                 <div id={menuId} className="image-menu" role="menu">
-                  <a href={url} target="_blank" rel="noreferrer" role="menuitem" onClick={() => setMenuOpen(false)}>
+                  <a href={resolvedUrl} target="_blank" rel="noreferrer" role="menuitem" onClick={() => setMenuOpen(false)}>
                     <Icon name="external" />
                     <span>Open original</span>
                   </a>
@@ -158,7 +163,6 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
             <span>Edit</span>
           </button>
         </div>
-        <figcaption>{prompt ?? alt}</figcaption>
       </figure>
 
       {modalOpen ? (
@@ -167,7 +171,7 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
             <div className="image-modal-toolbar">
               <span>{alt}</span>
               <div className="image-modal-actions">
-                <a className="image-icon-button" href={url} download={imageFileName(alt, prompt, mimeType, metadata)} aria-label="Download image" title="Download image">
+                <a className="image-icon-button" href={resolvedUrl} download={imageFileName(alt, prompt, mimeType, metadata)} aria-label="Download image" title="Download image">
                   <Icon name="download" />
                 </a>
                 <button type="button" className="image-icon-button" aria-label="Close full size image" title="Close" onClick={() => setModalOpen(false)}>
@@ -175,8 +179,7 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
                 </button>
               </div>
             </div>
-            <img src={url} alt={alt} />
-            {prompt ? <p>{prompt}</p> : null}
+            <img src={resolvedUrl} alt={alt} />
           </div>
         </div>
       ) : null}

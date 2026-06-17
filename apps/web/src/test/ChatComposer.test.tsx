@@ -7,12 +7,9 @@ const defaultProps = {
   provider: "openai" as const,
   audioEnabled: false,
   loading: false,
-  locationEnabled: false,
-  locationError: undefined,
   onResetConversation: vi.fn(),
   onProviderChange: vi.fn(),
   onAudioChange: vi.fn(),
-  onRequestLocation: vi.fn(),
   onCancel: vi.fn()
 };
 

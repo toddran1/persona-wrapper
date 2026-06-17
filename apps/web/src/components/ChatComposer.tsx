@@ -6,12 +6,9 @@ type ChatComposerProps = {
   provider: ProviderId;
   audioEnabled: boolean;
   loading: boolean;
-  locationEnabled: boolean;
-  locationError: string | undefined;
   onResetConversation: () => void;
   onProviderChange: (provider: ProviderId) => void;
   onAudioChange: (audio: boolean) => void;
-  onRequestLocation: () => void;
   onCancel: () => void;
   onSubmit: (message: string, files: File[], toolOptions: ToolOptions) => Promise<void>;
 };
@@ -149,11 +146,7 @@ export function ChatComposer(props: ChatComposerProps) {
           />
           <span>Generate audio</span>
         </label>
-        <button type="button" className="ghost-button context-button" onClick={props.onRequestLocation}>
-          {props.locationEnabled ? "Location on" : "Share location"}
-        </button>
       </div>
-      {props.locationError ? <p className="composer-context-error">{props.locationError}</p> : null}
       {props.provider === "openai" ? (
         <fieldset className="tool-options">
           <legend>OpenAI tools</legend>

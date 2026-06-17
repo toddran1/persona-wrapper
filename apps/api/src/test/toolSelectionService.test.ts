@@ -35,6 +35,9 @@ describe("tool selection", () => {
     await expect(selectTools(request("Turn this into a dashboard."))).resolves.toMatchObject({
       toolOptions: { codeInterpreter: true }
     });
+    await expect(selectTools(request("Make a pie chart for apples 40, oranges 35, bananas 25."))).resolves.toMatchObject({
+      toolOptions: { codeInterpreter: true }
+    });
     await expect(selectTools(request("Make this into a downloadable CSV file."))).resolves.toMatchObject({
       toolOptions: { codeInterpreter: true }
     });
