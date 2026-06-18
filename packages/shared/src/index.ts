@@ -258,6 +258,9 @@ export const personaSummarySchema = z.object({
   description: z.string(),
   avatarColor: z.string(),
   theme: personaThemeSchema,
+  documentTitle: z.string().default("Persona Wrapper"),
+  promptPlaceholder: z.string().default("Ask anything"),
+  suggestedPrompts: z.array(z.string()).default([]),
   supportedProviders: z.array(providerSchema)
 });
 export type PersonaSummary = z.infer<typeof personaSummarySchema>;

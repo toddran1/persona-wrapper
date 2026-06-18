@@ -9,6 +9,9 @@ export function getPersonas(_request: Request, response: Response): void {
     description: persona.description,
     avatarColor: persona.avatarColor,
     theme: persona.theme,
+    documentTitle: persona.documentTitle,
+    promptPlaceholder: persona.promptPlaceholder,
+    suggestedPrompts: persona.suggestedPrompts,
     supportedProviders: persona.supportedProviders
   }));
 

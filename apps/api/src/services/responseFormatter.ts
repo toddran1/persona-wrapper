@@ -45,6 +45,9 @@ export class ResponseFormatter {
         description: params.persona.description,
         avatarColor: params.persona.avatarColor,
         theme: params.persona.theme,
+        documentTitle: params.persona.documentTitle,
+        promptPlaceholder: params.persona.promptPlaceholder,
+        suggestedPrompts: params.persona.suggestedPrompts,
         supportedProviders: params.persona.supportedProviders
       },
       provider: params.llmOutput.provider,

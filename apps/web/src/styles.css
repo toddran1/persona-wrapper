@@ -426,7 +426,7 @@ select:focus-visible {
 button {
   border: 0;
   border-radius: 999px;
-  padding: 14px 24px;
+  padding: 10px 18px;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
   color: #130a17;
   font-weight: 700;
@@ -450,16 +450,45 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin: 14px 0 0;
+  margin: 10px 0 0;
 }
 
 .sample-prompt {
   text-align: left;
   justify-content: start;
   border-radius: 18px;
-  padding: 9px 13px;
+  padding: 8px 12px;
   font-size: 0.86rem;
   box-shadow: none;
+}
+
+.suggested-prompts-panel {
+  margin-top: 12px;
+}
+
+.suggested-prompts-panel summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--theme-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  list-style: none;
+}
+
+.suggested-prompts-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.suggested-prompts-panel summary::after {
+  content: "+";
+  margin-left: 8px;
+  color: var(--theme-accent-2);
+}
+
+.suggested-prompts-panel[open] summary::after {
+  content: "-";
 }
 
 .context-button {
@@ -513,7 +542,7 @@ button:disabled {
 }
 
 .prompt-shell textarea {
-  min-height: 92px;
+  min-height: 46px;
   resize: none;
   margin: 0;
   padding: 0;
@@ -611,7 +640,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   min-width: 40px;
-  height: 40px;
+  height: 34px;
   padding: 0 14px;
 }
 
@@ -633,11 +662,11 @@ button:disabled {
 
 .send-button {
   border-radius: 999px;
-  min-width: 84px;
-  width: fit-content;
+  min-width: 34px;
+  width: 34px;
   flex: 0 0 auto;
-  font-size: 0.95rem;
-  padding: 0 16px;
+  font-size: 0.88rem;
+  padding: 0;
   line-height: 1;
   transition:
     transform 160ms ease,
@@ -645,6 +674,23 @@ button:disabled {
     filter 160ms ease,
     border-color 160ms ease,
     background 160ms ease;
+}
+
+.send-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.stop-button svg {
+  fill: currentColor;
+  stroke: none;
+  width: 13px;
+  height: 13px;
 }
 
 .icon-button:hover,
@@ -1495,9 +1541,14 @@ button:disabled {
 }
 
 @media (min-width: 960px) {
-  .app-grid {
+  .app-grid-test {
     grid-template-columns: 260px minmax(0, 1.5fr);
     justify-content: stretch;
+    align-items: start;
+  }
+
+  .app-grid-normal {
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
   }
 
@@ -1516,6 +1567,11 @@ button:disabled {
     grid-column: 2;
     min-height: calc(100vh - 120px);
     grid-template-rows: 1fr auto;
+    width: 100%;
+  }
+
+  .app-grid-normal .chat-column {
+    grid-column: 1;
     width: 100%;
   }
 

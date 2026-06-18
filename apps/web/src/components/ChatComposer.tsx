@@ -6,6 +6,8 @@ type ChatComposerProps = {
   provider: ProviderId;
   audioEnabled: boolean;
   loading: boolean;
+  promptPlaceholder: string;
+  suggestedPrompts: string[];
   onResetConversation: () => void;
   onProviderChange: (provider: ProviderId) => void;
   onAudioChange: (audio: boolean) => void;
@@ -13,12 +15,22 @@ type ChatComposerProps = {
   onSubmit: (message: string, files: File[], toolOptions: ToolOptions) => Promise<void>;
 };
 
-const samplePrompts = [
-  "Hi LaRae, please introduce yourself.",
-  "Give me a chart breaking down the chaos level in this launch plan.",
-  "Make me a flashy promo image concept and a CSV content plan.",
-  "Search the web for current tea and tell me what tool you would call."
-];
+function ComposerIcon({ name }: { name: "send" | "stop" }) {
+  if (name === "stop") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <rect x="7" y="7" width="10" height="10" rx="2" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 19V5" />
+      <path d="m6 11 6-6 6 6" />
+    </svg>
+  );
+}
 
 export function ChatComposer(props: ChatComposerProps) {
   const [message, setMessage] = useState("");
@@ -123,7 +135,6 @@ export function ChatComposer(props: ChatComposerProps) {
       <div className="composer-header">
         <div>
           <div className="eyebrow">Composer</div>
-          <h2>Message LaRae</h2>
         </div>
         <button type="button" className="ghost-button" onClick={props.onResetConversation} disabled={props.loading}>
           New conversation
@@ -169,14 +180,14 @@ export function ChatComposer(props: ChatComposerProps) {
       ) : null}
       <div className="prompt-shell">
         <textarea
-          rows={4}
+          rows={2}
           value={message}
           onChange={(event) => {
             setMessage(event.target.value);
             setHistoryIndex(undefined);
           }}
           onKeyDown={handlePromptKeyDown}
-          placeholder="Ask anything"
+          placeholder={props.promptPlaceholder}
         />
         {attachments.length > 0 ? (
           <div className="attachment-row">
@@ -210,29 +221,34 @@ export function ChatComposer(props: ChatComposerProps) {
             </label>
           </div>
           {props.loading ? (
-            <button type="button" className="send-button stop-button" onClick={props.onCancel} aria-label="Stop response">
-              Stop
+            <button type="button" className="send-button stop-button" onClick={props.onCancel} aria-label="Stop response" title="Stop">
+              <ComposerIcon name="stop" />
             </button>
           ) : (
-            <button type="submit" className="send-button" aria-label="Send message">
-              Send
+            <button type="submit" className="send-button" aria-label="Send message" title="Send">
+              <ComposerIcon name="send" />
             </button>
           )}
         </div>
       </div>
-      <div className="sample-prompt-row">
-        {samplePrompts.map((prompt) => (
-          <button
-            key={prompt}
-            type="button"
-            className="sample-prompt"
-            disabled={props.loading}
-            onClick={() => setMessage(prompt)}
-          >
-            {prompt}
-          </button>
-        ))}
-      </div>
+      {props.suggestedPrompts.length > 0 ? (
+        <details className="suggested-prompts-panel">
+          <summary>Suggested prompts</summary>
+          <div className="sample-prompt-row">
+            {props.suggestedPrompts.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                className="sample-prompt"
+                disabled={props.loading}
+                onClick={() => setMessage(prompt)}
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+        </details>
+      ) : null}
     </form>
   );
 }

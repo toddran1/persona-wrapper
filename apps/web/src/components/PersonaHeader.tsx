@@ -19,10 +19,7 @@ export function PersonaHeader({ personaSummary, personaDetail }: PersonaHeaderPr
   return (
     <section className="hero-card">
       <div className="hero-topline">
-        <div>
-          <div className="eyebrow">Fictional AI Persona System</div>
-          <h1>{persona.name}</h1>
-        </div>
+        <h1>{persona.name}</h1>
         {"theme" in persona && persona.theme ? <div className="theme-chip">{persona.theme.themeName}</div> : null}
       </div>
       <p className="hero-tagline">{persona.tagline}</p>

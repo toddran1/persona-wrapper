@@ -27,7 +27,7 @@ export function ConversationHistory({
         <span className="provider-pill">{messageCount} messages</span>
       </div>
       {messageCount === 0 ? (
-        <p className="empty-state">No conversation state yet. Send a message to create a tracked thread.</p>
+        <p className="empty-state">No conversation state yet. Ask anything.</p>
       ) : (
         <div className="chat-thread">
           {turns.map((turn, turnIndex) => {

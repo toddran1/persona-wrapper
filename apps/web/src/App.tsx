@@ -57,6 +57,11 @@ export function App() {
     })();
   }, []);
 
+  useEffect(() => {
+    const nextTitle = personaDetail?.documentTitle ?? personas[0]?.documentTitle;
+    document.title = nextTitle ?? "Persona Wrapper";
+  }, [personaDetail?.documentTitle, personas]);
+
   async function handleSubmit(message: string, files: File[], toolOptions: ToolOptions): Promise<void> {
     if (!personaDetail) {
       return;
@@ -180,19 +185,19 @@ export function App() {
     <main className="page-shell" style={themeStyle}>
       <div className="background-orb background-orb-a" />
       <div className="background-orb background-orb-b" />
-      <div className="app-grid">
+      <div className={`app-grid ${testModeEnabled ? "app-grid-test" : "app-grid-normal"}`}>
         <PersonaHeader personaSummary={personas[0]} personaDetail={personaDetail} />
-        <aside className="sidebar-column">
-          <StatusStrip
-            conversationId={conversationId}
-            loading={loading}
-            error={error}
-            generatedAt={response?.generatedAt}
-            onClearError={() => setError(undefined)}
-          />
-          <DebugPanel outputs={response?.outputs ?? []} />
-          {testModeEnabled ? <NeutralResponsePanel response={response} /> : null}
-          {testModeEnabled ? (
+        {testModeEnabled ? (
+          <aside className="sidebar-column">
+            <StatusStrip
+              conversationId={conversationId}
+              loading={loading}
+              error={error}
+              generatedAt={response?.generatedAt}
+              onClearError={() => setError(undefined)}
+            />
+            <DebugPanel outputs={response?.outputs ?? []} />
+            <NeutralResponsePanel response={response} />
             <EvalCapturePanel
               response={response}
               saving={evalSaving}
@@ -200,8 +205,8 @@ export function App() {
               error={evalError}
               onSave={saveEvalCapture}
             />
-          ) : null}
-        </aside>
+          </aside>
+        ) : null}
         <section className="chat-column">
           <ConversationHistory
             turns={renderedTurns}
@@ -213,6 +218,8 @@ export function App() {
               provider={provider}
               audioEnabled={audioEnabled}
               loading={loading}
+              promptPlaceholder={personaDetail?.promptPlaceholder ?? personas[0]?.promptPlaceholder ?? "Ask anything"}
+              suggestedPrompts={personaDetail?.suggestedPrompts ?? personas[0]?.suggestedPrompts ?? []}
               onResetConversation={resetConversation}
               onProviderChange={setProvider}
               onAudioChange={setAudioEnabled}

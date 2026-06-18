@@ -7,6 +7,12 @@ const defaultProps = {
   provider: "openai" as const,
   audioEnabled: false,
   loading: false,
+  promptPlaceholder: "Talk to me nice...",
+  suggestedPrompts: [
+    "Hi LaRae, please introduce yourself.",
+    "Tell me I am a baddie in 3 different languages.",
+    "Search the web for the most current tea."
+  ],
   onResetConversation: vi.fn(),
   onProviderChange: vi.fn(),
   onAudioChange: vi.fn(),
@@ -25,7 +31,7 @@ describe("ChatComposer", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Ask anything");
+    const textarea = screen.getByPlaceholderText("Talk to me nice...");
     await user.clear(textarea);
     await user.type(textarea, "Test the reunion energy.");
     await user.click(screen.getByRole("button", { name: "Send message" }));
@@ -45,7 +51,7 @@ describe("ChatComposer", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Ask anything");
+    const textarea = screen.getByPlaceholderText("Talk to me nice...");
     await user.clear(textarea);
     await user.type(textarea, "Send this with enter.");
     await user.keyboard("{Enter}");
@@ -64,7 +70,7 @@ describe("ChatComposer", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Ask anything");
+    const textarea = screen.getByPlaceholderText("Talk to me nice...");
     await user.clear(textarea);
     await user.type(textarea, "Line one");
     await user.keyboard("{Shift>}{Enter}{/Shift}");
@@ -85,7 +91,7 @@ describe("ChatComposer", () => {
       />
     );
 
-    const textarea = screen.getByPlaceholderText("Ask anything");
+    const textarea = screen.getByPlaceholderText("Talk to me nice...");
     await user.clear(textarea);
     await user.type(textarea, "First prompt");
     await user.keyboard("{Enter}");
@@ -108,7 +114,7 @@ describe("ChatComposer", () => {
     expect(textarea).toHaveValue("Draft prompt");
   });
 
-  it("loads a sample prompt into the textarea", async () => {
+  it("loads a suggested prompt into the textarea", async () => {
     const user = userEvent.setup();
 
     render(
@@ -118,10 +124,11 @@ describe("ChatComposer", () => {
       />
     );
 
-    const samplePrompt = "Search the web for current tea and tell me what tool you would call.";
+    await user.click(screen.getByText("Suggested prompts"));
+    const samplePrompt = "Search the web for the most current tea.";
     await user.click(screen.getByRole("button", { name: samplePrompt }));
 
-    expect(screen.getByPlaceholderText("Ask anything")).toHaveValue(samplePrompt);
+    expect(screen.getByPlaceholderText("Talk to me nice...")).toHaveValue(samplePrompt);
   });
 
   it("shows selected attachment names", async () => {
