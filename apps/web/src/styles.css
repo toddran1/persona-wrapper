@@ -48,8 +48,8 @@ textarea {
 .page-shell {
   position: relative;
   min-height: 100vh;
-  overflow: hidden;
-  padding: 32px 20px 56px;
+  overflow-x: hidden;
+  padding: clamp(16px, 3vw, 32px) clamp(12px, 2.4vw, 24px) clamp(32px, 5vw, 56px);
   color: var(--theme-text);
 }
 
@@ -79,9 +79,9 @@ textarea {
   z-index: 1;
   display: grid;
   gap: 28px;
-  max-width: none;
+  max-width: 1500px;
   margin: 0 auto;
-  width: 75%;
+  width: min(100%, 1500px);
 }
 
 .sidebar-column,
@@ -116,7 +116,7 @@ textarea {
 .hero-card {
   position: relative;
   overflow: hidden;
-  padding: 24px 28px;
+  padding: clamp(18px, 2.4vw, 28px);
 }
 
 .hero-card::after {
@@ -234,7 +234,7 @@ textarea {
 .debug-card,
 .eval-card,
 .neutral-card {
-  padding: 26px;
+  padding: clamp(16px, 2.2vw, 26px);
 }
 
 .composer-card {
@@ -888,7 +888,7 @@ button:disabled {
 
 .review-page {
   min-height: 100vh;
-  padding: 32px;
+  padding: clamp(16px, 3vw, 32px);
   background:
     radial-gradient(circle at top left, rgba(255, 200, 87, 0.16), transparent 34rem),
     #120d18;
@@ -900,6 +900,7 @@ button:disabled {
 .review-item {
   width: min(1280px, 100%);
   margin: 0 auto;
+  min-width: 0;
 }
 
 .review-header {
@@ -925,11 +926,14 @@ button:disabled {
 
 .review-tabs {
   display: inline-flex;
+  max-width: 100%;
   gap: 8px;
   padding: 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .review-tabs button {
@@ -959,6 +963,8 @@ button:disabled {
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.06);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .review-summary > div,
@@ -976,12 +982,22 @@ button:disabled {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 16px;
+  min-width: 0;
+}
+
+.review-item-header > div {
+  min-width: 0;
+}
+
+.review-item-header h2 {
+  overflow-wrap: anywhere;
 }
 
 .review-columns {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+  min-width: 0;
 }
 
 .review-columns.two-column {
@@ -1000,6 +1016,7 @@ button:disabled {
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.2);
+  min-width: 0;
 }
 
 .review-columns textarea,
@@ -1082,6 +1099,7 @@ button:disabled {
   grid-template-columns: 88px minmax(0, 1fr);
   gap: 14px;
   align-items: start;
+  min-width: 0;
 }
 
 .chat-avatar {
@@ -1112,6 +1130,8 @@ button:disabled {
   border-radius: 24px;
   padding: 18px 20px;
   border: 1px solid rgba(214, 181, 94, 0.08);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .chat-bubble-user {
@@ -1185,6 +1205,8 @@ button:disabled {
     rgba(13, 10, 22, 0.84);
   border: 1px solid rgba(214, 181, 94, 0.09);
   padding: 14px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .history-card {
@@ -1224,6 +1246,7 @@ button:disabled {
     var(--surface-strong);
   border: 1px solid rgba(214, 181, 94, 0.08);
   padding: 18px;
+  min-width: 0;
 }
 
 .output-text {
@@ -1550,6 +1573,7 @@ button:disabled {
   .app-grid-normal {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
+    width: min(100%, 1500px);
   }
 
   .hero-card {
@@ -1594,6 +1618,40 @@ button:disabled {
     gap: 18px;
   }
 
+  .hero-card,
+  .composer-card,
+  .response-card,
+  .history-card,
+  .status-card,
+  .debug-card,
+  .eval-card,
+  .neutral-card,
+  .error-banner {
+    border-radius: 22px;
+  }
+
+  .review-header,
+  .review-item-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .review-summary,
+  .review-edit-grid,
+  .review-columns,
+  .review-columns.two-column {
+    grid-template-columns: 1fr;
+  }
+
+  .review-tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .review-tabs button {
+    white-space: nowrap;
+  }
+
   .hero-topline,
   .composer-header,
   .composer-meta-row,
@@ -1624,7 +1682,7 @@ button:disabled {
   }
 
   .send-button {
-    min-width: 96px;
+    min-width: 34px;
   }
 
   .chat-row {
@@ -1641,18 +1699,41 @@ button:disabled {
     background: none;
     padding-top: 0;
   }
+
+  .image-frame,
+  .image-card figcaption {
+    width: min(100%, 520px);
+    max-width: 100%;
+  }
 }
 
 @media (max-width: 640px) {
+  .page-shell {
+    padding: 12px 10px 24px;
+  }
+
+  .app-grid {
+    gap: 14px;
+  }
+
   .hero-card,
   .history-card,
+  .response-card,
   .debug-card,
   .eval-card,
   .neutral-card,
   .status-card,
   .composer-card {
-    padding-left: 16px;
-    padding-right: 16px;
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .hero-topline {
+    display: grid;
+  }
+
+  .theme-chip {
+    justify-self: start;
   }
 
   .hero-card h1 {
@@ -1672,7 +1753,7 @@ button:disabled {
   }
 
   .prompt-shell textarea {
-    min-height: 84px;
+    min-height: 58px;
   }
 
   .prompt-toolbar {
@@ -1681,10 +1762,112 @@ button:disabled {
 
   .prompt-toolbar-left {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .send-button {
-    width: 100%;
+    width: 34px;
     min-width: 0;
+  }
+
+  .composer-meta-row label,
+  .composer-meta-row label:first-child {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .tool-options {
+    gap: 8px 12px;
+  }
+
+  .chat-thread {
+    gap: 12px;
+  }
+
+  .chat-row {
+    gap: 8px;
+  }
+
+  .chat-avatar {
+    justify-self: start;
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 0.68rem;
+  }
+
+  .chat-bubble {
+    border-radius: 18px;
+    padding: 14px;
+  }
+
+  .inline-artifact-card,
+  .output-card,
+  .chart-card,
+  .tool-card,
+  .media-card,
+  .output-file {
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .output-code {
+    max-width: 100%;
+    font-size: 0.82rem;
+  }
+
+  .image-frame,
+  .image-preview-button,
+  .image-preview-button img {
+    max-height: min(440px, 62vh);
+  }
+
+  .image-action-bar {
+    top: 8px;
+    right: 8px;
+  }
+
+  .image-edit-button {
+    left: 8px;
+    bottom: 8px;
+  }
+
+  .image-icon-button,
+  .image-edit-button {
+    height: 34px;
+  }
+
+  .image-icon-button {
+    width: 34px;
+  }
+
+  .image-modal {
+    padding: 12px;
+  }
+
+  .image-modal-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .image-modal-actions {
+    justify-content: space-between;
+  }
+
+  .review-page {
+    padding: 12px;
+  }
+
+  .review-summary > div,
+  .review-item {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .review-card-actions {
+    flex-wrap: wrap;
+  }
+
+  .review-card-actions button {
+    flex: 1 1 auto;
   }
 }
