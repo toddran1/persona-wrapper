@@ -18,12 +18,19 @@ export function PersonaHeader({ personaSummary, personaDetail }: PersonaHeaderPr
 
   return (
     <section className="hero-card">
-      <div className="hero-topline">
-        <h1>{persona.name}</h1>
-        {"theme" in persona && persona.theme ? <div className="theme-chip">{persona.theme.themeName}</div> : null}
+      <div className="hero-layout">
+        {persona.avatarUrl ? (
+          <img className="hero-avatar" src={persona.avatarUrl} alt={`${persona.name} avatar`} />
+        ) : null}
+        <div className="hero-copy">
+          <div className="hero-topline">
+            <h1>{persona.name}</h1>
+            {"theme" in persona && persona.theme ? <div className="theme-chip">{persona.theme.themeName}</div> : null}
+          </div>
+          <p className="hero-tagline">{persona.tagline}</p>
+          <p className="hero-description hero-description-compact">{persona.description}</p>
+        </div>
       </div>
-      <p className="hero-tagline">{persona.tagline}</p>
-      <p className="hero-description hero-description-compact">{persona.description}</p>
       {personaDetail ? (
         <details className="hero-details">
           <summary>Persona details</summary>

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { resetLaraeStyleReferenceCache } from "./laraeStyleReferenceBuilder.js";
 
 type LlmTurnLog = {
   timestamp?: string;
@@ -161,6 +162,12 @@ function pathForKind(kind: ReviewRecordKind): string {
   return getGoldenPairsPath();
 }
 
+function invalidateStyleReferenceIfNeeded(kind: ReviewRecordKind): void {
+  if (kind === "pairs" || kind === "golden") {
+    resetLaraeStyleReferenceCache();
+  }
+}
+
 function nextGoldenId(records: Record<string, unknown>[]): string {
   const nextNumber =
     records.reduce((max, record) => {
@@ -247,6 +254,7 @@ export class EvalCaptureService {
     };
     records[index] = updatedRecord;
     writeJsonlRecords(path, records);
+    invalidateStyleReferenceIfNeeded(input.kind);
 
     return {
       id: input.id,
@@ -296,6 +304,7 @@ export class EvalCaptureService {
 
     records.push(record);
     writeJsonlRecords(path, records);
+    invalidateStyleReferenceIfNeeded(input.kind);
 
     return { id, path, record };
   }
@@ -310,6 +319,7 @@ export class EvalCaptureService {
     }
 
     writeJsonlRecords(path, nextRecords);
+    invalidateStyleReferenceIfNeeded(input.kind);
     return { id: input.id, path };
   }
 
@@ -346,6 +356,7 @@ export class EvalCaptureService {
 
     syntheticPairs.push(record);
     writeJsonlRecords(syntheticPairsPath, syntheticPairs);
+    resetLaraeStyleReferenceCache();
 
     return {
       id: String(record.id),

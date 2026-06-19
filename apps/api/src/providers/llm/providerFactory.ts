@@ -7,11 +7,12 @@ import { OpenAIProvider } from "./OpenAIProvider.js";
 export function createLLMProvider(providerId: ProviderId): LLMProvider {
   switch (providerId) {
     case "openai":
-      return new OpenAIProvider();
+      return new OpenAIProvider({ promptMode: "base", providerId: "openai" });
+    case "openai_persona":
+      return new OpenAIProvider({ promptMode: "full", providerId: "openai_persona" });
     case "claude":
       return new ClaudeProvider();
     case "local":
       return new LocalModelProvider();
   }
 }
-

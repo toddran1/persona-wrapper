@@ -6,10 +6,10 @@ import { OpenAITTSProvider } from "./OpenAITTSProvider.js";
 export function createTTSProvider(providerId: ProviderId): TTSProvider {
   switch (providerId) {
     case "openai":
+    case "openai_persona":
     case "claude":
       return new OpenAITTSProvider();
     case "local":
       return new LocalTTSProvider();
   }
 }
-

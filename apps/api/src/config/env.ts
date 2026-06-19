@@ -15,6 +15,10 @@ function stringToBoolean(value: unknown): unknown {
   return value.toLowerCase() === "true";
 }
 
+const reasoningEffortSchema = z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]);
+const reasoningSummarySchema = z.enum(["auto", "concise", "detailed"]);
+const textVerbositySchema = z.enum(["low", "medium", "high"]);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -23,6 +27,21 @@ const envSchema = z.object({
   OPENAI_RUN_INTEGRATION_TESTS: z.preprocess(stringToBoolean, z.boolean().default(false)),
   OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
   OPENAI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  OPENAI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(8192),
+  OPENAI_TEMPERATURE: z.preprocess(emptyStringToUndefined, z.coerce.number().min(0).max(2).optional()),
+  OPENAI_TOP_P: z.preprocess(emptyStringToUndefined, z.coerce.number().min(0).max(1).optional()),
+  OPENAI_PRESENCE_PENALTY: z.preprocess(emptyStringToUndefined, z.coerce.number().min(-2).max(2).optional()),
+  OPENAI_FREQUENCY_PENALTY: z.preprocess(emptyStringToUndefined, z.coerce.number().min(-2).max(2).optional()),
+  OPENAI_REASONING_EFFORT: z.preprocess(emptyStringToUndefined, reasoningEffortSchema.optional()),
+  OPENAI_REASONING_SUMMARY: z.preprocess(emptyStringToUndefined, reasoningSummarySchema.optional()),
+  OPENAI_TEXT_VERBOSITY: z.preprocess(emptyStringToUndefined, textVerbositySchema.optional()),
+  OPENAI_PERSONA_TEMPERATURE: z.preprocess(emptyStringToUndefined, z.coerce.number().min(0).max(2).optional()),
+  OPENAI_PERSONA_TOP_P: z.preprocess(emptyStringToUndefined, z.coerce.number().min(0).max(1).optional()),
+  OPENAI_PERSONA_PRESENCE_PENALTY: z.preprocess(emptyStringToUndefined, z.coerce.number().min(-2).max(2).optional()),
+  OPENAI_PERSONA_FREQUENCY_PENALTY: z.preprocess(emptyStringToUndefined, z.coerce.number().min(-2).max(2).optional()),
+  OPENAI_PERSONA_REASONING_EFFORT: z.preprocess(emptyStringToUndefined, reasoningEffortSchema.default("medium")),
+  OPENAI_PERSONA_REASONING_SUMMARY: z.preprocess(emptyStringToUndefined, reasoningSummarySchema.optional()),
+  OPENAI_PERSONA_TEXT_VERBOSITY: z.preprocess(emptyStringToUndefined, textVerbositySchema.default("high")),
   OPENAI_MAX_RETRIES: z.coerce.number().int().min(0).max(6).default(3),
   OPENAI_MAX_TOOL_ITERATIONS: z.coerce.number().int().min(1).max(10).default(4),
   OPENAI_MAX_CONTEXT_MESSAGES: z.coerce.number().int().min(2).max(100).default(24),

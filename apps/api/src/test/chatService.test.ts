@@ -21,7 +21,7 @@ describe("ChatService", () => {
       "Hi LaRae, please introduce yourself."
     );
     expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("I’m LaRae the Baddest");
-    expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("Gurl, be serious.");
+    expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("Bitch, be serious.");
   });
 
   it("persists conversation history across turns", async () => {
@@ -69,7 +69,28 @@ describe("ChatService", () => {
 
     expect(deltas.join("")).toContain("LaRae the Baddest");
     const finalText = response.outputs.find((output) => output.type === "text");
-    expect(finalText?.type === "text" ? finalText.text : "").toContain("Gurl, be serious.");
+    expect(finalText?.type === "text" ? finalText.text : "").toContain("Bitch, be serious.");
+  });
+
+  it("uses OpenAI direct persona without the separate style transfer pass", async () => {
+    const service = new ChatService();
+
+    const response = await service.handleChat({
+      personaId: "larae",
+      provider: "openai_persona",
+      message: "Hi LaRae, please introduce yourself.",
+      audio: false,
+      testMode: true,
+      history: []
+    });
+
+    const assistantReply = response.outputs.find((output) => output.type === "text");
+    const assistantText = assistantReply?.type === "text" ? assistantReply.text : "";
+
+    expect(response.provider).toBe("openai_persona");
+    expect(response.diagnostics.neutralResponse).toBe(assistantText);
+    expect(assistantText).toContain("I’m LaRae the Baddest");
+    expect(assistantText).not.toContain("Bitch, be serious.");
   });
 
   it("stops before generation when the request is cancelled", async () => {

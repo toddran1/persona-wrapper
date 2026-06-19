@@ -20,11 +20,14 @@ const REVIEW_TAG_OPTIONS = [
 ];
 const REVIEW_PAIR_INSTRUCTION =
   "Rewrite the neutral answer in the target persona style. Treat the neutral answer only as source content, not as a style example. Train on the output persona voice only. Preserve all names, dates, years, numbers, locations, durations, formatting, and factual claims exactly. Preserve markdown links, URLs, citation text, quoted text, code, and source metadata exactly when present. Do not invent markdown links, URLs, citations, sources, or source-like metadata when the input does not contain them. Dates, years, numbers, URLs, citations, official names, and quoted text are not style targets. Preserve proper nouns and named entities exactly, including people, places, characters, brands, teams, organizations, titles, books, songs, albums, products, and user-selected options. Do not substitute a different entity or option. Preserve the gender, title, role, and type of every person, group, place, brand, team, and object. Do not call men women, women men, teams people, places people, or objects people unless the input does. Change only tone, rhythm, slang, and attitude. Keep official names clean and use slang as emphasis, not inside names.";
+const OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE = 20;
+const OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE = 5;
 
 type EditableReviewCardProps = {
   kind: ReviewRecordKind;
   record: Record<string, unknown>;
   index: number;
+  referenceLabel?: string;
   onSave: (kind: ReviewRecordKind, id: string, updates: Record<string, unknown>) => Promise<void>;
   onDelete: (kind: ReviewRecordKind, id: string) => Promise<void>;
   onPromoteRejected: (id: string) => Promise<void>;
@@ -34,6 +37,8 @@ type AddReviewRecordProps = {
   kind: ReviewRecordKind;
   onAdd: (kind: ReviewRecordKind, record: Record<string, unknown>) => Promise<void>;
 };
+
+type ReviewTab = ReviewRecordKind | "openai-reference";
 
 function getString(record: Record<string, unknown>, key: string): string {
   const value = record[key];
@@ -48,6 +53,10 @@ function getTags(record: Record<string, unknown>): string[] {
 function getReasons(record: Record<string, unknown>): string[] {
   const value = record.reasons;
   return Array.isArray(value) ? value.filter((reason): reason is string => typeof reason === "string") : [];
+}
+
+function getBoolean(record: Record<string, unknown>, key: string): boolean {
+  return record[key] === true;
 }
 
 function getRecordId(record: Record<string, unknown>, index: number): string {
@@ -101,7 +110,7 @@ function TagEditor({ value, onChange }: { value: string; onChange: (value: strin
   );
 }
 
-function EditableReviewCard({ kind, record, index, onSave, onDelete, onPromoteRejected }: EditableReviewCardProps) {
+function EditableReviewCard({ kind, record, index, referenceLabel, onSave, onDelete, onPromoteRejected }: EditableReviewCardProps) {
   const id = getRecordId(record, index);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -215,7 +224,28 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete, onPromoteRe
     }
   }
 
+  async function toggleOpenAIReference(): Promise<void> {
+    if (kind !== "pairs" && kind !== "golden") {
+      return;
+    }
+
+    setSaving(true);
+    setError(undefined);
+
+    try {
+      await onSave(kind, id, {
+        use_for_openai_reference: !getBoolean(record, "use_for_openai_reference")
+      });
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "Failed to update OpenAI reference flag");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const title = getString(record, "user_prompt") || getString(record, "input") || getString(record, "source_text") || "Training pair";
+  const canUseForOpenAIReference = kind === "pairs" || kind === "golden";
+  const usedForOpenAIReference = getBoolean(record, "use_for_openai_reference");
 
   return (
     <article className="review-item">
@@ -223,6 +253,7 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete, onPromoteRe
         <div>
           <span className="eyebrow">{id}</span>
           <h2>{title}</h2>
+          {referenceLabel ? <p className="review-notes">{referenceLabel}</p> : null}
         </div>
         {kind === "evals" ? (
           <div className="tag-row">
@@ -231,6 +262,12 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete, onPromoteRe
                 {tag}
               </span>
             ))}
+          </div>
+        ) : canUseForOpenAIReference ? (
+          <div className="tag-row">
+            <span className={`tag-chip ${usedForOpenAIReference ? "tag-chip-active" : ""}`}>
+              {usedForOpenAIReference ? "OpenAI reference" : "Not in OpenAI reference"}
+            </span>
           </div>
         ) : null}
       </div>
@@ -353,6 +390,16 @@ function EditableReviewCard({ kind, record, index, onSave, onDelete, onPromoteRe
             {kind === "rejections" ? (
               <button type="button" className="ghost-button" disabled={saving || promoting} onClick={() => void promoteRejected()}>
                 {promoting ? "Adding..." : "Add to synthetic pair file"}
+              </button>
+            ) : null}
+            {canUseForOpenAIReference ? (
+              <button
+                type="button"
+                className={`ghost-button openai-reference-toggle ${usedForOpenAIReference ? "is-added" : ""}`}
+                disabled={saving}
+                onClick={() => void toggleOpenAIReference()}
+              >
+                {usedForOpenAIReference ? "Added to OpenAI ref" : "Add to OpenAI ref"}
               </button>
             ) : null}
             <button type="button" className="ghost-button review-delete-button" disabled={saving} onClick={() => void deleteRecord()}>
@@ -537,10 +584,82 @@ function AddReviewRecord({ kind, onAdd }: AddReviewRecordProps) {
   );
 }
 
+function openAIReferenceRows(records: Record<string, unknown>[], fallbackLimit: number): { rows: Record<string, unknown>[]; usesFallback: boolean } {
+  const markedRows = records.filter((record) => getBoolean(record, "use_for_openai_reference"));
+  if (markedRows.length > 0) {
+    return { rows: markedRows, usesFallback: false };
+  }
+
+  return { rows: records.slice(0, fallbackLimit), usesFallback: true };
+}
+
+function OpenAIPersonaReferencePanel({
+  data,
+  onSave,
+  onDelete,
+  onPromoteRejected
+}: {
+  data: StyleTransferReviewData | undefined;
+  onSave: (kind: ReviewRecordKind, id: string, updates: Record<string, unknown>) => Promise<void>;
+  onDelete: (kind: ReviewRecordKind, id: string) => Promise<void>;
+  onPromoteRejected: (id: string) => Promise<void>;
+}) {
+  const syntheticReference = openAIReferenceRows(data?.syntheticPairs ?? [], OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE);
+  const goldenReference = openAIReferenceRows(data?.goldenPairs ?? [], OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE);
+  const syntheticReferencePairs = syntheticReference.rows;
+  const goldenReferencePairs = goldenReference.rows;
+
+  return (
+    <section className="review-list">
+      <article className="review-item">
+        <div className="review-item-header">
+          <div>
+            <span className="eyebrow">OpenAI Persona Direct</span>
+            <h2>LaRae style reference pool</h2>
+            <p className="review-notes">
+              These marked examples are the pool used by the OpenAI direct persona path. Each prompt randomly samples up to {OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE} synthetic pairs and {OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE} golden pairs from this pool as style-only examples.
+              If a source has no marked rows yet, it falls back to the first {OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE} synthetic rows or first {OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE} golden rows. Editing a card here updates the underlying JSONL row.
+            </p>
+            <p className="review-notes">
+              Synthetic pool: {syntheticReferencePairs.length} {syntheticReference.usesFallback ? "fallback rows" : "marked rows"} | Golden pool: {goldenReferencePairs.length} {goldenReference.usesFallback ? "fallback rows" : "marked rows"}
+            </p>
+          </div>
+        </div>
+      </article>
+
+      {syntheticReferencePairs.map((record, index) => (
+        <EditableReviewCard
+          kind="pairs"
+          record={record}
+          index={index}
+          key={`openai-reference-synthetic-${getString(record, "id") || index}`}
+          referenceLabel={`Synthetic pool row ${index + 1}${syntheticReference.usesFallback ? " (fallback until rows are marked)" : " (marked)"}`}
+          onSave={onSave}
+          onDelete={onDelete}
+          onPromoteRejected={onPromoteRejected}
+        />
+      ))}
+
+      {goldenReferencePairs.map((record, index) => (
+        <EditableReviewCard
+          kind="golden"
+          record={record}
+          index={index}
+          key={`openai-reference-golden-${getString(record, "id") || index}`}
+          referenceLabel={`Golden pool row ${index + 1}${goldenReference.usesFallback ? " (fallback until rows are marked)" : " (marked)"}`}
+          onSave={onSave}
+          onDelete={onDelete}
+          onPromoteRejected={onPromoteRejected}
+        />
+      ))}
+    </section>
+  );
+}
+
 export function GoldenPairReviewPage() {
   const [data, setData] = useState<StyleTransferReviewData | undefined>();
   const [error, setError] = useState<string | undefined>();
-  const [activeTab, setActiveTab] = useState<ReviewRecordKind>("evals");
+  const [activeTab, setActiveTab] = useState<ReviewTab>("evals");
 
   useEffect(() => {
     void api
@@ -644,6 +763,8 @@ export function GoldenPairReviewPage() {
         ? "Synthetic Pairs"
         : activeTab === "rejections"
           ? "Heuristic Rejections"
+          : activeTab === "openai-reference"
+            ? "OpenAI Persona Reference"
           : "Golden Pairs";
   const sourcePath =
     activeTab === "evals"
@@ -652,6 +773,8 @@ export function GoldenPairReviewPage() {
         ? data?.paths.syntheticPairs
         : activeTab === "rejections"
           ? data?.paths.heuristicRejections
+          : activeTab === "openai-reference"
+            ? `${data?.paths.syntheticPairs ?? "Loading..."} + ${data?.paths.goldenPairs ?? "Loading..."}`
           : data?.paths.goldenPairs;
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -684,6 +807,12 @@ export function GoldenPairReviewPage() {
           <button type="button" className={activeTab === "rejections" ? "active" : ""} onClick={() => setActiveTab("rejections")}>
             Rejected ({data?.heuristicRejections.length ?? 0})
           </button>
+          <button type="button" className={activeTab === "openai-reference" ? "active" : ""} onClick={() => setActiveTab("openai-reference")}>
+            OpenAI Ref ({
+              (data?.syntheticPairs.filter((record) => getBoolean(record, "use_for_openai_reference")).length || Math.min(data?.syntheticPairs.length ?? 0, OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE)) +
+              (data?.goldenPairs.filter((record) => getBoolean(record, "use_for_openai_reference")).length || Math.min(data?.goldenPairs.length ?? 0, OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE))
+            })
+          </button>
         </nav>
       </header>
 
@@ -701,20 +830,29 @@ export function GoldenPairReviewPage() {
         </div>
       </section>
 
-      <section className="review-list">
-        {records.map((record, index) => (
-          <EditableReviewCard
-            kind={activeTab}
-            record={record}
-            index={index}
-            key={getString(record, "id") || index}
-            onSave={saveRecord}
-            onDelete={deleteRecord}
-            onPromoteRejected={promoteRejected}
-          />
-        ))}
-        <AddReviewRecord kind={activeTab} onAdd={addRecord} />
-      </section>
+      {activeTab === "openai-reference" ? (
+        <OpenAIPersonaReferencePanel
+          data={data}
+          onSave={saveRecord}
+          onDelete={deleteRecord}
+          onPromoteRejected={promoteRejected}
+        />
+      ) : (
+        <section className="review-list">
+          {records.map((record, index) => (
+            <EditableReviewCard
+              kind={activeTab}
+              record={record}
+              index={index}
+              key={getString(record, "id") || index}
+              onSave={saveRecord}
+              onDelete={deleteRecord}
+              onPromoteRejected={promoteRejected}
+            />
+          ))}
+          <AddReviewRecord kind={activeTab} onAdd={addRecord} />
+        </section>
+      )}
     </main>
   );
 }

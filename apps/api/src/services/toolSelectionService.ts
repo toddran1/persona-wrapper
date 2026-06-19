@@ -56,7 +56,7 @@ function deterministicDecision(request: ChatRequest): RouterDecision {
 }
 
 function shouldUseModelRouter(request: ChatRequest, tools: ToolOptions): boolean {
-  if (request.provider !== "openai") return false;
+  if (request.provider !== "openai" && request.provider !== "openai_persona") return false;
   if (!env.OPENAI_TOOL_ROUTER_ENABLED || !env.OPENAI_API_KEY) return false;
   if (env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS) return false;
   if (tools.webSearch || tools.fileSearch || tools.codeInterpreter || tools.imageGeneration) return false;
@@ -102,7 +102,7 @@ async function routeWithOpenAI(request: ChatRequest): Promise<RouterDecision> {
 }
 
 export async function selectTools(request: ChatRequest): Promise<ChatRequest> {
-  if (request.provider !== "openai") return request;
+  if (request.provider !== "openai" && request.provider !== "openai_persona") return request;
   const explicit = request.toolOptions ?? defaults;
   const deterministic = deterministicDecision(request);
   let toolOptions = mergeTools(explicit, deterministic);

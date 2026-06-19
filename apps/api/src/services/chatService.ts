@@ -31,6 +31,14 @@ function insertToolContext(input: ChatMessage[], toolContext: ToolContext | unde
   return messages;
 }
 
+function isOpenAIProvider(provider: ChatRequest["provider"]): boolean {
+  return provider === "openai" || provider === "openai_persona";
+}
+
+function shouldUseStyleTransfer(provider: ChatRequest["provider"]): boolean {
+  return provider !== "openai_persona";
+}
+
 export class ChatService {
   constructor(
     private readonly conversationStore = new ConversationStore(),
@@ -54,9 +62,9 @@ export class ChatService {
       conversationId: conversation.id,
       history: this.conversationStore.getPromptHistory(conversation)
     });
-    const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext, request.provider === "openai");
+    const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext, isOpenAIProvider(request.provider));
     if (toolContext) {
-      if (request.provider === "openai" && toolContext.results.some((result) => result.name === "web_search")) {
+      if (isOpenAIProvider(request.provider) && toolContext.results.some((result) => result.name === "web_search")) {
         llmInput.toolOptions = {
           webSearch: true,
           fileSearch: llmInput.toolOptions?.fileSearch ?? false,
@@ -97,8 +105,13 @@ export class ChatService {
       userMessage: request.message
     };
 
-    console.log("\nNeutral LLM response object data:", neutralResponseMetadata);
-    console.log(`\n--- Neutral LLM response before style transfer ---\n\n${neutralText}\n`);
+    const useStyleTransfer = shouldUseStyleTransfer(request.provider);
+    console.log(useStyleTransfer ? "\nNeutral LLM response object data:" : "\nDirect persona LLM response object data:", neutralResponseMetadata);
+    console.log(
+      useStyleTransfer
+        ? `\n--- Neutral LLM response before style transfer ---\n\n${neutralText}\n`
+        : `\n--- Direct persona LLM response ---\n\n${neutralText}\n`
+    );
 
     const styleTransferInput = {
       neutralText,
@@ -107,15 +120,24 @@ export class ChatService {
       userMessage: request.message,
       provider: llmOutput.provider
     };
-    const styleTransferOutput = neutralText.trim()
-      ? await createStyleTransferProvider().transferStyle(styleTransferInput, signal)
+    const styleTransferOutput = useStyleTransfer
+      ? neutralText.trim()
+        ? await createStyleTransferProvider().transferStyle(styleTransferInput, signal)
+        : {
+            provider: "stub_style_transfer" as const,
+            styledText: "",
+            metadata: { skipped: "No text content to style." }
+          }
       : {
           provider: "stub_style_transfer" as const,
-          styledText: "",
-          metadata: { skipped: "No text content to style." }
+          styledText: neutralText,
+          metadata: {
+            skipped: "Provider uses OpenAI direct persona response.",
+            mode: "openai_persona_direct"
+          }
         };
 
-    if (styleTransferOutput.styledText) {
+    if (useStyleTransfer && styleTransferOutput.styledText) {
       console.log(`--- Style transfer model response ---\n\n${styleTransferOutput.styledText}\n`);
     }
 
@@ -139,7 +161,10 @@ export class ChatService {
           conversationHistoryCount: styleTransferInput.conversationHistory.length
         },
         responseText: styleTransferOutput.styledText,
-        responseMetadata: styleTransferOutput.metadata
+        responseMetadata: {
+          ...(styleTransferOutput.metadata ?? {}),
+          skipped: !useStyleTransfer
+        }
       }
     });
 

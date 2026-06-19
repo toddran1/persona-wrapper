@@ -56,12 +56,14 @@ function buildText(params: {
 }): string {
   const fullCallbacks: Record<ProviderId, string> = {
     openai: "Baby, let me set this all the way off.",
+    openai_persona: "Baby, let me set this all the way off.",
     claude: "Let me deliver this with style and just enough menace.",
     local: "Local mode, full chaos, no excuses."
   };
 
   const baseCallbacks: Record<ProviderId, string> = {
     openai: "Here’s the answer, plain and polished.",
+    openai_persona: "Here’s the answer, plain and polished.",
     claude: "Here’s the clean version with a little attitude.",
     local: "Here’s the direct version with a light persona touch."
   };

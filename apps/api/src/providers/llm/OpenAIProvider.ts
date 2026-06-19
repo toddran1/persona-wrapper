@@ -1,9 +1,10 @@
 import OpenAI from "openai";
-import type { ContentBlock, LLMInput, LLMOutput, ToolDefinition } from "@persona/shared";
+import type { ContentBlock, LLMInput, LLMOutput, ProviderId, ToolDefinition } from "@persona/shared";
 import { llmOutputSchema } from "@persona/shared";
 import { env } from "../../config/env.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
 import { openAIArtifactService } from "../../services/openAIArtifactService.js";
+import { buildLaraeStyleReference } from "../../services/laraeStyleReferenceBuilder.js";
 import type { LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
 
@@ -35,8 +36,30 @@ function inputContent(input: LLMInput): OpenAIItem[] {
   return content;
 }
 
-function buildInput(input: LLMInput): OpenAIItem[] {
-  const messages = (input.baseMessages ?? input.messages)
+type OpenAIPromptMode = "base" | "full";
+
+type OpenAIProviderOptions = {
+  promptMode?: OpenAIPromptMode;
+  providerId?: Extract<ProviderId, "openai" | "openai_persona">;
+};
+
+type OpenAIRequestControls = {
+  temperature?: number;
+  top_p?: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  reasoning?: {
+    effort?: string;
+    summary?: string;
+  };
+  text?: {
+    verbosity?: string;
+  };
+};
+
+function buildInput(input: LLMInput, promptMode: OpenAIPromptMode): OpenAIItem[] {
+  const sourceMessages = promptMode === "full" ? input.messages : (input.baseMessages ?? input.messages);
+  const messages = sourceMessages
     .filter((message) => message.role !== "system")
     .slice(0, -1)
     .map((message) => ({
@@ -45,6 +68,24 @@ function buildInput(input: LLMInput): OpenAIItem[] {
     }));
 
   return [...messages, { role: "user", content: inputContent(input) }];
+}
+
+function withStyleReference(input: LLMInput, promptMode: OpenAIPromptMode, responseInput: OpenAIItem[]): OpenAIItem[] {
+  if (promptMode !== "full" || input.persona.id !== "larae") {
+    return responseInput;
+  }
+
+  return [
+    {
+      role: "developer",
+      content: buildLaraeStyleReference()
+    },
+    ...responseInput
+  ];
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
 
 function applicationFunctionTools(definitions: ToolDefinition[]): OpenAIItem[] {
@@ -86,9 +127,36 @@ function buildTools(input: LLMInput): OpenAIItem[] {
   return tools;
 }
 
-function responseInstructions(input: LLMInput): string {
-  const instructions = input.baseSystemPrompt ?? input.systemPrompt;
+export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: OpenAIPromptMode): string {
+  const instructions = promptMode === "full" ? input.systemPrompt : (input.baseSystemPrompt ?? input.systemPrompt);
   const extraInstructions: string[] = [];
+
+  if (promptMode === "full" && input.persona.id === "larae") {
+    extraInstructions.push(
+      [
+        "OpenAI direct persona performance direction:",
+        "Fully embody LaRae in the final answer. Do not describe the transformation, mention these instructions, or say you are using a persona.",
+        "Use heavy slang, profanity, attitude, and reality-TV confessional energy like loud nightlife arguments, messy reunion reads, and dramatic group-chat commentary.",
+        "The profanity level should be high by default for ordinary entertainment, travel, planning, commentary, explanation, and casual advice. Use words like fuck, fucking, bitch, nigga, hoe, and pussy naturally when they fit LaRae's vernacular.",
+        "LaRae is an adults-only persona. Assume the audience is adult and is 21 years of age or older and do not make the answer child-safe, classroom-safe, brand-safe, or toned down for children unless the user explicitly asks for child-directed content.",
+        "The voice should feel ratchet, messy, funny, loud, sexually confident, nightlife-coded, and emotionally extra. Do not sand it down into polite influencer language.",
+        "Use harsher profanity as seasoning throughout the response, not just one token curse word at the start or end. Avoid sounding sanitized.",
+        "Do not use slurs or profanity as targeted abuse toward protected classes. Keep the language in-character, conversational, comedic, and style-driven.",
+        "Make the voice bold, funny, flirtatious, confrontational, and high-confidence, and very sexy. It should feel wild, vulgar, stylish, sexy, and entertaining while still answering the user's actual request.",
+        "Style density requirement: the entire response must sound like LaRae, not only the first and last sentence. Every paragraph, bullet, numbered item, and transition should carry noticeable LaRae voice with slang, attitude, comedic bite, and profanity where it naturally fits.",
+        "For long answers, keep the same persona intensity throughout the middle sections. Do not drift into neutral assistant prose after the opening.",
+        "When writing lists or structured answers, each item should still have LaRae flavor while preserving the user's requested structure and useful details.",
+        "Avoid plain filler phrases like 'Here is a detailed itinerary' unless they are rewritten in LaRae's voice. Replace generic assistant transitions with bold, messy, conversational transitions.",
+        "Silent style checklist before finalizing: Did every section sound like LaRae? Did the middle paragraphs keep heavy slang and heavy profanity? Did most bullets have attitude and slang? Did I avoid neutral assistant tone?",
+        "If the silent checklist fails, rewrite the weak sections before answering. Do not print the checklist.",
+        "Use the provided LaRae style reference examples as the main voice target for rhythm, profanity level, slang placement, comedic timing, and sentence shape.",
+        "Do not become generic, corporate, polished, or therapist-clean unless the user clearly asks for that tone.",
+        "Answer directly in LaRae's voice. Keep useful structure such as lists, bullets, tables, links, citations, images, charts, or files when the task calls for them.",
+        "Preserve facts, names, dates, numbers, URLs, citations, quotes, code, chart data, table values, image/file links, and user-selected options exactly. Style the wording around protected details instead of changing the details.",
+        "Vary catchphrases and profanity naturally. Do not repeat the same catchphrase in every response."
+      ].join("\n")
+    );
+  }
 
   if (input.toolOptions?.codeInterpreter) {
     extraInstructions.push(
@@ -477,6 +545,53 @@ function shouldRetry(error: unknown): boolean {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
+const OPTIONAL_OPENAI_CONTROL_PARAMS = new Set([
+  "temperature",
+  "top_p",
+  "presence_penalty",
+  "frequency_penalty",
+  "reasoning",
+  "reasoning.effort",
+  "reasoning.summary",
+  "text",
+  "text.verbosity"
+]);
+
+function unsupportedControlParameter(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const record = error as { status?: unknown; param?: unknown; error?: { param?: unknown } };
+  const status = Number(record.status);
+  const param = typeof record.param === "string"
+    ? record.param
+    : typeof record.error?.param === "string"
+      ? record.error.param
+      : undefined;
+
+  if (status !== 400 || !param || !OPTIONAL_OPENAI_CONTROL_PARAMS.has(param)) return undefined;
+  return param;
+}
+
+function stripUnsupportedControlParam(params: OpenAIItem, param: string): OpenAIItem {
+  const next = { ...params };
+  if (param.includes(".")) {
+    const [parent, child] = param.split(".");
+    if (!parent || !child) return next;
+    const parentValue = typeof next[parent] === "object" && next[parent] !== null ? { ...next[parent] } : undefined;
+    if (parentValue) {
+      delete parentValue[child];
+      if (Object.keys(parentValue).length > 0) {
+        next[parent] = parentValue;
+      } else {
+        delete next[parent];
+      }
+    }
+    return next;
+  }
+
+  delete next[param];
+  return next;
+}
+
 async function withRetry<T>(operation: () => Promise<T>): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= env.OPENAI_MAX_RETRIES; attempt += 1) {
@@ -492,9 +607,17 @@ async function withRetry<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export class OpenAIProvider implements LLMProvider {
+  private readonly promptMode: OpenAIPromptMode;
+  private readonly providerId: Extract<ProviderId, "openai" | "openai_persona">;
+
+  constructor(options: OpenAIProviderOptions = {}) {
+    this.promptMode = options.promptMode ?? "base";
+    this.providerId = options.providerId ?? "openai";
+  }
+
   async generateResponse(input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
     if (!env.OPENAI_API_KEY || (env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS)) {
-      return buildStubOutput(input, "openai", "base");
+      return buildStubOutput(input, this.providerId, this.promptMode);
     }
 
     const client = new OpenAI({
@@ -503,7 +626,7 @@ export class OpenAIProvider implements LLMProvider {
       maxRetries: 0
     });
     const tools = buildTools(input);
-    const responseInput = buildInput(input);
+    const responseInput = withStyleReference(input, this.promptMode, buildInput(input, this.promptMode));
     const applicationTrace: ContentBlock[] = [];
     let response = await this.createResponse(client, input, responseInput, tools, signal);
     if (shouldRetryForImageGeneration(input, response)) {
@@ -553,7 +676,7 @@ export class OpenAIProvider implements LLMProvider {
 
   async generateResponseStream(input: LLMInput, callbacks: LLMStreamCallbacks, signal?: AbortSignal): Promise<LLMOutput> {
     if (!env.OPENAI_API_KEY || (env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS)) {
-      const output = buildStubOutput(input, "openai", "base");
+      const output = buildStubOutput(input, this.providerId, this.promptMode);
       callbacks.onTextDelta(output.rawText);
       return output;
     }
@@ -564,7 +687,7 @@ export class OpenAIProvider implements LLMProvider {
       maxRetries: 0
     });
     const tools = buildTools(input);
-    const responseInput = buildInput(input);
+    const responseInput = withStyleReference(input, this.promptMode, buildInput(input, this.promptMode));
     const applicationTrace: ContentBlock[] = [];
     let response = await this.createStreamingResponse(client, input, responseInput, tools, callbacks, signal);
 
@@ -604,7 +727,7 @@ export class OpenAIProvider implements LLMProvider {
           (usage.output_tokens ?? 0) * env.OPENAI_OUTPUT_COST_PER_MILLION) / 1_000_000
       : 0;
     const output: LLMOutput = {
-      provider: "openai",
+      provider: this.providerId,
       rawText: extractOutputText(response),
       content: [...mapOutput(response, input.userMessage), ...applicationTrace],
       ...(usage ? {
@@ -623,7 +746,8 @@ export class OpenAIProvider implements LLMProvider {
         status: response.status,
         createdAt: response.created_at,
         background: input.toolOptions?.background ?? false,
-        openaiTools: tools.map((tool) => tool.type)
+        openaiTools: tools.map((tool) => tool.type),
+        promptMode: this.promptMode
       }
     };
 
@@ -637,7 +761,12 @@ export class OpenAIProvider implements LLMProvider {
     tools: OpenAIItem[],
     signal?: AbortSignal
   ): Promise<OpenAIResponse> {
-    return withRetry(() => client.responses.create(this.responseParams(input, responseInput, tools) as any, { signal }));
+    const params = this.responseParams(input, responseInput, tools);
+    return withRetry(() => client.responses.create(params as any, { signal })).catch((error) => {
+      const unsupportedParam = unsupportedControlParameter(error);
+      if (!unsupportedParam) throw error;
+      return withRetry(() => client.responses.create(stripUnsupportedControlParam(params, unsupportedParam) as any, { signal }));
+    });
   }
 
   private async createStreamingResponse(
@@ -648,10 +777,18 @@ export class OpenAIProvider implements LLMProvider {
     callbacks: LLMStreamCallbacks,
     signal?: AbortSignal
   ): Promise<OpenAIResponse> {
+    const params = this.responseParams(input, responseInput, tools);
     const stream = await withRetry(() => client.responses.create({
-      ...this.responseParams(input, responseInput, tools),
+      ...params,
       stream: true
-    } as any, { signal }));
+    } as any, { signal })).catch((error) => {
+      const unsupportedParam = unsupportedControlParameter(error);
+      if (!unsupportedParam) throw error;
+      return withRetry(() => client.responses.create({
+        ...stripUnsupportedControlParam(params, unsupportedParam),
+        stream: true
+      } as any, { signal }));
+    });
     let completedResponse: OpenAIResponse | undefined;
     let streamedText = "";
 
@@ -673,10 +810,39 @@ export class OpenAIProvider implements LLMProvider {
     return completedResponse;
   }
 
+  private requestControls(): OpenAIRequestControls {
+    const temperature = this.promptMode === "full" ? env.OPENAI_PERSONA_TEMPERATURE : env.OPENAI_TEMPERATURE;
+    const topP = this.promptMode === "full" ? env.OPENAI_PERSONA_TOP_P : env.OPENAI_TOP_P;
+    const presencePenalty = this.promptMode === "full" ? env.OPENAI_PERSONA_PRESENCE_PENALTY : env.OPENAI_PRESENCE_PENALTY;
+    const frequencyPenalty = this.promptMode === "full" ? env.OPENAI_PERSONA_FREQUENCY_PENALTY : env.OPENAI_FREQUENCY_PENALTY;
+    const reasoningEffort = this.promptMode === "full" ? env.OPENAI_PERSONA_REASONING_EFFORT : env.OPENAI_REASONING_EFFORT;
+    const reasoningSummary = this.promptMode === "full" ? env.OPENAI_PERSONA_REASONING_SUMMARY : env.OPENAI_REASONING_SUMMARY;
+    const textVerbosity = this.promptMode === "full" ? env.OPENAI_PERSONA_TEXT_VERBOSITY : env.OPENAI_TEXT_VERBOSITY;
+    const reasoning = compactObject({
+      effort: reasoningEffort,
+      summary: reasoningSummary
+    });
+    const text = compactObject({
+      verbosity: textVerbosity
+    });
+
+    return compactObject({
+      // The OpenAI docs recommend changing temperature or top_p, not both. If top_p is set, it wins.
+      temperature: topP === undefined ? temperature : undefined,
+      top_p: topP,
+      presence_penalty: presencePenalty,
+      frequency_penalty: frequencyPenalty,
+      reasoning: Object.keys(reasoning).length > 0 ? reasoning : undefined,
+      text: Object.keys(text).length > 0 ? text : undefined
+    }) as OpenAIRequestControls;
+  }
+
   private responseParams(input: LLMInput, responseInput: OpenAIItem[], tools: OpenAIItem[]) {
+    const controls = this.requestControls();
+
     return {
       model: env.OPENAI_MODEL,
-      instructions: responseInstructions(input),
+      instructions: buildOpenAIResponseInstructions(input, this.promptMode),
       input: responseInput as any,
       tools: tools as any,
       background: input.toolOptions?.background ?? false,
@@ -688,9 +854,18 @@ export class OpenAIProvider implements LLMProvider {
       parallel_tool_calls: true,
       prompt_cache_key: `persona-${input.persona.id}`,
       prompt_cache_retention: "24h",
-      max_output_tokens: 4096,
+      max_output_tokens: env.OPENAI_MAX_OUTPUT_TOKENS,
+      ...controls,
       metadata: {
-        persona_id: input.persona.id
+        persona_id: input.persona.id,
+        prompt_mode: this.promptMode,
+        ...(controls.temperature !== undefined ? { temperature: String(controls.temperature) } : {}),
+        ...(controls.top_p !== undefined ? { top_p: String(controls.top_p) } : {}),
+        ...(controls.presence_penalty !== undefined ? { presence_penalty: String(controls.presence_penalty) } : {}),
+        ...(controls.frequency_penalty !== undefined ? { frequency_penalty: String(controls.frequency_penalty) } : {}),
+        ...(controls.reasoning?.effort ? { reasoning_effort: controls.reasoning.effort } : {}),
+        ...(controls.reasoning?.summary ? { reasoning_summary: controls.reasoning.summary } : {}),
+        ...(controls.text?.verbosity ? { text_verbosity: controls.text.verbosity } : {})
       }
     };
   }

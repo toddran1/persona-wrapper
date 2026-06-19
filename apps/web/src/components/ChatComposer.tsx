@@ -144,7 +144,8 @@ export function ChatComposer(props: ChatComposerProps) {
         <label>
           Provider
           <select value={props.provider} onChange={(event) => props.onProviderChange(event.target.value as ProviderId)}>
-            <option value="openai">OpenAI</option>
+            <option value="openai">OpenAI + Style Model</option>
+            <option value="openai_persona">OpenAI Persona Direct</option>
             <option value="claude">Claude</option>
             <option value="local">Local</option>
           </select>
@@ -158,7 +159,7 @@ export function ChatComposer(props: ChatComposerProps) {
           <span>Generate audio</span>
         </label>
       </div>
-      {props.provider === "openai" ? (
+      {props.provider === "openai" || props.provider === "openai_persona" ? (
         <fieldset className="tool-options">
           <legend>OpenAI tools</legend>
           {([

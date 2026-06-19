@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const providerSchema = z.enum(["openai", "claude", "local"]);
+export const providerSchema = z.enum(["openai", "openai_persona", "claude", "local"]);
 export type ProviderId = z.infer<typeof providerSchema>;
 
 export const outputTypeSchema = z.enum([
@@ -257,6 +257,7 @@ export const personaSummarySchema = z.object({
   tagline: z.string(),
   description: z.string(),
   avatarColor: z.string(),
+  avatarUrl: z.string().optional(),
   theme: personaThemeSchema,
   documentTitle: z.string().default("Persona Wrapper"),
   promptPlaceholder: z.string().default("Ask anything"),

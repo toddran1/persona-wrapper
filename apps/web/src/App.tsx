@@ -28,7 +28,7 @@ export function App() {
   const reviewPageEnabled = testModeEnabled && window.location.pathname.replace(/\/$/, "") === "/review";
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
   const [personaDetail, setPersonaDetail] = useState<PersonaDefinition | undefined>();
-  const [provider, setProvider] = useState<ProviderId>("openai");
+  const [provider, setProvider] = useState<ProviderId>("openai_persona");
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [response, setResponse] = useState<ChatResponse | undefined>();
   const [renderedTurns, setRenderedTurns] = useState<RenderedTurn[]>([]);
