@@ -103,7 +103,16 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
     safetyBoundaries: z.array(z.string()),
     voiceProfile: z.object({
         defaultVoiceId: z.string(),
-        speakingStyle: z.string()
+        speakingStyle: z.string(),
+        elevenLabs: z.object({
+            modelId: z.string().optional(),
+            outputFormat: z.string().optional(),
+            speed: z.number().min(0.7).max(1.2).optional(),
+            stability: z.number().min(0).max(1).optional(),
+            similarityBoost: z.number().min(0).max(1).optional(),
+            style: z.number().min(0).max(1).optional(),
+            useSpeakerBoost: z.boolean().optional()
+        }).optional()
     }),
     defaultTools: z.array(toolNameSchema)
 });

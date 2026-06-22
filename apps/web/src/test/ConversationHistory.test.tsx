@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ConversationHistory } from "../components/ConversationHistory";
 
 describe("ConversationHistory pending state", () => {
@@ -124,6 +124,7 @@ describe("ConversationHistory pending state", () => {
 
   it("moves generated audio into response actions", async () => {
     const user = userEvent.setup();
+    const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
 
     render(
       <ConversationHistory
@@ -140,9 +141,12 @@ describe("ConversationHistory pending state", () => {
       />
     );
 
+    expect(playSpy).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Audio")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Audio settings" }));
     expect(screen.getByRole("menuitem", { name: "Replay audio" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Download audio" })).toHaveAttribute("href", "http://localhost:4000/api/generated-audio/audio-token");
+    expect(screen.getByRole("menuitem", { name: "Download audio" })).toBeInstanceOf(HTMLButtonElement);
+
+    playSpy.mockRestore();
   });
 });

@@ -21,6 +21,34 @@ function audioFileExtension(mimeType: string): string {
   return "audio";
 }
 
+function playAudioElement(audio: HTMLAudioElement): void {
+  try {
+    const playback = audio.play();
+    if (playback && typeof playback.catch === "function") {
+      void playback.catch(() => {
+        // Browsers can block autoplay after async work; manual replay stays available.
+      });
+    }
+  } catch {
+    // Unsupported playback should never break message rendering.
+  }
+}
+
+async function downloadAsset(url: string, fileName: string): Promise<void> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 function Icon({ name }: { name: "audio" | "copy" | "download" | "more" | "sources" | "retry" }) {
   if (name === "audio") {
     return (
@@ -84,11 +112,13 @@ function Icon({ name }: { name: "audio" | "copy" | "download" | "more" | "source
 function AssistantActions({
   text,
   sources,
-  audioBlocks
+  audioBlocks,
+  autoPlayAudio = false
 }: {
   text: string;
   sources: Extract<ContentBlock, { type: "source_list" }>[];
   audioBlocks: Extract<ContentBlock, { type: "audio" }>[];
+  autoPlayAudio?: boolean;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -98,6 +128,7 @@ function AssistantActions({
   const audioId = useId();
   const wrapRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const autoPlayedUrlRef = useRef<string | undefined>(undefined);
   const flatSources = sources.flatMap((sourceList) => sourceList.sources);
   const primaryAudio = audioBlocks[0];
   const resolvedAudioUrl = primaryAudio ? resolveAssetUrl(primaryAudio.url) : "";
@@ -116,12 +147,26 @@ function AssistantActions({
     return () => window.removeEventListener("pointerdown", handlePointerDown);
   }, [sourcesOpen, menuOpen, audioOpen]);
 
+  useEffect(() => {
+    if (!autoPlayAudio || !resolvedAudioUrl || autoPlayedUrlRef.current === resolvedAudioUrl) return;
+    autoPlayedUrlRef.current = resolvedAudioUrl;
+    if (!audioRef.current) return;
+    audioRef.current.currentTime = 0;
+    playAudioElement(audioRef.current);
+  }, [autoPlayAudio, resolvedAudioUrl]);
+
   if (!text && flatSources.length === 0 && !primaryAudio) return null;
 
   const playAudio = () => {
     if (!audioRef.current) return;
     audioRef.current.currentTime = 0;
-    void audioRef.current.play();
+    playAudioElement(audioRef.current);
+  };
+
+  const downloadAudio = () => {
+    if (!primaryAudio) return;
+    setAudioOpen(false);
+    void downloadAsset(resolvedAudioUrl, `larae-response.${audioFileExtension(primaryAudio.mimeType)}`);
   };
 
   return (
@@ -156,15 +201,14 @@ function AssistantActions({
                 <Icon name="audio" />
                 <span>Replay audio</span>
               </button>
-              <a
+              <button
+                type="button"
                 role="menuitem"
-                href={resolvedAudioUrl}
-                download={`larae-response.${audioFileExtension(primaryAudio.mimeType)}`}
-                onClick={() => setAudioOpen(false)}
+                onClick={downloadAudio}
               >
                 <Icon name="download" />
                 <span>Download audio</span>
-              </a>
+              </button>
             </div>
           ) : null}
         </div>
@@ -302,7 +346,7 @@ export function ConversationHistory({
                     ) : null}
                     {testMode ? <TokenUsageFooter usage={turn.usage} /> : null}
                   </div>
-                  <AssistantActions text={turn.assistantText} sources={sources} audioBlocks={audioBlocks} />
+                  <AssistantActions text={turn.assistantText} sources={sources} audioBlocks={audioBlocks} autoPlayAudio={turnIndex === turns.length - 1} />
                 </article>
               </div>
             );

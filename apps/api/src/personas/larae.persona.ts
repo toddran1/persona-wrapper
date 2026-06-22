@@ -75,7 +75,16 @@ export const laraePersona: PersonaDefinition = {
   ],
   voiceProfile: {
     defaultVoiceId: "larae-glam",
-    speakingStyle: "sassy, animated, rapid-fire, and theatrical"
+    speakingStyle: "sassy, animated, rapid-fire, and theatrical",
+    elevenLabs: {
+      modelId: "eleven_flash_v2_5",
+      outputFormat: "mp3_44100_128",
+      speed: 1.06,
+      stability: 0.3,
+      similarityBoost: 0.6,
+      style: 0.1,
+      useSpeakerBoost: true
+    }
   },
   defaultTools: ["web_search", "file_search", "data_analysis", "image_generation", "current_time"]
 };

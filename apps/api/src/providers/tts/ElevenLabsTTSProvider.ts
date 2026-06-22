@@ -2,7 +2,18 @@ import type { TTSInput, TTSOutput } from "@persona/shared";
 import { env } from "../../config/env.js";
 import { generatedAudioService } from "../../services/generatedAudioService.js";
 import { HttpError } from "../../utils/httpError.js";
+import { logger } from "../../utils/logger.js";
 import type { TTSProvider } from "./TTSProvider.js";
+
+type ElevenLabsVoiceConfig = {
+  modelId: string;
+  outputFormat: string;
+  speed: number;
+  stability: number;
+  similarityBoost: number;
+  style: number;
+  useSpeakerBoost: boolean;
+};
 
 function inferMimeType(outputFormat: string): string {
   if (outputFormat.startsWith("pcm_")) return "audio/wav";
@@ -16,16 +27,65 @@ function inferExtension(mimeType: string): string {
   return "mp3";
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+async function readErrorText(response: Response): Promise<string> {
+  return (await response.text().catch(() => "")).slice(0, 500);
+}
+
+function supportsExpressiveVoiceSettings(modelId: string): boolean {
+  return modelId === "eleven_multilingual_v2";
+}
+
+function getVoiceConfig(input: TTSInput): ElevenLabsVoiceConfig {
+  const personaConfig = input.persona.voiceProfile.elevenLabs;
+  return {
+    modelId: personaConfig?.modelId ?? env.ELEVENLABS_MODEL_ID,
+    outputFormat: personaConfig?.outputFormat ?? env.ELEVENLABS_OUTPUT_FORMAT,
+    speed: personaConfig?.speed ?? env.ELEVENLABS_SPEED,
+    stability: personaConfig?.stability ?? env.ELEVENLABS_STABILITY,
+    similarityBoost: personaConfig?.similarityBoost ?? env.ELEVENLABS_SIMILARITY_BOOST,
+    style: personaConfig?.style ?? env.ELEVENLABS_STYLE,
+    useSpeakerBoost: personaConfig?.useSpeakerBoost ?? env.ELEVENLABS_USE_SPEAKER_BOOST
+  };
+}
+
+function buildVoiceSettings(config: ElevenLabsVoiceConfig): Record<string, number | boolean> {
+  const voiceSettings: Record<string, number | boolean> = {
+    speed: config.speed,
+    stability: config.stability,
+    similarity_boost: config.similarityBoost
+  };
+
+  if (supportsExpressiveVoiceSettings(config.modelId)) {
+    voiceSettings.style = config.style;
+    if (config.useSpeakerBoost) {
+      voiceSettings.use_speaker_boost = true;
+    }
+  }
+
+  return voiceSettings;
+}
+
 export class ElevenLabsTTSProvider implements TTSProvider {
   async synthesize(input: TTSInput): Promise<TTSOutput> {
     const voiceId = input.voiceId ?? env.ELEVENLABS_VOICE_ID;
     if (!env.ELEVENLABS_API_KEY) throw new HttpError("ElevenLabs API key is not configured.", 503);
     if (!voiceId) throw new HttpError("ElevenLabs voice ID is not configured.", 503);
+    const text = input.text.trim();
+    if (!text) throw new HttpError("No text content available for ElevenLabs TTS.", 400);
+    const voiceConfig = getVoiceConfig(input);
 
     const endpoint = new URL(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`);
-    endpoint.searchParams.set("output_format", env.ELEVENLABS_OUTPUT_FORMAT);
+    endpoint.searchParams.set("output_format", voiceConfig.outputFormat);
 
-    const response = await fetch(endpoint, {
+    const requestInit: RequestInit = {
       method: "POST",
       headers: {
         accept: "audio/mpeg",
@@ -33,23 +93,41 @@ export class ElevenLabsTTSProvider implements TTSProvider {
         "xi-api-key": env.ELEVENLABS_API_KEY
       },
       body: JSON.stringify({
-        text: input.text,
-        model_id: env.ELEVENLABS_MODEL_ID,
-        voice_settings: {
-          stability: env.ELEVENLABS_STABILITY,
-          similarity_boost: env.ELEVENLABS_SIMILARITY_BOOST,
-          style: env.ELEVENLABS_STYLE,
-          use_speaker_boost: env.ELEVENLABS_USE_SPEAKER_BOOST
-        }
+        text,
+        model_id: voiceConfig.modelId,
+        voice_settings: buildVoiceSettings(voiceConfig)
       })
-    });
+    };
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      throw new HttpError(`ElevenLabs TTS failed: ${errorText || response.statusText}`, response.status);
+    let response: Response | undefined;
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= env.ELEVENLABS_MAX_RETRIES; attempt += 1) {
+      try {
+        response = await fetch(endpoint, requestInit);
+        if (response.ok) break;
+        const errorText = await readErrorText(response);
+        lastError = new HttpError(`ElevenLabs TTS failed: ${errorText || response.statusText}`, response.status);
+        if (!isRetryableStatus(response.status) || attempt === env.ELEVENLABS_MAX_RETRIES) break;
+      } catch (error) {
+        lastError = error;
+        if (attempt === env.ELEVENLABS_MAX_RETRIES) break;
+      }
+
+      const delayMs = env.ELEVENLABS_RETRY_BASE_MS * 2 ** attempt;
+      logger.warn("Retrying ElevenLabs TTS request", {
+        attempt: attempt + 1,
+        nextAttempt: attempt + 2,
+        delayMs
+      });
+      await sleep(delayMs);
     }
 
-    const mimeType = response.headers.get("content-type")?.split(";")[0] ?? inferMimeType(env.ELEVENLABS_OUTPUT_FORMAT);
+    if (!response?.ok) {
+      if (lastError instanceof HttpError) throw lastError;
+      throw new HttpError(`ElevenLabs TTS failed: ${lastError instanceof Error ? lastError.message : "Unknown error"}`, 502);
+    }
+
+    const mimeType = response.headers.get("content-type")?.split(";")[0] ?? inferMimeType(voiceConfig.outputFormat);
     const extension = inferExtension(mimeType);
     const buffer = Buffer.from(await response.arrayBuffer());
     const url = generatedAudioService.register(buffer, {

@@ -188,11 +188,27 @@ export class ChatService {
     let ttsOutput: TTSOutput | undefined;
     if (request.audio) {
       const textBlock = styledLlmOutput.content.find((block) => block.type === "text");
-      if (textBlock?.type === "text") {
-        const ttsProvider = createTTSProvider(request.provider);
-        ttsOutput = await ttsProvider.synthesize({
-          text: textBlock.text,
-          persona
+      const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
+      if (speechText) {
+        try {
+          const ttsProvider = createTTSProvider(request.provider);
+          ttsOutput = await ttsProvider.synthesize({
+            text: speechText,
+            persona
+          });
+        } catch (error) {
+          logger.warn("TTS generation failed; returning chat response without audio", {
+            provider: request.provider,
+            personaId: persona.id,
+            conversationId: conversation.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      } else {
+        logger.info("Skipping TTS generation because response has no text content", {
+          provider: request.provider,
+          personaId: persona.id,
+          conversationId: conversation.id
         });
       }
     }
