@@ -177,6 +177,7 @@ export class ChatService {
 
     let ttsOutput: TTSOutput | undefined;
     let ttsDiagnostic: TTSDiagnostic | undefined = request.audio ? { status: "skipped_no_text", reason: "No text content available for speech." } : { status: "not_requested" };
+    let ttsScriptLog: { mode: "mechanical" | "openai_inline"; text: string; textCharacters: number } | undefined;
     if (request.audio) {
       const textBlock = styledLlmOutput.content.find((block) => block.type === "text");
       const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
@@ -190,6 +191,13 @@ export class ChatService {
             : await buildTtsScriptForSpeech(speechText, persona);
           ttsScriptMode = ttsScriptResult.mode;
           ttsScript = truncateForTts(ttsScriptResult.script.trim());
+          if (ttsScript) {
+            ttsScriptLog = {
+              mode: ttsScriptMode,
+              text: ttsScript,
+              textCharacters: ttsScript.length
+            };
+          }
           if (!ttsScript) {
             ttsDiagnostic = {
               status: "skipped_no_text",
@@ -245,6 +253,13 @@ export class ChatService {
       }
     }
 
+    const ttsLogPayload = ttsDiagnostic
+      ? {
+          ...ttsDiagnostic,
+          ...(ttsScriptLog ? { script: ttsScriptLog } : {})
+        }
+      : undefined;
+
     logger.llmTurn({
       conversationId: conversation.id,
       personaId: persona.id,
@@ -272,7 +287,7 @@ export class ChatService {
           skipped: !useStyleTransfer
         }
       },
-      tts: ttsDiagnostic
+      tts: ttsLogPayload
     });
 
     const firstTextBlock = styledLlmOutput.content.find((block) => block.type === "text");
