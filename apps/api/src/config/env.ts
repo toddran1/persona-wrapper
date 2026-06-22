@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import { z } from "zod";
 
 dotenv.config();
+dotenv.config({ path: "apps/api/.env" });
 
 function emptyStringToUndefined(value: unknown): unknown {
   return value === "" ? undefined : value;
@@ -53,6 +54,7 @@ const envSchema = z.object({
   OPENAI_ENABLE_FILE_SEARCH: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_ENABLE_CODE_INTERPRETER: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_ENABLE_IMAGE_GENERATION: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  OPENAI_TTS_SCRIPT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
   OPENAI_INPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(0),
   OPENAI_OUTPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(0),
   OPENAI_DAILY_SPEND_LIMIT_USD: z.coerce.number().nonnegative().default(5),
@@ -71,6 +73,7 @@ const envSchema = z.object({
   OPENAI_TTS_VOICE: z.string().default("alloy"),
   ELEVENLABS_API_KEY: z.preprocess(emptyStringToUndefined, z.string().optional()),
   ELEVENLABS_VOICE_ID: z.preprocess(emptyStringToUndefined, z.string().optional()),
+  ELEVENLABS_VOICE_ID_LARAE: z.preprocess(emptyStringToUndefined, z.string().optional()),
   ELEVENLABS_MODEL_ID: z.string().default("eleven_flash_v2_5"),
   ELEVENLABS_OUTPUT_FORMAT: z.string().default("mp3_44100_128"),
   ELEVENLABS_SPEED: z.coerce.number().min(0.7).max(1.2).default(1.06),

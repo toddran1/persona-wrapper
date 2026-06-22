@@ -74,6 +74,7 @@ export class PersonaEngine {
         background: false,
         vectorStoreIds: []
       },
+      audio: request.audio,
       clientContext: request.clientContext
     };
   }

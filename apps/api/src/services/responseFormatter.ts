@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { ChatMessage, ChatResponse, ContentBlock, LLMOutput, PersonaDefinition, TTSOutput } from "@persona/shared";
 
+export type TTSDiagnostic = NonNullable<ChatResponse["diagnostics"]["tts"]>;
+
 function createConversationId(): string {
   return `conv_${randomUUID()}`;
 }
@@ -18,6 +20,7 @@ export class ResponseFormatter {
       neutralResponse?: string;
       responseId?: string;
       providerModel?: string;
+      tts?: TTSDiagnostic;
     };
   }): ChatResponse {
     const outputs: ContentBlock[] = [...params.llmOutput.content];
@@ -62,7 +65,8 @@ export class ResponseFormatter {
         ...(params.diagnostics?.testMode !== undefined ? { testMode: params.diagnostics.testMode } : {}),
         ...(params.diagnostics?.neutralResponse ? { neutralResponse: params.diagnostics.neutralResponse } : {}),
         ...(params.diagnostics?.responseId ? { responseId: params.diagnostics.responseId } : {}),
-        ...(params.diagnostics?.providerModel ? { providerModel: params.diagnostics.providerModel } : {})
+        ...(params.diagnostics?.providerModel ? { providerModel: params.diagnostics.providerModel } : {}),
+        ...(params.diagnostics?.tts ? { tts: params.diagnostics.tts } : {})
       },
       usage: params.llmOutput.usage
     };

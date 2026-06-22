@@ -277,6 +277,7 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
     defaultVoiceId: z.string(),
     speakingStyle: z.string(),
     elevenLabs: z.object({
+      voiceId: z.string().optional(),
       modelId: z.string().optional(),
       outputFormat: z.string().optional(),
       speed: z.number().min(0.7).max(1.2).optional(),
@@ -301,6 +302,7 @@ export const llmInputSchema = z.object({
   requestedOutputs: z.array(outputTypeSchema).optional(),
   attachments: z.array(uploadedAssetSchema).optional(),
   toolOptions: toolOptionsSchema.optional(),
+  audio: z.boolean().default(false),
   clientContext: clientContextSchema.optional()
 });
 export type LLMInput = z.infer<typeof llmInputSchema>;
@@ -366,7 +368,17 @@ export const chatResponseSchema = z.object({
     testMode: z.boolean().optional(),
     neutralResponse: z.string().optional(),
     responseId: z.string().optional(),
-    providerModel: z.string().optional()
+    providerModel: z.string().optional(),
+    tts: z.object({
+      status: z.enum(["not_requested", "skipped_no_text", "generated", "failed"]),
+      provider: z.string().optional(),
+      url: z.string().optional(),
+      mimeType: z.string().optional(),
+      error: z.string().optional(),
+      reason: z.string().optional(),
+      textCharacters: z.number().int().nonnegative().optional(),
+      scriptMode: z.enum(["mechanical", "openai_inline"]).optional()
+    }).optional()
   }),
   usage: z.object({
     inputTokens: z.number().int().nonnegative(),

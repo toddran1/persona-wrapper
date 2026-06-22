@@ -23,7 +23,8 @@ describe("stubScenarioBuilder", () => {
         ],
         userMessage: "Who was president in 2010?",
         toolDefinitions: [],
-        requestedOutputs: []
+        requestedOutputs: [],
+        audio: false
       },
       "openai",
       "base"
@@ -52,7 +53,8 @@ describe("stubScenarioBuilder", () => {
         ],
         userMessage: "Give me a dramatic intro.",
         toolDefinitions: [],
-        requestedOutputs: []
+        requestedOutputs: [],
+        audio: false
       },
       "local",
       "full"

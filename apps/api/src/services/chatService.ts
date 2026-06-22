@@ -7,10 +7,11 @@ import { createTTSProvider } from "../providers/tts/providerFactory.js";
 import { env } from "../config/env.js";
 import { ConversationStore } from "./conversationStore.js";
 import { PersonaEngine } from "./personaEngine.js";
-import { ResponseFormatter } from "./responseFormatter.js";
+import { ResponseFormatter, type TTSDiagnostic } from "./responseFormatter.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
+import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
 
 export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
@@ -37,6 +38,24 @@ function isOpenAIProvider(provider: ChatRequest["provider"]): boolean {
 
 function shouldUseStyleTransfer(provider: ChatRequest["provider"]): boolean {
   return provider !== "openai_persona";
+}
+
+const MAX_TTS_SCRIPT_CHARACTERS = 4800;
+
+function truncateForTts(text: string): string {
+  if (text.length <= MAX_TTS_SCRIPT_CHARACTERS) {
+    return text;
+  }
+
+  const truncated = text.slice(0, MAX_TTS_SCRIPT_CHARACTERS);
+  const sentenceBoundary = Math.max(
+    truncated.lastIndexOf(". "),
+    truncated.lastIndexOf("! "),
+    truncated.lastIndexOf("? "),
+    truncated.lastIndexOf("\n")
+  );
+
+  return `${(sentenceBoundary > 1200 ? truncated.slice(0, sentenceBoundary + 1) : truncated).trim()} ...`;
 }
 
 export class ChatService {
@@ -141,6 +160,91 @@ export class ChatService {
       console.log(`--- Style transfer model response ---\n\n${styleTransferOutput.styledText}\n`);
     }
 
+    let styledPrimaryText = false;
+    const styledLlmOutput = llmOutputSchema.parse({
+      ...llmOutput,
+      rawText: styleTransferOutput.styledText || llmOutput.rawText,
+      content: llmOutput.content.map((block) => {
+        if (block.type !== "text" || styledPrimaryText) return block;
+        styledPrimaryText = true;
+        return { ...block, text: styleTransferOutput.styledText };
+      }),
+      metadata: {
+        ...(llmOutput.metadata ?? {}),
+        styleTransfer: styleTransferOutput
+      }
+    });
+
+    let ttsOutput: TTSOutput | undefined;
+    let ttsDiagnostic: TTSDiagnostic | undefined = request.audio ? { status: "skipped_no_text", reason: "No text content available for speech." } : { status: "not_requested" };
+    if (request.audio) {
+      const textBlock = styledLlmOutput.content.find((block) => block.type === "text");
+      const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
+      if (speechText) {
+        const inlineTtsScript = typeof llmOutput.metadata?.ttsScript === "string" ? llmOutput.metadata.ttsScript.trim() : "";
+        let ttsScript = "";
+        let ttsScriptMode: "mechanical" | "openai_inline" = inlineTtsScript ? "openai_inline" : "mechanical";
+        try {
+          const ttsScriptResult = inlineTtsScript
+            ? { script: inlineTtsScript, mode: "openai_inline" as const }
+            : await buildTtsScriptForSpeech(speechText, persona);
+          ttsScriptMode = ttsScriptResult.mode;
+          ttsScript = truncateForTts(ttsScriptResult.script.trim());
+          if (!ttsScript) {
+            ttsDiagnostic = {
+              status: "skipped_no_text",
+              reason: "TTS script was empty after cleanup.",
+              scriptMode: ttsScriptMode
+            };
+            logger.info("Skipping TTS generation because speech script is empty", {
+              provider: request.provider,
+              personaId: persona.id,
+              conversationId: conversation.id,
+              scriptMode: ttsScriptMode
+            });
+          } else {
+            ttsDiagnostic = {
+              status: "failed",
+              textCharacters: ttsScript.length,
+              scriptMode: ttsScriptMode
+            };
+            const ttsProvider = createTTSProvider(request.provider);
+            ttsOutput = await ttsProvider.synthesize({
+              text: ttsScript,
+              persona
+            });
+            ttsDiagnostic = {
+              status: "generated",
+              provider: ttsOutput.provider,
+              url: ttsOutput.url,
+              mimeType: ttsOutput.mimeType,
+              textCharacters: ttsScript.length,
+              scriptMode: ttsScriptMode
+            };
+          }
+        } catch (error) {
+          ttsDiagnostic = {
+            status: "failed",
+            error: error instanceof Error ? error.message : String(error),
+            textCharacters: ttsScript.length,
+            scriptMode: ttsScriptMode
+          };
+          logger.warn("TTS generation failed; returning chat response without audio", {
+            provider: request.provider,
+            personaId: persona.id,
+            conversationId: conversation.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      } else {
+        logger.info("Skipping TTS generation because response has no text content", {
+          provider: request.provider,
+          personaId: persona.id,
+          conversationId: conversation.id
+        });
+      }
+    }
+
     logger.llmTurn({
       conversationId: conversation.id,
       personaId: persona.id,
@@ -167,51 +271,9 @@ export class ChatService {
           ...(styleTransferOutput.metadata ?? {}),
           skipped: !useStyleTransfer
         }
-      }
+      },
+      tts: ttsDiagnostic
     });
-
-    let styledPrimaryText = false;
-    const styledLlmOutput = llmOutputSchema.parse({
-      ...llmOutput,
-      rawText: styleTransferOutput.styledText || llmOutput.rawText,
-      content: llmOutput.content.map((block) => {
-        if (block.type !== "text" || styledPrimaryText) return block;
-        styledPrimaryText = true;
-        return { ...block, text: styleTransferOutput.styledText };
-      }),
-      metadata: {
-        ...(llmOutput.metadata ?? {}),
-        styleTransfer: styleTransferOutput
-      }
-    });
-
-    let ttsOutput: TTSOutput | undefined;
-    if (request.audio) {
-      const textBlock = styledLlmOutput.content.find((block) => block.type === "text");
-      const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
-      if (speechText) {
-        try {
-          const ttsProvider = createTTSProvider(request.provider);
-          ttsOutput = await ttsProvider.synthesize({
-            text: speechText,
-            persona
-          });
-        } catch (error) {
-          logger.warn("TTS generation failed; returning chat response without audio", {
-            provider: request.provider,
-            personaId: persona.id,
-            conversationId: conversation.id,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
-      } else {
-        logger.info("Skipping TTS generation because response has no text content", {
-          provider: request.provider,
-          personaId: persona.id,
-          conversationId: conversation.id
-        });
-      }
-    }
 
     const firstTextBlock = styledLlmOutput.content.find((block) => block.type === "text");
     const assistantText = firstTextBlock?.type === "text" ? firstTextBlock.text : styledLlmOutput.rawText;
@@ -237,7 +299,8 @@ export class ChatService {
         testMode,
         ...(testMode ? { neutralResponse: neutralText } : {}),
         ...(typeof llmOutput.metadata?.responseId === "string" ? { responseId: llmOutput.metadata.responseId } : {}),
-        ...(typeof llmOutput.metadata?.providerModel === "string" ? { providerModel: llmOutput.metadata.providerModel } : {})
+        ...(typeof llmOutput.metadata?.providerModel === "string" ? { providerModel: llmOutput.metadata.providerModel } : {}),
+        ...(ttsDiagnostic ? { tts: ttsDiagnostic } : {})
       },
       ...(ttsOutput ? { ttsOutput } : {})
     });

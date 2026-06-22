@@ -6,6 +6,7 @@ import { logger } from "../../utils/logger.js";
 import type { TTSProvider } from "./TTSProvider.js";
 
 type ElevenLabsVoiceConfig = {
+  voiceId?: string;
   modelId: string;
   outputFormat: string;
   speed: number;
@@ -45,7 +46,7 @@ function supportsExpressiveVoiceSettings(modelId: string): boolean {
 
 function getVoiceConfig(input: TTSInput): ElevenLabsVoiceConfig {
   const personaConfig = input.persona.voiceProfile.elevenLabs;
-  return {
+  const config: ElevenLabsVoiceConfig = {
     modelId: personaConfig?.modelId ?? env.ELEVENLABS_MODEL_ID,
     outputFormat: personaConfig?.outputFormat ?? env.ELEVENLABS_OUTPUT_FORMAT,
     speed: personaConfig?.speed ?? env.ELEVENLABS_SPEED,
@@ -54,6 +55,10 @@ function getVoiceConfig(input: TTSInput): ElevenLabsVoiceConfig {
     style: personaConfig?.style ?? env.ELEVENLABS_STYLE,
     useSpeakerBoost: personaConfig?.useSpeakerBoost ?? env.ELEVENLABS_USE_SPEAKER_BOOST
   };
+  if (personaConfig?.voiceId) {
+    config.voiceId = personaConfig.voiceId;
+  }
+  return config;
 }
 
 function buildVoiceSettings(config: ElevenLabsVoiceConfig): Record<string, number | boolean> {
@@ -75,12 +80,12 @@ function buildVoiceSettings(config: ElevenLabsVoiceConfig): Record<string, numbe
 
 export class ElevenLabsTTSProvider implements TTSProvider {
   async synthesize(input: TTSInput): Promise<TTSOutput> {
-    const voiceId = input.voiceId ?? env.ELEVENLABS_VOICE_ID;
+    const voiceConfig = getVoiceConfig(input);
+    const voiceId = input.voiceId ?? voiceConfig.voiceId ?? env.ELEVENLABS_VOICE_ID;
     if (!env.ELEVENLABS_API_KEY) throw new HttpError("ElevenLabs API key is not configured.", 503);
     if (!voiceId) throw new HttpError("ElevenLabs voice ID is not configured.", 503);
     const text = input.text.trim();
     if (!text) throw new HttpError("No text content available for ElevenLabs TTS.", 400);
-    const voiceConfig = getVoiceConfig(input);
 
     const endpoint = new URL(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`);
     endpoint.searchParams.set("output_format", voiceConfig.outputFormat);

@@ -3,15 +3,16 @@ import type { LLMInput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
 import { PersonaEngine } from "../services/personaEngine.js";
 import { buildOpenAIResponseInstructions } from "../providers/llm/OpenAIProvider.js";
+import { env } from "../config/env.js";
 
-function inputForLaRae(): LLMInput {
+function inputForLaRae(audio = false): LLMInput {
   const persona = getPersonaById("larae");
   if (!persona) throw new Error("LaRae persona not found");
   return new PersonaEngine().prepareInput(persona, {
     personaId: "larae",
     provider: "openai_persona",
     message: "Introduce yourself.",
-    audio: false,
+    audio,
     testMode: false,
     history: []
   });
@@ -47,5 +48,21 @@ describe("OpenAIProvider instructions", () => {
     expect(baseInstructions).not.toContain("LaRae is an adults-only persona");
     expect(baseInstructions).not.toContain("Style density requirement");
     expect(baseInstructions).not.toContain("Silent style checklist before finalizing");
+  });
+
+  it("requests visible text and hidden TTS script in one response when audio mode is enabled", () => {
+    const original = env.OPENAI_TTS_SCRIPT_ENABLED;
+    env.OPENAI_TTS_SCRIPT_ENABLED = true;
+
+    const input = inputForLaRae(true);
+    const directInstructions = buildOpenAIResponseInstructions(input, "full");
+
+    expect(directInstructions).toContain("Audio response format requirement");
+    expect(directInstructions).toContain("\"visible_text\":\"normal response for the UI\"");
+    expect(directInstructions).toContain("\"tts_script\":\"ElevenLabs-optimized narration script\"");
+    expect(directInstructions).toContain("visible_text is the normal user-facing answer");
+    expect(directInstructions).toContain("tts_script is hidden and will be sent only to ElevenLabs");
+
+    env.OPENAI_TTS_SCRIPT_ENABLED = original;
   });
 });

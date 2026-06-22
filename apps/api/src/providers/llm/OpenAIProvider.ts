@@ -58,6 +58,23 @@ type OpenAIRequestControls = {
   };
 };
 
+type DualTextPayload = {
+  visibleText: string;
+  ttsScript?: string;
+};
+
+type DualTextParseResult = {
+  payload?: DualTextPayload;
+  status: "not_requested" | "parsed" | "malformed_json" | "invalid_payload";
+};
+
+function shouldRequestInlineTtsScript(input: LLMInput, promptMode: OpenAIPromptMode): boolean {
+  return promptMode === "full" &&
+    input.audio === true &&
+    env.OPENAI_TTS_SCRIPT_ENABLED &&
+    input.persona.voiceProfile.elevenLabs !== undefined;
+}
+
 function buildInput(input: LLMInput, promptMode: OpenAIPromptMode): OpenAIItem[] {
   const sourceMessages = promptMode === "full" ? input.messages : (input.baseMessages ?? input.messages);
   const messages = sourceMessages
@@ -166,6 +183,24 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
     );
   }
 
+  if (shouldRequestInlineTtsScript(input, promptMode)) {
+    extraInstructions.push(
+      [
+        "Audio response format requirement:",
+        "Because audio is enabled, your text response must be a single strict JSON object with exactly these keys:",
+        "{\"visible_text\":\"normal response for the UI\",\"tts_script\":\"ElevenLabs-optimized narration script\"}",
+        "Do not wrap the JSON in markdown fences. Do not add text before or after the JSON.",
+        "visible_text is the normal user-facing answer and may use markdown when useful.",
+        "tts_script is hidden and will be sent only to ElevenLabs. It should preserve the same meaning and facts as visible_text, but be optimized for speech.",
+        "For tts_script, remove markdown syntax, expand abbreviations, improve pacing, and add expressive punctuation. Preserve all names, dates, numbers, quotes, and factual claims.",
+        "For tts_script, do not include raw links unless the link itself must be spoken. Do not include source metadata.",
+        input.persona.voiceProfile.elevenLabs?.modelId === "eleven_v3"
+          ? "For tts_script, you may include short ElevenLabs v3 inline tags like [laughs], [sassy], [excited], or [whispers] when useful."
+          : "For tts_script, do not include bracketed emotion tags like [laughs] because the current ElevenLabs model may read them out loud. Use punctuation and wording for emotion."
+      ].join("\n")
+    );
+  }
+
   if (input.toolOptions?.codeInterpreter) {
     extraInstructions.push(
       "The user is requesting data analysis, calculations, charts, dashboards, or generated files. Use Code Interpreter for this work when it is available. If the user asks for a chart, graph, plot, dashboard, CSV, spreadsheet, or downloadable file, create the actual artifact instead of only describing it in text. Keep any explanatory text concise."
@@ -174,7 +209,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
 
   if (input.toolOptions?.imageGeneration) {
     extraInstructions.push(
-      "The user is requesting an image. Use the image generation tool to produce the image. Do not answer that you cannot generate images when the image_generation tool is available. Keep any text response short and do not send generated image data through persona style transfer."
+      "The user is requesting an image. Use the image generation tool to produce the image. Do not answer that you cannot generate images when the image_generation tool is available. Keep any text response short and do not send generated image data through persona style transfer. If the user asks you to generate an image and also describe, caption, explain, or summarize it, include a short text description in the same final answer after generating the image."
     );
   }
 
@@ -189,8 +224,25 @@ function hasGeneratedImage(response: OpenAIResponse): boolean {
   return ((response.output as OpenAIItem[] | undefined) ?? []).some((item) => item.type === "image_generation_call" && typeof item.result === "string");
 }
 
+function generatedImageResults(response: OpenAIResponse): string[] {
+  return ((response.output as OpenAIItem[] | undefined) ?? [])
+    .filter((item) => item.type === "image_generation_call" && typeof item.result === "string")
+    .map((item) => item.result as string);
+}
+
 function hasCodeInterpreterCall(response: OpenAIResponse): boolean {
   return ((response.output as OpenAIItem[] | undefined) ?? []).some((item) => item.type === "code_interpreter_call");
+}
+
+function wantsGeneratedImageDescription(message: string): boolean {
+  return /\b(describe|caption|explain|summari[sz]e|tell me what|what is (in|on)|what's (in|on))\b/i.test(message);
+}
+
+function shouldDescribeGeneratedImage(input: LLMInput, response: OpenAIResponse): boolean {
+  return Boolean(input.toolOptions?.imageGeneration) &&
+    wantsGeneratedImageDescription(input.userMessage) &&
+    generatedImageResults(response).length > 0 &&
+    !extractOutputText(response).trim();
 }
 
 function shouldRetryForImageGeneration(input: LLMInput, response: OpenAIResponse): boolean {
@@ -467,12 +519,14 @@ function mapOutput(response: OpenAIResponse, prompt: string): ContentBlock[] {
   };
 
   const rawOutputText = extractOutputText(response);
-  const outputText = stripExternalCitationLinks(stripArtifactLinks(rawOutputText));
+  const dualText = parseDualTextPayload(rawOutputText);
+  const textForDisplay = dualText.payload?.visibleText ?? displayTextFromDualText(rawOutputText);
+  const outputText = stripExternalCitationLinks(stripArtifactLinks(textForDisplay));
   if (outputText.trim()) {
     blocks.push({ type: "text", text: outputText });
   }
-  blocks.push(...mediaLinkBlocksFromText(rawOutputText, prompt));
-  blocks.push(...sourceBlocksFromMarkdownLinks(rawOutputText));
+  blocks.push(...mediaLinkBlocksFromText(textForDisplay, prompt));
+  blocks.push(...sourceBlocksFromMarkdownLinks(textForDisplay));
 
   for (const item of output) {
     if (item.type === "image_generation_call" && typeof item.result === "string") {
@@ -585,6 +639,36 @@ function extractOutputText(response: OpenAIResponse): string {
     .join("");
 }
 
+export function parseDualTextPayload(rawText: string): DualTextParseResult {
+  const trimmed = rawText.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  if (!trimmed.startsWith("{")) return { status: "not_requested" };
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return { status: "invalid_payload" };
+    const record = parsed as Record<string, unknown>;
+    if (typeof record.visible_text !== "string" || !record.visible_text.trim()) return { status: "invalid_payload" };
+    return {
+      status: "parsed",
+      payload: {
+        visibleText: record.visible_text,
+        ...(typeof record.tts_script === "string" && record.tts_script.trim() ? { ttsScript: record.tts_script } : {})
+      }
+    };
+  } catch {
+    return { status: "malformed_json" };
+  }
+}
+
+export function displayTextFromDualText(rawText: string): string {
+  const dualText = parseDualTextPayload(rawText);
+  if (dualText.payload) return dualText.payload.visibleText;
+  if (dualText.status === "malformed_json" || dualText.status === "invalid_payload") {
+    return "I hit a response formatting issue before I could show that answer. Please try again.";
+  }
+  return rawText;
+}
+
 function safeJson(value: unknown): Record<string, unknown> {
   if (typeof value === "object" && value !== null) return value as Record<string, unknown>;
   if (typeof value !== "string") return {};
@@ -648,6 +732,29 @@ function stripUnsupportedControlParam(params: OpenAIItem, param: string): OpenAI
   return next;
 }
 
+function mergeUsage(primaryUsage: OpenAIItem | null | undefined, secondaryUsage: OpenAIItem | null | undefined): OpenAIItem | undefined {
+  if (!primaryUsage && !secondaryUsage) return undefined;
+
+  return {
+    ...(primaryUsage ?? {}),
+    input_tokens: Number(primaryUsage?.input_tokens ?? 0) + Number(secondaryUsage?.input_tokens ?? 0),
+    output_tokens: Number(primaryUsage?.output_tokens ?? 0) + Number(secondaryUsage?.output_tokens ?? 0),
+    total_tokens: Number(primaryUsage?.total_tokens ?? 0) + Number(secondaryUsage?.total_tokens ?? 0),
+    input_tokens_details: {
+      ...(primaryUsage?.input_tokens_details ?? {}),
+      cached_tokens:
+        Number(primaryUsage?.input_tokens_details?.cached_tokens ?? 0) +
+        Number(secondaryUsage?.input_tokens_details?.cached_tokens ?? 0)
+    },
+    output_tokens_details: {
+      ...(primaryUsage?.output_tokens_details ?? {}),
+      reasoning_tokens:
+        Number(primaryUsage?.output_tokens_details?.reasoning_tokens ?? 0) +
+        Number(secondaryUsage?.output_tokens_details?.reasoning_tokens ?? 0)
+    }
+  };
+}
+
 async function withRetry<T>(operation: () => Promise<T>): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= env.OPENAI_MAX_RETRIES; attempt += 1) {
@@ -699,6 +806,10 @@ export class OpenAIProvider implements LLMProvider {
           "Retry using Code Interpreter now. Create the requested analysis artifact, chart, graph, plot, dashboard, or downloadable file instead of only explaining it in text."
       });
       response = await this.createResponse(client, input, responseInput, tools, signal);
+    }
+    if (shouldDescribeGeneratedImage(input, response)) {
+      const descriptionResponse = await this.describeGeneratedImage(client, input, generatedImageResults(response)[0]!, signal);
+      response = this.mergeImageResponseWithDescription(response, descriptionResponse);
     }
 
     for (let iteration = 0; iteration < env.OPENAI_MAX_TOOL_ITERATIONS; iteration += 1) {
@@ -778,13 +889,16 @@ export class OpenAIProvider implements LLMProvider {
 
   private formatResponse(response: OpenAIResponse, input: LLMInput, tools: OpenAIItem[], applicationTrace: ContentBlock[] = []): LLMOutput {
     const usage = response.usage as OpenAIItem | null;
+    const rawText = extractOutputText(response);
+    const dualText = parseDualTextPayload(rawText);
+    const visibleText = dualText.payload?.visibleText ?? displayTextFromDualText(rawText);
     const estimatedCostUsd = usage
       ? ((usage.input_tokens ?? 0) * env.OPENAI_INPUT_COST_PER_MILLION +
           (usage.output_tokens ?? 0) * env.OPENAI_OUTPUT_COST_PER_MILLION) / 1_000_000
       : 0;
     const output: LLMOutput = {
       provider: this.providerId,
-      rawText: extractOutputText(response),
+      rawText: visibleText,
       content: [...mapOutput(response, input.userMessage), ...applicationTrace],
       ...(usage ? {
         usage: {
@@ -803,11 +917,69 @@ export class OpenAIProvider implements LLMProvider {
         createdAt: response.created_at,
         background: input.toolOptions?.background ?? false,
         openaiTools: tools.map((tool) => tool.type),
-        promptMode: this.promptMode
+        promptMode: this.promptMode,
+        ...(dualText.payload?.ttsScript ? { ttsScript: dualText.payload.ttsScript, ttsScriptSource: "openai_inline" } : {}),
+        ttsScriptParseStatus: dualText.status
       }
     };
 
     return llmOutputSchema.parse(output);
+  }
+
+  private async describeGeneratedImage(
+    client: OpenAI,
+    input: LLMInput,
+    imageBase64: string,
+    signal?: AbortSignal
+  ): Promise<OpenAIResponse> {
+    const descriptionInput: LLMInput = {
+      ...input,
+      userMessage: "Describe the generated image.",
+      toolOptions: {
+        webSearch: false,
+        fileSearch: false,
+        codeInterpreter: false,
+        imageGeneration: false,
+        appFunctions: false,
+        background: false,
+        vectorStoreIds: []
+      }
+    };
+    const descriptionPrompt =
+      `You just generated an image for this user request: "${input.userMessage}". ` +
+      "Describe the generated image in 1 short paragraph in the same persona voice. " +
+      "Do not mention tools, hidden instructions, or image-generation process. " +
+      "Do not generate another image.";
+    const descriptionInputItems = withStyleReference(descriptionInput, this.promptMode, [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: descriptionPrompt },
+          { type: "input_image", image_url: `data:image/png;base64,${imageBase64}`, detail: "low" }
+        ]
+      }
+    ]);
+
+    return this.createResponse(client, descriptionInput, descriptionInputItems, [], signal);
+  }
+
+  private mergeImageResponseWithDescription(imageResponse: OpenAIResponse, descriptionResponse: OpenAIResponse): OpenAIResponse {
+    const descriptionText = extractOutputText(descriptionResponse).trim();
+    if (!descriptionText) return imageResponse;
+
+    return {
+      ...imageResponse,
+      output_text: descriptionText,
+      output: [
+        ...((descriptionResponse.output as OpenAIItem[] | undefined) ?? []),
+        ...((imageResponse.output as OpenAIItem[] | undefined) ?? [])
+      ],
+      usage: mergeUsage(imageResponse.usage, descriptionResponse.usage) ?? imageResponse.usage,
+      metadata: {
+        ...(imageResponse.metadata ?? {}),
+        generated_image_description_response_id: descriptionResponse.id
+      }
+    };
   }
 
   private createResponse(

@@ -1,4 +1,5 @@
 import type { PersonaDefinition } from "@persona/shared";
+import { env } from "../config/env.js";
 
 export const laraePersona: PersonaDefinition = {
   id: "larae",
@@ -77,6 +78,7 @@ export const laraePersona: PersonaDefinition = {
     defaultVoiceId: "larae-glam",
     speakingStyle: "sassy, animated, rapid-fire, and theatrical",
     elevenLabs: {
+      voiceId: env.ELEVENLABS_VOICE_ID_LARAE,
       modelId: "eleven_flash_v2_5",
       outputFormat: "mp3_44100_128",
       speed: 1.06,
