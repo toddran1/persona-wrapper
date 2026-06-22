@@ -92,7 +92,7 @@ function dualTextResponseFormat(): OpenAIItem {
         },
         tts_script: {
           type: "string",
-          description: "The same response meaning and facts, optimized for ElevenLabs narration."
+          description: "The same response meaning and facts, rewritten as an ElevenLabs narration script with speech pacing, normalized pronunciation, and emotional delivery cues appropriate for the configured model."
         }
       }
     }
@@ -215,12 +215,27 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         "{\"visible_text\":\"normal response for the UI\",\"tts_script\":\"ElevenLabs-optimized narration script\"}",
         "Do not wrap the JSON in markdown fences. Do not add text before or after the JSON.",
         "visible_text is the normal user-facing answer and may use markdown when useful.",
-        "tts_script is hidden and will be sent only to ElevenLabs. It should preserve the same meaning and facts as visible_text, but be optimized for speech.",
-        "For tts_script, remove markdown syntax, expand abbreviations, improve pacing, and add expressive punctuation. Preserve all names, dates, numbers, quotes, and factual claims.",
-        "For tts_script, do not include raw links unless the link itself must be spoken. Do not include source metadata.",
+        "tts_script is hidden and will be sent only to ElevenLabs. It must preserve the same meaning and facts as visible_text, but it should NOT simply copy visible_text.",
+        "Write tts_script as a performance-ready narration script for the current voice: conversational, emotional, sassy, and paced for spoken delivery.",
+        "For tts_script, remove markdown syntax, raw source citations, code fences, tables, image/file markup, and raw links unless the link itself must be spoken.",
+        "For tts_script, normalize text for speech: expand abbreviations and units, spell out awkward symbols, rewrite URLs as source names or omit them, and make numbers, dates, money, percentages, times, and acronyms easier to pronounce while preserving their exact factual value.",
+        "For tts_script, add natural speech pacing using sentence breaks, paragraph breaks, commas, dashes, ellipses, and occasional short pauses. Keep pauses tasteful and do not overdo them.",
+        "For tts_script, carry emotion through word choice and punctuation: use amused disbelief, side-eye, dramatic emphasis, playful confidence, and quick punchline timing where it fits.",
+        "For tts_script, preserve all names, dates, numbers, quotes, and factual claims. Do not add facts not present in visible_text.",
         input.persona.voiceProfile.elevenLabs?.modelId === "eleven_v3"
-          ? "For tts_script, you may include short ElevenLabs v3 inline tags like [laughs], [sassy], [excited], or [whispers] when useful."
-          : "For tts_script, do not include bracketed emotion tags like [laughs] because the current ElevenLabs model may read them out loud. Use punctuation and wording for emotion."
+          ? "For tts_script with Eleven v3, you may include short ElevenLabs v3 audio tags like [laughs], [sassy], [excited], [whispers], or [dramatic pause] when useful, but use them sparingly."
+          : [
+              "For tts_script with this non-v3 ElevenLabs Flash-style model, do not include bracketed emotion tags like [laughs] or [sassy] because the model may read them out loud.",
+              "Tailor the script for Flash v2.5 delivery using phonetic emotion and punctuation physics:",
+              "For laughing or amused reactions, spell the sound phonetically with natural tokens like Haha, Heh, Ahaha!, HA!, or Oh, pfft— instead of bracketed tags.",
+              "For crying, sobbing, shock, or overwhelmed delivery, use human-readable vocal fragments like Ugh..., Oh... god..., *sniff*, or No... no... only when emotionally appropriate.",
+              "Use ellipses (...) and long dashes (—) as dynamic pauses, breath points, hesitation, pitch drops, and dramatic timing.",
+              "Use exclamation marks and occasional ALL CAPS on one or two key words to push energy upward, create a laugh-like lift, or emphasize sudden intensity. Do not overuse caps.",
+              "Use ?! for sharp upward bewildered inflection when LaRae is shocked or playfully confused.",
+              "Use contextual lead-ins like Listen..., Look—, Baby..., or Bitch— to cue urgency, seriousness, sass, or a lower register before the main sentence.",
+              "Use occasional <break time=\"0.3s\" /> or <break time=\"0.4s\" /> pause tags at major beats, after punchlines, before a turn, or between list sections. Do not use pause tags after every sentence.",
+              "Make the tts_script sound like a human performance script, not a transcript copy."
+            ].join(" ")
       ].join("\n")
     );
   }

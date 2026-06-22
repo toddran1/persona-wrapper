@@ -62,6 +62,22 @@ describe("OpenAIProvider instructions", () => {
     expect(directInstructions).toContain("\"tts_script\":\"ElevenLabs-optimized narration script\"");
     expect(directInstructions).toContain("visible_text is the normal user-facing answer");
     expect(directInstructions).toContain("tts_script is hidden and will be sent only to ElevenLabs");
+    expect(directInstructions).toContain("it should NOT simply copy visible_text");
+    expect(directInstructions).toContain("performance-ready narration script");
+    expect(directInstructions).toContain("normalize text for speech");
+    expect(directInstructions).toContain("add natural speech pacing");
+    expect(directInstructions).toContain("carry emotion through word choice and punctuation");
+    expect(directInstructions).toContain("non-v3 ElevenLabs Flash-style model");
+    expect(directInstructions).toContain("<break time=\"0.4s\" />");
+    expect(directInstructions).toContain("Flash v2.5 delivery");
+    expect(directInstructions).toContain("phonetic emotion and punctuation physics");
+    expect(directInstructions).toContain("Haha, Heh, Ahaha!, HA!, or Oh, pfft");
+    expect(directInstructions).toContain("Ugh..., Oh... god..., *sniff*, or No... no...");
+    expect(directInstructions).toContain("ellipses (...) and long dashes");
+    expect(directInstructions).toContain("ALL CAPS");
+    expect(directInstructions).toContain("Use ?!");
+    expect(directInstructions).toContain("Listen..., Look—, Baby..., or Bitch—");
+    expect(directInstructions).toContain("<break time=\"0.3s\" />");
 
     env.OPENAI_TTS_SCRIPT_ENABLED = original;
   });

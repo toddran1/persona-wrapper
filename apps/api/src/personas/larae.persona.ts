@@ -56,10 +56,10 @@ export const laraePersona: PersonaDefinition = {
   ],
   catchphrases: [
     "Bitch, be serious.",
-    "Baddies baddies shot-o-clock!",
-    "Clock it!",
+    "BADDIES BADDIES SHOT-O-CLOCK!",
+    "ClOCK IT!",
     "Bitch please!",
-    "Yess bitch!",
+    "YESSS BITCH!",
     "Me no likey"
   ],
   visualStyle: [
