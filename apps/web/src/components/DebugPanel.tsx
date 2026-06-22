@@ -1,18 +1,23 @@
-import type { ContentBlock } from "@persona/shared";
+import type { ChatResponse } from "@persona/shared";
 import { JsonBlock } from "./output/JsonBlock.js";
 
-export function DebugPanel({ outputs }: { outputs: ContentBlock[] }) {
-  const jsonOutput = outputs.find((output) => output.type === "json");
+export function DebugPanel({ request, response }: { request: Record<string, unknown> | undefined; response: ChatResponse | undefined }) {
+  const payload = request || response
+    ? {
+        request: request ?? null,
+        response: response ?? null
+      }
+    : undefined;
 
   return (
-    <section className="debug-card">
-      <div className="panel-header">
+    <details className="debug-card collapsible-panel">
+      <summary className="collapsible-summary">
         <div>
           <div className="eyebrow">Structured Payload</div>
           <h2>Latest JSON</h2>
         </div>
-      </div>
-      {jsonOutput?.type === "json" ? <JsonBlock data={jsonOutput.data} /> : <p className="empty-state">No JSON payload returned on this turn.</p>}
-    </section>
+      </summary>
+      {payload ? <JsonBlock data={payload} /> : <p className="empty-state">Send a prompt to inspect the request and response payload.</p>}
+    </details>
   );
 }

@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 import { chatRouter } from "./routes/chat.routes.js";
 import { personaRouter } from "./routes/persona.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
+import { getGeneratedAudio } from "./controllers/generatedAudio.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
 import { HttpError } from "./utils/httpError.js";
 import { logger } from "./utils/logger.js";
@@ -22,6 +23,9 @@ export function createApp() {
   app.use("/api/chat", chatRouter);
   app.use("/api/personas", personaRouter);
   app.use("/api/uploads", uploadRouter);
+  app.get("/api/generated-audio/:token", (request, response, next) => {
+    getGeneratedAudio(request, response).catch(next);
+  });
   app.get("/api/openai-artifacts/:token", (request, response, next) => {
     getOpenAIArtifact(request, response).catch(next);
   });

@@ -44,13 +44,13 @@ export function EvalCapturePanel({
   }
 
   return (
-    <section className="eval-card">
-      <div className="panel-header eval-panel-header">
+    <details className="eval-card collapsible-panel">
+      <summary className="collapsible-summary eval-panel-header">
         <div>
           <div className="eyebrow">Test mode</div>
           <h2>Style review</h2>
         </div>
-      </div>
+      </summary>
       <div className="eval-body">
         <label>
           Ideal styled response
@@ -90,6 +90,6 @@ export function EvalCapturePanel({
         {savedMessage ? <p className="eval-status">{savedMessage}</p> : null}
         {error ? <p className="eval-error">{error}</p> : null}
       </div>
-    </section>
+    </details>
   );
 }

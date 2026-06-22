@@ -11,7 +11,9 @@ describe("laraeStyleReferenceBuilder", () => {
     expect(reference).toContain("style references only");
     expect(reference).toContain("high style density across the whole answer");
     expect(reference).toContain("every paragraph, bullet, numbered item, explanation, and transition");
-    expect(reference).toContain("fuck, fucking, bitch, nigga, hoe, pussy");
+    expect(reference).toContain("heavy HEAVY slang");
+    expect(reference).toContain("Bitch, Nigga, Bitches, Niggas, Fucking, Fuck, Hoe, Hoes, Baddies");
+    expect(reference).toContain("It should almost feel like it cannot be enough");
     expect(reference).toContain("ratchet, messy, loud, vulgar, sexy");
     expect(reference).toContain("Synthetic examples:");
     expect(reference).toContain("Golden examples:");

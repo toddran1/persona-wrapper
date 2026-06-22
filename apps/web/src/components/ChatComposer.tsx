@@ -132,53 +132,78 @@ export function ChatComposer(props: ChatComposerProps) {
       className="composer-card"
       onSubmit={handleSubmit}
     >
-      <div className="composer-header">
-        <div>
-          <div className="eyebrow">Composer</div>
-        </div>
-        <button type="button" className="ghost-button" onClick={props.onResetConversation} disabled={props.loading}>
-          New conversation
-        </button>
+      <div className="composer-panel-row">
+        <details className="composer-settings-panel">
+          <summary>Composer settings</summary>
+          <div className="composer-settings-body">
+            <div className="composer-header">
+              <div>
+                <div className="eyebrow">Composer</div>
+              </div>
+              <button type="button" className="ghost-button" onClick={props.onResetConversation} disabled={props.loading}>
+                New conversation
+              </button>
+            </div>
+            <div className="composer-meta-row">
+              <label>
+                Provider
+                <select value={props.provider} onChange={(event) => props.onProviderChange(event.target.value as ProviderId)}>
+                  <option value="openai">OpenAI + Style Model</option>
+                  <option value="openai_persona">OpenAI Persona Direct</option>
+                  <option value="claude">Claude</option>
+                  <option value="local">Local</option>
+                </select>
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={props.audioEnabled}
+                  onChange={(event) => props.onAudioChange(event.target.checked)}
+                />
+                <span>Generate audio</span>
+              </label>
+            </div>
+            {props.provider === "openai" || props.provider === "openai_persona" ? (
+              <fieldset className="tool-options">
+                <legend>OpenAI tools</legend>
+                {([
+                  ["webSearch", "Web"],
+                  ["fileSearch", "File search"],
+                  ["codeInterpreter", "Analysis"],
+                  ["imageGeneration", "Images"]
+                ] as const).map(([key, label]) => (
+                  <label key={key} className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={toolOptions[key]}
+                      onChange={(event) => setToolOptions((current) => ({ ...current, [key]: event.target.checked }))}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
+          </div>
+        </details>
+        {props.suggestedPrompts.length > 0 ? (
+          <details className="suggested-prompts-panel">
+            <summary>Suggested prompts</summary>
+            <div className="sample-prompt-row">
+              {props.suggestedPrompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className="sample-prompt"
+                  disabled={props.loading}
+                  onClick={() => setMessage(prompt)}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </details>
+        ) : null}
       </div>
-      <div className="composer-meta-row">
-        <label>
-          Provider
-          <select value={props.provider} onChange={(event) => props.onProviderChange(event.target.value as ProviderId)}>
-            <option value="openai">OpenAI + Style Model</option>
-            <option value="openai_persona">OpenAI Persona Direct</option>
-            <option value="claude">Claude</option>
-            <option value="local">Local</option>
-          </select>
-        </label>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={props.audioEnabled}
-            onChange={(event) => props.onAudioChange(event.target.checked)}
-          />
-          <span>Generate audio</span>
-        </label>
-      </div>
-      {props.provider === "openai" || props.provider === "openai_persona" ? (
-        <fieldset className="tool-options">
-          <legend>OpenAI tools</legend>
-          {([
-            ["webSearch", "Web"],
-            ["fileSearch", "File search"],
-            ["codeInterpreter", "Analysis"],
-            ["imageGeneration", "Images"]
-          ] as const).map(([key, label]) => (
-            <label key={key} className="toggle">
-              <input
-                type="checkbox"
-                checked={toolOptions[key]}
-                onChange={(event) => setToolOptions((current) => ({ ...current, [key]: event.target.checked }))}
-              />
-              <span>{label}</span>
-            </label>
-          ))}
-        </fieldset>
-      ) : null}
       <div className="prompt-shell">
         <textarea
           rows={2}
@@ -232,24 +257,6 @@ export function ChatComposer(props: ChatComposerProps) {
           )}
         </div>
       </div>
-      {props.suggestedPrompts.length > 0 ? (
-        <details className="suggested-prompts-panel">
-          <summary>Suggested prompts</summary>
-          <div className="sample-prompt-row">
-            {props.suggestedPrompts.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                className="sample-prompt"
-                disabled={props.loading}
-                onClick={() => setMessage(prompt)}
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
-        </details>
-      ) : null}
     </form>
   );
 }

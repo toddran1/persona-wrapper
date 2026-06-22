@@ -131,6 +131,27 @@ describe("ChatComposer", () => {
     expect(screen.getByPlaceholderText("Talk to me nice...")).toHaveValue(samplePrompt);
   });
 
+  it("keeps composer controls collapsed by default", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatComposer
+        {...defaultProps}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.getByPlaceholderText("Talk to me nice...")).toBeInTheDocument();
+    expect(screen.getByText("Composer settings")).toBeInTheDocument();
+    expect(screen.getByText("Suggested prompts")).toBeInTheDocument();
+    expect(screen.getByText("New conversation")).not.toBeVisible();
+    expect(screen.getByText("OpenAI tools")).not.toBeVisible();
+    expect(screen.getByText("Search the web for the most current tea.")).not.toBeVisible();
+
+    await user.click(screen.getByText("Composer settings"));
+    expect(screen.getByText("New conversation")).toBeVisible();
+    expect(screen.getByText("OpenAI tools")).toBeVisible();
+  });
+
   it("shows selected attachment names", async () => {
     const user = userEvent.setup();
 

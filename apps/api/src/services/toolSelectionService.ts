@@ -4,6 +4,8 @@ import { env } from "../config/env.js";
 
 const WEB_PATTERN =
   /\b(latest|current|today|tonight|right now|recent|news|weather|score|standings|schedule|price|stock|market|president|ceo|search|look up|browse|online|verify|fact[- ]?check|source|cite|citation|202[4-9]|203\d)\b/i;
+const EXTERNAL_FACT_PATTERN =
+  /\b(first[- ]?week sales|album sales|sales numbers|box office|chart position|released this year|last album|new album|latest album|discography|ranking|ranked|winner|won|record|announcement|available|availability)\b/i;
 const ANALYSIS_PATTERN =
   /\b(calculate|analy[sz]e|dataset|spreadsheet|csv|chart|graph|plot|statistics|average|median|sum|forecast|python|code interpreter|dashboard|visuali[sz]e|table|pivot|export|downloadable|xlsx|excel)\b/i;
 const IMAGE_PATTERN =
@@ -48,11 +50,15 @@ function deterministicDecision(request: ChatRequest): RouterDecision {
   const hasImages = request.attachments?.some((attachment) => attachment.kind === "image") ?? false;
 
   return {
-    webSearch: WEB_PATTERN.test(request.message),
+    webSearch: shouldEnableWebSearchForMessage(request.message),
     fileSearch: hasFiles && FILE_SEARCH_PATTERN.test(request.message),
     codeInterpreter: ANALYSIS_PATTERN.test(request.message) || FILE_OUTPUT_PATTERN.test(request.message) || (hasFiles && ANALYSIS_PATTERN.test(request.message)),
     imageGeneration: IMAGE_PATTERN.test(request.message) || (hasImages && /\b(edit|change|remove|replace|recolor|retouch|put|add|turn|make)\b/i.test(request.message))
   };
+}
+
+export function shouldEnableWebSearchForMessage(message: string): boolean {
+  return WEB_PATTERN.test(message) || EXTERNAL_FACT_PATTERN.test(message);
 }
 
 function shouldUseModelRouter(request: ChatRequest, tools: ToolOptions): boolean {

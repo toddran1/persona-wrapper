@@ -18,6 +18,7 @@ function stringToBoolean(value: unknown): unknown {
 const reasoningEffortSchema = z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const reasoningSummarySchema = z.enum(["auto", "concise", "detailed"]);
 const textVerbositySchema = z.enum(["low", "medium", "high"]);
+const ttsProviderSchema = z.enum(["openai", "elevenlabs", "local"]);
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -66,7 +67,16 @@ const envSchema = z.object({
   LOCAL_LLM_MODEL: z.string().default("llama3.2:3b"),
   LOCAL_LLM_NUM_CTX: z.coerce.number().int().positive().default(8192),
   LOCAL_LLM_NUM_PREDICT: z.coerce.number().int().positive().default(1024),
+  TTS_PROVIDER: z.preprocess(emptyStringToUndefined, ttsProviderSchema.default("openai")),
   OPENAI_TTS_VOICE: z.string().default("alloy"),
+  ELEVENLABS_API_KEY: z.preprocess(emptyStringToUndefined, z.string().optional()),
+  ELEVENLABS_VOICE_ID: z.preprocess(emptyStringToUndefined, z.string().optional()),
+  ELEVENLABS_MODEL_ID: z.string().default("eleven_multilingual_v2"),
+  ELEVENLABS_OUTPUT_FORMAT: z.string().default("mp3_44100_128"),
+  ELEVENLABS_STABILITY: z.coerce.number().min(0).max(1).default(0.45),
+  ELEVENLABS_SIMILARITY_BOOST: z.coerce.number().min(0).max(1).default(0.85),
+  ELEVENLABS_STYLE: z.coerce.number().min(0).max(1).default(0.35),
+  ELEVENLABS_USE_SPEAKER_BOOST: z.preprocess(stringToBoolean, z.boolean().default(true)),
   STYLE_TRANSFER_PROVIDER: z.enum(["stub", "local", "runpod", "huggingface"]).default("stub"),
   STYLE_TRANSFER_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   STYLE_TRANSFER_MODEL_ID: z.preprocess(emptyStringToUndefined, z.string().optional())

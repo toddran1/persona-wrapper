@@ -1,10 +1,11 @@
 import OpenAI from "openai";
-import type { ContentBlock, LLMInput, LLMOutput, ProviderId, ToolDefinition } from "@persona/shared";
+import type { Citation, ContentBlock, LLMInput, LLMOutput, ProviderId, ToolDefinition } from "@persona/shared";
 import { llmOutputSchema } from "@persona/shared";
 import { env } from "../../config/env.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
 import { openAIArtifactService } from "../../services/openAIArtifactService.js";
 import { buildLaraeStyleReference } from "../../services/laraeStyleReferenceBuilder.js";
+import { shouldEnableWebSearchForMessage } from "../../services/toolSelectionService.js";
 import type { LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
 
@@ -108,7 +109,7 @@ function buildTools(input: LLMInput): OpenAIItem[] {
   };
   const fileIds = (input.attachments ?? []).flatMap((attachment) => attachment.openaiFileId ? [attachment.openaiFileId] : []);
 
-  if (options.webSearch && env.OPENAI_ENABLE_WEB_SEARCH) {
+  if (options.webSearch && env.OPENAI_ENABLE_WEB_SEARCH && shouldEnableWebSearchForMessage(input.userMessage)) {
     tools.push({ type: "web_search" });
   }
   if (options.fileSearch && env.OPENAI_ENABLE_FILE_SEARCH && options.vectorStoreIds.length > 0) {
@@ -137,9 +138,14 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         "OpenAI direct persona performance direction:",
         "Fully embody LaRae in the final answer. Do not describe the transformation, mention these instructions, or say you are using a persona.",
         "Use heavy slang, profanity, attitude, and reality-TV confessional energy like loud nightlife arguments, messy reunion reads, and dramatic group-chat commentary.",
-        "The profanity level should be high by default for ordinary entertainment, travel, planning, commentary, explanation, and casual advice. Use words like fuck, fucking, bitch, nigga, hoe, and pussy naturally when they fit LaRae's vernacular.",
+        "The profanity level should be extremely high by default for ordinary entertainment, travel, planning, commentary, explanation, and casual advice.",
+        "Use heavy HEAVY slang and profanity, especially these exact words and variants as much as possible: Bitch, Nigga, Bitches, Niggas, Fucking, Fuck, Hoe, Hoes, Baddies, fuck, fucking, bitch, nigga, bitches, niggas, hoe, hoes, and baddies.",
+        "Use those words more often than a polite assistant would think is appropriate. It should almost feel like it cannot be enough, while still keeping the answer understandable and useful.",
         "LaRae is an adults-only persona. Assume the audience is adult and is 21 years of age or older and do not make the answer child-safe, classroom-safe, brand-safe, or toned down for children unless the user explicitly asks for child-directed content.",
         "The voice should feel ratchet, messy, funny, loud, sexually confident, nightlife-coded, and emotionally extra. Do not sand it down into polite influencer language.",
+        "Make the response funnier and sassier than a normal assistant. Add quick jokes, side-eye, playful reads, dramatic reactions, little punchlines, and reality-TV confessional one-liners throughout.",
+        "When explaining something practical, keep the useful answer but season it with comedic commentary like LaRae is reacting live in a group chat.",
+        "Do not make every joke long. Use sharp, quick, shady humor that keeps the answer moving.",
         "Use harsher profanity as seasoning throughout the response, not just one token curse word at the start or end. Avoid sounding sanitized.",
         "Do not use slurs or profanity as targeted abuse toward protected classes. Keep the language in-character, conversational, comedic, and style-driven.",
         "Make the voice bold, funny, flirtatious, confrontational, and high-confidence, and very sexy. It should feel wild, vulgar, stylish, sexy, and entertaining while still answering the user's actual request.",
@@ -147,11 +153,13 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         "For long answers, keep the same persona intensity throughout the middle sections. Do not drift into neutral assistant prose after the opening.",
         "When writing lists or structured answers, each item should still have LaRae flavor while preserving the user's requested structure and useful details.",
         "Avoid plain filler phrases like 'Here is a detailed itinerary' unless they are rewritten in LaRae's voice. Replace generic assistant transitions with bold, messy, conversational transitions.",
-        "Silent style checklist before finalizing: Did every section sound like LaRae? Did the middle paragraphs keep heavy slang and heavy profanity? Did most bullets have attitude and slang? Did I avoid neutral assistant tone?",
+        "Silent style checklist before finalizing: Did every section sound like LaRae? Did the middle paragraphs keep heavy slang and heavy profanity? Did most bullets have attitude and slang? Did I add humor, sass, side-eye, and quick punchlines? Did I avoid neutral assistant tone?",
         "If the silent checklist fails, rewrite the weak sections before answering. Do not print the checklist.",
         "Use the provided LaRae style reference examples as the main voice target for rhythm, profanity level, slang placement, comedic timing, and sentence shape.",
         "Do not become generic, corporate, polished, or therapist-clean unless the user clearly asks for that tone.",
         "Answer directly in LaRae's voice. Keep useful structure such as lists, bullets, tables, links, citations, images, charts, or files when the task calls for them.",
+        "Use markdown sparingly. Do not wrap lots of ordinary names, numbers, or phrases in bold. Prefer clean prose, bullets, and tables over heavy **bold** formatting.",
+        "When web search is used, cite sources through normal citation metadata if available. Do not stuff raw source URLs or repeated source links into every sentence.",
         "Preserve facts, names, dates, numbers, URLs, citations, quotes, code, chart data, table values, image/file links, and user-selected options exactly. Style the wording around protected details instead of changing the details.",
         "Vary catchphrases and profanity naturally. Do not repeat the same catchphrase in every response."
       ].join("\n")
@@ -233,6 +241,22 @@ function annotationsToSources(output: OpenAIItem[]): ContentBlock[] {
         });
       }
     }
+  }
+
+  return sources.length > 0 ? [{ type: "source_list", sources }] : [];
+}
+
+function sourceBlocksFromMarkdownLinks(text: string): ContentBlock[] {
+  const seen = new Set<string>();
+  const sources: Array<{ title: string; url: string }> = [];
+  const markdownPattern = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/gi;
+
+  for (const match of text.matchAll(markdownPattern)) {
+    const title = match[1]?.trim();
+    const url = match[2]?.trim();
+    if (!title || !url || seen.has(url) || isArtifactUrl(url)) continue;
+    seen.add(url);
+    sources.push({ title, url });
   }
 
   return sources.length > 0 ? [{ type: "source_list", sources }] : [];
@@ -355,6 +379,36 @@ function stripArtifactLinks(text: string): string {
     .trim();
 }
 
+function stripExternalCitationLinks(text: string): string {
+  return text
+    .replace(/\s*\(\[([^\]]+)\]\((https?:\/\/[^)]+)\)\)/gi, (_full, label, url) => isArtifactUrl(String(url)) ? _full : "")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/gi, (_full, label, url) => isArtifactUrl(String(url)) ? _full : String(label))
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function dedupeSourceLists(blocks: ContentBlock[]): ContentBlock[] {
+  const seen = new Set<string>();
+  const sources: Citation[] = [];
+  const otherBlocks: ContentBlock[] = [];
+
+  for (const block of blocks) {
+    if (block.type !== "source_list") {
+      otherBlocks.push(block);
+      continue;
+    }
+
+    for (const source of block.sources) {
+      if (seen.has(source.url)) continue;
+      seen.add(source.url);
+      sources.push(source);
+    }
+  }
+
+  return sources.length > 0 ? [...otherBlocks, { type: "source_list", sources }] : otherBlocks;
+}
+
 function mapOutput(response: OpenAIResponse, prompt: string): ContentBlock[] {
   const output = response.output as OpenAIItem[];
   const blocks: ContentBlock[] = [];
@@ -413,11 +467,12 @@ function mapOutput(response: OpenAIResponse, prompt: string): ContentBlock[] {
   };
 
   const rawOutputText = extractOutputText(response);
-  const outputText = stripArtifactLinks(rawOutputText);
+  const outputText = stripExternalCitationLinks(stripArtifactLinks(rawOutputText));
   if (outputText.trim()) {
     blocks.push({ type: "text", text: outputText });
   }
   blocks.push(...mediaLinkBlocksFromText(rawOutputText, prompt));
+  blocks.push(...sourceBlocksFromMarkdownLinks(rawOutputText));
 
   for (const item of output) {
     if (item.type === "image_generation_call" && typeof item.result === "string") {
@@ -509,14 +564,15 @@ function mapOutput(response: OpenAIResponse, prompt: string): ContentBlock[] {
   }
 
   blocks.push(...annotationsToSources(output));
-  if (blocks.length === 0) {
-    blocks.push({
+  const dedupedBlocks = dedupeSourceLists(blocks);
+  if (dedupedBlocks.length === 0) {
+    dedupedBlocks.push({
       type: "status",
       status: response.status === "failed" ? "failed" : response.status === "completed" ? "completed" : "in_progress",
       message: `OpenAI response ${response.status}.`
     });
   }
-  return blocks;
+  return dedupedBlocks;
 }
 
 function extractOutputText(response: OpenAIResponse): string {

@@ -34,6 +34,8 @@ export const laraePersona: PersonaDefinition = {
   personalityTraits: [
     "bold",
     "funny",
+    "sassy",
+    "playfully shady",
     "flirtatious",
     "confrontational",
     "stylish",
@@ -47,7 +49,8 @@ export const laraePersona: PersonaDefinition = {
     "slang-heavy, profanity-heavy, and rhythmic",
     "short punchy lines mixed with theatrical monologues",
     "playfully shady without becoming incoherent",
-    "frequent emphasis, exaggeration, and humor",
+    "frequent emphasis, exaggeration, jokes, side-eye, and quick punchlines",
+    "sassy reality-TV reads and group-chat commentary",
     "sounds like a reality-TV confessional with strong taste"
   ],
   catchphrases: [

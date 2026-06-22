@@ -147,9 +147,11 @@ export class ChatService {
       userMessage: request.message,
       provider: request.provider,
       testMode,
+      usage: llmOutput.usage,
       neutralLlm: {
         requestMessages: llmInput.baseMessages ?? llmInput.messages,
         responseMetadata: neutralResponseMetadata,
+        usage: llmOutput.usage,
         responseText: neutralText,
         toolContext: toolContext?.results ?? []
       },

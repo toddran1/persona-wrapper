@@ -10,7 +10,6 @@ import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
 import { GoldenPairReviewPage } from "./components/GoldenPairReviewPage.js";
 import { NeutralResponsePanel } from "./components/NeutralResponsePanel.js";
 import { PersonaHeader } from "./components/PersonaHeader.js";
-import { StatusStrip } from "./components/StatusStrip.js";
 
 function getClientContext(): ClientContext {
   const now = new Date();
@@ -31,6 +30,7 @@ export function App() {
   const [provider, setProvider] = useState<ProviderId>("openai_persona");
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [response, setResponse] = useState<ChatResponse | undefined>();
+  const [latestRequest, setLatestRequest] = useState<Record<string, unknown> | undefined>();
   const [renderedTurns, setRenderedTurns] = useState<RenderedTurn[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -93,6 +93,7 @@ export function App() {
         toolOptions: resolvedToolOptions,
         ...(conversationId ? { conversationId } : {})
       };
+      setLatestRequest(payload);
       const result = await api.sendChat(payload, requestController.signal);
       const assistantTextBlock = result.outputs.find((output) => output.type === "text");
       const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
@@ -104,7 +105,8 @@ export function App() {
         {
           userMessage: message,
           assistantText,
-          outputs: result.outputs
+          outputs: result.outputs,
+          usage: result.usage
         }
       ]);
       setPendingPrompt(undefined);
@@ -131,6 +133,7 @@ export function App() {
   function resetConversation(): void {
     setConversationId(undefined);
     setResponse(undefined);
+    setLatestRequest(undefined);
     setRenderedTurns([]);
     setError(undefined);
     setEvalSavedMessage(undefined);
@@ -163,6 +166,7 @@ export function App() {
   }
 
   const activeTheme = personaDetail?.theme ?? personas[0]?.theme;
+  const hasConversationContent = renderedTurns.length > 0 || Boolean(pendingPrompt) || loading;
   const themeStyle = activeTheme
     ? ({
         "--theme-background": activeTheme.background,
@@ -189,14 +193,7 @@ export function App() {
         <PersonaHeader personaSummary={personas[0]} personaDetail={personaDetail} />
         {testModeEnabled ? (
           <aside className="sidebar-column">
-            <StatusStrip
-              conversationId={conversationId}
-              loading={loading}
-              error={error}
-              generatedAt={response?.generatedAt}
-              onClearError={() => setError(undefined)}
-            />
-            <DebugPanel outputs={response?.outputs ?? []} />
+            <DebugPanel request={latestRequest} response={response} />
             <NeutralResponsePanel response={response} />
             <EvalCapturePanel
               response={response}
@@ -207,11 +204,12 @@ export function App() {
             />
           </aside>
         ) : null}
-        <section className="chat-column">
+        <section className={`chat-column${hasConversationContent ? "" : " chat-column-empty"}`}>
           <ConversationHistory
             turns={renderedTurns}
             pendingPrompt={pendingPrompt}
             thinking={loading && Boolean(pendingPrompt)}
+            testMode={testModeEnabled}
           />
           <div className="composer-dock">
             <ChatComposer

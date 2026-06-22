@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectTools } from "../services/toolSelectionService.js";
+import { selectTools, shouldEnableWebSearchForMessage } from "../services/toolSelectionService.js";
 
 function request(message: string) {
   return {
@@ -48,5 +48,11 @@ describe("tool selection", () => {
     expect(tools?.webSearch).toBe(false);
     expect(tools?.codeInterpreter).toBe(false);
     expect(tools?.imageGeneration).toBe(false);
+  });
+
+  it("keeps the final web-search guard narrow", () => {
+    expect(shouldEnableWebSearchForMessage("Help me write a friendly apology.")).toBe(false);
+    expect(shouldEnableWebSearchForMessage("Who is the current CEO of Apple?")).toBe(true);
+    expect(shouldEnableWebSearchForMessage("What was Playboi Carti's last album and first-week sales?")).toBe(true);
   });
 });

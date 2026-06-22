@@ -131,7 +131,7 @@ export const ttsInputSchema = z.object({
     voiceId: z.string().optional()
 });
 export const ttsOutputSchema = z.object({
-    provider: z.enum(["openai_tts", "local_tts"]),
+    provider: z.enum(["openai_tts", "elevenlabs_tts", "local_tts"]),
     url: z.string(),
     mimeType: z.string(),
     durationMs: z.number().int().nonnegative().optional()
