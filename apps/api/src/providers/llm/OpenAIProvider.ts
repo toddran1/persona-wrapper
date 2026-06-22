@@ -55,6 +55,7 @@ type OpenAIRequestControls = {
   };
   text?: {
     verbosity?: string;
+    format?: OpenAIItem;
   };
 };
 
@@ -73,6 +74,29 @@ function shouldRequestInlineTtsScript(input: LLMInput, promptMode: OpenAIPromptM
     input.audio === true &&
     env.OPENAI_TTS_SCRIPT_ENABLED &&
     input.persona.voiceProfile.elevenLabs !== undefined;
+}
+
+function dualTextResponseFormat(): OpenAIItem {
+  return {
+    type: "json_schema",
+    name: "larae_visible_text_and_tts_script",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["visible_text", "tts_script"],
+      properties: {
+        visible_text: {
+          type: "string",
+          description: "The normal user-facing response rendered in the chat UI."
+        },
+        tts_script: {
+          type: "string",
+          description: "The same response meaning and facts, optimized for ElevenLabs narration."
+        }
+      }
+    }
+  };
 }
 
 function buildInput(input: LLMInput, promptMode: OpenAIPromptMode): OpenAIItem[] {
@@ -694,6 +718,7 @@ const OPTIONAL_OPENAI_CONTROL_PARAMS = new Set([
   "reasoning.effort",
   "reasoning.summary",
   "text",
+  "text.format",
   "text.verbosity"
 ]);
 
@@ -1067,6 +1092,10 @@ export class OpenAIProvider implements LLMProvider {
 
   private responseParams(input: LLMInput, responseInput: OpenAIItem[], tools: OpenAIItem[]) {
     const controls = this.requestControls();
+    const text = {
+      ...(controls.text ?? {}),
+      ...(shouldRequestInlineTtsScript(input, this.promptMode) ? { format: dualTextResponseFormat() } : {})
+    };
 
     return {
       model: env.OPENAI_MODEL,
@@ -1084,6 +1113,7 @@ export class OpenAIProvider implements LLMProvider {
       prompt_cache_retention: "24h",
       max_output_tokens: env.OPENAI_MAX_OUTPUT_TOKENS,
       ...controls,
+      ...(Object.keys(text).length > 0 ? { text } : {}),
       metadata: {
         persona_id: input.persona.id,
         prompt_mode: this.promptMode,
@@ -1093,7 +1123,8 @@ export class OpenAIProvider implements LLMProvider {
         ...(controls.frequency_penalty !== undefined ? { frequency_penalty: String(controls.frequency_penalty) } : {}),
         ...(controls.reasoning?.effort ? { reasoning_effort: controls.reasoning.effort } : {}),
         ...(controls.reasoning?.summary ? { reasoning_summary: controls.reasoning.summary } : {}),
-        ...(controls.text?.verbosity ? { text_verbosity: controls.text.verbosity } : {})
+        ...(controls.text?.verbosity ? { text_verbosity: controls.text.verbosity } : {}),
+        ...(shouldRequestInlineTtsScript(input, this.promptMode) ? { response_format: "visible_text_tts_script" } : {})
       }
     };
   }

@@ -259,6 +259,13 @@ export class ChatService {
           ...(ttsScriptLog ? { script: ttsScriptLog } : {})
         }
       : undefined;
+    const openAiDualTextPayload =
+      llmOutput.metadata?.ttsScriptParseStatus === "parsed" && typeof llmOutput.metadata.ttsScript === "string"
+        ? {
+            visible_text: neutralText,
+            tts_script: llmOutput.metadata.ttsScript
+          }
+        : undefined;
 
     logger.llmTurn({
       conversationId: conversation.id,
@@ -272,6 +279,8 @@ export class ChatService {
         responseMetadata: neutralResponseMetadata,
         usage: llmOutput.usage,
         responseText: neutralText,
+        ...(openAiDualTextPayload ? { responsePayload: openAiDualTextPayload } : {}),
+        ...(typeof llmOutput.metadata?.ttsScriptParseStatus === "string" ? { responsePayloadStatus: llmOutput.metadata.ttsScriptParseStatus } : {}),
         toolContext: toolContext?.results ?? []
       },
       styleTransfer: {
