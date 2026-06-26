@@ -888,6 +888,11 @@ button:disabled {
   padding-right: 6px;
 }
 
+.chat-bottom-sentinel {
+  height: 1px;
+  scroll-margin-bottom: calc(var(--composer-reserved-height) + 28px);
+}
+
 .history-card .panel-header,
 .response-card .panel-header,
 .debug-card .panel-header,

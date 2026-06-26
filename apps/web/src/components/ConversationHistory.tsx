@@ -317,9 +317,56 @@ export function ConversationHistory({
   onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
 }) {
   const messageCount = turns.length * 2 + (pendingPrompt ? 1 : 0) + (thinking ? 1 : 0);
+  const historyRef = useRef<HTMLElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const shouldFollowRef = useRef(true);
+
+  useEffect(() => {
+    const updateFollowState = () => {
+      const documentElement = document.documentElement;
+      const distanceFromBottom = documentElement.scrollHeight - window.scrollY - window.innerHeight;
+      shouldFollowRef.current = distanceFromBottom < 220;
+    };
+
+    window.addEventListener("scroll", updateFollowState, { passive: true });
+    window.addEventListener("resize", updateFollowState);
+    updateFollowState();
+
+    return () => {
+      window.removeEventListener("scroll", updateFollowState);
+      window.removeEventListener("resize", updateFollowState);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (pendingPrompt) {
+      shouldFollowRef.current = true;
+    }
+  }, [pendingPrompt]);
+
+  useEffect(() => {
+    if (!shouldFollowRef.current || messageCount === 0) return;
+    const frame = requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [messageCount, pendingPrompt, thinking, turns]);
+
+  useEffect(() => {
+    if (!historyRef.current || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (!shouldFollowRef.current || messageCount === 0) return;
+      bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+    });
+    observer.observe(historyRef.current);
+
+    return () => observer.disconnect();
+  }, [messageCount]);
 
   return (
-    <section className={`history-card${messageCount === 0 ? " history-card-empty" : ""}`}>
+    <section ref={historyRef} className={`history-card${messageCount === 0 ? " history-card-empty" : ""}`}>
       <div className="panel-header">
         <div>
           <div className="eyebrow">Conversation</div>
@@ -393,6 +440,7 @@ export function ConversationHistory({
               </div>
             </article>
           ) : null}
+          <div ref={bottomRef} className="chat-bottom-sentinel" aria-hidden="true" />
         </div>
       )}
     </section>
