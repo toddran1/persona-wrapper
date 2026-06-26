@@ -2,7 +2,7 @@
   font-family: "Space Grotesk", sans-serif;
   color: var(--theme-text, #f7efe8);
   --conversation-stage-height: 420px;
-  --composer-reserved-height: 238px;
+  --composer-reserved-height: 210px;
   --floating-panel-top: 48px;
   --floating-panel-gap: 14px;
   --theme-background: linear-gradient(135deg, #09060f 0%, #170f21 38%, #0a0912 100%);
@@ -98,7 +98,7 @@ textarea {
 
 .chat-column {
   gap: 18px;
-  padding-bottom: var(--composer-reserved-height);
+  margin-bottom: calc(16px + var(--floating-panel-gap));
 }
 
 .conversation-stage-grid {
@@ -1591,7 +1591,8 @@ button:disabled {
 .history-card {
   display: flex;
   flex-direction: column;
-  min-height: 320px;
+  min-height: 260px;
+  /* min-height: var(--conversation-stage-height); */
   overflow: visible;
 }
 
@@ -1664,10 +1665,6 @@ button:disabled {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   backdrop-filter: blur(16px);
-}
-
-.history-card-empty {
-  min-height: 0;
 }
 
 .history-card-empty .panel-header {
@@ -2063,7 +2060,6 @@ button:disabled {
 
   .chat-column {
     grid-column: 2;
-    min-height: calc(100vh - 120px);
     grid-template-rows: 1fr auto;
     width: 100%;
   }
