@@ -243,8 +243,6 @@ export function App() {
       <GoldenPairReviewPage />
     ) : (
     <main className="page-shell" style={themeStyle}>
-      <div className="background-orb background-orb-a" />
-      <div className="background-orb background-orb-b" />
       <div className={`app-grid ${testModeEnabled ? "app-grid-test" : "app-grid-normal"}`}>
         <PersonaHeader personaSummary={personas[0]} personaDetail={personaDetail} />
         {testModeEnabled ? (

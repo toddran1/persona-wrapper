@@ -15,10 +15,6 @@
   --theme-accent-2: #d6b55e;
   --theme-text: #f7efe8;
   --theme-muted: #c8bdd8;
-  background:
-    radial-gradient(circle at top left, var(--theme-background-accent), transparent 30%),
-    radial-gradient(circle at bottom right, var(--theme-background-accent-secondary), transparent 25%),
-    var(--theme-background);
   --surface: var(--theme-surface);
   --surface-strong: var(--theme-surface-strong);
   --border: var(--theme-border);
@@ -36,10 +32,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, var(--theme-background-accent), transparent 30%),
-    radial-gradient(circle at bottom right, var(--theme-background-accent-secondary), transparent 25%),
-    var(--theme-background);
+  background: #09060f;
 }
 
 button,
@@ -52,28 +45,34 @@ textarea {
 .page-shell {
   --page-inline-pad: clamp(12px, 2.4vw, 24px);
   position: relative;
+  isolation: isolate;
   min-height: 100vh;
   overflow-x: hidden;
+  background: var(--theme-background);
   padding: clamp(16px, 3vw, 32px) var(--page-inline-pad) clamp(32px, 5vw, 56px);
   color: var(--theme-text);
 }
 
-.background-orb {
-  position: absolute;
+.page-shell::before,
+.page-shell::after {
+  content: "";
+  position: fixed;
+  z-index: 0;
   width: 420px;
   height: 420px;
   border-radius: 999px;
   filter: blur(80px);
   opacity: 0.45;
+  pointer-events: none;
 }
 
-.background-orb-a {
+.page-shell::before {
   top: -120px;
   left: -80px;
   background: var(--accent);
 }
 
-.background-orb-b {
+.page-shell::after {
   right: -80px;
   bottom: -120px;
   background: var(--accent-2);
@@ -98,7 +97,8 @@ textarea {
 
 .chat-column {
   gap: 18px;
-  margin-bottom: calc(16px + var(--floating-panel-gap));
+  /* margin-bottom: calc(16px + var(--floating-panel-gap)); */
+  margin-bottom: calc(136px + var(--floating-panel-gap));
 }
 
 .conversation-stage-grid {
