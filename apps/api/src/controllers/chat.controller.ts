@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { chatRequestSchema } from "@persona/shared";
+import { chatRequestSchema, type ChatRequest, type ChatResponse } from "@persona/shared";
 import { ChatService } from "../services/chatService.js";
 import { EvalCaptureService } from "../services/evalCaptureService.js";
+import { backgroundChatJobService } from "../services/backgroundChatJobService.js";
+import { getPersonaById } from "../personas/index.js";
 import { uploadService } from "../services/uploadService.js";
 import { HttpError } from "../utils/httpError.js";
 import { selectTools } from "../services/toolSelectionService.js";
@@ -37,10 +40,41 @@ export async function postChat(request: Request, response: Response): Promise<vo
   const identity = requestIdentity(request);
   usageControlService.check(identity);
   const payload = await selectTools(resolveOwnedChatAssets(request));
+  if (shouldRunInBackground(payload)) {
+    const conversationId = payload.conversationId ?? `conv_${randomUUID()}`;
+    const backgroundPayload: ChatRequest = {
+      ...payload,
+      conversationId,
+      toolOptions: {
+        webSearch: payload.toolOptions?.webSearch ?? false,
+        fileSearch: payload.toolOptions?.fileSearch ?? false,
+        codeInterpreter: payload.toolOptions?.codeInterpreter ?? false,
+        imageGeneration: payload.toolOptions?.imageGeneration ?? false,
+        appFunctions: payload.toolOptions?.appFunctions ?? true,
+        background: true,
+        vectorStoreIds: payload.toolOptions?.vectorStoreIds ?? []
+      }
+    };
+    const job = backgroundChatJobService.start(async () => {
+      const result = await chatService.handleChat(backgroundPayload);
+      usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
+      return result;
+    });
+    response.status(202).json(createPendingChatResponse(backgroundPayload, job.id));
+    return;
+  }
   const controller = requestAbortController(request);
   const result = await chatService.handleChat(payload, undefined, controller.signal);
   usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
   response.status(200).json(result);
+}
+
+export async function getChatJob(request: Request, response: Response): Promise<void> {
+  const job = backgroundChatJobService.get(String(request.params.jobId ?? ""));
+  if (!job) {
+    throw new HttpError("Chat job not found", 404);
+  }
+  response.status(200).json(job);
 }
 
 export async function postChatStream(request: Request, response: Response): Promise<void> {
@@ -77,6 +111,70 @@ export async function postChatStream(request: Request, response: Response): Prom
 function requestIdentity(request: Request): string {
   const ownerId = typeof request.header === "function" ? request.header("x-owner-id") : undefined;
   return ownerId?.slice(0, 200) || request.ip || "anonymous";
+}
+
+function shouldRunInBackground(payload: ChatRequest): boolean {
+  if (payload.provider !== "openai" && payload.provider !== "openai_persona") return false;
+  return payload.toolOptions?.background === true ||
+    payload.toolOptions?.imageGeneration === true ||
+    payload.toolOptions?.codeInterpreter === true;
+}
+
+function createPendingChatResponse(payload: ChatRequest, jobId: string): ChatResponse {
+  const persona = getPersonaById(payload.personaId);
+  if (!persona) {
+    throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
+  }
+
+  const history = [
+    ...(payload.history ?? []),
+    {
+      role: "user" as const,
+      content: payload.message
+    }
+  ];
+
+  return {
+    persona: {
+      id: persona.id,
+      name: persona.name,
+      legalName: persona.legalName,
+      age: persona.age,
+      height: persona.height,
+      weight: persona.weight,
+      tagline: persona.tagline,
+      description: persona.description,
+      avatarColor: persona.avatarColor,
+      avatarUrl: persona.avatarUrl,
+      theme: persona.theme,
+      documentTitle: persona.documentTitle,
+      promptPlaceholder: persona.promptPlaceholder,
+      suggestedPrompts: persona.suggestedPrompts,
+      supportedProviders: persona.supportedProviders
+    },
+    provider: payload.provider,
+    conversationId: payload.conversationId ?? `conv_${randomUUID()}`,
+    history,
+    outputs: [
+      {
+        type: "status",
+        status: "in_progress",
+        message: "Still working on that request."
+      }
+    ],
+    generatedAt: new Date().toISOString(),
+    diagnostics: {
+      requestedAudio: payload.audio,
+      toolsAvailable: persona.defaultTools,
+      messageCount: history.length,
+      ...(payload.testMode ? { testMode: payload.testMode } : {}),
+      backgroundJob: {
+        id: jobId,
+        status: "running",
+        pollUrl: `/api/chat/jobs/${jobId}`
+      }
+    }
+  };
 }
 
 function requestAbortController(request: Request): AbortController {

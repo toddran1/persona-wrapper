@@ -5,6 +5,10 @@ export function getPersonas(_request: Request, response: Response): void {
   const personas = listPersonas().map((persona) => ({
     id: persona.id,
     name: persona.name,
+    legalName: persona.legalName,
+    age: persona.age,
+    height: persona.height,
+    weight: persona.weight,
     tagline: persona.tagline,
     description: persona.description,
     avatarColor: persona.avatarColor,

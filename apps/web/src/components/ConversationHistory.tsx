@@ -113,12 +113,14 @@ function AssistantActions({
   text,
   sources,
   audioBlocks,
-  autoPlayAudio = false
+  autoPlayAudio = false,
+  onAudioPlaybackChange
 }: {
   text: string;
   sources: Extract<ContentBlock, { type: "source_list" }>[];
   audioBlocks: Extract<ContentBlock, { type: "audio" }>[];
   autoPlayAudio?: boolean;
+  onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -171,7 +173,17 @@ function AssistantActions({
 
   return (
     <div className="message-actions" ref={wrapRef}>
-      {primaryAudio ? <audio ref={audioRef} src={resolvedAudioUrl} preload="metadata" /> : null}
+      {primaryAudio ? (
+        <audio
+          ref={audioRef}
+          src={resolvedAudioUrl}
+          preload="metadata"
+          onPlay={() => onAudioPlaybackChange?.(true)}
+          onPause={() => onAudioPlaybackChange?.(false)}
+          onEnded={() => onAudioPlaybackChange?.(false)}
+          onError={() => onAudioPlaybackChange?.(false)}
+        />
+      ) : null}
       {text ? (
         <button type="button" className="message-action-button" aria-label="Copy response" title="Copy" onClick={() => void navigator.clipboard?.writeText(text)}>
           <Icon name="copy" />
@@ -295,12 +307,14 @@ export function ConversationHistory({
   turns,
   pendingPrompt,
   thinking,
-  testMode = false
+  testMode = false,
+  onAudioPlaybackChange
 }: {
   turns: RenderedTurn[];
   pendingPrompt?: string | undefined;
   thinking?: boolean | undefined;
   testMode?: boolean | undefined;
+  onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
 }) {
   const messageCount = turns.length * 2 + (pendingPrompt ? 1 : 0) + (thinking ? 1 : 0);
 
@@ -346,7 +360,13 @@ export function ConversationHistory({
                     ) : null}
                     {testMode ? <TokenUsageFooter usage={turn.usage} /> : null}
                   </div>
-                  <AssistantActions text={turn.assistantText} sources={sources} audioBlocks={audioBlocks} autoPlayAudio={turnIndex === turns.length - 1} />
+                  <AssistantActions
+                    text={turn.assistantText}
+                    sources={sources}
+                    audioBlocks={audioBlocks}
+                    autoPlayAudio={turnIndex === turns.length - 1}
+                    onAudioPlaybackChange={onAudioPlaybackChange}
+                  />
                 </article>
               </div>
             );

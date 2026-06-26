@@ -8,3 +8,7 @@ __pycache__/
 *.pyc
 ml/style-transfer/datasets/raw/audio/
 apps/api/uploads/
+apps/api/apps/
+trainingData/
+LaRae_sandbox.pages
+Untitled.pages

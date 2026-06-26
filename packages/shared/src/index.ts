@@ -254,6 +254,10 @@ export type PersonaTheme = z.infer<typeof personaThemeSchema>;
 export const personaSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
+  legalName: z.string().optional(),
+  age: z.string().optional(),
+  height: z.string().optional(),
+  weight: z.string().optional(),
   tagline: z.string(),
   description: z.string(),
   avatarColor: z.string(),
@@ -267,6 +271,10 @@ export const personaSummarySchema = z.object({
 export type PersonaSummary = z.infer<typeof personaSummarySchema>;
 
 export const personaDefinitionSchema = personaSummarySchema.extend({
+  legalName: z.string(),
+  age: z.string(),
+  height: z.string(),
+  weight: z.string(),
   biography: z.string(),
   personalityTraits: z.array(z.string()),
   speechStyle: z.array(z.string()),
@@ -369,6 +377,11 @@ export const chatResponseSchema = z.object({
     neutralResponse: z.string().optional(),
     responseId: z.string().optional(),
     providerModel: z.string().optional(),
+    backgroundJob: z.object({
+      id: z.string(),
+      status: z.enum(["queued", "running", "completed", "failed"]),
+      pollUrl: z.string()
+    }).optional(),
     tts: z.object({
       status: z.enum(["not_requested", "skipped_no_text", "generated", "failed"]),
       provider: z.string().optional(),
@@ -390,3 +403,12 @@ export const chatResponseSchema = z.object({
   }).optional()
 });
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
+
+export const chatJobResponseSchema = z.object({
+  id: z.string(),
+  status: z.enum(["queued", "running", "completed", "failed"]),
+  response: chatResponseSchema.optional(),
+  error: z.string().optional(),
+  updatedAt: z.string()
+});
+export type ChatJobResponse = z.infer<typeof chatJobResponseSchema>;

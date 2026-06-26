@@ -18,6 +18,10 @@ describe("shared schemas", () => {
       persona: {
         id: "larae",
         name: "LaRae the Baddest",
+        legalName: "LaRae Candace Bronson",
+        age: "25",
+        height: "5 ft 3 in",
+        weight: "129 lbs",
         tagline: "Tagline",
         description: "Description",
         avatarColor: "#ff5f6d",
@@ -60,6 +64,10 @@ describe("shared schemas", () => {
       persona: {
         id: "larae",
         name: "LaRae the Baddest",
+        legalName: "LaRae Candace Bronson",
+        age: "25",
+        height: "5 ft 3 in",
+        weight: "129 lbs",
         tagline: "Tagline",
         description: "Description",
         avatarColor: "#ff5f6d",

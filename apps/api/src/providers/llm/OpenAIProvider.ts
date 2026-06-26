@@ -15,6 +15,11 @@ type OpenAIItem = Record<string, any>;
 const CHART_REQUEST_PATTERN = /\b(pie chart|bar chart|line chart|chart|graph|plot|visuali[sz]e|dashboard)\b/i;
 const DATA_OUTPUT_REQUEST_PATTERN =
   /\b(calculate|analy[sz]e|dataset|spreadsheet|csv|statistics|average|median|sum|pivot|export|downloadable|xlsx|excel)\b/i;
+const RESPONSE_INCLUDE_FIELDS = [
+  "web_search_call.action.sources",
+  "file_search_call.results",
+  "code_interpreter_call.outputs"
+];
 
 function inputContent(input: LLMInput): OpenAIItem[] {
   const content: OpenAIItem[] = [{ type: "input_text", text: input.userMessage }];
@@ -73,7 +78,9 @@ function shouldRequestInlineTtsScript(input: LLMInput, promptMode: OpenAIPromptM
   return promptMode === "full" &&
     input.audio === true &&
     env.OPENAI_TTS_SCRIPT_ENABLED &&
-    input.persona.voiceProfile.elevenLabs !== undefined;
+    input.persona.voiceProfile.elevenLabs !== undefined &&
+    !input.toolOptions?.imageGeneration &&
+    !input.toolOptions?.codeInterpreter;
 }
 
 function dualTextResponseFormat(): OpenAIItem {
@@ -113,7 +120,12 @@ function buildInput(input: LLMInput, promptMode: OpenAIPromptMode): OpenAIItem[]
 }
 
 function withStyleReference(input: LLMInput, promptMode: OpenAIPromptMode, responseInput: OpenAIItem[]): OpenAIItem[] {
-  if (promptMode !== "full" || input.persona.id !== "larae") {
+  if (
+    promptMode !== "full" ||
+    input.persona.id !== "larae" ||
+    input.toolOptions?.imageGeneration ||
+    input.toolOptions?.codeInterpreter
+  ) {
     return responseInput;
   }
 
@@ -809,6 +821,44 @@ async function withRetry<T>(operation: () => Promise<T>): Promise<T> {
   throw lastError;
 }
 
+function isBackgroundPending(response: OpenAIResponse): boolean {
+  return response?.status === "queued" || response?.status === "in_progress";
+}
+
+function isBackgroundTerminalFailure(response: OpenAIResponse): boolean {
+  return response?.status === "failed" || response?.status === "cancelled" || response?.status === "incomplete";
+}
+
+function backgroundFailureMessage(response: OpenAIResponse): string {
+  const status = typeof response?.status === "string" ? response.status : "unknown";
+  const errorMessage = response?.error?.message;
+  const incompleteReason = response?.incomplete_details?.reason;
+  if (typeof errorMessage === "string" && errorMessage.trim()) {
+    return `OpenAI background response ${status}: ${errorMessage}`;
+  }
+  if (typeof incompleteReason === "string" && incompleteReason.trim()) {
+    return `OpenAI background response ${status}: ${incompleteReason}`;
+  }
+  return `OpenAI background response ended with status: ${status}`;
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      cleanup();
+      reject(signal?.reason instanceof Error ? signal.reason : new Error("Request aborted."));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export class OpenAIProvider implements LLMProvider {
   private readonly promptMode: OpenAIPromptMode;
   private readonly providerId: Extract<ProviderId, "openai" | "openai_persona">;
@@ -818,6 +868,12 @@ export class OpenAIProvider implements LLMProvider {
     this.providerId = options.providerId ?? "openai";
   }
 
+  private requestTimeout(input: LLMInput): number {
+    return input.toolOptions?.imageGeneration
+      ? Math.max(env.OPENAI_REQUEST_TIMEOUT_MS, env.OPENAI_IMAGE_REQUEST_TIMEOUT_MS)
+      : env.OPENAI_REQUEST_TIMEOUT_MS;
+  }
+
   async generateResponse(input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
     if (!env.OPENAI_API_KEY || (env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS)) {
       return buildStubOutput(input, this.providerId, this.promptMode);
@@ -825,7 +881,7 @@ export class OpenAIProvider implements LLMProvider {
 
     const client = new OpenAI({
       apiKey: env.OPENAI_API_KEY,
-      timeout: env.OPENAI_REQUEST_TIMEOUT_MS,
+      timeout: this.requestTimeout(input),
       maxRetries: 0
     });
     const tools = buildTools(input);
@@ -890,7 +946,7 @@ export class OpenAIProvider implements LLMProvider {
 
     const client = new OpenAI({
       apiKey: env.OPENAI_API_KEY,
-      timeout: env.OPENAI_REQUEST_TIMEOUT_MS,
+      timeout: this.requestTimeout(input),
       maxRetries: 0
     });
     const tools = buildTools(input);
@@ -1034,7 +1090,44 @@ export class OpenAIProvider implements LLMProvider {
       const unsupportedParam = unsupportedControlParameter(error);
       if (!unsupportedParam) throw error;
       return withRetry(() => client.responses.create(stripUnsupportedControlParam(params, unsupportedParam) as any, { signal }));
-    });
+    }).then((response) => this.resolveBackgroundResponse(client, input, response, signal));
+  }
+
+  private async resolveBackgroundResponse(
+    client: OpenAI,
+    input: LLMInput,
+    response: OpenAIResponse,
+    signal?: AbortSignal
+  ): Promise<OpenAIResponse> {
+    if (!input.toolOptions?.background || !response?.id) {
+      return response;
+    }
+
+    let next = response;
+    const startedAt = Date.now();
+    let intervalMs = env.OPENAI_BACKGROUND_POLL_INTERVAL_MS;
+
+    while (isBackgroundPending(next)) {
+      if (Date.now() - startedAt > env.OPENAI_BACKGROUND_POLL_TIMEOUT_MS) {
+        throw new Error(
+          `OpenAI background response timed out after ${Math.round(env.OPENAI_BACKGROUND_POLL_TIMEOUT_MS / 1000)} seconds. Response ID: ${next.id}`
+        );
+      }
+
+      await delay(intervalMs, signal);
+      signal?.throwIfAborted();
+      next = await withRetry(() => client.responses.retrieve(next.id, {
+        include: RESPONSE_INCLUDE_FIELDS as any,
+        stream: false
+      } as any, { signal }) as Promise<OpenAIResponse>);
+      intervalMs = Math.min(5000, Math.round(intervalMs * 1.25));
+    }
+
+    if (isBackgroundTerminalFailure(next)) {
+      throw new Error(backgroundFailureMessage(next));
+    }
+
+    return next;
   }
 
   private async createStreamingResponse(
@@ -1118,11 +1211,7 @@ export class OpenAIProvider implements LLMProvider {
       input: responseInput as any,
       tools: tools as any,
       background: input.toolOptions?.background ?? false,
-      include: [
-        "web_search_call.action.sources",
-        "file_search_call.results",
-        "code_interpreter_call.outputs"
-      ],
+      include: RESPONSE_INCLUDE_FIELDS,
       parallel_tool_calls: true,
       prompt_cache_key: `persona-${input.persona.id}`,
       prompt_cache_retention: "24h",

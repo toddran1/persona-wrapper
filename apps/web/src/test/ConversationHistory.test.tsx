@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ConversationHistory } from "../components/ConversationHistory";
@@ -146,6 +146,37 @@ describe("ConversationHistory pending state", () => {
     await user.click(screen.getByRole("button", { name: "Audio settings" }));
     expect(screen.getByRole("menuitem", { name: "Replay audio" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Download audio" })).toBeInstanceOf(HTMLButtonElement);
+
+    playSpy.mockRestore();
+  });
+
+  it("reports generated audio playback state changes", () => {
+    const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const onAudioPlaybackChange = vi.fn();
+    const { container } = render(
+      <ConversationHistory
+        turns={[
+          {
+            userMessage: "Say this out loud.",
+            assistantText: "Audio answer.",
+            outputs: [
+              { type: "text", text: "Audio answer." },
+              { type: "audio", url: "/api/generated-audio/audio-token", mimeType: "audio/mpeg", transcript: "Audio answer." }
+            ]
+          }
+        ]}
+        onAudioPlaybackChange={onAudioPlaybackChange}
+      />
+    );
+
+    const audio = container.querySelector("audio");
+    expect(audio).toBeInstanceOf(HTMLAudioElement);
+
+    fireEvent.play(audio as HTMLAudioElement);
+    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.ended(audio as HTMLAudioElement);
+    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(false);
 
     playSpy.mockRestore();
   });

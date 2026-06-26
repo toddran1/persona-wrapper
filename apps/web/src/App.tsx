@@ -10,6 +10,7 @@ import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
 import { GoldenPairReviewPage } from "./components/GoldenPairReviewPage.js";
 import { NeutralResponsePanel } from "./components/NeutralResponsePanel.js";
 import { PersonaHeader } from "./components/PersonaHeader.js";
+import { PersonaVisualStage } from "./components/PersonaVisualStage.js";
 
 function getClientContext(): ClientContext {
   const now = new Date();
@@ -20,6 +21,20 @@ function getClientContext(): ClientContext {
     currentDateTime: now.toISOString(),
     utcOffsetMinutes: -now.getTimezoneOffset()
   };
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : new Error("Request cancelled."));
+      return;
+    }
+    const timeout = window.setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      window.clearTimeout(timeout);
+      reject(signal.reason instanceof Error ? signal.reason : new Error("Request cancelled."));
+    }, { once: true });
+  });
 }
 
 export function App() {
@@ -33,6 +48,7 @@ export function App() {
   const [latestRequest, setLatestRequest] = useState<Record<string, unknown> | undefined>();
   const [renderedTurns, setRenderedTurns] = useState<RenderedTurn[]>([]);
   const [loading, setLoading] = useState(false);
+  const [personaAudioPlaying, setPersonaAudioPlaying] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [evalSaving, setEvalSaving] = useState(false);
@@ -62,12 +78,19 @@ export function App() {
     document.title = nextTitle ?? "Persona Wrapper";
   }, [personaDetail?.documentTitle, personas]);
 
+  useEffect(() => {
+    if (!audioEnabled) {
+      setPersonaAudioPlaying(false);
+    }
+  }, [audioEnabled]);
+
   async function handleSubmit(message: string, files: File[], toolOptions: ToolOptions): Promise<void> {
     if (!personaDetail) {
       return;
     }
 
     setLoading(true);
+    setPersonaAudioPlaying(false);
     setError(undefined);
     setPendingPrompt(message);
     const requestController = new AbortController();
@@ -95,20 +118,12 @@ export function App() {
       };
       setLatestRequest(payload);
       const result = await api.sendChat(payload, requestController.signal);
-      const assistantTextBlock = result.outputs.find((output) => output.type === "text");
-      const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
+      const backgroundJob = result.diagnostics.backgroundJob;
+      const finalResult = backgroundJob
+        ? await pollChatJob(backgroundJob.id, requestController.signal)
+        : result;
 
-      setConversationId(result.conversationId);
-      setResponse(result);
-      setRenderedTurns((current) => [
-        ...current,
-        {
-          userMessage: message,
-          assistantText,
-          outputs: result.outputs,
-          usage: result.usage
-        }
-      ]);
+      appendChatResult(message, finalResult);
       setPendingPrompt(undefined);
       setEvalSavedMessage(undefined);
       setEvalError(undefined);
@@ -123,10 +138,49 @@ export function App() {
     }
   }
 
+  function appendChatResult(message: string, result: ChatResponse): void {
+    const assistantTextBlock = result.outputs.find((output) => output.type === "text");
+    const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
+
+    setConversationId(result.conversationId);
+    setResponse(result);
+    setRenderedTurns((current) => [
+      ...current,
+      {
+        userMessage: message,
+        assistantText,
+        outputs: result.outputs,
+        usage: result.usage
+      }
+    ]);
+  }
+
+  async function pollChatJob(jobId: string, signal: AbortSignal): Promise<ChatResponse> {
+    const startedAt = Date.now();
+    const maxPollMs = 12 * 60 * 1000;
+    let intervalMs = 1200;
+
+    while (Date.now() - startedAt < maxPollMs) {
+      signal.throwIfAborted();
+      const job = await api.getChatJob(jobId, signal);
+      if (job.status === "completed" && job.response) {
+        return job.response;
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error ? `Background request failed: ${job.error}` : "Background request failed");
+      }
+      await wait(intervalMs, signal);
+      intervalMs = Math.min(5000, Math.round(intervalMs * 1.35));
+    }
+
+    throw new Error("Background request is still running. Try again in a moment.");
+  }
+
   function cancelRequest(): void {
     activeRequestRef.current?.abort();
     activeRequestRef.current = undefined;
     setLoading(false);
+    setPersonaAudioPlaying(false);
     setPendingPrompt(undefined);
   }
 
@@ -139,6 +193,7 @@ export function App() {
     setEvalSavedMessage(undefined);
     setEvalError(undefined);
     setPendingPrompt(undefined);
+    setPersonaAudioPlaying(false);
   }
 
   async function saveEvalCapture(idealStyledText: string, notes: string, tags: string[]): Promise<void> {
@@ -167,6 +222,7 @@ export function App() {
 
   const activeTheme = personaDetail?.theme ?? personas[0]?.theme;
   const hasConversationContent = renderedTurns.length > 0 || Boolean(pendingPrompt) || loading;
+  const personaVisualState = !audioEnabled ? "idle" : personaAudioPlaying ? "speaking" : loading ? "thinking" : "idle";
   const themeStyle = activeTheme
     ? ({
         "--theme-background": activeTheme.background,
@@ -205,12 +261,16 @@ export function App() {
           </aside>
         ) : null}
         <section className={`chat-column${hasConversationContent ? "" : " chat-column-empty"}`}>
-          <ConversationHistory
-            turns={renderedTurns}
-            pendingPrompt={pendingPrompt}
-            thinking={loading && Boolean(pendingPrompt)}
-            testMode={testModeEnabled}
-          />
+          <div className="conversation-stage-grid">
+            <ConversationHistory
+              turns={renderedTurns}
+              pendingPrompt={pendingPrompt}
+              thinking={loading && Boolean(pendingPrompt)}
+              testMode={testModeEnabled}
+              onAudioPlaybackChange={audioEnabled ? setPersonaAudioPlaying : undefined}
+            />
+            <PersonaVisualStage state={personaVisualState} personaName={personaDetail?.name ?? personas[0]?.name ?? "LaRae"} />
+          </div>
           <div className="composer-dock">
             <ChatComposer
               provider={provider}

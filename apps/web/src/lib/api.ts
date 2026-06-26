@@ -1,5 +1,6 @@
 import type {
   ChatResponse,
+  ChatJobResponse,
   ClientContext,
   PersonaDefinition,
   PersonaSummary,
@@ -79,7 +80,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    let detail = "";
+    try {
+      const payload = await response.json() as { error?: string; message?: string };
+      detail = payload.error ?? payload.message ?? "";
+    } catch {
+      detail = "";
+    }
+    throw new Error(detail ? `Request failed with status ${response.status}: ${detail}` : `Request failed with status ${response.status}`);
   }
 
   return response.json() as Promise<T>;
@@ -131,6 +139,11 @@ export const api = {
     requestJson<ChatResponse>("/api/chat", {
       method: "POST",
       body: JSON.stringify(payload),
+      ...(signal ? { signal } : {})
+    }),
+  getChatJob: async (jobId: string, signal?: AbortSignal): Promise<ChatJobResponse> =>
+    requestJson<ChatJobResponse>(`/api/chat/jobs/${jobId}`, {
+      method: "GET",
       ...(signal ? { signal } : {})
     }),
   saveStyleTransferEval: async (

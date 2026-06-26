@@ -1,6 +1,10 @@
 :root {
   font-family: "Space Grotesk", sans-serif;
   color: var(--theme-text, #f7efe8);
+  --conversation-stage-height: 420px;
+  --composer-reserved-height: 238px;
+  --floating-panel-top: 48px;
+  --floating-panel-gap: 14px;
   --theme-background: linear-gradient(135deg, #09060f 0%, #170f21 38%, #0a0912 100%);
   --theme-background-accent: rgba(129, 76, 196, 0.3);
   --theme-background-accent-secondary: rgba(207, 168, 75, 0.18);
@@ -94,13 +98,20 @@ textarea {
 
 .chat-column {
   gap: 18px;
-  padding-bottom: 190px;
+  padding-bottom: var(--composer-reserved-height);
+}
+
+.conversation-stage-grid {
+  display: grid;
+  gap: 18px;
+  align-items: start;
 }
 
 .hero-card,
 .composer-card,
 .response-card,
 .history-card,
+.persona-stage,
 .status-card,
 .debug-card,
 .eval-card,
@@ -140,9 +151,11 @@ textarea {
 }
 
 .hero-avatar {
+  display: block;
   width: 100%;
   aspect-ratio: 1;
   object-fit: cover;
+  object-position: center top;
   border-radius: 24px;
   border: 1px solid rgba(214, 181, 94, 0.28);
   box-shadow:
@@ -870,6 +883,11 @@ button:disabled {
   gap: 16px;
 }
 
+.chat-thread {
+  align-content: start;
+  padding-right: 6px;
+}
+
 .history-card .panel-header,
 .response-card .panel-header,
 .debug-card .panel-header,
@@ -1571,7 +1589,81 @@ button:disabled {
 }
 
 .history-card {
+  display: flex;
+  flex-direction: column;
   min-height: 320px;
+  overflow: visible;
+}
+
+.persona-stage {
+  position: relative;
+  height: var(--conversation-stage-height);
+  min-height: var(--conversation-stage-height);
+  overflow: hidden;
+  padding: 12px;
+}
+
+.persona-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(138, 92, 246, 0.24), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 32%);
+  pointer-events: none;
+}
+
+.persona-stage-frame {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 296px;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #050408;
+  border: 1px solid rgba(214, 181, 94, 0.14);
+}
+
+.persona-stage-frame img {
+  display: block;
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  min-height: 0;
+  object-fit: contain;
+  object-position: center top;
+  transition: opacity 180ms ease, transform 240ms ease;
+}
+
+.persona-stage-thinking .persona-stage-frame img {
+  transform: scale(1.015);
+}
+
+.persona-stage-speaking .persona-stage-frame img {
+  transform: scale(1.025);
+}
+
+.persona-stage-status {
+  position: absolute;
+  z-index: 2;
+  right: 24px;
+  bottom: 24px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(214, 181, 94, 0.24);
+  background: rgba(7, 5, 12, 0.72);
+  color: var(--accent-2);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  backdrop-filter: blur(16px);
 }
 
 .history-card-empty {
@@ -1976,6 +2068,10 @@ button:disabled {
     width: 100%;
   }
 
+  .conversation-stage-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+  }
+
   .chat-column-empty {
     min-height: 0;
     grid-template-rows: auto auto;
@@ -1984,6 +2080,10 @@ button:disabled {
   .app-grid-normal .chat-column {
     grid-column: 1;
     width: 100%;
+  }
+
+  .app-grid-normal .conversation-stage-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 460px);
   }
 
   .app-grid-normal .composer-dock {
@@ -1996,10 +2096,28 @@ button:disabled {
     left: calc(max(var(--page-inline-pad), calc((100vw - 1500px) / 2)) + 288px);
   }
 
+  .persona-stage {
+    position: fixed;
+    right: max(var(--page-inline-pad), calc((100vw - 1500px) / 2));
+    bottom: calc(var(--composer-reserved-height) + var(--floating-panel-gap));
+    z-index: 8;
+    width: clamp(320px, 21vw, 400px);
+    min-height: var(--conversation-stage-height);
+  }
+
+  .app-grid-normal .persona-stage {
+    width: clamp(360px, 24vw, 460px);
+  }
+
+  .app-grid-test .persona-stage {
+    width: clamp(320px, 21vw, 400px);
+  }
+
+  .persona-stage-frame {
+    min-height: 100%;
+  }
+
   .history-card .panel-header {
-    position: sticky;
-    top: 0;
-    z-index: 1;
     padding-bottom: 12px;
     background: linear-gradient(180deg, rgba(17, 11, 28, 0.95), rgba(17, 11, 28, 0.65), transparent);
   }
@@ -2020,6 +2138,7 @@ button:disabled {
   .composer-card,
   .response-card,
   .history-card,
+  .persona-stage,
   .status-card,
   .debug-card,
   .eval-card,
@@ -2048,6 +2167,11 @@ button:disabled {
 
   .review-tabs button {
     white-space: nowrap;
+  }
+
+  .persona-stage {
+    height: auto;
+    min-height: 360px;
   }
 
   .hero-topline,

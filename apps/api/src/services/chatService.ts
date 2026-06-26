@@ -102,11 +102,33 @@ export class ChatService {
           .join("\n\n")}\n`
       );
     }
-    const llmOutput = llmOutputSchema.parse(
-      streamCallbacks && llmProvider.generateResponseStream
-        ? await llmProvider.generateResponseStream(llmInput, streamCallbacks, signal)
-        : await llmProvider.generateResponse(llmInput, signal)
-    );
+    let llmOutput;
+    try {
+      llmOutput = llmOutputSchema.parse(
+        streamCallbacks && llmProvider.generateResponseStream
+          ? await llmProvider.generateResponseStream(llmInput, streamCallbacks, signal)
+          : await llmProvider.generateResponse(llmInput, signal)
+      );
+    } catch (error) {
+      logger.llmTurn({
+        conversationId: conversation.id,
+        personaId: persona.id,
+        userMessage: request.message,
+        provider: request.provider,
+        testMode,
+        status: "failed",
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          name: error instanceof Error ? error.name : undefined
+        },
+        neutralLlm: {
+          requestMessages: llmInput.baseMessages ?? llmInput.messages,
+          toolOptions: llmInput.toolOptions,
+          toolContext: toolContext?.results ?? []
+        }
+      });
+      throw error;
+    }
     const firstNeutralTextBlock = llmOutput.content.find((block) => block.type === "text");
     const neutralText =
       firstNeutralTextBlock?.type === "text" && firstNeutralTextBlock.text.trim().length > 0
