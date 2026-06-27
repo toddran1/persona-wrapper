@@ -361,12 +361,16 @@ textarea {
   justify-content: space-between;
   gap: 16px;
   align-items: start;
-  margin-bottom: 14px;
 }
 
 .composer-header h2 {
   margin: 6px 0 0;
   font-size: 1.35rem;
+}
+
+.composer-header-left {
+  display: flex;
+  gap: 32px;
 }
 
 .composer-meta-row {
@@ -576,6 +580,10 @@ button:disabled {
   background: rgba(255, 255, 255, 0.06);
   color: #fff1ef;
   border: 1px solid rgba(214, 181, 94, 0.12);
+}
+
+.ghost-button {
+  white-space: nowrap;
 }
 
 .sample-prompt-row {
