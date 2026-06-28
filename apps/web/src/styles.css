@@ -212,7 +212,7 @@ textarea {
 
 .hero-description-compact {
   margin: 0;
-  max-width: 78ch;
+  max-width: 76ch;
 }
 
 .hero-description,
@@ -224,6 +224,7 @@ textarea {
 }
 
 .hero-meta-grid {
+  width: 970px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;

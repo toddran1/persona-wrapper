@@ -47,10 +47,6 @@ export function PersonaHeader({ personaSummary, personaDetail }: PersonaHeaderPr
               <span>Catchphrases</span>
               <p>{personaDetail.catchphrases.join(" • ")}</p>
             </div>
-            <div>
-              <span>Voice</span>
-              <p>{personaDetail.voiceProfile.speakingStyle}</p>
-            </div>
           </div>
         </details>
       ) : null}
