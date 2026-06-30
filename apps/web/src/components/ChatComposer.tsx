@@ -289,7 +289,7 @@ export function ChatComposer(props: ChatComposerProps) {
         {props.personaCardHidden && props.onShowPersonaCard ? (
           <button
             type="button"
-            className="provider-pill provider-pill-icon"
+            className="provider-pill provider-pill-icon persona-card-restore-toggle"
             onClick={props.onShowPersonaCard}
             aria-label="Show persona card"
             title="Show persona card"

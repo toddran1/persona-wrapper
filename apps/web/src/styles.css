@@ -287,6 +287,7 @@ textarea {
 }
 
 .composer-card {
+  position: relative;
   padding: 18px 18px 16px;
   border-radius: 26px;
 }
@@ -943,6 +944,13 @@ button:disabled {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.persona-card-restore-toggle {
+  position: absolute;
+  top: -14px;
+  right: 16px;
+  z-index: 5;
 }
 
 .output-stack,
@@ -1762,7 +1770,7 @@ button:disabled {
   position: relative;
   height: auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   padding: 12px;
   transition: opacity 220ms ease, transform 320ms ease;
 }
@@ -1877,8 +1885,8 @@ button:disabled {
 .persona-stage-toggle {
   position: absolute;
   z-index: 3;
-  top: 18px;
-  right: 18px;
+  top: -14px;
+  right: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1960,7 +1968,7 @@ button:disabled {
 
 .composer-dock .composer-card {
   max-height: min(72vh, 560px);
-  overflow-y: auto;
+  overflow: visible;
   pointer-events: auto;
 }
 
