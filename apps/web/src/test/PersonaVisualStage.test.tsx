@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PersonaVisualStage } from "../components/PersonaVisualStage";
 
@@ -64,6 +64,22 @@ describe("PersonaVisualStage", () => {
     expect(video.loop).toBe(false);
   });
 
+  it("uses the direct thinking to idle transition when returning without speaking", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+
+    const { container, rerender } = render(<PersonaVisualStage state="thinking" personaName="LaRae" />);
+    let video = activeVideo(container);
+    expect(video).toHaveAttribute("src", "/personas/larae/videos/loops/larae-video-thinking-10s-1st.mp4");
+
+    rerender(<PersonaVisualStage state="idle" personaName="LaRae" />);
+    video = activeVideo(container);
+    expect(video).toHaveAttribute("src", "/personas/larae/videos/transitions/larae-video-thinking-to-idle-1s.mp4");
+
+    fireEvent.ended(video);
+    video = activeVideo(container);
+    expect(video).toHaveAttribute("src", "/personas/larae/videos/loops/larae-video-idle-10s-1st.mp4");
+  });
+
   it("picks another random clip from the same state after a state video ends", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
 
@@ -86,5 +102,14 @@ describe("PersonaVisualStage", () => {
     fireEvent.error(video);
     video = activeVideo(container);
     expect(video).toHaveAttribute("src", "/personas/larae/videos/loops/larae-video-idle-10s-2nd.mp4");
+  });
+
+  it("renders a hide control when the stage can be collapsed", () => {
+    const onHide = vi.fn();
+
+    render(<PersonaVisualStage state="idle" personaName="LaRae" onHide={onHide} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide persona card" }));
+    expect(onHide).toHaveBeenCalledOnce();
   });
 });

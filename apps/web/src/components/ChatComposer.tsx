@@ -6,11 +6,13 @@ type ChatComposerProps = {
   provider: ProviderId;
   audioEnabled: boolean;
   loading: boolean;
+  personaCardHidden?: boolean;
   draftMessage?: string;
   draftAttachments?: File[];
   promptPlaceholder: string;
   suggestedPrompts: string[];
   onResetConversation: () => void;
+  onShowPersonaCard?: () => void;
   onProviderChange: (provider: ProviderId) => void;
   onAudioChange: (audio: boolean) => void;
   onCancel: () => void;
@@ -21,11 +23,19 @@ type ChatComposerProps = {
   ) => Promise<void>;
 };
 
-function ComposerIcon({ name }: { name: "send" | "stop" }) {
+function ComposerIcon({ name }: { name: "send" | "stop" | "showPersona" }) {
   if (name === "stop") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <rect x="7" y="7" width="10" height="10" rx="2" />
+      </svg>
+    );
+  }
+
+  if (name === "showPersona") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="m6 15 6-6 6 6" />
       </svg>
     );
   }
@@ -270,12 +280,24 @@ export function ChatComposer(props: ChatComposerProps) {
         <button
           type="button"
           className="provider-pill"
-          style={{ marginTop: "-12px", whiteSpace: "nowrap" }}
+          style={{ whiteSpace: "nowrap" }}
           onClick={props.onResetConversation}
           disabled={props.loading}
         >
           New conversation
         </button>
+        {props.personaCardHidden && props.onShowPersonaCard ? (
+          <button
+            type="button"
+            className="provider-pill provider-pill-icon"
+            onClick={props.onShowPersonaCard}
+            aria-label="Show persona card"
+            title="Show persona card"
+            disabled={props.loading}
+          >
+            <ComposerIcon name="showPersona" />
+          </button>
+        ) : null}
       </div>
       <div className="prompt-shell">
         <textarea

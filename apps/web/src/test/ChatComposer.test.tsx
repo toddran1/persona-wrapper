@@ -211,4 +211,21 @@ describe("ChatComposer", () => {
     await user.click(screen.getByRole("button", { name: "Stop response" }));
     expect(onCancel).toHaveBeenCalledOnce();
   });
+
+  it("shows a persona-card restore control when the card is hidden", async () => {
+    const user = userEvent.setup();
+    const onShowPersonaCard = vi.fn();
+
+    render(
+      <ChatComposer
+        {...defaultProps}
+        personaCardHidden
+        onShowPersonaCard={onShowPersonaCard}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show persona card" }));
+    expect(onShowPersonaCard).toHaveBeenCalledOnce();
+  });
 });

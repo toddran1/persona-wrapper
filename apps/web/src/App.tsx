@@ -14,6 +14,19 @@ import { PersonaVisualStage, type PersonaVisualState } from "./components/Person
 
 const NON_AUDIO_SPEAKING_MS = 8000;
 
+function isImageOnlyResponse(outputs: ContentBlock[]): boolean {
+  const hasImage = outputs.some((output) => output.type === "image");
+  if (!hasImage) return false;
+
+  return outputs.every((output) => {
+    if (output.type === "image") return true;
+    if (output.type === "status") return true;
+    if (output.type === "tool_call" || output.type === "tool_result") return true;
+    if (output.type === "text") return output.text.trim().length === 0;
+    return false;
+  });
+}
+
 function getClientContext(): ClientContext {
   const now = new Date();
 
@@ -77,6 +90,7 @@ export function App() {
   const [personaDetail, setPersonaDetail] = useState<PersonaDefinition | undefined>();
   const [provider, setProvider] = useState<ProviderId>("openai_persona");
   const [audioEnabled, setAudioEnabled] = useState(false);
+  const [personaCardVisible, setPersonaCardVisible] = useState(true);
   const [response, setResponse] = useState<ChatResponse | undefined>();
   const [latestRequest, setLatestRequest] = useState<Record<string, unknown> | undefined>();
   const [renderedTurns, setRenderedTurns] = useState<RenderedTurn[]>([]);
@@ -96,6 +110,8 @@ export function App() {
   const activeRequestRef = useRef<AbortController | undefined>();
   const activeBackgroundJobIdRef = useRef<string | undefined>();
   const completedTurnCountRef = useRef(0);
+  const lastCompletedTurnWasImageOnlyRef = useRef(false);
+  const suppressAudioVisualForCurrentTurnRef = useRef(false);
   const nonAudioVisualTimeoutRef = useRef<number | undefined>();
 
   function clearNonAudioVisualTimer(): void {
@@ -174,12 +190,17 @@ export function App() {
     }
 
     if (loading) {
+      lastCompletedTurnWasImageOnlyRef.current = false;
       setNonAudioVisualState("thinking");
       return;
     }
 
     if (renderedTurns.length > completedTurnCountRef.current) {
       completedTurnCountRef.current = renderedTurns.length;
+      if (lastCompletedTurnWasImageOnlyRef.current) {
+        setNonAudioVisualState("idle");
+        return;
+      }
       setNonAudioVisualState("speaking");
       nonAudioVisualTimeoutRef.current = window.setTimeout(() => {
         setNonAudioVisualState("idle");
@@ -201,6 +222,7 @@ export function App() {
 
     setLoading(true);
     setPersonaAudioPlaying(false);
+    suppressAudioVisualForCurrentTurnRef.current = false;
     setError(undefined);
     setPendingPrompt(message);
     setComposerDraft(undefined);
@@ -282,6 +304,9 @@ export function App() {
     const assistantTextBlock = result.outputs.find((output) => output.type === "text");
     const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
     const userAssets = mapUploadedAssetsToUserPromptAssets(attachments);
+    const imageOnlyResponse = isImageOnlyResponse(result.outputs);
+    lastCompletedTurnWasImageOnlyRef.current = imageOnlyResponse;
+    suppressAudioVisualForCurrentTurnRef.current = imageOnlyResponse;
 
     setConversationId(result.conversationId);
     setResponse(result);
@@ -431,6 +456,9 @@ export function App() {
       const finalResult = await pollChatJob(jobId, requestController.signal);
       const assistantTextBlock = finalResult.outputs.find((output) => output.type === "text");
       const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
+      const imageOnlyResponse = isImageOnlyResponse(finalResult.outputs);
+      lastCompletedTurnWasImageOnlyRef.current = imageOnlyResponse;
+      suppressAudioVisualForCurrentTurnRef.current = imageOnlyResponse;
       setConversationId(finalResult.conversationId);
       setResponse(finalResult);
       setRenderedTurns((current) => current.map((turn) => (
@@ -653,7 +681,11 @@ export function App() {
           </aside>
         ) : null}
         <section className={`chat-column${hasConversationContent ? "" : " chat-column-empty"}`}>
-          <div className="conversation-stage-grid">
+                <div
+                  className={`conversation-stage-grid${
+                    personaCardVisible ? "" : " conversation-stage-grid-persona-hidden"
+                  }`}
+                >
             <ConversationHistory
               turns={renderedTurns}
               pendingPrompt={pendingPrompt}
@@ -661,7 +693,10 @@ export function App() {
               pendingFiles={pendingPromptFiles}
               thinking={loading && Boolean(pendingPrompt)}
               testMode={testModeEnabled}
-              onAudioPlaybackChange={audioEnabled ? setPersonaAudioPlaying : undefined}
+              onAudioPlaybackChange={audioEnabled ? (playing) => {
+                if (suppressAudioVisualForCurrentTurnRef.current) return;
+                setPersonaAudioPlaying(playing);
+              } : undefined}
               onEditUserPrompt={(message, files) => {
                 setComposerDraft(message);
                 setComposerDraftAttachments(files);
@@ -674,18 +709,27 @@ export function App() {
                 }
               }}
             />
-            <PersonaVisualStage state={personaVisualState} personaName={personaDetail?.name ?? personas[0]?.name ?? "LaRae"} />
+            <div className={`persona-stage-slot${personaCardVisible ? "" : " persona-stage-slot-hidden"}`}>
+              <PersonaVisualStage
+                state={personaVisualState}
+                personaName={personaDetail?.name ?? personas[0]?.name ?? "LaRae"}
+                hidden={!personaCardVisible}
+                onHide={() => setPersonaCardVisible(false)}
+              />
+            </div>
           </div>
           <div className="composer-dock">
             <ChatComposer
               provider={provider}
               audioEnabled={audioEnabled}
+              personaCardHidden={!personaCardVisible}
               loading={loading}
               promptPlaceholder={personaDetail?.promptPlaceholder ?? personas[0]?.promptPlaceholder ?? "Ask anything"}
               suggestedPrompts={personaDetail?.suggestedPrompts ?? personas[0]?.suggestedPrompts ?? []}
               {...(composerDraft !== undefined ? { draftMessage: composerDraft } : {})}
               {...(composerDraftAttachments !== undefined ? { draftAttachments: composerDraftAttachments } : {})}
               onResetConversation={resetConversation}
+              onShowPersonaCard={() => setPersonaCardVisible(true)}
               onProviderChange={setProvider}
               onAudioChange={setAudioEnabled}
               onCancel={cancelRequest}

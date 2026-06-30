@@ -5,6 +5,8 @@ export type PersonaVisualState = "idle" | "thinking" | "speaking";
 type PersonaVisualStageProps = {
   state: PersonaVisualState;
   personaName: string;
+  hidden?: boolean;
+  onHide?: () => void;
 };
 
 type PersonaVisualClip = {
@@ -60,6 +62,13 @@ const transitionClips: Partial<Record<`${PersonaVisualState}-${PersonaVisualStat
     kind: "transition",
     media: "video"
   },
+  "thinking-idle": {
+    src: "/personas/larae/videos/transitions/larae-video-thinking-to-idle-1s.mp4",
+    label: "Idle",
+    loop: false,
+    kind: "transition",
+    media: "video"
+  },
   "speaking-idle": {
     src: "/personas/larae/videos/transitions/larae-video-talking-to-idle-2s-1st.mp4",
     label: "Idle",
@@ -101,7 +110,15 @@ function pickStateClip(state: PersonaVisualState, previousSrc?: string, failedSo
   };
 }
 
-export function PersonaVisualStage({ state, personaName }: PersonaVisualStageProps) {
+function StageIcon({ direction }: { direction: "hide" | "show" }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {direction === "hide" ? <path d="m6 9 6 6 6-6" /> : <path d="m6 15 6-6 6 6" />}
+    </svg>
+  );
+}
+
+export function PersonaVisualStage({ state, personaName, hidden = false, onHide }: PersonaVisualStageProps) {
   const [activeClip, setActiveClip] = useState<PersonaVisualClip>(() => pickStateClip(state));
   const [previousClip, setPreviousClip] = useState<PersonaVisualClip | null>(null);
   const activeClipRef = useRef<PersonaVisualClip | null>(null);
@@ -238,7 +255,18 @@ export function PersonaVisualStage({ state, personaName }: PersonaVisualStagePro
   };
 
   return (
-    <aside className={`persona-stage persona-stage-${state}`} aria-label={`${personaName} visual state`}>
+    <aside className={`persona-stage persona-stage-${state}${hidden ? " persona-stage-hidden" : ""}`} aria-label={`${personaName} visual state`}>
+      {onHide ? (
+        <button
+          type="button"
+          className="persona-stage-toggle"
+          aria-label="Hide persona card"
+          title="Hide persona card"
+          onClick={onHide}
+        >
+          Hide
+        </button>
+      ) : null}
       <div className="persona-stage-frame">
         {previousClip ? renderClip(previousClip, "previous") : null}
         {renderClip(activeClip, "active")}
