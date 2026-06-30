@@ -6,6 +6,7 @@
   --floating-panel-top: 48px;
   --floating-panel-gap: 14px;
   --stage-width: clamp(320px, 22vw, 420px);
+  --persona-video-aspect: 4 / 5;
   --stage-gap: 18px;
   --theme-background: linear-gradient(135deg, #09060f 0%, #170f21 38%, #0a0912 100%);
   --theme-background-accent: rgba(129, 76, 196, 0.3);
@@ -1710,8 +1711,8 @@ button:disabled {
 
 .persona-stage {
   position: relative;
-  height: var(--conversation-stage-height);
-  min-height: var(--conversation-stage-height);
+  height: auto;
+  min-height: 0;
   overflow: hidden;
   padding: 12px;
 }
@@ -1732,30 +1733,74 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  min-height: 296px;
+  width: 100%;
+  aspect-ratio: var(--persona-video-aspect);
+  min-height: 0;
   overflow: hidden;
   border-radius: 20px;
   background: #050408;
   border: 1px solid rgba(214, 181, 94, 0.14);
 }
 
-.persona-stage-frame img {
+.persona-stage-frame img,
+.persona-stage-frame video {
   display: block;
-  width: auto;
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
   max-width: 100%;
   min-height: 0;
-  object-fit: contain;
   object-position: center top;
   transition: opacity 180ms ease, transform 240ms ease;
 }
 
-.persona-stage-thinking .persona-stage-frame img {
+.persona-stage-media-active {
+  z-index: 2;
+  animation: persona-media-fade-in 420ms ease both;
+}
+
+.persona-stage-media-previous {
+  z-index: 1;
+  opacity: 0;
+  animation: persona-media-fade-out 420ms ease both;
+}
+
+@keyframes persona-media-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes persona-media-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+.persona-stage-frame img {
+  object-fit: contain;
+}
+
+.persona-stage-frame video {
+  object-fit: cover;
+}
+
+.persona-stage-thinking .persona-stage-frame img,
+.persona-stage-thinking .persona-stage-frame video {
   transform: scale(1.015);
 }
 
-.persona-stage-speaking .persona-stage-frame img {
+.persona-stage-speaking .persona-stage-frame img,
+.persona-stage-speaking .persona-stage-frame video {
   transform: scale(1.025);
 }
 
@@ -2264,7 +2309,6 @@ button:disabled {
     bottom: calc(var(--composer-reserved-height) + var(--floating-panel-gap));
     z-index: 8;
     width: var(--stage-width);
-    min-height: var(--conversation-stage-height);
   }
 
   .app-grid-normal .persona-stage {
@@ -2273,10 +2317,6 @@ button:disabled {
 
   .app-grid-test .persona-stage {
     width: var(--stage-width);
-  }
-
-  .persona-stage-frame {
-    min-height: 100%;
   }
 
   .history-card .panel-header {
@@ -2346,8 +2386,8 @@ button:disabled {
   }
 
   .persona-stage {
-    height: min(56vh, 420px);
-    min-height: 360px;
+    width: min(100%, 360px);
+    max-width: 100%;
   }
 
   .hero-topline,
@@ -2612,6 +2652,6 @@ button:disabled {
   }
 
   .persona-stage {
-    min-height: 280px;
+    width: min(100%, 320px);
   }
 }

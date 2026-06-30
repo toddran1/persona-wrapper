@@ -10,7 +10,9 @@ import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
 import { GoldenPairReviewPage } from "./components/GoldenPairReviewPage.js";
 import { NeutralResponsePanel } from "./components/NeutralResponsePanel.js";
 import { PersonaHeader } from "./components/PersonaHeader.js";
-import { PersonaVisualStage } from "./components/PersonaVisualStage.js";
+import { PersonaVisualStage, type PersonaVisualState } from "./components/PersonaVisualStage.js";
+
+const NON_AUDIO_SPEAKING_MS = 8000;
 
 function getClientContext(): ClientContext {
   const now = new Date();
@@ -80,6 +82,7 @@ export function App() {
   const [renderedTurns, setRenderedTurns] = useState<RenderedTurn[]>([]);
   const [loading, setLoading] = useState(false);
   const [personaAudioPlaying, setPersonaAudioPlaying] = useState(false);
+  const [nonAudioVisualState, setNonAudioVisualState] = useState<PersonaVisualState>("idle");
   const [error, setError] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [evalSaving, setEvalSaving] = useState(false);
@@ -92,6 +95,14 @@ export function App() {
   const [composerDraftAttachments, setComposerDraftAttachments] = useState<File[] | undefined>();
   const activeRequestRef = useRef<AbortController | undefined>();
   const activeBackgroundJobIdRef = useRef<string | undefined>();
+  const completedTurnCountRef = useRef(0);
+  const nonAudioVisualTimeoutRef = useRef<number | undefined>();
+
+  function clearNonAudioVisualTimer(): void {
+    if (nonAudioVisualTimeoutRef.current === undefined) return;
+    window.clearTimeout(nonAudioVisualTimeoutRef.current);
+    nonAudioVisualTimeoutRef.current = undefined;
+  }
 
   function mapUploadedAssetsToUserPromptAssets(attachments: UploadedAsset[]): UserPromptAsset[] {
     return attachments.map((attachment) => ({
@@ -150,6 +161,38 @@ export function App() {
       setPersonaAudioPlaying(false);
     }
   }, [audioEnabled]);
+
+  useEffect(() => () => clearNonAudioVisualTimer(), []);
+
+  useEffect(() => {
+    clearNonAudioVisualTimer();
+
+    if (audioEnabled) {
+      completedTurnCountRef.current = renderedTurns.length;
+      setNonAudioVisualState("idle");
+      return;
+    }
+
+    if (loading) {
+      setNonAudioVisualState("thinking");
+      return;
+    }
+
+    if (renderedTurns.length > completedTurnCountRef.current) {
+      completedTurnCountRef.current = renderedTurns.length;
+      setNonAudioVisualState("speaking");
+      nonAudioVisualTimeoutRef.current = window.setTimeout(() => {
+        setNonAudioVisualState("idle");
+        nonAudioVisualTimeoutRef.current = undefined;
+      }, NON_AUDIO_SPEAKING_MS);
+      return;
+    }
+
+    completedTurnCountRef.current = renderedTurns.length;
+    if (!pendingPrompt) {
+      setNonAudioVisualState("idle");
+    }
+  }, [audioEnabled, loading, pendingPrompt, renderedTurns.length]);
 
   async function handleSubmit(message: string, files: File[], toolOptions: ToolOptions): Promise<void> {
     if (!personaDetail) {
@@ -565,7 +608,15 @@ export function App() {
 
   const activeTheme = personaDetail?.theme ?? personas[0]?.theme;
   const hasConversationContent = renderedTurns.length > 0 || Boolean(pendingPrompt) || loading;
-  const personaVisualState = !audioEnabled ? "idle" : personaAudioPlaying ? "speaking" : loading ? "thinking" : "idle";
+  const personaVisualState = audioEnabled
+    ? personaAudioPlaying
+      ? "speaking"
+      : loading
+        ? "thinking"
+        : "idle"
+    : loading
+      ? "thinking"
+      : nonAudioVisualState;
   const themeStyle = activeTheme
     ? ({
         "--theme-background": activeTheme.background,
