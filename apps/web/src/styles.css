@@ -1769,20 +1769,24 @@ button:disabled {
 @keyframes persona-media-fade-in {
   from {
     opacity: 0;
+    filter: blur(8px);
   }
 
   to {
     opacity: 1;
+    filter: blur(0);
   }
 }
 
 @keyframes persona-media-fade-out {
   from {
     opacity: 1;
+    filter: blur(0);
   }
 
   to {
     opacity: 0;
+    filter: blur(8px);
   }
 }
 
