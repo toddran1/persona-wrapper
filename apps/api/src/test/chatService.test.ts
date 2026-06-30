@@ -21,7 +21,7 @@ describe("ChatService", () => {
       "Hi LaRae, please introduce yourself."
     );
     expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("I’m LaRae the Baddest");
-    expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("Bitch, be serious.");
+    expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("Ok bitch!");
   });
 
   it("persists conversation history across turns", async () => {
@@ -69,7 +69,7 @@ describe("ChatService", () => {
 
     expect(deltas.join("")).toContain("LaRae the Baddest");
     const finalText = response.outputs.find((output) => output.type === "text");
-    expect(finalText?.type === "text" ? finalText.text : "").toContain("Bitch, be serious.");
+    expect(finalText?.type === "text" ? finalText.text : "").toContain("Ok bitch!");
   });
 
   it("uses OpenAI direct persona without the separate style transfer pass", async () => {

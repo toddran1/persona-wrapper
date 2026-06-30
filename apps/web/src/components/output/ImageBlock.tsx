@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type ImageBlockProps = {
   url: string;
@@ -93,8 +94,12 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
 
   useEffect(() => {
     if (!modalOpen) return;
-    const previousOverflow = document.body.style.overflow;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+
+    document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setModalOpen(false);
@@ -103,7 +108,8 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      document.body.style.overflow = previousOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overflow = previousBodyOverflow;
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [modalOpen]);
@@ -119,6 +125,34 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
 
     return () => window.removeEventListener("pointerdown", handlePointerDown);
   }, [menuOpen]);
+
+  const modal = modalOpen ? (
+    <div className="image-modal" role="dialog" aria-modal="true" aria-label="Full size image viewer" onClick={() => setModalOpen(false)}>
+      <button
+        type="button"
+        className="image-modal-close-button"
+        aria-label="Close full size image"
+        title="Close"
+        onClick={() => setModalOpen(false)}
+      >
+        <Icon name="close" />
+      </button>
+      <div className="image-modal-panel" onClick={(event) => event.stopPropagation()}>
+        <div className="image-modal-toolbar">
+          <span>{alt}</span>
+          <div className="image-modal-actions">
+            <a className="image-icon-button" href={resolvedUrl} download={imageFileName(alt, prompt, mimeType, metadata)} aria-label="Download image" title="Download image">
+              <Icon name="download" />
+            </a>
+            <button type="button" className="image-icon-button" aria-label="Close full size image" title="Close" onClick={() => setModalOpen(false)}>
+              <Icon name="close" />
+            </button>
+          </div>
+        </div>
+        <img src={resolvedUrl} alt={alt} />
+      </div>
+    </div>
+  ) : null;
 
   return (
     <>
@@ -165,24 +199,7 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
         </div>
       </figure>
 
-      {modalOpen ? (
-        <div className="image-modal" role="dialog" aria-modal="true" aria-label="Full size image viewer" onClick={() => setModalOpen(false)}>
-          <div className="image-modal-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="image-modal-toolbar">
-              <span>{alt}</span>
-              <div className="image-modal-actions">
-                <a className="image-icon-button" href={resolvedUrl} download={imageFileName(alt, prompt, mimeType, metadata)} aria-label="Download image" title="Download image">
-                  <Icon name="download" />
-                </a>
-                <button type="button" className="image-icon-button" aria-label="Close full size image" title="Close" onClick={() => setModalOpen(false)}>
-                  <Icon name="close" />
-                </button>
-              </div>
-            </div>
-            <img src={resolvedUrl} alt={alt} />
-          </div>
-        </div>
-      ) : null}
+      {modal ? createPortal(modal, document.body) : null}
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ConversationHistory } from "../components/ConversationHistory";
@@ -101,6 +101,86 @@ describe("ConversationHistory pending state", () => {
     expect(screen.getByRole("link", { name: "Billboard report" })).toHaveAttribute("href", "https://example.com/billboard");
   });
 
+  it("shows submitted asset previews in the user prompt bubble", () => {
+    render(
+      <ConversationHistory
+        turns={[
+          {
+            userMessage: "Use this reference image.",
+            userAssets: [
+              {
+                id: "asset_1",
+                kind: "image",
+                fileName: "reference.png",
+                mimeType: "image/png",
+                url: "data:image/png;base64,abc"
+              },
+              {
+                id: "asset_2",
+                kind: "file",
+                fileName: "notes.pdf",
+                mimeType: "application/pdf"
+              }
+            ],
+            assistantText: "Done.",
+            outputs: [{ type: "text", text: "Done." }]
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByAltText("reference.png")).toBeInTheDocument();
+    expect(screen.getByText("notes.pdf")).toBeInTheDocument();
+  });
+
+  it("shows hover actions for user prompts and supports editing", async () => {
+    const user = userEvent.setup();
+    const onEditUserPrompt = vi.fn();
+    const referenceFile = new File(["reference"], "reference.png", { type: "image/png" });
+
+    render(
+      <ConversationHistory
+        turns={[
+          {
+            userMessage: "Make it again with the same skin tone.",
+            userFiles: [referenceFile],
+            assistantText: "On it.",
+            outputs: [{ type: "text", text: "On it." }]
+          }
+        ]}
+        onEditUserPrompt={onEditUserPrompt}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit prompt" }));
+    expect(onEditUserPrompt).toHaveBeenCalledWith("Make it again with the same skin tone.", [referenceFile]);
+  });
+
+  it("shows a temporary copied state after copying a prompt", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+
+    render(
+      <ConversationHistory
+        turns={[
+          {
+            userMessage: "Copy this prompt.",
+            assistantText: "Done.",
+            outputs: [{ type: "text", text: "Done." }]
+          }
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Copy prompt" }));
+    expect(writeText).toHaveBeenCalledWith("Copy this prompt.");
+    expect(screen.getByRole("button", { name: "Copied prompt" })).toBeInTheDocument();
+  });
+
   it("shows token usage only in test mode", () => {
     const turn = {
       userMessage: "Token test",
@@ -179,5 +259,54 @@ describe("ConversationHistory pending state", () => {
     expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(false);
 
     playSpy.mockRestore();
+  });
+
+  it("shows a checking state while a background resume action is running", async () => {
+    const user = userEvent.setup();
+    let resolveAction: (() => void) | undefined;
+    const onOutputAction = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveAction = resolve;
+        })
+    );
+
+    render(
+      <ConversationHistory
+        turns={[
+          {
+            userMessage: "Finish that image request.",
+            assistantText: "This is still running in the background.",
+            backgroundJobId: "chat_job_123",
+            outputs: [
+              {
+                type: "status",
+                status: "in_progress",
+                message: "Still working on this request."
+              },
+              {
+                type: "action",
+                id: "resume-chat_job_123",
+                label: "Check status",
+                action: "resume_background_job",
+                arguments: { jobId: "chat_job_123" },
+                style: "primary"
+              }
+            ]
+          }
+        ]}
+        onOutputAction={onOutputAction}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Check status" }));
+    expect(onOutputAction).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Checking..." })).toBeDisabled();
+
+    resolveAction?.();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Check status" })).toBeEnabled();
+    });
   });
 });

@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@persona/shared";
+import { useState } from "react";
 import { AudioBlock } from "./output/AudioBlock.js";
 import { ChartBlock } from "./output/ChartBlock.js";
 import { FileBlock } from "./output/FileBlock.js";
@@ -13,7 +14,45 @@ import { CodeBlock } from "./output/CodeBlock.js";
 import { StatusBlock } from "./output/StatusBlock.js";
 import { VideoBlock } from "./output/VideoBlock.js";
 
-export function OutputRenderer({ output }: { output: ContentBlock }) {
+function ActionBlock({
+  output,
+  onAction
+}: {
+  output: Extract<ContentBlock, { type: "action" }>;
+  onAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
+}) {
+  const [running, setRunning] = useState(false);
+
+  async function handleClick(): Promise<void> {
+    if (!onAction || running) return;
+    setRunning(true);
+    try {
+      await onAction(output);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className={`action-button action-button-${output.style ?? "secondary"}`}
+      disabled={running}
+      aria-busy={running}
+      onClick={() => void handleClick()}
+    >
+      {running ? "Checking..." : output.label}
+    </button>
+  );
+}
+
+export function OutputRenderer({
+  output,
+  onAction
+}: {
+  output: ContentBlock;
+  onAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
+}) {
   switch (output.type) {
     case "text":
       return <TextBlock text={output.text} />;
@@ -48,6 +87,6 @@ export function OutputRenderer({ output }: { output: ContentBlock }) {
     case "status":
       return <StatusBlock {...output} />;
     case "action":
-      return <button type="button" className={`action-button action-button-${output.style ?? "secondary"}`}>{output.label}</button>;
+      return <ActionBlock output={output} onAction={onAction} />;
   }
 }

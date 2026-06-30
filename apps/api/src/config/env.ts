@@ -20,6 +20,9 @@ const reasoningEffortSchema = z.enum(["none", "minimal", "low", "medium", "high"
 const reasoningSummarySchema = z.enum(["auto", "concise", "detailed"]);
 const textVerbositySchema = z.enum(["low", "medium", "high"]);
 const ttsProviderSchema = z.enum(["openai", "elevenlabs", "local"]);
+const openAIImageModerationSchema = z.enum(["auto", "low"]);
+const openAIImageQualitySchema = z.enum(["auto", "low", "medium", "high"]);
+const openAIImageSizeSchema = z.enum(["auto", "1024x1024", "1536x1024", "1024x1536"]);
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -45,8 +48,8 @@ const envSchema = z.object({
   OPENAI_PERSONA_REASONING_SUMMARY: z.preprocess(emptyStringToUndefined, reasoningSummarySchema.optional()),
   OPENAI_PERSONA_TEXT_VERBOSITY: z.preprocess(emptyStringToUndefined, textVerbositySchema.default("high")),
   OPENAI_MAX_RETRIES: z.coerce.number().int().min(0).max(6).default(3),
-  OPENAI_IMAGE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(300000),
-  OPENAI_BACKGROUND_POLL_TIMEOUT_MS: z.coerce.number().int().positive().default(600000),
+  OPENAI_IMAGE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(900000),
+  OPENAI_BACKGROUND_POLL_TIMEOUT_MS: z.coerce.number().int().positive().default(900000),
   OPENAI_BACKGROUND_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1500),
   OPENAI_MAX_TOOL_ITERATIONS: z.coerce.number().int().min(1).max(10).default(4),
   OPENAI_MAX_CONTEXT_MESSAGES: z.coerce.number().int().min(2).max(100).default(24),
@@ -57,6 +60,11 @@ const envSchema = z.object({
   OPENAI_ENABLE_FILE_SEARCH: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_ENABLE_CODE_INTERPRETER: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_ENABLE_IMAGE_GENERATION: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  OPENAI_DIRECT_IMAGE_API_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  OPENAI_IMAGE_MODEL: z.string().default("gpt-image-1"),
+  OPENAI_IMAGE_MODERATION: z.preprocess(emptyStringToUndefined, openAIImageModerationSchema.default("low")),
+  OPENAI_IMAGE_SIZE: z.preprocess(emptyStringToUndefined, openAIImageSizeSchema.default("auto")),
+  OPENAI_IMAGE_QUALITY: z.preprocess(emptyStringToUndefined, openAIImageQualitySchema.default("auto")),
   OPENAI_TTS_SCRIPT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
   OPENAI_INPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(0),
   OPENAI_OUTPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(0),

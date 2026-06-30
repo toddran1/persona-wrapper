@@ -149,7 +149,7 @@ export const codeOutputSchema = z.object({
 
 export const statusOutputSchema = z.object({
   type: z.literal("status"),
-  status: z.enum(["queued", "in_progress", "completed", "failed"]),
+  status: z.enum(["queued", "in_progress", "completed", "failed", "cancelled"]),
   message: z.string(),
   progress: z.number().min(0).max(100).optional()
 });
@@ -379,8 +379,10 @@ export const chatResponseSchema = z.object({
     providerModel: z.string().optional(),
     backgroundJob: z.object({
       id: z.string(),
-      status: z.enum(["queued", "running", "completed", "failed"]),
-      pollUrl: z.string()
+      status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
+      pollUrl: z.string(),
+      providerResponseId: z.string().optional(),
+      providerStatus: z.string().optional()
     }).optional(),
     tts: z.object({
       status: z.enum(["not_requested", "skipped_no_text", "generated", "failed"]),
@@ -404,11 +406,22 @@ export const chatResponseSchema = z.object({
 });
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
 
+export const chatJobFailureReasonSchema = z.enum([
+  "frontend_poll_timeout",
+  "openai_background_timeout",
+  "manual_cancel",
+  "provider_failure"
+]);
+export type ChatJobFailureReason = z.infer<typeof chatJobFailureReasonSchema>;
+
 export const chatJobResponseSchema = z.object({
   id: z.string(),
-  status: z.enum(["queued", "running", "completed", "failed"]),
+  status: z.enum(["queued", "running", "completed", "failed", "cancelled"]),
   response: chatResponseSchema.optional(),
   error: z.string().optional(),
+  failureReason: chatJobFailureReasonSchema.optional(),
+  providerResponseId: z.string().optional(),
+  providerStatus: z.string().optional(),
   updatedAt: z.string()
 });
 export type ChatJobResponse = z.infer<typeof chatJobResponseSchema>;

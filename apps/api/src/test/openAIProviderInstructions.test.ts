@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { LLMInput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
 import { PersonaEngine } from "../services/personaEngine.js";
-import { buildOpenAIResponseInstructions } from "../providers/llm/OpenAIProvider.js";
+import {
+  buildDirectImageApiParams,
+  buildOpenAIResponseInstructions,
+  buildOpenAITools,
+  shouldRetryForImageGeneration,
+  shouldUseDirectImageApi
+} from "../providers/llm/OpenAIProvider.js";
 import { env } from "../config/env.js";
 
 function inputForLaRae(audio = false): LLMInput {
@@ -80,5 +86,110 @@ describe("OpenAIProvider instructions", () => {
     expect(directInstructions).toContain("<break time=\"0.3s\" />");
 
     env.OPENAI_TTS_SCRIPT_ENABLED = original;
+  });
+
+  it("uses the least restrictive documented OpenAI image moderation setting", () => {
+    const input = inputForLaRae();
+    input.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: true,
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+
+    const tools = buildOpenAITools(input);
+
+    expect(tools).toContainEqual({
+      type: "image_generation",
+      action: "auto",
+      moderation: "low"
+    });
+  });
+
+  it("does not retry image generation when OpenAI returns a safety refusal", () => {
+    const input = inputForLaRae();
+    input.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: true,
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+    const safetyResponse = {
+      output: [
+        {
+          type: "message",
+          content: [
+            {
+              type: "output_text",
+              text: "I can't edit that exact image because it is too explicit and was flagged by the safety policy."
+            }
+          ]
+        }
+      ]
+    };
+    const capabilityResponse = {
+      output: [
+        {
+          type: "message",
+          content: [
+            {
+              type: "output_text",
+              text: "I cannot generate images in this chat."
+            }
+          ]
+        }
+      ]
+    };
+
+    expect(shouldRetryForImageGeneration(input, safetyResponse)).toBe(false);
+    expect(shouldRetryForImageGeneration(input, capabilityResponse)).toBe(true);
+  });
+
+  it("routes simple image-only requests to the direct Images API path", () => {
+    const input = inputForLaRae();
+    input.userMessage = "Generate a glamorous Miami fashion portrait of LaRae wearing a baseball cap.";
+    input.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: true,
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+
+    expect(shouldUseDirectImageApi(input)).toBe(true);
+    expect(buildDirectImageApiParams(input)).toMatchObject({
+      model: expect.any(String),
+      moderation: "low",
+      n: 1
+    });
+  });
+
+  it("keeps image edits and image-plus-description requests on Responses", () => {
+    const editInput = inputForLaRae();
+    editInput.userMessage = "Add sunglasses to her in the previous image.";
+    editInput.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: true,
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+
+    const describeInput = inputForLaRae();
+    describeInput.userMessage = "Generate an image of LaRae and describe it.";
+    describeInput.toolOptions = editInput.toolOptions;
+
+    expect(shouldUseDirectImageApi(editInput)).toBe(false);
+    expect(shouldUseDirectImageApi(describeInput)).toBe(false);
   });
 });

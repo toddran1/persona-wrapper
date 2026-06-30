@@ -82,4 +82,38 @@ describe.runIf(runLive).sequential("OpenAI live integration", () => {
     expect(result.metadata?.openaiTools).toContain("code_interpreter");
     expect(result.content.some((block) => block.type === "image")).toBe(true);
   }, 120000);
+
+  it("runs a background image-generation request and returns the generated image", async () => {
+    const providerResponseIds: string[] = [];
+    const result = await provider.generateResponse(input("Generate a simple square icon of a gold star on a black background.", {
+      toolOptions: {
+        webSearch: false, fileSearch: false, codeInterpreter: false, imageGeneration: true,
+        appFunctions: false, background: true, vectorStoreIds: []
+      }
+    }), undefined, {
+      onProviderResponse: (event) => providerResponseIds.push(event.id)
+    });
+
+    expect(providerResponseIds.some((id) => id.startsWith("resp_"))).toBe(true);
+    expect(result.metadata?.responseId).toMatch(/^resp_/);
+    expect(result.metadata?.background).toBe(true);
+    expect(result.content.some((block) => block.type === "image")).toBe(true);
+  }, 300000);
+
+  it("runs a background Code Interpreter request and returns a chart artifact", async () => {
+    const providerResponseIds: string[] = [];
+    const result = await provider.generateResponse(input("Use Code Interpreter to create a pie chart for these values: Alpha 40, Beta 35, Gamma 25.", {
+      toolOptions: {
+        webSearch: false, fileSearch: false, codeInterpreter: true, imageGeneration: false,
+        appFunctions: false, background: true, vectorStoreIds: []
+      }
+    }), undefined, {
+      onProviderResponse: (event) => providerResponseIds.push(event.id)
+    });
+
+    expect(providerResponseIds.some((id) => id.startsWith("resp_"))).toBe(true);
+    expect(result.metadata?.openaiTools).toContain("code_interpreter");
+    expect(result.metadata?.background).toBe(true);
+    expect(result.content.some((block) => block.type === "image" || block.type === "file")).toBe(true);
+  }, 300000);
 });

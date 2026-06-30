@@ -5,8 +5,9 @@ import { env } from "../../config/env.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
 import { openAIArtifactService } from "../../services/openAIArtifactService.js";
 import { buildLaraeStyleReference } from "../../services/laraeStyleReferenceBuilder.js";
+import { buildImageGenerationPrompt } from "../../services/imagePromptBuilder.js";
 import { shouldEnableWebSearchForMessage } from "../../services/toolSelectionService.js";
-import type { LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
+import type { LLMProgressCallbacks, LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
 
 type OpenAIResponse = any;
@@ -15,6 +16,10 @@ type OpenAIItem = Record<string, any>;
 const CHART_REQUEST_PATTERN = /\b(pie chart|bar chart|line chart|chart|graph|plot|visuali[sz]e|dashboard)\b/i;
 const DATA_OUTPUT_REQUEST_PATTERN =
   /\b(calculate|analy[sz]e|dataset|spreadsheet|csv|statistics|average|median|sum|pivot|export|downloadable|xlsx|excel)\b/i;
+const IMAGE_SAFETY_REFUSAL_PATTERN =
+  /\b(safety|policy|policies|disallowed|not allowed|can't assist|cannot assist|can't help|cannot help|explicit|sexualized|sexual|nudity|nude|pornographic|erotic|minor|underage|flagged|violat(?:e|es|ing|ion)|unsafe)\b/i;
+const IMAGE_EDIT_OR_CONTEXT_PATTERN =
+  /\b(edit|change|modify|retouch|inpaint|remove|replace|swap|make it|turn it|this image|that image|previous image|uploaded image|reference image|same image|her outfit|his outfit|their outfit|add sunglasses|add a hat|add a cap)\b/i;
 const RESPONSE_INCLUDE_FIELDS = [
   "web_search_call.action.sources",
   "file_search_call.results",
@@ -22,7 +27,8 @@ const RESPONSE_INCLUDE_FIELDS = [
 ];
 
 function inputContent(input: LLMInput): OpenAIItem[] {
-  const content: OpenAIItem[] = [{ type: "input_text", text: input.userMessage }];
+  const promptText = input.toolOptions?.imageGeneration ? buildImageGenerationPrompt(input) : input.userMessage;
+  const content: OpenAIItem[] = [{ type: "input_text", text: promptText }];
 
   for (const attachment of input.attachments ?? []) {
     if (attachment.kind === "image") {
@@ -154,7 +160,7 @@ function applicationFunctionTools(definitions: ToolDefinition[]): OpenAIItem[] {
     }));
 }
 
-function buildTools(input: LLMInput): OpenAIItem[] {
+export function buildOpenAITools(input: LLMInput): OpenAIItem[] {
   const tools: OpenAIItem[] = [];
   const options = input.toolOptions ?? {
     webSearch: false, fileSearch: false, codeInterpreter: false, imageGeneration: false,
@@ -172,13 +178,39 @@ function buildTools(input: LLMInput): OpenAIItem[] {
     tools.push({ type: "code_interpreter", container: { type: "auto", file_ids: fileIds } });
   }
   if (options.imageGeneration && env.OPENAI_ENABLE_IMAGE_GENERATION) {
-    tools.push({ type: "image_generation", action: "auto" });
+    tools.push({ type: "image_generation", action: "auto", moderation: env.OPENAI_IMAGE_MODERATION });
   }
   if (options.appFunctions) {
     tools.push(...applicationFunctionTools(input.toolDefinitions));
   }
 
   return tools;
+}
+
+export function shouldUseDirectImageApi(input: LLMInput): boolean {
+  const options = input.toolOptions;
+  return Boolean(
+    env.OPENAI_DIRECT_IMAGE_API_ENABLED &&
+    env.OPENAI_ENABLE_IMAGE_GENERATION &&
+    options?.imageGeneration &&
+    !options.webSearch &&
+    !options.fileSearch &&
+    !options.codeInterpreter &&
+    !wantsGeneratedImageDescription(input.userMessage) &&
+    (input.attachments ?? []).length === 0 &&
+    !IMAGE_EDIT_OR_CONTEXT_PATTERN.test(input.userMessage)
+  );
+}
+
+export function buildDirectImageApiParams(input: LLMInput): OpenAIItem {
+  return compactObject({
+    model: env.OPENAI_IMAGE_MODEL,
+    prompt: buildImageGenerationPrompt(input),
+    moderation: env.OPENAI_IMAGE_MODERATION,
+    size: env.OPENAI_IMAGE_SIZE,
+    quality: env.OPENAI_IMAGE_QUALITY,
+    n: 1
+  });
 }
 
 export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: OpenAIPromptMode): string {
@@ -260,7 +292,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
 
   if (input.toolOptions?.imageGeneration) {
     extraInstructions.push(
-      "The user is requesting an image. Use the image generation tool to produce the image. Do not answer that you cannot generate images when the image_generation tool is available. Keep any text response short and do not send generated image data through persona style transfer. If the user asks you to generate an image and also describe, caption, explain, or summarize it, include a short text description in the same final answer after generating the image."
+      "The user is requesting an image. Use the image generation tool to produce the image. Do not answer that you cannot generate, edit, change, show, or provide images when the image_generation tool is available. If a referenced image cannot be edited directly, attempt a new safe generated image that follows the user's requested visual change and preserves the non-explicit visual intent. Do not classify or lecture about the reference image unless the provider returns a hard safety error. Keep any text response short and do not send generated image data through persona style transfer. If the user asks you to generate an image and also describe, caption, explain, or summarize it, include a short text description in the same final answer after generating the image."
     );
   }
 
@@ -296,13 +328,18 @@ function shouldDescribeGeneratedImage(input: LLMInput, response: OpenAIResponse)
     !extractOutputText(response).trim();
 }
 
-function shouldRetryForImageGeneration(input: LLMInput, response: OpenAIResponse): boolean {
+export function shouldRetryForImageGeneration(input: LLMInput, response: OpenAIResponse): boolean {
   if (!input.toolOptions?.imageGeneration || hasGeneratedImage(response)) {
     return false;
   }
 
-  return /\b(can't|cannot|unable to|do not have the ability to|don't have the ability to|can’t)\b[\s\S]{0,80}\b(generate|create|make|show|provide)\b[\s\S]{0,80}\b(image|photo|picture|art|illustration)\b/i.test(
-    extractOutputText(response)
+  const outputText = extractOutputText(response);
+  if (IMAGE_SAFETY_REFUSAL_PATTERN.test(outputText)) {
+    return false;
+  }
+
+  return /\b(can't|cannot|unable to|do not have the ability to|don't have the ability to|can’t)\b[\s\S]{0,120}\b(generate|create|make|show|provide|edit|change|modify|retouch)\b[\s\S]{0,120}\b(images?|photos?|pictures?|art|illustrations?|portraits?)\b/i.test(
+    outputText
   );
 }
 
@@ -874,7 +911,7 @@ export class OpenAIProvider implements LLMProvider {
       : env.OPENAI_REQUEST_TIMEOUT_MS;
   }
 
-  async generateResponse(input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
+  async generateResponse(input: LLMInput, signal?: AbortSignal, progressCallbacks?: LLMProgressCallbacks): Promise<LLMOutput> {
     if (!env.OPENAI_API_KEY || (env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS)) {
       return buildStubOutput(input, this.providerId, this.promptMode);
     }
@@ -884,16 +921,20 @@ export class OpenAIProvider implements LLMProvider {
       timeout: this.requestTimeout(input),
       maxRetries: 0
     });
-    const tools = buildTools(input);
+    if (shouldUseDirectImageApi(input)) {
+      return this.generateDirectImageResponse(client, input, signal);
+    }
+
+    const tools = buildOpenAITools(input);
     const responseInput = withStyleReference(input, this.promptMode, buildInput(input, this.promptMode));
     const applicationTrace: ContentBlock[] = [];
-    let response = await this.createResponse(client, input, responseInput, tools, signal);
+    let response = await this.createResponse(client, input, responseInput, tools, signal, progressCallbacks);
     if (shouldRetryForImageGeneration(input, response)) {
       responseInput.push({
         role: "user",
-        content: "Retry using the image_generation tool now. Generate the requested image instead of explaining that image generation is unavailable."
+        content: "Retry using the image_generation tool now. Generate the requested image instead of explaining that image generation or editing is unavailable. If the reference image cannot be edited directly, generate a new safe non-explicit image that follows the requested visual change and the persona's visual identity."
       });
-      response = await this.createResponse(client, input, responseInput, tools, signal);
+      response = await this.createResponse(client, input, responseInput, tools, signal, progressCallbacks);
     }
     if (shouldRetryForCodeInterpreter(input, response)) {
       responseInput.push({
@@ -901,10 +942,10 @@ export class OpenAIProvider implements LLMProvider {
         content:
           "Retry using Code Interpreter now. Create the requested analysis artifact, chart, graph, plot, dashboard, or downloadable file instead of only explaining it in text."
       });
-      response = await this.createResponse(client, input, responseInput, tools, signal);
+      response = await this.createResponse(client, input, responseInput, tools, signal, progressCallbacks);
     }
     if (shouldDescribeGeneratedImage(input, response)) {
-      const descriptionResponse = await this.describeGeneratedImage(client, input, generatedImageResults(response)[0]!, signal);
+      const descriptionResponse = await this.describeGeneratedImage(client, input, generatedImageResults(response)[0]!, signal, progressCallbacks);
       response = this.mergeImageResponseWithDescription(response, descriptionResponse);
     }
 
@@ -931,13 +972,59 @@ export class OpenAIProvider implements LLMProvider {
         });
       }
       signal?.throwIfAborted();
-      response = await this.createResponse(client, input, responseInput, tools, signal);
+      response = await this.createResponse(client, input, responseInput, tools, signal, progressCallbacks);
     }
 
     return this.formatResponse(response, input, tools, applicationTrace);
   }
 
-  async generateResponseStream(input: LLMInput, callbacks: LLMStreamCallbacks, signal?: AbortSignal): Promise<LLMOutput> {
+  private async generateDirectImageResponse(client: OpenAI, input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
+    const params = buildDirectImageApiParams(input);
+    const response = await withRetry(() => client.images.generate(params as any, { signal }));
+    const images = (response.data ?? []) as Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
+    const content: ContentBlock[] = images.flatMap((image, index) => {
+      const url = image.b64_json ? `data:image/png;base64,${image.b64_json}` : image.url;
+      if (!url) return [];
+      return [{
+        type: "image" as const,
+        url,
+        alt: input.userMessage || `Generated image ${index + 1}`,
+        prompt: input.userMessage,
+        mimeType: image.b64_json ? "image/png" : undefined,
+        metadata: {
+          route: "images_api",
+          imagePrompt: params.prompt,
+          ...(image.revised_prompt ? { revisedPrompt: image.revised_prompt } : {})
+        }
+      }];
+    });
+
+    const output: LLMOutput = {
+      provider: this.providerId,
+      rawText: "",
+      content,
+      metadata: {
+        providerModel: env.OPENAI_IMAGE_MODEL,
+        status: "completed",
+        background: false,
+        openaiTools: ["images.generate"],
+        promptMode: this.promptMode,
+        route: "images_api",
+        imageModeration: env.OPENAI_IMAGE_MODERATION,
+        imageSize: env.OPENAI_IMAGE_SIZE,
+        imageQuality: env.OPENAI_IMAGE_QUALITY
+      }
+    };
+
+    return llmOutputSchema.parse(output);
+  }
+
+  async generateResponseStream(
+    input: LLMInput,
+    callbacks: LLMStreamCallbacks,
+    signal?: AbortSignal,
+    progressCallbacks?: LLMProgressCallbacks
+  ): Promise<LLMOutput> {
     if (!env.OPENAI_API_KEY || (env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS)) {
       const output = buildStubOutput(input, this.providerId, this.promptMode);
       callbacks.onTextDelta(output.rawText);
@@ -949,10 +1036,10 @@ export class OpenAIProvider implements LLMProvider {
       timeout: this.requestTimeout(input),
       maxRetries: 0
     });
-    const tools = buildTools(input);
+    const tools = buildOpenAITools(input);
     const responseInput = withStyleReference(input, this.promptMode, buildInput(input, this.promptMode));
     const applicationTrace: ContentBlock[] = [];
-    let response = await this.createStreamingResponse(client, input, responseInput, tools, callbacks, signal);
+    let response = await this.createStreamingResponse(client, input, responseInput, tools, callbacks, signal, progressCallbacks);
 
     for (let iteration = 0; iteration < env.OPENAI_MAX_TOOL_ITERATIONS; iteration += 1) {
       const calls = (response.output as OpenAIItem[]).filter((item) => item.type === "function_call");
@@ -977,7 +1064,7 @@ export class OpenAIProvider implements LLMProvider {
         });
       }
       signal?.throwIfAborted();
-      response = await this.createStreamingResponse(client, input, responseInput, tools, callbacks, signal);
+      response = await this.createStreamingResponse(client, input, responseInput, tools, callbacks, signal, progressCallbacks);
     }
 
     return this.formatResponse(response, input, tools, applicationTrace);
@@ -1026,7 +1113,8 @@ export class OpenAIProvider implements LLMProvider {
     client: OpenAI,
     input: LLMInput,
     imageBase64: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    progressCallbacks?: LLMProgressCallbacks
   ): Promise<OpenAIResponse> {
     const descriptionInput: LLMInput = {
       ...input,
@@ -1056,7 +1144,7 @@ export class OpenAIProvider implements LLMProvider {
       }
     ]);
 
-    return this.createResponse(client, descriptionInput, descriptionInputItems, [], signal);
+    return this.createResponse(client, descriptionInput, descriptionInputItems, [], signal, progressCallbacks);
   }
 
   private mergeImageResponseWithDescription(imageResponse: OpenAIResponse, descriptionResponse: OpenAIResponse): OpenAIResponse {
@@ -1083,22 +1171,28 @@ export class OpenAIProvider implements LLMProvider {
     input: LLMInput,
     responseInput: OpenAIItem[],
     tools: OpenAIItem[],
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    progressCallbacks?: LLMProgressCallbacks
   ): Promise<OpenAIResponse> {
     const params = this.responseParams(input, responseInput, tools);
     return withRetry(() => client.responses.create(params as any, { signal })).catch((error) => {
       const unsupportedParam = unsupportedControlParameter(error);
       if (!unsupportedParam) throw error;
       return withRetry(() => client.responses.create(stripUnsupportedControlParam(params, unsupportedParam) as any, { signal }));
-    }).then((response) => this.resolveBackgroundResponse(client, input, response, signal));
+    }).then((response) => this.resolveBackgroundResponse(client, input, response, signal, progressCallbacks));
   }
 
   private async resolveBackgroundResponse(
     client: OpenAI,
     input: LLMInput,
     response: OpenAIResponse,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    progressCallbacks?: LLMProgressCallbacks
   ): Promise<OpenAIResponse> {
+    if (typeof response?.id === "string") {
+      progressCallbacks?.onProviderResponse?.({ id: response.id, status: response.status });
+    }
+
     if (!input.toolOptions?.background || !response?.id) {
       return response;
     }
@@ -1120,6 +1214,9 @@ export class OpenAIProvider implements LLMProvider {
         include: RESPONSE_INCLUDE_FIELDS as any,
         stream: false
       } as any, { signal }) as Promise<OpenAIResponse>);
+      if (typeof next?.id === "string") {
+        progressCallbacks?.onProviderResponse?.({ id: next.id, status: next.status });
+      }
       intervalMs = Math.min(5000, Math.round(intervalMs * 1.25));
     }
 
@@ -1136,7 +1233,8 @@ export class OpenAIProvider implements LLMProvider {
     responseInput: OpenAIItem[],
     tools: OpenAIItem[],
     callbacks: LLMStreamCallbacks,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    progressCallbacks?: LLMProgressCallbacks
   ): Promise<OpenAIResponse> {
     const params = this.responseParams(input, responseInput, tools);
     const stream = await withRetry(() => client.responses.create({
@@ -1159,7 +1257,13 @@ export class OpenAIProvider implements LLMProvider {
         callbacks.onTextDelta(event.delta);
       } else if (event.type === "response.completed") {
         completedResponse = event.response;
+        if (typeof completedResponse?.id === "string") {
+          progressCallbacks?.onProviderResponse?.({ id: completedResponse.id, status: completedResponse.status });
+        }
       } else if (event.type === "response.failed") {
+        if (typeof event.response?.id === "string") {
+          progressCallbacks?.onProviderResponse?.({ id: event.response.id, status: event.response.status });
+        }
         throw new Error(event.response?.error?.message ?? "OpenAI streaming response failed.");
       } else if (event.type === "error") {
         throw new Error(event.message ?? "OpenAI streaming response failed.");

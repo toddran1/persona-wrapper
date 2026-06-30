@@ -141,13 +141,13 @@ describe("ChatComposer", () => {
     );
 
     expect(screen.getByPlaceholderText("Talk to me nice...")).toBeInTheDocument();
-    expect(screen.getByText("Composer settings")).toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Suggested prompts")).toBeInTheDocument();
-    expect(screen.getByText("New conversation")).not.toBeVisible();
+    expect(screen.getByText("New conversation")).toBeVisible();
     expect(screen.getByText("OpenAI tools")).not.toBeVisible();
     expect(screen.getByText("Search the web for the most current tea.")).not.toBeVisible();
 
-    await user.click(screen.getByText("Composer settings"));
+    await user.click(screen.getByText("Settings"));
     expect(screen.getByText("New conversation")).toBeVisible();
     expect(screen.getByText("OpenAI tools")).toBeVisible();
   });
@@ -169,6 +169,19 @@ describe("ChatComposer", () => {
     await user.upload(input as HTMLInputElement, file);
 
     expect(screen.getByText("receipts.pdf")).toBeInTheDocument();
+  });
+
+  it("rehydrates draft attachments back into the composer", async () => {
+    render(
+      <ChatComposer
+        {...defaultProps}
+        draftMessage="Use the same reference."
+        draftAttachments={[new File(["ref"], "reference.png", { type: "image/png" })]}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.getByText("reference.png")).toBeInTheDocument();
   });
 
   it("removes an attachment from the composer", async () => {

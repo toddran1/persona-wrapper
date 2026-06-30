@@ -10,6 +10,7 @@ import { uploadService } from "../services/uploadService.js";
 import { HttpError } from "../utils/httpError.js";
 import { selectTools } from "../services/toolSelectionService.js";
 import { usageControlService } from "../services/usageControlService.js";
+import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
 
 const chatService = new ChatService();
 const evalCaptureService = new EvalCaptureService();
@@ -55,8 +56,12 @@ export async function postChat(request: Request, response: Response): Promise<vo
         vectorStoreIds: payload.toolOptions?.vectorStoreIds ?? []
       }
     };
-    const job = backgroundChatJobService.start(async () => {
-      const result = await chatService.handleChat(backgroundPayload);
+    const job = backgroundChatJobService.start(async (backgroundJob) => {
+      const result = await chatService.handleChat(backgroundPayload, undefined, backgroundJob.abortController.signal, {
+        onProviderResponse: (event) => {
+          backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
+        }
+      });
       usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
       return result;
     });
@@ -75,6 +80,26 @@ export async function getChatJob(request: Request, response: Response): Promise<
     throw new HttpError("Chat job not found", 404);
   }
   response.status(200).json(job);
+}
+
+export async function cancelChatJob(request: Request, response: Response): Promise<void> {
+  const jobId = String(request.params.jobId ?? "");
+  const job = backgroundChatJobService.get(jobId);
+  if (!job) {
+    throw new HttpError("Chat job not found", 404);
+  }
+
+  if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
+    response.status(200).json(job);
+    return;
+  }
+
+  const cancelledJob = backgroundChatJobService.cancel(jobId);
+  if (job.providerResponseId) {
+    await openAIResponseLifecycleService.cancel(job.providerResponseId);
+  }
+
+  response.status(200).json(cancelledJob ?? backgroundChatJobService.get(jobId));
 }
 
 export async function postChatStream(request: Request, response: Response): Promise<void> {

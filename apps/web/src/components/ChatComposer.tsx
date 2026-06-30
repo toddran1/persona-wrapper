@@ -1,11 +1,13 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
 import type { ProviderId, ToolOptions } from "@persona/shared";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 type ChatComposerProps = {
   provider: ProviderId;
   audioEnabled: boolean;
   loading: boolean;
+  draftMessage?: string;
+  draftAttachments?: File[];
   promptPlaceholder: string;
   suggestedPrompts: string[];
   onResetConversation: () => void;
@@ -52,7 +54,32 @@ export function ChatComposer(props: ChatComposerProps) {
   const [historyIndex, setHistoryIndex] = useState<number | undefined>();
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const draftBeforeHistoryRef = useRef("");
+
+  useEffect(() => {
+    if (props.draftMessage === undefined) return;
+    setMessage(props.draftMessage);
+    setHistoryIndex(undefined);
+    draftBeforeHistoryRef.current = "";
+    textareaRef.current?.focus();
+  }, [props.draftMessage]);
+
+  useEffect(() => {
+    if (props.draftAttachments === undefined) return;
+    setAttachments(props.draftAttachments);
+    if (!fileInputRef.current) return;
+
+    try {
+      const transfer = new DataTransfer();
+      for (const file of props.draftAttachments) {
+        transfer.items.add(file);
+      }
+      fileInputRef.current.files = transfer.files;
+    } catch {
+      // Some test environments do not support assigning a synthetic FileList.
+    }
+  }, [props.draftAttachments]);
 
   function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>): void {
     const files = Array.from(event.target.files ?? []);
@@ -159,7 +186,9 @@ export function ChatComposer(props: ChatComposerProps) {
                   <label>
                     Provider
                     <select
-                      value={props.provider}
+                      // value={props.provider}
+                      defaultValue="openai_persona"
+                      disabled
                       onChange={(event) =>
                         props.onProviderChange(event.target.value as ProviderId)
                       }
@@ -172,15 +201,20 @@ export function ChatComposer(props: ChatComposerProps) {
                       <option value="local">Local</option>
                     </select>
                   </label>
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={props.audioEnabled}
-                      onChange={(event) =>
-                        props.onAudioChange(event.target.checked)
-                      }
-                    />
-                    <span>Generate audio</span>
+                  <label style={{ height: "100%" }}>
+                    <div>
+                      <span>Audio</span>
+                      <div className="audio-toggle">
+                        <input
+                          type="checkbox"
+                          checked={props.audioEnabled}
+                          onChange={(event) =>
+                            props.onAudioChange(event.target.checked)
+                          }
+                        />
+                        <span>Generate audio</span>
+                      </div>
+                    </div>
                   </label>
                 </div>
                 {props.provider === "openai" ||
@@ -245,6 +279,7 @@ export function ChatComposer(props: ChatComposerProps) {
       </div>
       <div className="prompt-shell">
         <textarea
+          ref={textareaRef}
           rows={2}
           value={message}
           onChange={(event) => {

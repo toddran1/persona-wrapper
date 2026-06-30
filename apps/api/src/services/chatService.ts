@@ -17,6 +17,10 @@ export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
 };
 
+export type ChatProgressCallbacks = {
+  onProviderResponse?: (event: { id: string; status?: string }) => void;
+};
+
 function insertToolContext(input: ChatMessage[], toolContext: ToolContext | undefined): ChatMessage[] {
   if (!toolContext) {
     return input;
@@ -66,7 +70,12 @@ export class ChatService {
     private readonly toolContextService = new ToolContextService()
   ) {}
 
-  async handleChat(request: ChatRequest, streamCallbacks?: ChatStreamCallbacks, signal?: AbortSignal): Promise<ChatResponse> {
+  async handleChat(
+    request: ChatRequest,
+    streamCallbacks?: ChatStreamCallbacks,
+    signal?: AbortSignal,
+    progressCallbacks?: ChatProgressCallbacks
+  ): Promise<ChatResponse> {
     signal?.throwIfAborted();
     const persona = getPersonaById(request.personaId);
     if (!persona) {
@@ -106,8 +115,8 @@ export class ChatService {
     try {
       llmOutput = llmOutputSchema.parse(
         streamCallbacks && llmProvider.generateResponseStream
-          ? await llmProvider.generateResponseStream(llmInput, streamCallbacks, signal)
-          : await llmProvider.generateResponse(llmInput, signal)
+          ? await llmProvider.generateResponseStream(llmInput, streamCallbacks, signal, progressCallbacks)
+          : await llmProvider.generateResponse(llmInput, signal, progressCallbacks)
       );
     } catch (error) {
       logger.llmTurn({

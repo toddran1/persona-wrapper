@@ -70,11 +70,14 @@ describe("controllers", () => {
       conversationId: string;
       history: Array<{ role: string }>;
       outputs: Array<{ type: string }>;
+      diagnostics: { backgroundJob?: { id: string; status: string } };
     };
 
-    expect(state.statusCode).toBe(200);
+    expect(state.statusCode).toBe(202);
     expect(payload.conversationId).toMatch(/^conv_/);
-    expect(payload.history).toHaveLength(2);
-    expect(payload.outputs.some((output) => output.type === "tool_call")).toBe(true);
+    expect(payload.history).toHaveLength(1);
+    expect(payload.outputs.some((output) => output.type === "status")).toBe(true);
+    expect(payload.diagnostics.backgroundJob?.id).toMatch(/^chat_job_/);
+    expect(payload.diagnostics.backgroundJob?.status).toBe("running");
   });
 });

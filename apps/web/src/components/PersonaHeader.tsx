@@ -40,12 +40,12 @@ export function PersonaHeader({ personaSummary, personaDetail }: PersonaHeaderPr
               <p>{personaDetail.personalityTraits.join(", ")}</p>
             </div>
             <div>
-              <span>Speech</span>
+              <span>Voice style</span>
               <p>{personaDetail.speechStyle.join(", ")}</p>
             </div>
             <div>
-              <span>Catchphrases</span>
-              <p>{personaDetail.catchphrases.join(" • ")}</p>
+              <span>Visual style</span>
+              <p>{personaDetail.visualStyle.join(", ")}</p>
             </div>
           </div>
         </details>

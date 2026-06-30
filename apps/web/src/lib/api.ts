@@ -146,6 +146,10 @@ export const api = {
       method: "GET",
       ...(signal ? { signal } : {})
     }),
+  cancelChatJob: async (jobId: string): Promise<ChatJobResponse> =>
+    requestJson<ChatJobResponse>(`/api/chat/jobs/${jobId}/cancel`, {
+      method: "POST"
+    }),
   saveStyleTransferEval: async (
     payload: StyleTransferEvalCapturePayload
   ): Promise<{ id: string; path: string }> =>

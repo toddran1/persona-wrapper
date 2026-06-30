@@ -1,13 +1,25 @@
-import type { ChatResponse, ContentBlock } from "@persona/shared";
+import type { MouseEvent as ReactMouseEvent } from "react";
+import type { ChatResponse, ContentBlock, UploadedAsset } from "@persona/shared";
 import { useEffect, useId, useRef, useState } from "react";
 import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
 
+export type UserPromptAsset = {
+  id: string;
+  kind: UploadedAsset["kind"];
+  fileName: string;
+  mimeType: string;
+  url?: string;
+};
+
 export type RenderedTurn = {
   userMessage: string;
+  userAssets?: UserPromptAsset[];
+  userFiles?: File[];
   assistantText: string;
   outputs: ContentBlock[];
   usage?: ChatResponse["usage"];
+  backgroundJobId?: string;
 };
 
 function resolveAssetUrl(url: string): string {
@@ -49,7 +61,7 @@ async function downloadAsset(url: string, fileName: string): Promise<void> {
   URL.revokeObjectURL(objectUrl);
 }
 
-function Icon({ name }: { name: "audio" | "copy" | "download" | "more" | "sources" | "retry" }) {
+function Icon({ name }: { name: "audio" | "copy" | "check" | "download" | "more" | "sources" | "retry" | "edit" | "file" | "image" }) {
   if (name === "audio") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -65,6 +77,14 @@ function Icon({ name }: { name: "audio" | "copy" | "download" | "more" | "source
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <rect x="9" y="9" width="13" height="13" rx="2" />
         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </svg>
+    );
+  }
+
+  if (name === "check") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m5 13 4 4L19 7" />
       </svg>
     );
   }
@@ -100,12 +120,129 @@ function Icon({ name }: { name: "audio" | "copy" | "download" | "more" | "source
     );
   }
 
+  if (name === "edit") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m12 20 8-8" />
+        <path d="M16 4a2.83 2.83 0 1 1 4 4L8 20l-5 1 1-5Z" />
+      </svg>
+    );
+  }
+
+  if (name === "file") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z" />
+        <path d="M14 2v5h5" />
+      </svg>
+    );
+  }
+
+  if (name === "image") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <circle cx="9" cy="9" r="1.5" />
+        <path d="m21 15-5-5L5 21" />
+      </svg>
+    );
+  }
+
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 12h.01" />
       <path d="M19 12h.01" />
       <path d="M5 12h.01" />
     </svg>
+  );
+}
+
+function UserPromptAssets({ assets }: { assets: UserPromptAsset[] }) {
+  if (assets.length === 0) return null;
+
+  return (
+    <div className="user-prompt-assets" aria-label="Attached assets">
+      {assets.map((asset) => {
+        const resolvedUrl = asset.url ? resolveAssetUrl(asset.url) : undefined;
+        const isImage = asset.kind === "image" && resolvedUrl;
+        return (
+          <div key={asset.id} className={`user-prompt-asset${isImage ? " user-prompt-asset-image" : ""}`}>
+            {isImage ? (
+              <img src={resolvedUrl} alt={asset.fileName} className="user-prompt-asset-preview" />
+            ) : (
+              <span className="user-prompt-asset-icon" aria-hidden="true">
+                <Icon name={asset.kind === "image" ? "image" : "file"} />
+              </span>
+            )}
+            <span className="user-prompt-asset-label">{asset.fileName}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function UserMessageActions({
+  message,
+  files = [],
+  onEdit
+}: {
+  message: string;
+  files?: File[] | undefined;
+  onEdit?: ((message: string, files: File[]) => void) | undefined;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copiedTimeoutRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimeoutRef.current !== undefined) {
+        window.clearTimeout(copiedTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  async function handleCopy(event: ReactMouseEvent<HTMLButtonElement>): Promise<void> {
+    const button = event.currentTarget;
+    if (!navigator.clipboard?.writeText) return;
+    await navigator.clipboard.writeText(message);
+    setCopied(true);
+    if (copiedTimeoutRef.current !== undefined) {
+      window.clearTimeout(copiedTimeoutRef.current);
+    }
+    copiedTimeoutRef.current = window.setTimeout(() => {
+      setCopied(false);
+      copiedTimeoutRef.current = undefined;
+    }, 1200);
+    button.blur();
+  }
+
+  return (
+    <div className="user-message-actions" aria-hidden={false}>
+      <button
+        type="button"
+        className="message-action-button"
+        aria-label={copied ? "Copied prompt" : "Copy prompt"}
+        title={copied ? "Copied" : "Copy"}
+        onClick={(event) => void handleCopy(event)}
+      >
+        <Icon name={copied ? "check" : "copy"} />
+      </button>
+      {onEdit ? (
+        <button
+          type="button"
+          className="message-action-button"
+          aria-label="Edit prompt"
+          title="Edit"
+          onClick={(event) => {
+            onEdit(message, files);
+            event.currentTarget.blur();
+          }}
+        >
+          <Icon name="edit" />
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -306,15 +443,23 @@ function TokenUsageFooter({ usage }: { usage: ChatResponse["usage"] }) {
 export function ConversationHistory({
   turns,
   pendingPrompt,
+  pendingAssets = [],
+  pendingFiles = [],
   thinking,
   testMode = false,
-  onAudioPlaybackChange
+  onAudioPlaybackChange,
+  onOutputAction,
+  onEditUserPrompt
 }: {
   turns: RenderedTurn[];
   pendingPrompt?: string | undefined;
+  pendingAssets?: UserPromptAsset[] | undefined;
+  pendingFiles?: File[] | undefined;
   thinking?: boolean | undefined;
   testMode?: boolean | undefined;
   onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
+  onOutputAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
+  onEditUserPrompt?: ((message: string, files: File[]) => void) | undefined;
 }) {
   const messageCount = turns.length * 2 + (pendingPrompt ? 1 : 0) + (thinking ? 1 : 0);
   const historyRef = useRef<HTMLElement>(null);
@@ -388,8 +533,10 @@ export function ConversationHistory({
                   <div className="chat-avatar chat-avatar-user">You</div>
                   <div className="chat-bubble chat-bubble-user">
                     <span className="history-role">Prompt</span>
+                    {turn.userAssets?.length ? <UserPromptAssets assets={turn.userAssets} /> : null}
                     <p className="message-text">{turn.userMessage}</p>
                   </div>
+                  <UserMessageActions message={turn.userMessage} files={turn.userFiles ?? []} onEdit={onEditUserPrompt} />
                 </article>
                 <article className="chat-row chat-row-assistant">
                   <div className="chat-avatar chat-avatar-assistant">LaRae</div>
@@ -400,7 +547,7 @@ export function ConversationHistory({
                       <div className="inline-artifact-stack">
                         {inlineOutputs.map((output, outputIndex) => (
                           <div key={`${output.type}-${outputIndex}`} className="inline-artifact-card">
-                            <OutputRenderer output={output} />
+                            <OutputRenderer output={output} onAction={onOutputAction} />
                           </div>
                         ))}
                       </div>
@@ -423,15 +570,17 @@ export function ConversationHistory({
               <div className="chat-avatar chat-avatar-user">You</div>
               <div className="chat-bubble chat-bubble-user">
                 <span className="history-role">Prompt</span>
+                {pendingAssets.length ? <UserPromptAssets assets={pendingAssets} /> : null}
                 <p className="message-text">{pendingPrompt}</p>
               </div>
+              <UserMessageActions message={pendingPrompt} files={pendingFiles} onEdit={onEditUserPrompt} />
             </article>
           ) : null}
           {thinking ? (
             <article className="chat-row chat-row-assistant">
               <div className="chat-avatar chat-avatar-assistant">LaRae</div>
               <div className="chat-bubble chat-bubble-assistant">
-                <span className="history-role">Reply</span>
+                <span className="history-role">Thinking</span>
                 <div className="thinking-indicator" aria-live="polite" aria-label="LaRae is thinking">
                   <span />
                   <span />
