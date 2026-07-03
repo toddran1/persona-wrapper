@@ -12,6 +12,9 @@
     "dev:test-mode": "node scripts/dev.mjs --test-mode",
     "dev:api": "npm run dev -w @persona/api",
     "dev:web": "npm run dev -w @persona/web",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "npm run db:migrate -w @persona/api",
     "build": "npm run build -w @persona/shared && npm run build -w @persona/api && npm run build -w @persona/web",
     "typecheck": "npm run build -w @persona/shared && npm run typecheck -w @persona/api && npm run typecheck -w @persona/web",
     "lint": "npm run lint -w @persona/shared && npm run lint -w @persona/api && npm run lint -w @persona/web",
@@ -21,6 +24,7 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "drizzle-orm": "^0.45.2"
   }
 }

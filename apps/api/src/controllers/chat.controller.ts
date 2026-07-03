@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { chatRequestSchema, type ChatRequest, type ChatResponse } from "@persona/shared";
 import { ChatService } from "../services/chatService.js";
+import { ConversationStore } from "../services/conversationStore.js";
 import { EvalCaptureService } from "../services/evalCaptureService.js";
 import { backgroundChatJobService } from "../services/backgroundChatJobService.js";
 import { getPersonaById } from "../personas/index.js";
@@ -12,7 +13,8 @@ import { selectTools } from "../services/toolSelectionService.js";
 import { usageControlService } from "../services/usageControlService.js";
 import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
 
-const chatService = new ChatService();
+const conversationStore = new ConversationStore();
+const chatService = new ChatService(conversationStore);
 const evalCaptureService = new EvalCaptureService();
 const evalCaptureRequestSchema = z.object({
   conversationId: z.string().min(1),
@@ -36,11 +38,14 @@ const reviewRecordDeleteSchema = z.object({
 const promoteRejectedPairSchema = z.object({
   id: z.string().min(1)
 });
+const renameConversationSchema = z.object({
+  title: z.string().trim().min(1).max(120)
+});
 
 export async function postChat(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
   usageControlService.check(identity);
-  const payload = await selectTools(resolveOwnedChatAssets(request));
+  const payload = await selectTools(await resolveOwnedChatAssets(request));
   if (shouldRunInBackground(payload)) {
     const conversationId = payload.conversationId ?? `conv_${randomUUID()}`;
     const backgroundPayload: ChatRequest = {
@@ -56,12 +61,17 @@ export async function postChat(request: Request, response: Response): Promise<vo
         vectorStoreIds: payload.toolOptions?.vectorStoreIds ?? []
       }
     };
-    const job = backgroundChatJobService.start(async (backgroundJob) => {
+    const job = await backgroundChatJobService.start({
+      ownerId: identity,
+      provider: backgroundPayload.provider,
+      conversationId,
+      request: backgroundPayload
+    }, async (backgroundJob) => {
       const result = await chatService.handleChat(backgroundPayload, undefined, backgroundJob.abortController.signal, {
         onProviderResponse: (event) => {
-          backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
+          void backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
         }
-      });
+      }, { ownerId: identity });
       usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
       return result;
     });
@@ -69,13 +79,13 @@ export async function postChat(request: Request, response: Response): Promise<vo
     return;
   }
   const controller = requestAbortController(request);
-  const result = await chatService.handleChat(payload, undefined, controller.signal);
+  const result = await chatService.handleChat(payload, undefined, controller.signal, undefined, { ownerId: identity });
   usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
   response.status(200).json(result);
 }
 
 export async function getChatJob(request: Request, response: Response): Promise<void> {
-  const job = backgroundChatJobService.get(String(request.params.jobId ?? ""));
+  const job = await backgroundChatJobService.get(String(request.params.jobId ?? ""));
   if (!job) {
     throw new HttpError("Chat job not found", 404);
   }
@@ -84,7 +94,7 @@ export async function getChatJob(request: Request, response: Response): Promise<
 
 export async function cancelChatJob(request: Request, response: Response): Promise<void> {
   const jobId = String(request.params.jobId ?? "");
-  const job = backgroundChatJobService.get(jobId);
+  const job = await backgroundChatJobService.get(jobId);
   if (!job) {
     throw new HttpError("Chat job not found", 404);
   }
@@ -94,18 +104,18 @@ export async function cancelChatJob(request: Request, response: Response): Promi
     return;
   }
 
-  const cancelledJob = backgroundChatJobService.cancel(jobId);
+  const cancelledJob = await backgroundChatJobService.cancel(jobId);
   if (job.providerResponseId) {
     await openAIResponseLifecycleService.cancel(job.providerResponseId);
   }
 
-  response.status(200).json(cancelledJob ?? backgroundChatJobService.get(jobId));
+  response.status(200).json(cancelledJob ?? await backgroundChatJobService.get(jobId));
 }
 
 export async function postChatStream(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
   usageControlService.check(identity);
-  const payload = await selectTools(resolveOwnedChatAssets(request));
+  const payload = await selectTools(await resolveOwnedChatAssets(request));
   response.status(200);
   response.setHeader("Content-Type", "text/event-stream");
   response.setHeader("Cache-Control", "no-cache");
@@ -119,7 +129,7 @@ export async function postChatStream(request: Request, response: Response): Prom
           response.write(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`);
         }
       }
-    }, controller.signal);
+    }, controller.signal, undefined, { ownerId: identity });
     usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
     response.write(`event: response\ndata: ${JSON.stringify(result)}\n\n`);
     response.end();
@@ -131,6 +141,39 @@ export async function postChatStream(request: Request, response: Response): Prom
       response.end();
     }
   }
+}
+
+export async function listConversations(request: Request, response: Response): Promise<void> {
+  const conversations = await conversationStore.list(requestIdentity(request));
+  response.status(200).json({ conversations });
+}
+
+export async function getConversation(request: Request, response: Response): Promise<void> {
+  const conversationId = String(request.params.conversationId ?? "");
+  const conversation = await conversationStore.get(conversationId, requestIdentity(request));
+  if (!conversation) {
+    throw new HttpError("Conversation not found", 404);
+  }
+  response.status(200).json({ conversation });
+}
+
+export async function deleteConversation(request: Request, response: Response): Promise<void> {
+  const conversationId = String(request.params.conversationId ?? "");
+  const deleted = await conversationStore.delete(conversationId, requestIdentity(request));
+  if (!deleted) {
+    throw new HttpError("Conversation not found", 404);
+  }
+  response.status(204).send();
+}
+
+export async function patchConversation(request: Request, response: Response): Promise<void> {
+  const conversationId = String(request.params.conversationId ?? "");
+  const payload = renameConversationSchema.parse(request.body);
+  const conversation = await conversationStore.rename(conversationId, payload.title, requestIdentity(request));
+  if (!conversation) {
+    throw new HttpError("Conversation not found", 404);
+  }
+  response.status(200).json({ conversation });
 }
 
 function requestIdentity(request: Request): string {
@@ -213,7 +256,7 @@ function requestAbortController(request: Request): AbortController {
   return controller;
 }
 
-function resolveOwnedChatAssets(request: Request) {
+async function resolveOwnedChatAssets(request: Request) {
   const payload = chatRequestSchema.parse(request.body);
   const assetIds = payload.attachments?.map((attachment) => attachment.id) ?? [];
   const vectorStoreIds = payload.toolOptions?.vectorStoreIds ?? [];
@@ -221,10 +264,10 @@ function resolveOwnedChatAssets(request: Request) {
 
   const ownerId = request.header("x-owner-id");
   if (!ownerId) throw new HttpError("A valid x-owner-id header is required for files.", 400);
-  uploadService.validateVectorStores(ownerId, vectorStoreIds);
+  await uploadService.validateVectorStores(ownerId, vectorStoreIds);
   return {
     ...payload,
-    attachments: uploadService.resolveAssets(ownerId, assetIds)
+    attachments: await uploadService.resolveAssets(ownerId, assetIds)
   };
 }
 

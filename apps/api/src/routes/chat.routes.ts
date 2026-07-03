@@ -1,9 +1,13 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import {
   cancelChatJob,
+  deleteConversation,
   deleteStyleTransferReviewRecord,
+  getConversation,
   getChatJob,
   getStyleTransferReview,
+  listConversations,
+  patchConversation,
   patchStyleTransferReviewRecord,
   postStyleTransferReviewRecord,
   postPromoteRejectedStylePair,
@@ -22,6 +26,10 @@ function asyncHandler(handler: (request: Request, response: Response) => Promise
 
 chatRouter.post("/", asyncHandler(postChat));
 chatRouter.post("/stream", asyncHandler(postChatStream));
+chatRouter.get("/conversations", asyncHandler(listConversations));
+chatRouter.get("/conversations/:conversationId", asyncHandler(getConversation));
+chatRouter.patch("/conversations/:conversationId", asyncHandler(patchConversation));
+chatRouter.delete("/conversations/:conversationId", asyncHandler(deleteConversation));
 chatRouter.get("/jobs/:jobId", asyncHandler(getChatJob));
 chatRouter.post("/jobs/:jobId/cancel", asyncHandler(cancelChatJob));
 chatRouter.get("/style-transfer-review", asyncHandler(getStyleTransferReview));

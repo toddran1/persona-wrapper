@@ -2,6 +2,8 @@ import type {
   ChatResponse,
   ChatJobResponse,
   ClientContext,
+  ConversationDetail,
+  ConversationSummary,
   PersonaDefinition,
   PersonaSummary,
   ProviderId,
@@ -12,7 +14,7 @@ import type {
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
 const OWNER_ID_KEY = "persona-wrapper-owner-id";
 
-function ownerId(): string {
+export function ownerId(): string {
   const existing = localStorage.getItem(OWNER_ID_KEY);
   if (existing) return existing;
   const created = crypto.randomUUID();
@@ -102,6 +104,15 @@ async function requestNoContent(path: string, init?: RequestInit): Promise<void>
 }
 
 export const api = {
+  fetchUploadBlob: async (url: string, signal?: AbortSignal): Promise<Blob> => {
+    const resolvedUrl = url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
+    const response = await fetch(resolvedUrl, {
+      headers: { "x-owner-id": ownerId() },
+      ...(signal ? { signal } : {})
+    });
+    if (!response.ok) throw new Error(`Upload fetch failed with status ${response.status}`);
+    return response.blob();
+  },
   uploadFiles: async (files: File[]): Promise<UploadedAsset[]> => {
     const body = new FormData();
     files.forEach((file) => body.append("files", file));
@@ -146,6 +157,24 @@ export const api = {
       method: "GET",
       ...(signal ? { signal } : {})
     }),
+  listConversations: async (): Promise<ConversationSummary[]> => {
+    const payload = await requestJson<{ conversations: ConversationSummary[] }>("/api/chat/conversations");
+    return payload.conversations;
+  },
+  getConversation: async (conversationId: string): Promise<ConversationDetail> => {
+    const payload = await requestJson<{ conversation: ConversationDetail }>(`/api/chat/conversations/${conversationId}`);
+    return payload.conversation;
+  },
+  renameConversation: async (conversationId: string, title: string): Promise<ConversationSummary> => {
+    const payload = await requestJson<{ conversation: ConversationSummary }>(`/api/chat/conversations/${conversationId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title })
+    });
+    return payload.conversation;
+  },
+  deleteConversation: async (conversationId: string): Promise<void> => {
+    await requestNoContent(`/api/chat/conversations/${conversationId}`, { method: "DELETE" });
+  },
   cancelChatJob: async (jobId: string): Promise<ChatJobResponse> =>
     requestJson<ChatJobResponse>(`/api/chat/jobs/${jobId}/cancel`, {
       method: "POST"

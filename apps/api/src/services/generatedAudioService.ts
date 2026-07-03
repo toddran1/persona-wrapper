@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { extname, resolve } from "node:path";
+import { eq, lte } from "drizzle-orm";
 import { env } from "../config/env.js";
+import { getDatabase } from "../db/client.js";
+import { generatedAudio } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 
 type GeneratedAudio = {
@@ -24,29 +27,45 @@ export class GeneratedAudioService {
     mkdirSync(this.audioDir, { recursive: true });
   }
 
-  register(buffer: Buffer, options: { fileName: string; mimeType: string }): string {
-    this.cleanup();
+  async register(buffer: Buffer, options: { fileName: string; mimeType: string }): Promise<string> {
+    await this.cleanup();
     const token = randomUUID();
     const fileName = safeFileName(options.fileName);
     const extension = extname(fileName) || ".mp3";
     const localPath = resolve(this.audioDir, `${token}${extension}`);
+    const expiresAt = new Date(Date.now() + env.UPLOAD_TTL_HOURS * 60 * 60 * 1000);
     writeFileSync(localPath, buffer, { flag: "wx" });
 
-    this.files.set(token, {
-      token,
-      fileName,
-      localPath,
-      mimeType: options.mimeType,
-      expiresAt: Date.now() + env.UPLOAD_TTL_HOURS * 60 * 60 * 1000
-    });
+    const db = getDatabase();
+    if (db) {
+      await db.insert(generatedAudio).values({
+        token,
+        fileName,
+        localPath,
+        mimeType: options.mimeType,
+        expiresAt
+      });
+    } else {
+      this.files.set(token, {
+        token,
+        fileName,
+        localPath,
+        mimeType: options.mimeType,
+        expiresAt: expiresAt.getTime()
+      });
+    }
 
     return `/api/generated-audio/${token}`;
   }
 
-  download(token: string): { buffer: Buffer; fileName: string; mimeType: string } {
-    this.cleanup();
-    const file = this.files.get(token);
+  async download(token: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    await this.cleanup();
+    const db = getDatabase();
+    const file = db
+      ? await db.query.generatedAudio.findFirst({ where: eq(generatedAudio.token, token) })
+      : this.files.get(token);
     if (!file) throw new HttpError("Generated audio not found.", 404);
+    if (!file.localPath) throw new HttpError("Generated audio file is unavailable.", 404);
     return {
       buffer: readFileSync(file.localPath),
       fileName: file.fileName,
@@ -54,7 +73,19 @@ export class GeneratedAudioService {
     };
   }
 
-  private cleanup(): void {
+  private async cleanup(): Promise<void> {
+    const db = getDatabase();
+    if (db) {
+      const expired = await db.select().from(generatedAudio).where(lte(generatedAudio.expiresAt, new Date()));
+      if (expired.length > 0) {
+        await db.delete(generatedAudio).where(lte(generatedAudio.expiresAt, new Date()));
+        for (const file of expired) {
+          if (file.localPath) rmSync(file.localPath, { force: true });
+        }
+      }
+      return;
+    }
+
     const now = Date.now();
     for (const file of this.files.values()) {
       if (file.expiresAt <= now) {

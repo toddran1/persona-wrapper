@@ -135,7 +135,7 @@ export class ElevenLabsTTSProvider implements TTSProvider {
     const mimeType = response.headers.get("content-type")?.split(";")[0] ?? inferMimeType(voiceConfig.outputFormat);
     const extension = inferExtension(mimeType);
     const buffer = Buffer.from(await response.arrayBuffer());
-    const url = generatedAudioService.register(buffer, {
+    const url = await generatedAudioService.register(buffer, {
       fileName: `${input.persona.id}-voice.${extension}`,
       mimeType
     });

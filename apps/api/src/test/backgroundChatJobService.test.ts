@@ -12,10 +12,10 @@ function waitForAbort(signal: AbortSignal): Promise<never> {
 describe("BackgroundChatJobService", () => {
   it("marks manual cancellation separately and aborts the running executor", async () => {
     const service = new BackgroundChatJobService();
-    const job = service.start(async (runningJob) => waitForAbort(runningJob.abortController.signal));
+    const job = await service.start({}, async (runningJob) => waitForAbort(runningJob.abortController.signal));
 
-    service.trackProviderResponse(job.id, "resp_test_cancel", "in_progress");
-    const cancelled = service.cancel(job.id, "User cancelled the request.");
+    await service.trackProviderResponse(job.id, "resp_test_cancel", "in_progress");
+    const cancelled = await service.cancel(job.id, "User cancelled the request.");
 
     expect(cancelled?.status).toBe("cancelled");
     expect(cancelled?.failureReason).toBe("manual_cancel");
@@ -25,12 +25,12 @@ describe("BackgroundChatJobService", () => {
 
   it("classifies OpenAI background timeouts separately from provider failures", async () => {
     const service = new BackgroundChatJobService();
-    const job = service.start(async () => {
+    const job = await service.start({}, async () => {
       throw new Error("OpenAI background response timed out after 120 seconds. Response ID: resp_timeout");
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const failed = service.get(job.id);
+    const failed = await service.get(job.id);
 
     expect(failed?.status).toBe("failed");
     expect(failed?.failureReason).toBe("openai_background_timeout");

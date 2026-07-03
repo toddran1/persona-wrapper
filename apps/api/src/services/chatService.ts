@@ -1,4 +1,4 @@
-import { llmOutputSchema, type ChatMessage, type ChatRequest, type ChatResponse } from "@persona/shared";
+import { llmOutputSchema, type ChatMessage, type ChatRequest, type ChatResponse, type ContentBlock } from "@persona/shared";
 import type { TTSOutput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
 import { createLLMProvider } from "../providers/llm/providerFactory.js";
@@ -19,6 +19,10 @@ export type ChatStreamCallbacks = {
 
 export type ChatProgressCallbacks = {
   onProviderResponse?: (event: { id: string; status?: string }) => void;
+};
+
+export type ChatServiceOptions = {
+  ownerId?: string;
 };
 
 function insertToolContext(input: ChatMessage[], toolContext: ToolContext | undefined): ChatMessage[] {
@@ -74,7 +78,8 @@ export class ChatService {
     request: ChatRequest,
     streamCallbacks?: ChatStreamCallbacks,
     signal?: AbortSignal,
-    progressCallbacks?: ChatProgressCallbacks
+    progressCallbacks?: ChatProgressCallbacks,
+    options: ChatServiceOptions = {}
   ): Promise<ChatResponse> {
     signal?.throwIfAborted();
     const persona = getPersonaById(request.personaId);
@@ -83,7 +88,11 @@ export class ChatService {
     }
 
     const testMode = request.testMode || env.APP_TEST_MODE;
-    const conversation = this.conversationStore.getOrCreate(request.conversationId, request.history);
+    const conversation = await this.conversationStore.getOrCreate(request.conversationId, request.history, {
+      ...(options.ownerId ? { userId: options.ownerId } : {}),
+      personaId: request.personaId,
+      titleSeed: request.message
+    });
     const llmProvider = createLLMProvider(request.provider);
     const llmInput = this.personaEngine.prepareInput(persona, {
       ...request,
@@ -332,17 +341,40 @@ export class ChatService {
 
     const firstTextBlock = styledLlmOutput.content.find((block) => block.type === "text");
     const assistantText = firstTextBlock?.type === "text" ? firstTextBlock.text : styledLlmOutput.rawText;
+    const persistedOutputs: ContentBlock[] = [...styledLlmOutput.content];
+    if (request.audio && ttsOutput) {
+      persistedOutputs.push({
+        type: "audio",
+        url: ttsOutput.url,
+        mimeType: ttsOutput.mimeType,
+        transcript: firstTextBlock?.type === "text" ? firstTextBlock.text : styledLlmOutput.rawText
+      });
+    }
+    const userAssets = (request.attachments ?? []).map((asset) => ({
+      id: asset.id,
+      kind: asset.kind,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      ...(asset.url ? { url: asset.url } : {})
+    }));
 
-    const updatedConversation = this.conversationStore.appendTurn(conversation, [
+    const updatedConversation = await this.conversationStore.appendTurn(conversation, [
       {
         role: "user",
-        content: request.message
+        content: request.message,
+        metadata: {
+          userAssets
+        }
       },
       {
         role: "assistant",
-        content: assistantText
+        content: assistantText,
+        metadata: {
+          outputs: persistedOutputs,
+          ...(styledLlmOutput.usage ? { usage: styledLlmOutput.usage } : {})
+        }
       }
-    ] satisfies ChatMessage[]);
+    ]);
 
     return this.responseFormatter.format({
       persona,

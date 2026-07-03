@@ -72,6 +72,7 @@ const envSchema = z.object({
   OPENAI_DAILY_TOKEN_LIMIT: z.coerce.number().int().nonnegative().default(1000000),
   CHAT_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(30),
   CHAT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  DATABASE_URL: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   UPLOAD_DIR: z.string().default("apps/api/uploads"),
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
   UPLOAD_TTL_HOURS: z.coerce.number().int().positive().default(24),

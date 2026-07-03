@@ -5,6 +5,7 @@
   --composer-reserved-height: 210px;
   --floating-panel-top: 48px;
   --floating-panel-gap: 14px;
+  --chat-rail-width: clamp(216px, 14vw, 260px);
   --stage-width: clamp(320px, 22vw, 420px);
   --persona-video-aspect: 4 / 5;
   --stage-gap: 18px;
@@ -86,9 +87,232 @@ textarea {
   z-index: 1;
   display: grid;
   gap: 28px;
-  max-width: 1500px;
+  max-width: 1680px;
   margin: 0 auto;
-  width: min(100%, 1500px);
+  width: min(100%, 1680px);
+}
+
+.conversation-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(214, 181, 94, 0.12);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 30%),
+    rgba(10, 7, 16, 0.74);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(20px);
+}
+
+.conversation-sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.conversation-sidebar-brand,
+.conversation-sidebar-section-title {
+  color: var(--theme-text);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.conversation-sidebar-subtitle,
+.conversation-list-meta,
+.conversation-list-empty {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.conversation-sidebar-icon-button,
+.conversation-new-chat,
+.conversation-list-rename,
+.conversation-list-delete {
+  border: 1px solid rgba(214, 181, 94, 0.16);
+  color: var(--theme-text);
+  background: rgba(255, 255, 255, 0.055);
+  cursor: pointer;
+}
+
+.conversation-sidebar-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.conversation-new-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.conversation-new-chat:hover,
+.conversation-sidebar-icon-button:hover,
+.conversation-list-rename:hover,
+.conversation-list-delete:hover {
+  border-color: rgba(214, 181, 94, 0.42);
+  background: rgba(214, 181, 94, 0.12);
+}
+
+.conversation-search {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.conversation-search input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(214, 181, 94, 0.16);
+  border-radius: 12px;
+  padding: 0 10px;
+  color: var(--theme-text);
+  background: rgba(255, 255, 255, 0.055);
+  outline: none;
+}
+
+.conversation-search input:focus {
+  border-color: rgba(188, 135, 255, 0.68);
+  box-shadow: 0 0 0 2px rgba(188, 135, 255, 0.16);
+}
+
+.conversation-sidebar-section-title {
+  margin-top: 6px;
+  color: var(--accent-2);
+  font-size: 0.68rem;
+}
+
+.conversation-list {
+  display: grid;
+  gap: 4px;
+  max-height: calc(100vh - 210px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.conversation-list-empty {
+  margin: 6px 0 0;
+  line-height: 1.4;
+}
+
+.conversation-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px;
+  border-radius: 12px;
+}
+
+.conversation-list-item:hover,
+.conversation-list-item-active {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.conversation-list-main {
+  min-width: 0;
+  padding: 9px 8px 9px 10px;
+  border: 0;
+  color: var(--theme-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-list-title,
+.conversation-list-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-list-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.conversation-list-meta {
+  margin-top: 3px;
+  font-size: 0.7rem;
+}
+
+.conversation-list-delete {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.conversation-list-rename {
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.conversation-list-item:hover .conversation-list-delete,
+.conversation-list-item:focus-within .conversation-list-delete,
+.conversation-list-item:hover .conversation-list-rename,
+.conversation-list-item:focus-within .conversation-list-rename {
+  opacity: 1;
+}
+
+.conversation-list-edit {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  padding: 4px;
+}
+
+.conversation-list-edit input {
+  min-width: 0;
+  min-height: 32px;
+  border: 1px solid rgba(188, 135, 255, 0.42);
+  border-radius: 10px;
+  padding: 0 9px;
+  color: var(--theme-text);
+  background: rgba(255, 255, 255, 0.075);
+  outline: none;
+}
+
+.conversation-list-edit button {
+  min-height: 32px;
+  border: 1px solid rgba(214, 181, 94, 0.3);
+  border-radius: 10px;
+  padding: 0 10px;
+  color: var(--theme-text);
+  background: rgba(214, 181, 94, 0.16);
+  cursor: pointer;
 }
 
 .sidebar-column,
@@ -2356,25 +2580,33 @@ button:disabled {
 @media (min-width: 960px) {
   .app-grid-test {
     --stage-width: clamp(320px, 21vw, 400px);
-    grid-template-columns: 260px minmax(0, 1.5fr);
+    grid-template-columns: var(--chat-rail-width) 260px minmax(0, 1.5fr);
     justify-content: stretch;
     align-items: start;
   }
 
   .app-grid-normal {
     --stage-width: clamp(360px, 24vw, 460px);
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: var(--chat-rail-width) minmax(0, 1fr);
     align-items: start;
-    width: min(100%, 1500px);
+    width: min(100%, 1680px);
+  }
+
+  .conversation-sidebar {
+    grid-column: 1;
+    position: sticky;
+    top: 24px;
+    max-height: calc(100vh - 48px);
+    overflow: hidden;
   }
 
   .hero-card {
-    grid-column: 1 / -1;
+    grid-column: 2 / -1;
     padding-right: calc(var(--stage-width) + var(--stage-gap) + clamp(18px, 2.4vw, 28px));
   }
 
   .hero-layout {
-    max-width: min(100%, calc(1500px - var(--stage-width) - var(--stage-gap)));
+    max-width: min(100%, calc(1680px - var(--chat-rail-width) - 28px - var(--stage-width) - var(--stage-gap)));
   }
 
   .hero-copy {
@@ -2382,14 +2614,14 @@ button:disabled {
   }
 
   .sidebar-column {
-    grid-column: 1;
+    grid-column: 2;
     position: sticky;
     top: 24px;
     gap: 14px;
   }
 
   .chat-column {
-    grid-column: 2;
+    grid-column: 3;
     grid-template-rows: 1fr auto;
     width: 100%;
   }
@@ -2404,11 +2636,11 @@ button:disabled {
   }
 
   .app-grid-normal .chat-column {
-    grid-column: 1;
+    grid-column: 2;
     width: 100%;
   }
 
-.app-grid-normal .conversation-stage-grid {
+  .app-grid-normal .conversation-stage-grid {
     grid-template-columns: minmax(0, 1fr) var(--stage-width);
   }
 
@@ -2417,18 +2649,18 @@ button:disabled {
   }
 
   .app-grid-normal .composer-dock {
-    right: max(var(--page-inline-pad), calc((100vw - 1500px) / 2));
-    left: max(var(--page-inline-pad), calc((100vw - 1500px) / 2));
+    right: max(var(--page-inline-pad), calc((100vw - 1680px) / 2));
+    left: calc(max(var(--page-inline-pad), calc((100vw - 1680px) / 2)) + var(--chat-rail-width) + 28px);
   }
 
   .app-grid-test .composer-dock {
-    right: max(var(--page-inline-pad), calc((100vw - 1500px) / 2));
-    left: calc(max(var(--page-inline-pad), calc((100vw - 1500px) / 2)) + 288px);
+    right: max(var(--page-inline-pad), calc((100vw - 1680px) / 2));
+    left: calc(max(var(--page-inline-pad), calc((100vw - 1680px) / 2)) + var(--chat-rail-width) + 316px);
   }
 
   .persona-stage {
     position: fixed;
-    right: max(var(--page-inline-pad), calc((100vw - 1500px) / 2));
+    right: max(var(--page-inline-pad), calc((100vw - 1680px) / 2));
     bottom: calc(var(--composer-reserved-height) + var(--floating-panel-gap));
     z-index: 8;
     width: var(--stage-width);
@@ -2465,6 +2697,32 @@ button:disabled {
   .app-grid {
     width: 100%;
     gap: 18px;
+  }
+
+  .hero-card {
+    order: 1;
+  }
+
+  .conversation-sidebar {
+    order: 2;
+    max-height: 260px;
+    overflow: hidden;
+  }
+
+  .conversation-list {
+    max-height: 150px;
+  }
+
+  .sidebar-column {
+    order: 3;
+  }
+
+  .chat-column {
+    order: 4;
+  }
+
+  .error-banner {
+    order: 5;
   }
 
   .hero-card,

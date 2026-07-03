@@ -1,9 +1,10 @@
-import type { ChatJobResponse, ChatResponse, ClientContext, ContentBlock, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
+import type { ChatJobResponse, ChatMessage, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRef } from "react";
 import { api } from "./lib/api.js";
 import { ChatComposer } from "./components/ChatComposer.js";
+import { ConversationSidebar } from "./components/ConversationSidebar.js";
 import { ConversationHistory, type RenderedTurn, type UserPromptAsset } from "./components/ConversationHistory.js";
 import { DebugPanel } from "./components/DebugPanel.js";
 import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
@@ -25,6 +26,51 @@ function isImageOnlyResponse(outputs: ContentBlock[]): boolean {
     if (output.type === "text") return output.text.trim().length === 0;
     return false;
   });
+}
+
+function renderTurnsFromHistory(history: ChatMessage[]): RenderedTurn[] {
+  const turns: RenderedTurn[] = [];
+  for (let index = 0; index < history.length; index += 1) {
+    const message = history[index];
+    if (!message || message.role !== "user") continue;
+    let assistant: ChatMessage | undefined;
+    for (let nextIndex = index + 1; nextIndex < history.length; nextIndex += 1) {
+      const candidate = history[nextIndex];
+      if (!candidate || candidate.role === "user") break;
+      if (candidate.role === "assistant") {
+        assistant = candidate;
+        break;
+      }
+    }
+    turns.push({
+      userMessage: message.content,
+      assistantText: assistant?.content ?? "",
+      outputs: assistant?.content
+        ? [{
+            type: "text",
+            text: assistant.content
+          }]
+        : []
+    });
+  }
+  return turns;
+}
+
+function renderTurnsFromConversationTurns(turns: ConversationTurn[]): RenderedTurn[] {
+  return turns.map((turn) => ({
+    userMessage: turn.userMessage,
+    userAssets: turn.userAssets.map((asset) => ({
+      id: asset.id,
+      kind: asset.kind,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      ...(asset.url ? { url: asset.url } : {})
+    })),
+    assistantText: turn.assistantText,
+    outputs: turn.outputs,
+    ...(turn.usage ? { usage: turn.usage } : {}),
+    ...(turn.backgroundJobId ? { backgroundJobId: turn.backgroundJobId } : {})
+  }));
 }
 
 function getClientContext(): ClientContext {
@@ -99,6 +145,8 @@ export function App() {
   const [nonAudioVisualState, setNonAudioVisualState] = useState<PersonaVisualState>("idle");
   const [error, setError] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>();
+  const [conversationList, setConversationList] = useState<ConversationSummary[]>([]);
+  const [conversationListLoading, setConversationListLoading] = useState(false);
   const [evalSaving, setEvalSaving] = useState(false);
   const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
   const [evalError, setEvalError] = useState<string | undefined>();
@@ -165,6 +213,10 @@ export function App() {
         setError(loadError instanceof Error ? loadError.message : "Failed to load personas");
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    void refreshConversationList();
   }, []);
 
   useEffect(() => {
@@ -263,6 +315,7 @@ export function App() {
         : result;
 
       appendChatResult(message, finalResult, attachments, files);
+      void refreshConversationList(finalResult.conversationId);
       activeBackgroundJobIdRef.current = undefined;
       setPendingPrompt(undefined);
       setPendingPromptAssets([]);
@@ -321,6 +374,70 @@ export function App() {
         usage: result.usage
       }
     ]);
+  }
+
+  async function refreshConversationList(preferConversationId?: string): Promise<void> {
+    setConversationListLoading(true);
+    try {
+      const conversations = await api.listConversations();
+      setConversationList(conversations);
+      if (preferConversationId) {
+        setConversationId(preferConversationId);
+      }
+    } catch (listError) {
+      console.warn("Failed to load conversation list", listError);
+    } finally {
+      setConversationListLoading(false);
+    }
+  }
+
+  async function loadConversation(nextConversationId: string): Promise<void> {
+    setLoading(true);
+    setError(undefined);
+    setPendingPrompt(undefined);
+    setPendingPromptAssets([]);
+    setPendingPromptFiles([]);
+    setPersonaAudioPlaying(false);
+    try {
+      const conversation = await api.getConversation(nextConversationId);
+      setConversationId(conversation.id);
+      setRenderedTurns(
+        conversation.turns.length > 0
+          ? renderTurnsFromConversationTurns(conversation.turns)
+          : renderTurnsFromHistory(conversation.history)
+      );
+      setResponse(undefined);
+      setLatestRequest(undefined);
+      setEvalSavedMessage(undefined);
+      setEvalError(undefined);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load conversation");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteConversationFromHistory(nextConversationId: string): Promise<void> {
+    try {
+      await api.deleteConversation(nextConversationId);
+      setConversationList((current) => current.filter((conversation) => conversation.id !== nextConversationId));
+      if (conversationId === nextConversationId) {
+        resetConversation();
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete conversation");
+    }
+  }
+
+  async function renameConversationFromHistory(nextConversationId: string, title: string): Promise<void> {
+    try {
+      const renamed = await api.renameConversation(nextConversationId, title);
+      setConversationList((current) => current.map((conversation) => (
+        conversation.id === renamed.id ? renamed : conversation
+      )));
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : "Failed to rename conversation");
+    }
   }
 
   function appendChatError(message: string, errorMessage: string, userAssets: UserPromptAsset[] = [], userFiles: File[] = []): void {
@@ -666,6 +783,21 @@ export function App() {
     ) : (
     <main className="page-shell" style={themeStyle}>
       <div className={`app-grid ${testModeEnabled ? "app-grid-test" : "app-grid-normal"}`}>
+        <ConversationSidebar
+          conversations={conversationList}
+          activeConversationId={conversationId}
+          loading={conversationListLoading}
+          onNewConversation={resetConversation}
+          onSelectConversation={(nextConversationId) => {
+            void loadConversation(nextConversationId);
+          }}
+          onDeleteConversation={(nextConversationId) => {
+            void deleteConversationFromHistory(nextConversationId);
+          }}
+          onRenameConversation={(nextConversationId, title) => {
+            void renameConversationFromHistory(nextConversationId, title);
+          }}
+        />
         <PersonaHeader personaSummary={personas[0]} personaDetail={personaDetail} />
         {testModeEnabled ? (
           <aside className="sidebar-column">

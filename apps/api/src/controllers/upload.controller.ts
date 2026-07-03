@@ -22,11 +22,11 @@ export async function postUploads(request: Request, response: Response): Promise
 }
 
 export async function getUploads(request: Request, response: Response): Promise<void> {
-  response.status(200).json({ assets: uploadService.list(ownerId(request)) });
+  response.status(200).json({ assets: await uploadService.list(ownerId(request)) });
 }
 
 export async function getUpload(request: Request, response: Response): Promise<void> {
-  const asset = uploadService.get(ownerId(request), String(request.params.id));
+  const asset = await uploadService.get(ownerId(request), String(request.params.id));
   response.type(asset.mimeType).download(asset.localPath, asset.fileName);
 }
 

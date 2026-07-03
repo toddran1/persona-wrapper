@@ -7,18 +7,23 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config drizzle.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "STYLE_TRANSFER_PROVIDER=stub vitest run",
-    "test:integration:openai": "OPENAI_RUN_INTEGRATION_TESTS=true STYLE_TRANSFER_PROVIDER=stub vitest run src/test/openai.integration.test.ts"
+    "test": "DATABASE_URL= STYLE_TRANSFER_PROVIDER=stub vitest run",
+    "test:integration:openai": "DATABASE_URL= OPENAI_RUN_INTEGRATION_TESTS=true STYLE_TRANSFER_PROVIDER=stub vitest run src/test/openai.integration.test.ts"
   },
   "dependencies": {
     "@persona/shared": "*",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.45.2",
     "express": "^4.21.1",
     "multer": "^2.2.0",
     "openai": "^6.42.0",
+    "postgres": "^3.4.9",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -26,6 +31,7 @@
     "@types/express": "^5.0.0",
     "@types/multer": "^2.1.0",
     "@types/node": "^22.8.1",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
     "vitest": "^2.1.5"

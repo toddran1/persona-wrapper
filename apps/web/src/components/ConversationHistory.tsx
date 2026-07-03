@@ -3,6 +3,7 @@ import type { ChatResponse, ContentBlock, UploadedAsset } from "@persona/shared"
 import { useEffect, useId, useRef, useState } from "react";
 import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
+import { api } from "../lib/api.js";
 
 export type UserPromptAsset = {
   id: string;
@@ -24,6 +25,68 @@ export type RenderedTurn = {
 
 function resolveAssetUrl(url: string): string {
   return url.startsWith("/") ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}` : url;
+}
+
+function UserPromptAssetPreview({ asset }: { asset: UserPromptAsset }) {
+  const directUrl = asset.url ? resolveAssetUrl(asset.url) : undefined;
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>(() => {
+    if (!directUrl) return undefined;
+    return asset.url?.startsWith("/") ? undefined : directUrl;
+  });
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+    if (!asset.url) {
+      setPreviewUrl(undefined);
+      return undefined;
+    }
+
+    if (!asset.url.startsWith("/")) {
+      setPreviewUrl(resolveAssetUrl(asset.url));
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+
+    void api.fetchUploadBlob(asset.url, controller.signal)
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setPreviewUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setPreviewUrl(undefined);
+          setFailed(true);
+        }
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [asset.url]);
+
+  if (!previewUrl || failed) {
+    return (
+      <span className="user-prompt-asset-icon" aria-hidden="true">
+        <Icon name={asset.kind === "image" ? "image" : "file"} />
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={previewUrl}
+      alt={asset.fileName}
+      className="user-prompt-asset-preview"
+      onError={() => {
+        setPreviewUrl(undefined);
+        setFailed(true);
+      }}
+    />
+  );
 }
 
 function audioFileExtension(mimeType: string): string {
@@ -163,12 +226,11 @@ function UserPromptAssets({ assets }: { assets: UserPromptAsset[] }) {
   return (
     <div className="user-prompt-assets" aria-label="Attached assets">
       {assets.map((asset) => {
-        const resolvedUrl = asset.url ? resolveAssetUrl(asset.url) : undefined;
-        const isImage = asset.kind === "image" && resolvedUrl;
+        const isImage = asset.kind === "image" && asset.url;
         return (
           <div key={asset.id} className={`user-prompt-asset${isImage ? " user-prompt-asset-image" : ""}`}>
             {isImage ? (
-              <img src={resolvedUrl} alt={asset.fileName} className="user-prompt-asset-preview" />
+              <UserPromptAssetPreview asset={asset} />
             ) : (
               <span className="user-prompt-asset-icon" aria-hidden="true">
                 <Icon name={asset.kind === "image" ? "image" : "file"} />

@@ -425,3 +425,38 @@ export const chatJobResponseSchema = z.object({
   updatedAt: z.string()
 });
 export type ChatJobResponse = z.infer<typeof chatJobResponseSchema>;
+
+export const conversationSummarySchema = z.object({
+  id: z.string(),
+  personaId: z.string().optional(),
+  title: z.string(),
+  messageCount: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+
+export const conversationUserAssetSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["image", "file"]),
+  fileName: z.string(),
+  mimeType: z.string(),
+  url: z.string().optional()
+});
+export type ConversationUserAsset = z.infer<typeof conversationUserAssetSchema>;
+
+export const conversationTurnSchema = z.object({
+  userMessage: z.string(),
+  userAssets: z.array(conversationUserAssetSchema).default([]),
+  assistantText: z.string(),
+  outputs: z.array(contentBlockSchema),
+  usage: chatResponseSchema.shape.usage.optional(),
+  backgroundJobId: z.string().optional()
+});
+export type ConversationTurn = z.infer<typeof conversationTurnSchema>;
+
+export const conversationDetailSchema = conversationSummarySchema.extend({
+  history: z.array(chatMessageSchema),
+  turns: z.array(conversationTurnSchema).default([])
+});
+export type ConversationDetail = z.infer<typeof conversationDetailSchema>;

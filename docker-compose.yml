@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: persona-wrapper-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: persona
+      POSTGRES_PASSWORD: persona_dev_password
+      POSTGRES_DB: persona_wrapper_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - /Volumes/ReggieSSD/mac/postgres/persona_wrapper_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U persona -d persona_wrapper_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
