@@ -1,3 +1,5 @@
+import { resolveApiUrl } from "../../lib/api.js";
+
 type FileBlockProps = {
   fileName: string;
   url: string;
@@ -6,7 +8,7 @@ type FileBlockProps = {
 };
 
 export function FileBlock({ fileName, url, mimeType, description }: FileBlockProps) {
-  const resolvedUrl = url.startsWith("/") ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}` : url;
+  const resolvedUrl = resolveApiUrl(url);
   return (
     <div className="output-file">
       <div className="output-label">{mimeType}</div>

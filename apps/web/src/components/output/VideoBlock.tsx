@@ -1,3 +1,5 @@
+import { resolveApiUrl } from "../../lib/api.js";
+
 type VideoBlockProps = {
   url: string;
   mimeType: string;
@@ -6,7 +8,7 @@ type VideoBlockProps = {
 };
 
 export function VideoBlock({ url, mimeType, title, fileName }: VideoBlockProps) {
-  const resolvedUrl = url.startsWith("/") ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}` : url;
+  const resolvedUrl = resolveApiUrl(url);
   const label = title ?? fileName ?? "Generated video";
 
   return (

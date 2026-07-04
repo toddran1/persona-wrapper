@@ -15,6 +15,20 @@
       "when": 1783036776000,
       "tag": "0001_rainy_piledriver",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783090000000,
+      "tag": "0002_generated_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783170000000,
+      "tag": "0003_generated_audio_owner_index",
+      "breakpoints": true
     }
   ]
 }

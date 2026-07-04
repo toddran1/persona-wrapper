@@ -75,4 +75,31 @@ describe("ConversationStore prompt context", () => {
     expect(restored?.turns[0]?.outputs[0]?.type).toBe("image");
     expect(restored?.turns[0]?.usage?.totalTokens).toBe(15);
   });
+
+  it("falls back to plain text when saved render metadata is malformed", async () => {
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate("malformed-metadata-test");
+    const updated = await store.appendTurn(conversation, [
+      {
+        role: "user",
+        content: "Use this broken asset.",
+        metadata: {
+          userAssets: "not an asset list"
+        } as never
+      },
+      {
+        role: "assistant",
+        content: "Still readable.",
+        metadata: {
+          outputs: [{ type: "image", url: "/missing-required-alt.png" }],
+          usage: { inputTokens: -1, outputTokens: 2 }
+        } as never
+      }
+    ]);
+
+    expect(updated.turns).toHaveLength(1);
+    expect(updated.turns?.[0]?.userAssets).toEqual([]);
+    expect(updated.turns?.[0]?.outputs).toEqual([{ type: "text", text: "Still readable." }]);
+    expect(updated.turns?.[0]?.usage).toBeUndefined();
+  });
 });

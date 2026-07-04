@@ -74,8 +74,29 @@ export const generatedAudio = pgTable("generated_audio", {
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => ({
+  ownerIdIdx: index("generated_audio_owner_id_idx").on(table.ownerId),
   conversationIdIdx: index("generated_audio_conversation_id_idx").on(table.conversationId),
   expiresAtIdx: index("generated_audio_expires_at_idx").on(table.expiresAt)
+}));
+
+export const generatedMedia = pgTable("generated_media", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id"),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  localPath: text("local_path"),
+  storageKey: text("storage_key"),
+  publicUrl: text("public_url"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  ownerIdIdx: index("generated_media_owner_id_idx").on(table.ownerId),
+  conversationIdIdx: index("generated_media_conversation_id_idx").on(table.conversationId),
+  expiresAtIdx: index("generated_media_expires_at_idx").on(table.expiresAt)
 }));
 
 export const backgroundJobs = pgTable("background_jobs", {

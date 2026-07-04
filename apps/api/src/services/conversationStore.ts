@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
-import type { ChatMessage, ConversationDetail, ConversationSummary, ConversationTurn } from "@persona/shared";
-import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
+import {
+  chatMessageSchema,
+  contentBlockSchema,
+  conversationUserAssetSchema,
+  type ChatMessage,
+  type ConversationDetail,
+  type ConversationSummary,
+  type ConversationTurn
+} from "@persona/shared";
+import { z } from "zod";
+import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { conversations, messages as dbMessages } from "../db/schema.js";
@@ -86,27 +95,39 @@ export class ConversationStore {
   async appendTurn(record: ConversationRecord, messages: ConversationAppendMessage[]): Promise<ConversationRecord> {
     const db = getDatabase();
     if (db) {
-      const firstSequence = record.messages.length;
+      const nextMessages = messages.map(stripMessageMetadata);
+      const updatedAt = new Date();
+      const nextTitle = record.title || titleFromMessages([...record.messages, ...nextMessages]) || "New conversation";
+
       if (messages.length > 0) {
-        await db.insert(dbMessages).values(messages.map((message, index) => ({
-          id: `msg_${randomUUID()}`,
-          conversationId: record.id,
-          role: message.role,
-          content: message.content,
-          name: message.name,
-          sequence: firstSequence + index,
-          metadata: message.metadata ?? {}
-        })));
-        const nextTitle = record.title || titleFromMessages([...record.messages, ...messages]) || "New conversation";
-        await db.update(conversations)
-          .set({ title: nextTitle, updatedAt: new Date() })
-          .where(eq(conversations.id, record.id));
+        await db.transaction(async (tx) => {
+          const sequenceRows = await tx
+            .select({ maxSequence: sql<number>`coalesce(max(${dbMessages.sequence}), -1)` })
+            .from(dbMessages)
+            .where(eq(dbMessages.conversationId, record.id));
+          const firstSequence = Number(sequenceRows[0]?.maxSequence ?? -1) + 1;
+
+          await tx.insert(dbMessages).values(messages.map((message, index) => ({
+            id: `msg_${randomUUID()}`,
+            conversationId: record.id,
+            role: message.role,
+            content: message.content,
+            name: message.name,
+            sequence: firstSequence + index,
+            metadata: sanitizeMessageMetadata(message.metadata) ?? {}
+          })));
+
+          await tx.update(conversations)
+            .set({ title: nextTitle, updatedAt })
+            .where(eq(conversations.id, record.id));
+        });
       }
+
       return {
         ...record,
-        title: record.title || titleFromMessages([...record.messages, ...messages]) || "New conversation",
-        updatedAt: new Date(),
-        messages: [...record.messages, ...messages.map(stripMessageMetadata)],
+        title: nextTitle,
+        updatedAt,
+        messages: [...record.messages, ...nextMessages],
         turns: appendRenderedTurns(record.turns ?? buildConversationTurns(record.messages), messages)
       };
     }
@@ -354,16 +375,16 @@ export class ConversationStore {
 }
 
 function rowToChatMessage(message: { role: string; content: string; name: string | null }): ChatMessage {
+  const role = isChatMessageRole(message.role) ? message.role : "assistant";
   return {
-    role: message.role as ChatMessage["role"],
+    role,
     content: message.content,
     ...(message.name ? { name: message.name } : {})
   };
 }
 
 function rowToMessageMetadata(message: { metadata?: Record<string, unknown> | null }): ConversationMessageMetadata | undefined {
-  if (!message.metadata || typeof message.metadata !== "object") return undefined;
-  return message.metadata as ConversationMessageMetadata;
+  return sanitizeMessageMetadata(message.metadata);
 }
 
 function stripMessageMetadata(message: ConversationAppendMessage): ChatMessage {
@@ -379,17 +400,55 @@ function appendRenderedTurns(existingTurns: ConversationTurn[], messages: Conver
   const user = messages.find((message) => message.role === "user");
   const assistant = messages.find((message) => message.role === "assistant");
   if (!user || !assistant) return existingTurns;
+  const userMetadata = sanitizeMessageMetadata(user.metadata);
+  const assistantMetadata = sanitizeMessageMetadata(assistant.metadata);
   return [
     ...existingTurns,
     {
       userMessage: user.content,
-      userAssets: user.metadata?.userAssets ?? [],
+      userAssets: userMetadata?.userAssets ?? [],
       assistantText: assistant.content,
-      outputs: assistant.metadata?.outputs ?? (assistant.content ? [{ type: "text", text: assistant.content }] : []),
-      ...(assistant.metadata?.usage ? { usage: assistant.metadata.usage } : {}),
-      ...(assistant.metadata?.backgroundJobId ? { backgroundJobId: assistant.metadata.backgroundJobId } : {})
+      outputs: assistantMetadata?.outputs ?? (assistant.content ? [{ type: "text", text: assistant.content }] : []),
+      ...(assistantMetadata?.usage ? { usage: assistantMetadata.usage } : {}),
+      ...(assistantMetadata?.backgroundJobId ? { backgroundJobId: assistantMetadata.backgroundJobId } : {})
     }
   ];
+}
+
+function isChatMessageRole(role: string): role is ChatMessage["role"] {
+  return chatMessageSchema.shape.role.safeParse(role).success;
+}
+
+const contentBlocksSchema = z.array(contentBlockSchema);
+const userAssetsSchema = z.array(conversationUserAssetSchema);
+const usageSchema = z.object({
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative().optional(),
+  cachedInputTokens: z.number().int().nonnegative().optional(),
+  reasoningTokens: z.number().int().nonnegative().optional(),
+  estimatedCostUsd: z.number().nonnegative().optional()
+});
+
+function sanitizeMessageMetadata(metadata: unknown): ConversationMessageMetadata | undefined {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return undefined;
+  const raw = metadata as Record<string, unknown>;
+  const normalized: ConversationMessageMetadata = {};
+
+  const outputs = contentBlocksSchema.safeParse(raw.outputs);
+  if (outputs.success) normalized.outputs = outputs.data;
+
+  const usage = usageSchema.safeParse(raw.usage);
+  if (usage.success) normalized.usage = usage.data;
+
+  const userAssets = userAssetsSchema.safeParse(raw.userAssets);
+  if (userAssets.success) normalized.userAssets = userAssets.data;
+
+  if (typeof raw.backgroundJobId === "string") {
+    normalized.backgroundJobId = raw.backgroundJobId;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function buildConversationTurns(history: ChatMessage[], metadata: Array<ConversationMessageMetadata | undefined> = []): ConversationTurn[] {

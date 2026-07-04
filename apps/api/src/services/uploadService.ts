@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, extname, resolve } from "node:path";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { basename, extname } from "node:path";
 import OpenAI, { toFile } from "openai";
 import type { UploadedAsset } from "@persona/shared";
 import { and, eq, lte } from "drizzle-orm";
@@ -8,6 +8,7 @@ import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { uploads, vectorStores } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
+import { storageService } from "./storageService.js";
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const FILE_MIME_TYPES = new Set([
@@ -23,7 +24,8 @@ const FILE_MIME_TYPES = new Set([
 
 type StoredAsset = UploadedAsset & {
   ownerId: string;
-  localPath: string;
+  localPath?: string;
+  storageKey?: string;
 };
 
 type StoredVectorStore = {
@@ -35,11 +37,9 @@ type StoredVectorStore = {
 export class UploadService {
   private readonly assets = new Map<string, StoredAsset>();
   private readonly vectorStores = new Map<string, StoredVectorStore>();
-  private readonly uploadDir = resolve(env.UPLOAD_DIR);
 
   constructor() {
-    mkdirSync(this.uploadDir, { recursive: true });
-    this.cleanupOrphanedDiskFiles();
+    void this.cleanupOrphanedDiskFiles();
     setInterval(() => void this.cleanupExpiredRemote(), 15 * 60 * 1000).unref();
   }
 
@@ -53,9 +53,12 @@ export class UploadService {
 
     const id = `asset_${randomUUID()}`;
     const safeExtension = extname(basename(file.originalname)).slice(0, 12);
-    const localPath = resolve(this.uploadDir, `${id}${safeExtension}`);
-    writeFileSync(localPath, file.buffer, { flag: "wx" });
-    const expiresAt = new Date(Date.now() + env.UPLOAD_TTL_HOURS * 60 * 60 * 1000).toISOString();
+    const stored = await storageService.put({
+      bucket: "uploads",
+      fileName: `${id}${safeExtension}`,
+      buffer: file.buffer
+    });
+    const expiresAt = uploadExpiresAt().toISOString();
     let openaiFileId: string | undefined;
 
     try {
@@ -72,7 +75,7 @@ export class UploadService {
         openaiFileId = uploaded.id;
       }
     } catch (error) {
-      rmSync(localPath, { force: true });
+      await storageService.delete(stored.storageKey).catch(() => undefined);
       throw error;
     }
 
@@ -86,7 +89,8 @@ export class UploadService {
       url: `/api/uploads/${id}`,
       ...(openaiFileId ? { openaiFileId } : {}),
       expiresAt,
-      localPath
+      ...(stored.localPath ? { localPath: stored.localPath } : {}),
+      storageKey: stored.storageKey
     };
     const db = getDatabase();
     if (db) {
@@ -97,7 +101,8 @@ export class UploadService {
         fileName: asset.fileName,
         mimeType: asset.mimeType,
         sizeBytes: asset.sizeBytes,
-        localPath,
+        ...(stored.localPath ? { localPath: stored.localPath } : {}),
+        storageKey: stored.storageKey,
         publicUrl: asset.url,
         openaiFileId,
         expiresAt: new Date(expiresAt)
@@ -116,6 +121,31 @@ export class UploadService {
       : this.assets.get(id);
     if (!asset || asset.ownerId !== ownerId) throw new HttpError("Upload not found.", 404);
     return asset;
+  }
+
+  async getById(id: string): Promise<StoredAsset> {
+    await this.cleanupExpired();
+    const db = getDatabase();
+    const asset = db
+      ? await this.getAnyFromDatabase(id)
+      : this.assets.get(id);
+    if (!asset) throw new HttpError("Upload not found.", 404);
+    return asset;
+  }
+
+  async download(ownerId: string | undefined, id: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    const asset = ownerId ? await this.get(ownerId, id) : await this.getById(id);
+    const buffer = asset.storageKey
+      ? (await storageService.get(asset.storageKey)).buffer
+      : asset.localPath && existsSync(asset.localPath)
+        ? readFileSync(asset.localPath)
+        : undefined;
+    if (!buffer) throw new HttpError("Upload file is unavailable.", 404);
+    return {
+      buffer,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType
+    };
   }
 
   async list(ownerId: string): Promise<UploadedAsset[]> {
@@ -154,7 +184,8 @@ export class UploadService {
     } else {
       this.assets.delete(id);
     }
-    rmSync(asset.localPath, { force: true });
+    if (asset.storageKey) await storageService.delete(asset.storageKey).catch(() => undefined);
+    else if (asset.localPath) rmSync(asset.localPath, { force: true });
     if (asset.openaiFileId && env.OPENAI_API_KEY) {
       const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
       await client.files.delete(asset.openaiFileId).catch(() => undefined);
@@ -207,7 +238,7 @@ export class UploadService {
   }
 
   private publicAsset(asset: StoredAsset): UploadedAsset {
-    const { ownerId: _ownerId, localPath: _localPath, ...publicAsset } = asset;
+    const { ownerId: _ownerId, localPath: _localPath, storageKey: _storageKey, ...publicAsset } = asset;
     return publicAsset;
   }
 
@@ -220,7 +251,8 @@ export class UploadService {
       if (expiredAssets.length > 0) await db.delete(uploads).where(lte(uploads.expiresAt, now));
       if (expiredVectorStores.length > 0) await db.delete(vectorStores).where(lte(vectorStores.expiresAt, now));
       for (const asset of expiredAssets) {
-        if (asset.localPath) rmSync(asset.localPath, { force: true });
+        if (asset.storageKey) await storageService.delete(asset.storageKey).catch(() => undefined);
+        else if (asset.localPath) rmSync(asset.localPath, { force: true });
       }
       if (deleteRemote && env.OPENAI_API_KEY) {
         const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
@@ -237,7 +269,8 @@ export class UploadService {
     for (const asset of this.assets.values()) {
       if (new Date(asset.expiresAt ?? 0).getTime() > now) continue;
       this.assets.delete(asset.id);
-      rmSync(asset.localPath, { force: true });
+      if (asset.storageKey) await storageService.delete(asset.storageKey).catch(() => undefined);
+      else if (asset.localPath) rmSync(asset.localPath, { force: true });
       if (deleteRemote && client && asset.openaiFileId) void client.files.delete(asset.openaiFileId).catch(() => undefined);
     }
     for (const vectorStore of this.vectorStores.values()) {
@@ -257,7 +290,7 @@ export class UploadService {
     const now = Date.now();
     const expiredAssets = [...this.assets.values()].filter((asset) => new Date(asset.expiresAt ?? 0).getTime() <= now);
     const expiredVectorStores = [...this.vectorStores.values()].filter((store) => new Date(store.expiresAt).getTime() <= now);
-    this.cleanupExpired(false);
+    await this.cleanupExpired(false);
     if (!env.OPENAI_API_KEY) return;
     const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
     await Promise.all([
@@ -266,16 +299,12 @@ export class UploadService {
     ]);
   }
 
-  private cleanupOrphanedDiskFiles(): void {
-    const cutoff = Date.now() - env.UPLOAD_TTL_HOURS * 60 * 60 * 1000;
-    for (const fileName of readdirSync(this.uploadDir)) {
-      const filePath = resolve(this.uploadDir, fileName);
-      try {
-        if (statSync(filePath).mtimeMs <= cutoff) rmSync(filePath, { force: true });
-      } catch {
-        // A concurrent cleanup or upload may have changed the file.
-      }
+  private async cleanupOrphanedDiskFiles(): Promise<void> {
+    if (env.UPLOAD_TTL_HOURS <= 0) {
+      return;
     }
+    const cutoff = Date.now() - env.UPLOAD_TTL_HOURS * 60 * 60 * 1000;
+    await storageService.cleanupOlderThan("uploads", cutoff);
   }
 
   private async getFromDatabase(ownerId: string, id: string): Promise<StoredAsset | undefined> {
@@ -287,8 +316,17 @@ export class UploadService {
     return row ? this.assetFromDatabase(row) : undefined;
   }
 
+  private async getAnyFromDatabase(id: string): Promise<StoredAsset | undefined> {
+    const db = getDatabase();
+    if (!db) return undefined;
+    const row = await db.query.uploads.findFirst({
+      where: eq(uploads.id, id)
+    });
+    return row ? this.assetFromDatabase(row) : undefined;
+  }
+
   private assetFromDatabase(row: typeof uploads.$inferSelect): StoredAsset {
-    if (!row.localPath) throw new HttpError("Upload file is unavailable.", 404);
+    if (!row.storageKey && !row.localPath) throw new HttpError("Upload file is unavailable.", 404);
     return {
       id: row.id,
       ownerId: row.ownerId,
@@ -299,9 +337,17 @@ export class UploadService {
       url: row.publicUrl ?? `/api/uploads/${row.id}`,
       ...(row.openaiFileId ? { openaiFileId: row.openaiFileId } : {}),
       ...(row.expiresAt ? { expiresAt: row.expiresAt.toISOString() } : {}),
-      localPath: row.localPath
+      ...(row.localPath ? { localPath: row.localPath } : {}),
+      ...(row.storageKey ? { storageKey: row.storageKey } : {})
     };
   }
+}
+
+function uploadExpiresAt(): Date {
+  if (env.UPLOAD_TTL_HOURS <= 0) {
+    return new Date("9999-12-31T23:59:59.000Z");
+  }
+  return new Date(Date.now() + env.UPLOAD_TTL_HOURS * 60 * 60 * 1000);
 }
 
 function validateFileContents(file: Express.Multer.File): void {

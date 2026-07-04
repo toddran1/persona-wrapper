@@ -11,8 +11,14 @@ import type {
   UploadedAsset
 } from "@persona/shared";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000";
+const DEFAULT_API_BASE_URL = "http://localhost:4000";
+const configuredApiBaseUrl = typeof import.meta.env.VITE_API_URL === "string" ? import.meta.env.VITE_API_URL.trim() : "";
+export const API_BASE_URL = configuredApiBaseUrl || DEFAULT_API_BASE_URL;
 const OWNER_ID_KEY = "persona-wrapper-owner-id";
+
+export function resolveApiUrl(pathOrUrl: string): string {
+  return pathOrUrl.startsWith("/") ? `${API_BASE_URL}${pathOrUrl}` : pathOrUrl;
+}
 
 export function ownerId(): string {
   const existing = localStorage.getItem(OWNER_ID_KEY);
@@ -73,13 +79,19 @@ export type ReviewRecordDeletePayload = {
 };
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      "x-owner-id": ownerId()
-    },
-    ...init
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-owner-id": ownerId()
+      },
+      ...init
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not reach API at ${API_BASE_URL}${path}: ${message}`);
+  }
 
   if (!response.ok) {
     let detail = "";
@@ -96,16 +108,22 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "x-owner-id": ownerId() },
-    ...init
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      headers: { "x-owner-id": ownerId() },
+      ...init
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not reach API at ${API_BASE_URL}${path}: ${message}`);
+  }
   if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
 }
 
 export const api = {
   fetchUploadBlob: async (url: string, signal?: AbortSignal): Promise<Blob> => {
-    const resolvedUrl = url.startsWith("/") ? `${API_BASE_URL}${url}` : url;
+    const resolvedUrl = resolveApiUrl(url);
     const response = await fetch(resolvedUrl, {
       headers: { "x-owner-id": ownerId() },
       ...(signal ? { signal } : {})
@@ -116,11 +134,17 @@ export const api = {
   uploadFiles: async (files: File[]): Promise<UploadedAsset[]> => {
     const body = new FormData();
     files.forEach((file) => body.append("files", file));
-    const response = await fetch(`${API_BASE_URL}/api/uploads`, {
-      method: "POST",
-      headers: { "x-owner-id": ownerId() },
-      body
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}/api/uploads`, {
+        method: "POST",
+        headers: { "x-owner-id": ownerId() },
+        body
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Could not reach API at ${API_BASE_URL}/api/uploads: ${message}`);
+    }
     if (!response.ok) throw new Error(`Upload failed with status ${response.status}`);
     const payload = await response.json() as { assets: UploadedAsset[] };
     return payload.assets;

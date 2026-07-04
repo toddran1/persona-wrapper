@@ -1,3 +1,5 @@
+import { resolveApiUrl } from "../../lib/api.js";
+
 type AudioBlockProps = {
   url: string;
   mimeType: string;
@@ -5,7 +7,7 @@ type AudioBlockProps = {
 };
 
 export function AudioBlock({ url, mimeType }: AudioBlockProps) {
-  const resolvedUrl = url.startsWith("/") ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}` : url;
+  const resolvedUrl = resolveApiUrl(url);
 
   return (
     <div className="media-card">

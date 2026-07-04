@@ -3,7 +3,7 @@ import type { ChatResponse, ContentBlock, UploadedAsset } from "@persona/shared"
 import { useEffect, useId, useRef, useState } from "react";
 import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
-import { api } from "../lib/api.js";
+import { api, resolveApiUrl } from "../lib/api.js";
 
 export type UserPromptAsset = {
   id: string;
@@ -24,7 +24,7 @@ export type RenderedTurn = {
 };
 
 function resolveAssetUrl(url: string): string {
-  return url.startsWith("/") ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}` : url;
+  return resolveApiUrl(url);
 }
 
 function UserPromptAssetPreview({ asset }: { asset: UserPromptAsset }) {

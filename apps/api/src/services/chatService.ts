@@ -10,6 +10,7 @@ import { PersonaEngine } from "./personaEngine.js";
 import { ResponseFormatter, type TTSDiagnostic } from "./responseFormatter.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
+import { generatedMediaService } from "./generatedMediaService.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
 import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
 
@@ -215,11 +216,24 @@ export class ChatService {
       }
     });
 
+    const persistedMediaContent = await generatedMediaService.normalizeContentBlocks(styledLlmOutput.content, {
+      ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+      conversationId: conversation.id,
+      metadata: {
+        provider: llmOutput.provider,
+        personaId: persona.id
+      }
+    });
+    const responseLlmOutput = llmOutputSchema.parse({
+      ...styledLlmOutput,
+      content: persistedMediaContent
+    });
+
     let ttsOutput: TTSOutput | undefined;
     let ttsDiagnostic: TTSDiagnostic | undefined = request.audio ? { status: "skipped_no_text", reason: "No text content available for speech." } : { status: "not_requested" };
     let ttsScriptLog: { mode: "mechanical" | "openai_inline"; text: string; textCharacters: number } | undefined;
     if (request.audio) {
-      const textBlock = styledLlmOutput.content.find((block) => block.type === "text");
+      const textBlock = responseLlmOutput.content.find((block) => block.type === "text");
       const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
       if (speechText) {
         const inlineTtsScript = typeof llmOutput.metadata?.ttsScript === "string" ? llmOutput.metadata.ttsScript.trim() : "";
@@ -339,15 +353,15 @@ export class ChatService {
       tts: ttsLogPayload
     });
 
-    const firstTextBlock = styledLlmOutput.content.find((block) => block.type === "text");
-    const assistantText = firstTextBlock?.type === "text" ? firstTextBlock.text : styledLlmOutput.rawText;
-    const persistedOutputs: ContentBlock[] = [...styledLlmOutput.content];
+    const firstTextBlock = responseLlmOutput.content.find((block) => block.type === "text");
+    const assistantText = firstTextBlock?.type === "text" ? firstTextBlock.text : responseLlmOutput.rawText;
+    const persistedOutputs: ContentBlock[] = [...responseLlmOutput.content];
     if (request.audio && ttsOutput) {
       persistedOutputs.push({
         type: "audio",
         url: ttsOutput.url,
         mimeType: ttsOutput.mimeType,
-        transcript: firstTextBlock?.type === "text" ? firstTextBlock.text : styledLlmOutput.rawText
+        transcript: firstTextBlock?.type === "text" ? firstTextBlock.text : responseLlmOutput.rawText
       });
     }
     const userAssets = (request.attachments ?? []).map((asset) => ({
@@ -371,14 +385,14 @@ export class ChatService {
         content: assistantText,
         metadata: {
           outputs: persistedOutputs,
-          ...(styledLlmOutput.usage ? { usage: styledLlmOutput.usage } : {})
+          ...(responseLlmOutput.usage ? { usage: responseLlmOutput.usage } : {})
         }
       }
     ]);
 
     return this.responseFormatter.format({
       persona,
-      llmOutput: styledLlmOutput,
+      llmOutput: responseLlmOutput,
       conversationId: updatedConversation.id,
       history: updatedConversation.messages,
       includeAudio: request.audio,

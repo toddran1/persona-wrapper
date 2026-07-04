@@ -101,6 +101,30 @@ describe("ConversationHistory pending state", () => {
     expect(screen.getByRole("link", { name: "Billboard report" })).toHaveAttribute("href", "https://example.com/billboard");
   });
 
+  it("preserves ordered markdown numbering when list items have paragraph details", () => {
+    const { container } = render(
+      <ConversationHistory
+        turns={[
+          {
+            userMessage: "Give me a recipe.",
+            assistantText:
+              "### Instructions\n\n1. Heat the oven.\n\nGrease the pan.\n\n2. Cream the butter and sugar.\n\nKeep going until fluffy.\n\n3. Add the eggs.",
+            outputs: [
+              {
+                type: "text",
+                text: "### Instructions\n\n1. Heat the oven.\n\nGrease the pan.\n\n2. Cream the butter and sugar.\n\nKeep going until fluffy.\n\n3. Add the eggs."
+              }
+            ]
+          }
+        ]}
+      />
+    );
+
+    const lists = Array.from(container.querySelectorAll("ol"));
+    expect(lists).toHaveLength(3);
+    expect(lists.map((list) => list.getAttribute("start"))).toEqual(["1", "2", "3"]);
+  });
+
   it("shows submitted asset previews in the user prompt bubble", () => {
     render(
       <ConversationHistory

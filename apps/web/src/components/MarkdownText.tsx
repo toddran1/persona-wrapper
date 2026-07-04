@@ -54,14 +54,24 @@ function renderParagraph(lines: string[], key: string): ReactNode {
 function renderList(lines: string[], key: string): ReactNode {
   const ordered = lines.every((line) => /^\s*\d+\.\s+/.test(line));
   const items = lines.map((line) => line.replace(/^\s*(?:[-*]|\d+\.)\s+/, ""));
-  const ListTag = ordered ? "ol" : "ul";
+  const start = ordered ? Number(lines[0]?.match(/^\s*(\d+)\.\s+/)?.[1] ?? "1") : undefined;
+
+  if (ordered) {
+    return (
+      <ol key={key} start={start}>
+        {items.map((item, index) => (
+          <li key={`${key}-item-${index}`}>{parseInlineMarkdown(item, `${key}-item-${index}`)}</li>
+        ))}
+      </ol>
+    );
+  }
 
   return (
-    <ListTag key={key}>
+    <ul key={key}>
       {items.map((item, index) => (
         <li key={`${key}-item-${index}`}>{parseInlineMarkdown(item, `${key}-item-${index}`)}</li>
       ))}
-    </ListTag>
+    </ul>
   );
 }
 

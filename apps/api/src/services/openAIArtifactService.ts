@@ -22,7 +22,7 @@ export class OpenAIArtifactService {
       containerId,
       fileId,
       fileName,
-      expiresAt: Date.now() + env.UPLOAD_TTL_HOURS * 60 * 60 * 1000
+      expiresAt: env.UPLOAD_TTL_HOURS <= 0 ? Number.POSITIVE_INFINITY : Date.now() + env.UPLOAD_TTL_HOURS * 60 * 60 * 1000
     });
     return `/api/openai-artifacts/${token}`;
   }

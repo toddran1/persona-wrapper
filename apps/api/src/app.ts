@@ -6,7 +6,9 @@ import { chatRouter } from "./routes/chat.routes.js";
 import { personaRouter } from "./routes/persona.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
 import { getGeneratedAudio } from "./controllers/generatedAudio.controller.js";
+import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
+import { storageService } from "./services/storageService.js";
 import { HttpError } from "./utils/httpError.js";
 import { logger } from "./utils/logger.js";
 
@@ -20,11 +22,19 @@ export function createApp() {
     response.status(200).json({ status: "ok" });
   });
 
+  app.get("/health/storage", (async (_request: Request, response: Response) => {
+    const storage = await storageService.healthCheck();
+    response.status(storage.ok ? 200 : 503).json({ status: storage.ok ? "ok" : "error", storage });
+  }) as express.RequestHandler);
+
   app.use("/api/chat", chatRouter);
   app.use("/api/personas", personaRouter);
   app.use("/api/uploads", uploadRouter);
   app.get("/api/generated-audio/:token", (request, response, next) => {
     getGeneratedAudio(request, response).catch(next);
+  });
+  app.get("/api/generated-media/:fileName", (request, response, next) => {
+    getGeneratedMedia(request, response).catch(next);
   });
   app.get("/api/openai-artifacts/:token", (request, response, next) => {
     getOpenAIArtifact(request, response).catch(next);

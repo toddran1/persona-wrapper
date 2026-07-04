@@ -10,7 +10,7 @@ services:
     ports:
       - "5434:5432"
     volumes:
-      - /Volumes/ReggieSSD/mac/postgres/persona_wrapper_db:/var/lib/postgresql/data
+      - /Volumes/ReggieSSD/mac/coding-projects/postgres/persona_wrapper_db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U persona -d persona_wrapper_db"]
       interval: 10s

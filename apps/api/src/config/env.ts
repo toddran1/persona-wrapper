@@ -16,6 +16,12 @@ function stringToBoolean(value: unknown): unknown {
   return value.toLowerCase() === "true";
 }
 
+function optionalTrimmedString(value: unknown): unknown {
+  if (value === "") return undefined;
+  if (typeof value === "string") return value.trim() || undefined;
+  return value;
+}
+
 const reasoningEffortSchema = z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const reasoningSummarySchema = z.enum(["auto", "concise", "detailed"]);
 const textVerbositySchema = z.enum(["low", "medium", "high"]);
@@ -73,9 +79,20 @@ const envSchema = z.object({
   CHAT_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(30),
   CHAT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   DATABASE_URL: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
+  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+  STORAGE_LOCAL_ROOT: z.preprocess(emptyStringToUndefined, z.string().optional()),
+  STORAGE_S3_BUCKET: z.preprocess(optionalTrimmedString, z.string().optional()),
+  STORAGE_S3_REGION: z.preprocess(optionalTrimmedString, z.string().optional()),
+  STORAGE_S3_PREFIX: z.preprocess(optionalTrimmedString, z.string().optional()),
+  STORAGE_S3_ENDPOINT: z.preprocess(optionalTrimmedString, z.string().url().optional()),
+  STORAGE_S3_FORCE_PATH_STYLE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   UPLOAD_DIR: z.string().default("apps/api/uploads"),
+  GENERATED_MEDIA_DIR: z.preprocess(emptyStringToUndefined, z.string().optional()),
+  GENERATED_MEDIA_TTL_HOURS: z.coerce.number().int().nonnegative().default(0),
+  GENERATED_AUDIO_DIR: z.preprocess(emptyStringToUndefined, z.string().optional()),
+  GENERATED_AUDIO_TTL_HOURS: z.coerce.number().int().nonnegative().default(0),
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
-  UPLOAD_TTL_HOURS: z.coerce.number().int().positive().default(24),
+  UPLOAD_TTL_HOURS: z.coerce.number().int().nonnegative().default(24),
   ANTHROPIC_API_KEY: z.string().optional(),
   LOCAL_LLM_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   LOCAL_LLM_MODEL: z.string().default("llama3.2:3b"),
@@ -98,6 +115,30 @@ const envSchema = z.object({
   STYLE_TRANSFER_PROVIDER: z.enum(["stub", "local", "runpod", "huggingface"]).default("stub"),
   STYLE_TRANSFER_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   STYLE_TRANSFER_MODEL_ID: z.preprocess(emptyStringToUndefined, z.string().optional())
+}).superRefine((value, context) => {
+  if (value.STORAGE_DRIVER === "s3") {
+    if (value.NODE_ENV !== "production") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["STORAGE_DRIVER"],
+        message: "STORAGE_DRIVER=s3 is only supported when NODE_ENV=production."
+      });
+    }
+    if (!value.STORAGE_S3_BUCKET) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["STORAGE_S3_BUCKET"],
+        message: "STORAGE_S3_BUCKET is required when STORAGE_DRIVER=s3."
+      });
+    }
+    if (!value.STORAGE_S3_REGION) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["STORAGE_S3_REGION"],
+        message: "STORAGE_S3_REGION is required when STORAGE_DRIVER=s3."
+      });
+    }
+  }
 });
 
 export const env = envSchema.parse(process.env);

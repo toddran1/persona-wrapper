@@ -14,6 +14,13 @@ function ownerId(request: Request): string {
   return value;
 }
 
+function optionalOwnerId(request: Request): string | undefined {
+  const value = request.header("x-owner-id");
+  if (!value) return undefined;
+  if (value.length > 200) throw new HttpError("A valid x-owner-id header is required.", 400);
+  return value;
+}
+
 export async function postUploads(request: Request, response: Response): Promise<void> {
   const files = request.files;
   if (!Array.isArray(files) || files.length === 0) throw new HttpError("At least one file is required.", 400);
@@ -26,8 +33,9 @@ export async function getUploads(request: Request, response: Response): Promise<
 }
 
 export async function getUpload(request: Request, response: Response): Promise<void> {
-  const asset = await uploadService.get(ownerId(request), String(request.params.id));
-  response.type(asset.mimeType).download(asset.localPath, asset.fileName);
+  const asset = await uploadService.download(optionalOwnerId(request), String(request.params.id));
+  response.setHeader("Content-Disposition", `inline; filename="${asset.fileName.replaceAll('"', "")}"`);
+  response.type(asset.mimeType).send(asset.buffer);
 }
 
 export async function deleteUpload(request: Request, response: Response): Promise<void> {

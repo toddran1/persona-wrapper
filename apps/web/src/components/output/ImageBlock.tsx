@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { resolveApiUrl } from "../../lib/api.js";
 
 type ImageBlockProps = {
   url: string;
@@ -82,7 +83,7 @@ function imageFileName(alt: string, prompt?: string, mimeType?: string, metadata
 }
 
 function resolveMediaUrl(url: string): string {
-  return url.startsWith("/") ? `${import.meta.env.VITE_API_URL ?? "http://localhost:4000"}${url}` : url;
+  return resolveApiUrl(url);
 }
 
 export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockProps) {
