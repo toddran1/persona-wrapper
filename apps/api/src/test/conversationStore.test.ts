@@ -17,6 +17,37 @@ describe("ConversationStore prompt context", () => {
     expect(history.at(-1)?.content).toBe("recent answer");
   });
 
+  it("skips empty assistant messages when building prompt history", async () => {
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate("empty-message-context-test", [
+      { role: "user", content: "make an image" },
+      { role: "assistant", content: "" },
+      { role: "user", content: "describe the image" }
+    ]);
+
+    const history = store.getPromptHistory(conversation);
+    expect(history.map((message) => message.content)).toEqual(["make an image", "describe the image"]);
+  });
+
+  it("adds a compact memory summary for older turns before recent context", async () => {
+    const store = new ConversationStore();
+    const seed = Array.from({ length: 26 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" as const : "assistant" as const,
+      content: index === 0 ? "My favorite color is purple." : `message ${index}`
+    }));
+    const conversation = await store.getOrCreate("memory-context-test", seed);
+    const updated = await store.appendTurn(conversation, [
+      { role: "user", content: "What color did I say I liked?" },
+      { role: "assistant", content: "You said purple." }
+    ]);
+
+    const context = store.getPromptContext(updated);
+    expect(context[0]?.role).toBe("system");
+    expect(context[0]?.content).toContain("Conversation memory summary");
+    expect(context[0]?.content).toContain("My favorite color is purple.");
+    expect(context.at(-2)?.content).toBe("What color did I say I liked?");
+  });
+
   it("renames a conversation for the history list", async () => {
     const store = new ConversationStore();
     await store.getOrCreate("rename-test", [], {

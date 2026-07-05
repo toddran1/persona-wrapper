@@ -44,6 +44,9 @@ Recommended local media root:
 ```env
 STORAGE_DRIVER=local
 STORAGE_LOCAL_ROOT=/Volumes/ReggieSSD/mac/coding-projects/python/persona_wrapper/media
+UPLOAD_TTL_HOURS=24
+GENERATED_MEDIA_TTL_HOURS=0
+GENERATED_AUDIO_TTL_HOURS=236
 ```
 
 When `STORAGE_LOCAL_ROOT` is set, the API stores objects under:
@@ -103,3 +106,19 @@ Recommended cost controls:
 - Keep `STORAGE_S3_PREFIX` environment-specific, for example `prod`, so cleanup and IAM can be scoped safely.
 - Keep metadata JSON small; store searchable values in typed columns when they become query-heavy.
 - Avoid database indexes on large JSON payloads until there is a concrete query path that needs them.
+
+## Conversation Context
+
+Conversation turns are stored durably in Postgres. For each model request, the API sends recent turns directly, bounded by `OPENAI_MAX_CONTEXT_MESSAGES` and `OPENAI_MAX_CONTEXT_CHARACTERS`, and skips empty assistant messages from media-only turns so they do not waste context slots.
+
+For longer chats, the API keeps a compact deterministic memory summary in `conversations.metadata.memorySummary`. That summary is prepended as a system context note before the recent verbatim turns, which gives the model continuity without resending the entire transcript every time.
+
+Relevant context controls:
+
+```env
+OPENAI_MAX_CONTEXT_MESSAGES=24
+OPENAI_MAX_CONTEXT_CHARACTERS=60000
+CONVERSATION_MEMORY_SUMMARY_ENABLED=true
+CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=20
+CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS=3000
+```

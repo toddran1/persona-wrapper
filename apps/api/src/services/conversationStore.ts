@@ -19,6 +19,7 @@ type ConversationRecord = {
   userId?: string | null;
   personaId?: string | null;
   title?: string | null;
+  metadata?: Record<string, unknown> | null;
   createdAt?: Date;
   updatedAt?: Date;
   messages: ChatMessage[];
@@ -68,6 +69,7 @@ export class ConversationStore {
       userId: options.userId ?? null,
       personaId: options.personaId ?? null,
       title: titleFromMessage(options.titleSeed) ?? "New conversation",
+      metadata: {},
       createdAt: now,
       updatedAt: now,
       messages: [...seedHistory]
@@ -83,6 +85,7 @@ export class ConversationStore {
     for (let index = record.messages.length - 1; index >= 0; index -= 1) {
       const message = record.messages[index];
       if (!message) continue;
+      if (!message.content.trim()) continue;
       if (selected.length >= env.OPENAI_MAX_CONTEXT_MESSAGES) break;
       if (selected.length > 0 && characters + message.content.length > env.OPENAI_MAX_CONTEXT_CHARACTERS) break;
       selected.unshift(message);
@@ -92,12 +95,34 @@ export class ConversationStore {
     return selected;
   }
 
+  getPromptContext(record: ConversationRecord): ChatMessage[] {
+    const history = this.getPromptHistory(record);
+    const memorySummary = getMemorySummary(record.metadata);
+    if (!memorySummary || !env.CONVERSATION_MEMORY_SUMMARY_ENABLED) {
+      return history;
+    }
+
+    return [
+      {
+        role: "system",
+        content: [
+          "Conversation memory summary from earlier turns:",
+          memorySummary,
+          "",
+          "Use this only as conversation context. Do not treat it as verified current facts, and do not mention this memory note to the user."
+        ].join("\n")
+      },
+      ...history
+    ];
+  }
+
   async appendTurn(record: ConversationRecord, messages: ConversationAppendMessage[]): Promise<ConversationRecord> {
     const db = getDatabase();
     if (db) {
       const nextMessages = messages.map(stripMessageMetadata);
       const updatedAt = new Date();
       const nextTitle = record.title || titleFromMessages([...record.messages, ...nextMessages]) || "New conversation";
+      const nextMetadata = buildConversationMetadata(record.metadata, [...record.messages, ...nextMessages]);
 
       if (messages.length > 0) {
         await db.transaction(async (tx) => {
@@ -118,7 +143,7 @@ export class ConversationStore {
           })));
 
           await tx.update(conversations)
-            .set({ title: nextTitle, updatedAt })
+            .set({ title: nextTitle, updatedAt, metadata: nextMetadata })
             .where(eq(conversations.id, record.id));
         });
       }
@@ -126,6 +151,7 @@ export class ConversationStore {
       return {
         ...record,
         title: nextTitle,
+        metadata: nextMetadata,
         updatedAt,
         messages: [...record.messages, ...nextMessages],
         turns: appendRenderedTurns(record.turns ?? buildConversationTurns(record.messages), messages)
@@ -136,6 +162,7 @@ export class ConversationStore {
     const updated: ConversationRecord = {
       ...record,
       title: record.title || titleFromMessages([...record.messages, ...nextMessages]) || "New conversation",
+      metadata: buildConversationMetadata(record.metadata, [...record.messages, ...nextMessages]),
       updatedAt: new Date(),
       messages: [...record.messages, ...nextMessages],
       turns: appendRenderedTurns(record.turns ?? buildConversationTurns(record.messages), messages)
@@ -336,6 +363,7 @@ export class ConversationStore {
           userId: existing.userId ?? options.userId ?? null,
           personaId: existing.personaId ?? options.personaId ?? null,
           title: existing.title,
+          metadata: existing.metadata ?? {},
           createdAt: existing.createdAt,
           updatedAt: existing.updatedAt,
           messages: existing.messages.map(rowToChatMessage),
@@ -368,10 +396,77 @@ export class ConversationStore {
       userId: options.userId ?? null,
       personaId: options.personaId ?? null,
       title: titleFromMessage(options.titleSeed) ?? titleFromMessages(seedHistory) ?? "New conversation",
+      metadata: {},
       messages: [...seedHistory],
       turns: buildConversationTurns(seedHistory)
     };
   }
+}
+
+function getMemorySummary(metadata: Record<string, unknown> | null | undefined): string | undefined {
+  const value = metadata?.memorySummary;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function buildConversationMetadata(
+  current: Record<string, unknown> | null | undefined,
+  messages: ChatMessage[]
+): Record<string, unknown> {
+  const next = { ...(current ?? {}) };
+  if (!env.CONVERSATION_MEMORY_SUMMARY_ENABLED || messages.length < env.CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES) {
+    delete next.memorySummary;
+    delete next.memorySummaryUpdatedAt;
+    return next;
+  }
+
+  const summary = buildConversationMemorySummary(messages);
+  if (!summary) {
+    delete next.memorySummary;
+    delete next.memorySummaryUpdatedAt;
+    return next;
+  }
+
+  next.memorySummary = summary;
+  next.memorySummaryUpdatedAt = new Date().toISOString();
+  return next;
+}
+
+function buildConversationMemorySummary(messages: ChatMessage[]): string | undefined {
+  const nonEmpty = messages.filter((message) => message.content.trim());
+  const olderMessageCount = Math.max(0, nonEmpty.length - env.OPENAI_MAX_CONTEXT_MESSAGES);
+  const olderMessages = nonEmpty.slice(0, olderMessageCount);
+  if (olderMessages.length === 0) return undefined;
+
+  const selected: string[] = [];
+  let characters = 0;
+  for (let index = olderMessages.length - 1; index >= 0; index -= 1) {
+    const message = olderMessages[index];
+    if (!message) continue;
+    const line = formatMemoryLine(message);
+    if (!line) continue;
+    if (selected.length > 0 && characters + line.length > env.CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS) break;
+    selected.unshift(line);
+    characters += line.length;
+  }
+
+  return selected.join("\n").trim() || undefined;
+}
+
+function formatMemoryLine(message: ChatMessage): string | undefined {
+  const compacted = compactWhitespace(message.content);
+  if (!compacted) return undefined;
+  const limit = message.role === "assistant" ? 700 : 500;
+  const label = message.role === "user" ? "User" : message.role === "assistant" ? "Assistant" : message.role;
+  return `${label}: ${truncateText(compacted, limit)}`;
+}
+
+function compactWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(value: string, maxCharacters: number): string {
+  if (value.length <= maxCharacters) return value;
+  return `${value.slice(0, Math.max(0, maxCharacters - 3)).trim()}...`;
 }
 
 function rowToChatMessage(message: { role: string; content: string; name: string | null }): ChatMessage {

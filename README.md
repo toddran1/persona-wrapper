@@ -157,19 +157,25 @@ after one day and can be explicitly removed with
 ## OpenAI Reliability Controls
 
 - Recent conversation context is bounded by both message count and character
-  count while keeping complete recent turns.
+  count while keeping complete recent turns. Longer chats also get a compact
+  persisted memory summary so continuity does not require resending the whole
+  transcript.
 - Hosted tools are selected automatically when the prompt clearly requires web
   search, data analysis, image generation/editing, or uploaded-document access.
 - Application-owned tools remain allow-listed and use strict argument schemas.
 - Requests use retry/backoff, timeout, cancellation, per-browser rate limits,
   and an in-memory daily estimated-spend limit.
-- These controls are intentionally in memory until database persistence is added.
+- Conversation/history state is persisted when `DATABASE_URL` is configured.
+  Per-process rate and spend limits are still runtime controls.
 
 Relevant environment variables:
 
 ```text
 OPENAI_MAX_CONTEXT_MESSAGES=24
 OPENAI_MAX_CONTEXT_CHARACTERS=60000
+CONVERSATION_MEMORY_SUMMARY_ENABLED=true
+CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=20
+CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS=3000
 OPENAI_DAILY_SPEND_LIMIT_USD=5
 OPENAI_DAILY_TOKEN_LIMIT=1000000
 CHAT_RATE_LIMIT_REQUESTS=30

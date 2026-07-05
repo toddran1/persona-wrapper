@@ -98,7 +98,7 @@ export class ChatService {
     const llmInput = this.personaEngine.prepareInput(persona, {
       ...request,
       conversationId: conversation.id,
-      history: this.conversationStore.getPromptHistory(conversation)
+      history: this.conversationStore.getPromptContext(conversation)
     });
     const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext, isOpenAIProvider(request.provider));
     if (toolContext) {
