@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { env } from "../config/env.js";
+import { trimTextToTokenBudget } from "../utils/tokenBudget.js";
 
 type StylePairRecord = {
   id?: unknown;
@@ -11,10 +13,9 @@ type StylePairRecord = {
 export type LaraeStyleReferenceOptions = {
   syntheticLimit?: number;
   goldenLimit?: number;
+  maxTokens?: number;
 };
 
-const DEFAULT_SYNTHETIC_LIMIT = 20;
-const DEFAULT_GOLDEN_LIMIT = 5;
 const MAX_FIELD_CHARS = 2_400;
 const MAX_TOTAL_CHARS = 90_000;
 const STYLE_INTENSITY_PATTERNS = [
@@ -163,8 +164,9 @@ export function resetLaraeStyleReferenceCache(): void {
 }
 
 export function buildLaraeStyleReference(options: LaraeStyleReferenceOptions = {}): string {
-  const syntheticLimit = options.syntheticLimit ?? DEFAULT_SYNTHETIC_LIMIT;
-  const goldenLimit = options.goldenLimit ?? DEFAULT_GOLDEN_LIMIT;
+  const syntheticLimit = options.syntheticLimit ?? env.OPENAI_STYLE_REFERENCE_SYNTHETIC_LIMIT;
+  const goldenLimit = options.goldenLimit ?? env.OPENAI_STYLE_REFERENCE_GOLDEN_LIMIT;
+  const maxTokens = options.maxTokens ?? env.OPENAI_STYLE_REFERENCE_MAX_TOKENS;
   const syntheticPairs = selectedPairs(syntheticPairsPath(), syntheticLimit);
   const goldenPairs = selectedPairs(goldenPairsPath(), goldenLimit);
 
@@ -183,5 +185,5 @@ export function buildLaraeStyleReference(options: LaraeStyleReferenceOptions = {
     .join("\n\n")
     .slice(0, MAX_TOTAL_CHARS);
 
-  return reference;
+  return trimTextToTokenBudget(reference, maxTokens);
 }

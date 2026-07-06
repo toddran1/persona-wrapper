@@ -56,6 +56,7 @@ describe("controllers", () => {
 
     await postChat(
       {
+        header: (name: string) => name.toLowerCase() === "x-owner-id" ? "test-owner" : undefined,
         body: {
           personaId: "larae",
           provider: "openai",

@@ -17,6 +17,7 @@ type BackgroundChatJob = {
   status: ChatJobResponse["status"];
   createdAt: string;
   updatedAt: string;
+  ownerId?: string;
   abortController: AbortController;
   response?: ChatResponse;
   error?: string;
@@ -52,6 +53,7 @@ export class BackgroundChatJobService {
       status: "queued",
       createdAt: timestamp,
       updatedAt: timestamp,
+      ...(options.ownerId ? { ownerId: options.ownerId } : {}),
       abortController: new AbortController()
     };
     this.jobs.set(job.id, job);
@@ -88,10 +90,11 @@ export class BackgroundChatJobService {
     return job;
   }
 
-  async get(id: string): Promise<ChatJobResponse | undefined> {
+  async get(id: string, ownerId?: string): Promise<ChatJobResponse | undefined> {
     await this.prune();
     const job = this.jobs.get(id);
     if (job) {
+      if (ownerId && job.ownerId && job.ownerId !== ownerId) return undefined;
       return toChatJobResponse(job);
     }
 
@@ -101,6 +104,7 @@ export class BackgroundChatJobService {
       where: eq(backgroundJobs.id, id)
     });
     if (!persisted) return undefined;
+    if (ownerId && persisted.ownerId && persisted.ownerId !== ownerId) return undefined;
     return {
       id: persisted.id,
       status: parseJobStatus(persisted.status),
@@ -120,8 +124,9 @@ export class BackgroundChatJobService {
     });
   }
 
-  async cancel(id: string, error = "Request cancelled."): Promise<ChatJobResponse | undefined> {
+  async cancel(id: string, error = "Request cancelled.", ownerId?: string): Promise<ChatJobResponse | undefined> {
     const job = this.jobs.get(id);
+    if (ownerId && job?.ownerId && job.ownerId !== ownerId) return undefined;
     job?.abortController.abort(new Error(error));
     await this.update(id, {
       status: "cancelled",
@@ -129,7 +134,7 @@ export class BackgroundChatJobService {
       failureReason: "manual_cancel",
       providerStatus: "cancelled"
     });
-    return this.get(id);
+    return this.get(id, ownerId);
   }
 
   private async update(
@@ -172,7 +177,7 @@ export class BackgroundChatJobService {
       ownerId: options.ownerId,
       conversationId: options.conversationId,
       provider: options.provider,
-      request: options.request as unknown as Record<string, unknown>,
+      request: sanitizeStoredRequest(options.request),
       createdAt: new Date(job.createdAt),
       updatedAt: new Date(job.updatedAt)
     });
@@ -189,6 +194,31 @@ export class BackgroundChatJobService {
     if (!db) return;
     await db.delete(backgroundJobs).where(lte(backgroundJobs.updatedAt, new Date(cutoff)));
   }
+}
+
+function sanitizeStoredRequest(request: ChatRequest | undefined): Record<string, unknown> | undefined {
+  if (!request) return undefined;
+  return {
+    personaId: request.personaId,
+    provider: request.provider,
+    audio: request.audio,
+    testMode: request.testMode === true,
+    conversationId: request.conversationId,
+    messageCharacters: request.message.length,
+    attachmentCount: request.attachments?.length ?? 0,
+    attachmentKinds: request.attachments?.map((attachment) => attachment.kind) ?? [],
+    toolOptions: request.toolOptions
+      ? {
+          webSearch: request.toolOptions.webSearch === true,
+          fileSearch: request.toolOptions.fileSearch === true,
+          codeInterpreter: request.toolOptions.codeInterpreter === true,
+          imageGeneration: request.toolOptions.imageGeneration === true,
+          appFunctions: request.toolOptions.appFunctions === true,
+          background: request.toolOptions.background === true,
+          vectorStoreCount: request.toolOptions.vectorStoreIds?.length ?? 0
+        }
+      : undefined
+  };
 }
 
 function parseJobStatus(status: string): ChatJobResponse["status"] {

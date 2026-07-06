@@ -110,16 +110,21 @@ Recommended cost controls:
 
 ## Conversation Context
 
-Conversation turns are stored durably in Postgres. For each model request, the API sends recent turns directly, bounded by `OPENAI_MAX_CONTEXT_MESSAGES` and `OPENAI_MAX_CONTEXT_CHARACTERS`, and skips empty assistant messages from media-only turns so they do not waste context slots.
+Conversation turns are stored durably in Postgres. For each model request, the API sends recent turns directly, bounded by `OPENAI_MAX_CONTEXT_MESSAGES`, `OPENAI_MAX_CONTEXT_TOKENS`, and `OPENAI_MAX_CONTEXT_CHARACTERS`, and skips empty assistant messages from media-only turns so they do not waste context slots.
 
 For longer chats, the API keeps a compact deterministic memory summary in `conversations.metadata.memorySummary`. That summary is prepended as a system context note before the recent verbatim turns, which gives the model continuity without resending the entire transcript every time.
 
 Relevant context controls:
 
 ```env
-OPENAI_MAX_CONTEXT_MESSAGES=24
-OPENAI_MAX_CONTEXT_CHARACTERS=60000
+OPENAI_MAX_CONTEXT_MESSAGES=16
+OPENAI_MAX_CONTEXT_CHARACTERS=35000
+OPENAI_MAX_CONTEXT_TOKENS=8000
 CONVERSATION_MEMORY_SUMMARY_ENABLED=true
-CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=20
-CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS=3000
+CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=16
+CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS=2500
+CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS=800
+OPENAI_STYLE_REFERENCE_SYNTHETIC_LIMIT=20
+OPENAI_STYLE_REFERENCE_GOLDEN_LIMIT=5
+OPENAI_STYLE_REFERENCE_MAX_TOKENS=9000
 ```

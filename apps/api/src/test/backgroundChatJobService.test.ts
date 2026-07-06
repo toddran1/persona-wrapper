@@ -35,4 +35,18 @@ describe("BackgroundChatJobService", () => {
     expect(failed?.status).toBe("failed");
     expect(failed?.failureReason).toBe("openai_background_timeout");
   });
+
+  it("does not expose or cancel jobs for another owner", async () => {
+    const service = new BackgroundChatJobService();
+    const job = await service.start({ ownerId: "owner-a" }, async (runningJob) => waitForAbort(runningJob.abortController.signal));
+
+    await expect(service.get(job.id, "owner-b")).resolves.toBeUndefined();
+    await expect(service.cancel(job.id, "Wrong owner.", "owner-b")).resolves.toBeUndefined();
+
+    const visible = await service.get(job.id, "owner-a");
+    expect(visible?.status).toBe("running");
+
+    const cancelled = await service.cancel(job.id, "Owner cancelled.", "owner-a");
+    expect(cancelled?.status).toBe("cancelled");
+  });
 });

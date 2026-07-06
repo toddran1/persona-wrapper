@@ -14,6 +14,7 @@ import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { conversations, messages as dbMessages } from "../db/schema.js";
+import { estimateChatMessageTokens, estimateTextTokens, trimTextToTokenBudget } from "../utils/tokenBudget.js";
 
 type ConversationRecord = {
   id: string;
@@ -87,14 +88,25 @@ export class ConversationStore {
   getPromptHistory(record: ConversationRecord): ChatMessage[] {
     const selected: ChatMessage[] = [];
     let characters = 0;
+    let tokens = 0;
     for (let index = record.messages.length - 1; index >= 0; index -= 1) {
       const message = record.messages[index];
       if (!message) continue;
       if (!message.content.trim()) continue;
+      const messageTokens = estimateChatMessageTokens(message);
       if (selected.length >= env.OPENAI_MAX_CONTEXT_MESSAGES) break;
       if (selected.length > 0 && characters + message.content.length > env.OPENAI_MAX_CONTEXT_CHARACTERS) break;
+      if (selected.length > 0 && tokens + messageTokens > env.OPENAI_MAX_CONTEXT_TOKENS) break;
+      if (selected.length === 0 && messageTokens > env.OPENAI_MAX_CONTEXT_TOKENS) {
+        selected.unshift({
+          ...message,
+          content: trimTextToTokenBudget(message.content, Math.max(100, env.OPENAI_MAX_CONTEXT_TOKENS - 10))
+        });
+        break;
+      }
       selected.unshift(message);
       characters += message.content.length;
+      tokens += messageTokens;
     }
     while (selected[0]?.role === "assistant" || selected[0]?.role === "tool") selected.shift();
     return selected;
@@ -544,14 +556,18 @@ function buildConversationMemorySummary(messages: ChatMessage[]): string | undef
 
   const selected: string[] = [];
   let characters = 0;
+  let tokens = 0;
   for (let index = olderMessages.length - 1; index >= 0; index -= 1) {
     const message = olderMessages[index];
     if (!message) continue;
     const line = formatMemoryLine(message);
     if (!line) continue;
+    const lineTokens = estimateTextTokens(line);
     if (selected.length > 0 && characters + line.length > env.CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS) break;
+    if (selected.length > 0 && tokens + lineTokens > env.CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS) break;
     selected.unshift(line);
     characters += line.length;
+    tokens += lineTokens;
   }
 
   return selected.join("\n").trim() || undefined;

@@ -115,11 +115,24 @@ export class ChatService {
       }
       llmInput.messages = insertToolContext(llmInput.messages, toolContext);
       llmInput.baseMessages = insertToolContext(llmInput.baseMessages ?? llmInput.messages, toolContext);
-      console.log(
-        `\n--- Tool context before neutral LLM ---\n\n${toolContext.results
-          .map((result) => `${result.name} (${result.status}): ${result.summary}`)
-          .join("\n\n")}\n`
-      );
+      if (testMode) {
+        console.log(
+          `\n--- Tool context before neutral LLM ---\n\n${toolContext.results
+            .map((result) => `${result.name} (${result.status}): ${result.summary}`)
+            .join("\n\n")}\n`
+        );
+      } else {
+        logger.info("Tool context prepared for LLM", {
+          conversationId: conversation.id,
+          personaId: persona.id,
+          provider: request.provider,
+          tools: toolContext.results.map((result) => ({
+            name: result.name,
+            status: result.status,
+            summaryCharacters: result.summary.length
+          }))
+        });
+      }
     }
     let llmOutput;
     try {
@@ -132,19 +145,29 @@ export class ChatService {
       logger.llmTurn({
         conversationId: conversation.id,
         personaId: persona.id,
-        userMessage: request.message,
         provider: request.provider,
         testMode,
         status: "failed",
+        messageCharacters: request.message.length,
         error: {
           message: error instanceof Error ? error.message : String(error),
           name: error instanceof Error ? error.name : undefined
         },
-        neutralLlm: {
-          requestMessages: llmInput.baseMessages ?? llmInput.messages,
-          toolOptions: llmInput.toolOptions,
-          toolContext: toolContext?.results ?? []
-        }
+        neutralLlm: testMode
+          ? {
+              requestMessages: llmInput.baseMessages ?? llmInput.messages,
+              toolOptions: llmInput.toolOptions,
+              toolContext: toolContext?.results ?? []
+            }
+          : {
+              requestMessageCount: (llmInput.baseMessages ?? llmInput.messages).length,
+              toolOptions: llmInput.toolOptions,
+              toolContext: toolContext?.results.map((result) => ({
+                name: result.name,
+                status: result.status,
+                summaryCharacters: result.summary.length
+              })) ?? []
+            }
       });
       throw error;
     }
@@ -166,12 +189,24 @@ export class ChatService {
     };
 
     const useStyleTransfer = shouldUseStyleTransfer(request.provider);
-    console.log(useStyleTransfer ? "\nNeutral LLM response object data:" : "\nDirect persona LLM response object data:", neutralResponseMetadata);
-    console.log(
-      useStyleTransfer
-        ? `\n--- Neutral LLM response before style transfer ---\n\n${neutralText}\n`
-        : `\n--- Direct persona LLM response ---\n\n${neutralText}\n`
-    );
+    if (testMode) {
+      console.log(useStyleTransfer ? "\nNeutral LLM response object data:" : "\nDirect persona LLM response object data:", neutralResponseMetadata);
+      console.log(
+        useStyleTransfer
+          ? `\n--- Neutral LLM response before style transfer ---\n\n${neutralText}\n`
+          : `\n--- Direct persona LLM response ---\n\n${neutralText}\n`
+      );
+    } else {
+      logger.info(useStyleTransfer ? "Neutral LLM response received" : "Direct persona LLM response received", {
+        provider: llmOutput.provider,
+        providerModel: llmOutput.metadata?.providerModel,
+        personaId: persona.id,
+        conversationId: conversation.id,
+        textCharacters: neutralText.length,
+        contentTypes: llmOutput.content.map((block) => block.type),
+        usage: llmOutput.usage
+      });
+    }
 
     const styleTransferInput = {
       neutralText,
@@ -197,8 +232,15 @@ export class ChatService {
           }
         };
 
-    if (useStyleTransfer && styleTransferOutput.styledText) {
+    if (useStyleTransfer && styleTransferOutput.styledText && testMode) {
       console.log(`--- Style transfer model response ---\n\n${styleTransferOutput.styledText}\n`);
+    } else if (useStyleTransfer && styleTransferOutput.styledText) {
+      logger.info("Style transfer response received", {
+        personaId: persona.id,
+        conversationId: conversation.id,
+        provider: styleTransferOutput.provider,
+        textCharacters: styleTransferOutput.styledText.length
+      });
     }
 
     let styledPrimaryText = false;
@@ -313,6 +355,12 @@ export class ChatService {
           ...(ttsScriptLog ? { script: ttsScriptLog } : {})
         }
       : undefined;
+    const sanitizedTtsLogPayload = ttsDiagnostic
+      ? {
+          ...ttsDiagnostic,
+          ...(ttsScriptLog ? { script: { mode: ttsScriptLog.mode, textCharacters: ttsScriptLog.textCharacters } } : {})
+        }
+      : undefined;
     const openAiDualTextPayload =
       llmOutput.metadata?.ttsScriptParseStatus === "parsed" && typeof llmOutput.metadata.ttsScript === "string"
         ? {
@@ -321,37 +369,81 @@ export class ChatService {
           }
         : undefined;
 
-    logger.llmTurn({
-      conversationId: conversation.id,
-      personaId: persona.id,
-      userMessage: request.message,
-      provider: request.provider,
-      testMode,
-      usage: llmOutput.usage,
-      neutralLlm: {
-        requestMessages: llmInput.baseMessages ?? llmInput.messages,
-        responseMetadata: neutralResponseMetadata,
-        usage: llmOutput.usage,
-        responseText: neutralText,
-        ...(openAiDualTextPayload ? { responsePayload: openAiDualTextPayload } : {}),
-        ...(typeof llmOutput.metadata?.ttsScriptParseStatus === "string" ? { responsePayloadStatus: llmOutput.metadata.ttsScriptParseStatus } : {}),
-        toolContext: toolContext?.results ?? []
-      },
-      styleTransfer: {
-        request: {
-          neutralText: styleTransferInput.neutralText,
-          userMessage: styleTransferInput.userMessage,
-          provider: styleTransferInput.provider,
-          conversationHistoryCount: styleTransferInput.conversationHistory.length
-        },
-        responseText: styleTransferOutput.styledText,
-        responseMetadata: {
-          ...(styleTransferOutput.metadata ?? {}),
-          skipped: !useStyleTransfer
+    logger.llmTurn(testMode
+      ? {
+          conversationId: conversation.id,
+          personaId: persona.id,
+          userMessage: request.message,
+          provider: request.provider,
+          testMode,
+          usage: llmOutput.usage,
+          neutralLlm: {
+            requestMessages: llmInput.baseMessages ?? llmInput.messages,
+            responseMetadata: neutralResponseMetadata,
+            usage: llmOutput.usage,
+            responseText: neutralText,
+            ...(openAiDualTextPayload ? { responsePayload: openAiDualTextPayload } : {}),
+            ...(typeof llmOutput.metadata?.ttsScriptParseStatus === "string" ? { responsePayloadStatus: llmOutput.metadata.ttsScriptParseStatus } : {}),
+            toolContext: toolContext?.results ?? []
+          },
+          styleTransfer: {
+            request: {
+              neutralText: styleTransferInput.neutralText,
+              userMessage: styleTransferInput.userMessage,
+              provider: styleTransferInput.provider,
+              conversationHistoryCount: styleTransferInput.conversationHistory.length
+            },
+            responseText: styleTransferOutput.styledText,
+            responseMetadata: {
+              ...(styleTransferOutput.metadata ?? {}),
+              skipped: !useStyleTransfer
+            }
+          },
+          tts: ttsLogPayload
         }
-      },
-      tts: ttsLogPayload
-    });
+      : {
+          conversationId: conversation.id,
+          personaId: persona.id,
+          provider: request.provider,
+          testMode,
+          usage: llmOutput.usage,
+          messageCharacters: request.message.length,
+          neutralLlm: {
+            requestMessageCount: (llmInput.baseMessages ?? llmInput.messages).length,
+            responseMetadata: {
+              provider: llmOutput.provider,
+              providerModel: llmOutput.metadata?.providerModel,
+              personaId: persona.id,
+              conversationId: conversation.id
+            },
+            usage: llmOutput.usage,
+            responseCharacters: neutralText.length,
+            responsePayloadStatus: typeof llmOutput.metadata?.ttsScriptParseStatus === "string"
+              ? llmOutput.metadata.ttsScriptParseStatus
+              : undefined,
+            contentTypes: llmOutput.content.map((block) => block.type),
+            toolContext: toolContext?.results.map((result) => ({
+              name: result.name,
+              status: result.status,
+              summaryCharacters: result.summary.length
+            })) ?? []
+          },
+          styleTransfer: {
+            request: {
+              neutralTextCharacters: styleTransferInput.neutralText.length,
+              userMessageCharacters: styleTransferInput.userMessage.length,
+              provider: styleTransferInput.provider,
+              conversationHistoryCount: styleTransferInput.conversationHistory.length
+            },
+            responseCharacters: styleTransferOutput.styledText.length,
+            responseMetadata: {
+              ...(styleTransferOutput.metadata ?? {}),
+              skipped: !useStyleTransfer
+            }
+          },
+          tts: sanitizedTtsLogPayload
+        },
+    );
 
     const firstTextBlock = responseLlmOutput.content.find((block) => block.type === "text");
     const assistantText = firstTextBlock?.type === "text" ? firstTextBlock.text : responseLlmOutput.rawText;

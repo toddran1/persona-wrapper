@@ -8,6 +8,7 @@ import { uploadRouter } from "./routes/upload.routes.js";
 import { getGeneratedAudio } from "./controllers/generatedAudio.controller.js";
 import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
+import { env } from "./config/env.js";
 import { storageService } from "./services/storageService.js";
 import { HttpError } from "./utils/httpError.js";
 import { logger } from "./utils/logger.js";
@@ -15,7 +16,13 @@ import { logger } from "./utils/logger.js";
 export function createApp() {
   const app = express();
 
-  app.use(cors());
+  const allowedOrigins = env.CORS_ALLOWED_ORIGINS
+    ?.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.use(cors({
+    origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : undefined
+  }));
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/health", (_request, response) => {
@@ -62,7 +69,9 @@ export function createApp() {
     }
 
     logger.error("Unhandled API error", error);
-    const message = error instanceof Error ? error.message : "Internal server error";
+    const message = env.NODE_ENV === "production"
+      ? "Internal server error"
+      : error instanceof Error ? error.message : "Internal server error";
     response.status(500).json({ error: message });
   });
 

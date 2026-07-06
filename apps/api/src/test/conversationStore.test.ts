@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { env } from "../config/env.js";
 import { ConversationStore } from "../services/conversationStore.js";
+import { estimateChatMessagesTokens } from "../utils/tokenBudget.js";
 
 const originalContextMessages = env.OPENAI_MAX_CONTEXT_MESSAGES;
 const originalContextCharacters = env.OPENAI_MAX_CONTEXT_CHARACTERS;
+const originalContextTokens = env.OPENAI_MAX_CONTEXT_TOKENS;
+const originalMemorySummaryMaxTokens = env.CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS;
 
 afterEach(() => {
   env.OPENAI_MAX_CONTEXT_MESSAGES = originalContextMessages;
   env.OPENAI_MAX_CONTEXT_CHARACTERS = originalContextCharacters;
+  env.OPENAI_MAX_CONTEXT_TOKENS = originalContextTokens;
+  env.CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS = originalMemorySummaryMaxTokens;
 });
 
 describe("ConversationStore prompt context", () => {
@@ -41,6 +46,7 @@ describe("ConversationStore prompt context", () => {
   it("respects the configured context message budget", async () => {
     env.OPENAI_MAX_CONTEXT_MESSAGES = 4;
     env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 10000;
     const store = new ConversationStore();
     const seed = Array.from({ length: 12 }, (_, index) => ({
       role: index % 2 === 0 ? "user" as const : "assistant" as const,
@@ -57,6 +63,7 @@ describe("ConversationStore prompt context", () => {
   it("respects the configured context character budget", async () => {
     env.OPENAI_MAX_CONTEXT_MESSAGES = 20;
     env.OPENAI_MAX_CONTEXT_CHARACTERS = 90;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 10000;
     const store = new ConversationStore();
     const conversation = await store.getOrCreate("character-budget-test", [
       { role: "user", content: "older user message ".repeat(5) },
@@ -73,7 +80,46 @@ describe("ConversationStore prompt context", () => {
     expect(history.reduce((total, message) => total + message.content.length, 0)).toBeLessThanOrEqual(90);
   });
 
+  it("respects the configured context token budget", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 20;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 34;
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate("token-budget-test", [
+      { role: "user", content: "older user message ".repeat(16) },
+      { role: "assistant", content: "older assistant message ".repeat(16) },
+      { role: "user", content: "recent user question" },
+      { role: "assistant", content: "recent assistant answer" }
+    ]);
+
+    const history = store.getPromptHistory(conversation);
+    expect(history.map((message) => message.content)).toEqual([
+      "recent user question",
+      "recent assistant answer"
+    ]);
+    expect(estimateChatMessagesTokens(history)).toBeLessThanOrEqual(34);
+  });
+
+  it("trims an oversized newest message instead of dropping the whole context", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 20;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 120;
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate("oversized-token-budget-test", [
+      { role: "user", content: "current very long prompt ".repeat(120) }
+    ]);
+
+    const history = store.getPromptHistory(conversation);
+    expect(history).toHaveLength(1);
+    expect(history[0]?.role).toBe("user");
+    expect(history[0]?.content).toContain("[truncated to fit context budget]");
+    expect(estimateChatMessagesTokens(history)).toBeLessThanOrEqual(130);
+  });
+
   it("adds a compact memory summary for older turns before recent context", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = originalContextMessages;
+    env.OPENAI_MAX_CONTEXT_TOKENS = originalContextTokens;
+    env.CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS = 800;
     const store = new ConversationStore();
     const seed = Array.from({ length: 26 }, (_, index) => ({
       role: index % 2 === 0 ? "user" as const : "assistant" as const,

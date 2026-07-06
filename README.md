@@ -156,10 +156,10 @@ after one day and can be explicitly removed with
 
 ## OpenAI Reliability Controls
 
-- Recent conversation context is bounded by both message count and character
-  count while keeping complete recent turns. Longer chats also get a compact
-  persisted memory summary so continuity does not require resending the whole
-  transcript.
+- Recent conversation context is bounded by message count, approximate token
+  count, and character count while keeping complete recent turns. Longer chats
+  also get a compact persisted memory summary so continuity does not require
+  resending the whole transcript.
 - Hosted tools are selected automatically when the prompt clearly requires web
   search, data analysis, image generation/editing, or uploaded-document access.
 - Application-owned tools remain allow-listed and use strict argument schemas.
@@ -171,11 +171,16 @@ after one day and can be explicitly removed with
 Relevant environment variables:
 
 ```text
-OPENAI_MAX_CONTEXT_MESSAGES=24
-OPENAI_MAX_CONTEXT_CHARACTERS=60000
+OPENAI_MAX_CONTEXT_MESSAGES=16
+OPENAI_MAX_CONTEXT_CHARACTERS=35000
+OPENAI_MAX_CONTEXT_TOKENS=8000
 CONVERSATION_MEMORY_SUMMARY_ENABLED=true
-CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=20
-CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS=3000
+CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=16
+CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS=2500
+CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS=800
+OPENAI_STYLE_REFERENCE_SYNTHETIC_LIMIT=20
+OPENAI_STYLE_REFERENCE_GOLDEN_LIMIT=5
+OPENAI_STYLE_REFERENCE_MAX_TOKENS=9000
 OPENAI_DAILY_SPEND_LIMIT_USD=5
 OPENAI_DAILY_TOKEN_LIMIT=1000000
 CHAT_RATE_LIMIT_REQUESTS=30

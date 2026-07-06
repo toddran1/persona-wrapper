@@ -12,6 +12,7 @@ import { HttpError } from "../utils/httpError.js";
 import { selectTools } from "../services/toolSelectionService.js";
 import { usageControlService } from "../services/usageControlService.js";
 import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
+import { requestOwnerId } from "../utils/requestIdentity.js";
 
 const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -88,7 +89,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
 }
 
 export async function getChatJob(request: Request, response: Response): Promise<void> {
-  const job = await backgroundChatJobService.get(String(request.params.jobId ?? ""));
+  const job = await backgroundChatJobService.get(String(request.params.jobId ?? ""), requestIdentity(request));
   if (!job) {
     throw new HttpError("Chat job not found", 404);
   }
@@ -97,7 +98,8 @@ export async function getChatJob(request: Request, response: Response): Promise<
 
 export async function cancelChatJob(request: Request, response: Response): Promise<void> {
   const jobId = String(request.params.jobId ?? "");
-  const job = await backgroundChatJobService.get(jobId);
+  const identity = requestIdentity(request);
+  const job = await backgroundChatJobService.get(jobId, identity);
   if (!job) {
     throw new HttpError("Chat job not found", 404);
   }
@@ -107,12 +109,12 @@ export async function cancelChatJob(request: Request, response: Response): Promi
     return;
   }
 
-  const cancelledJob = await backgroundChatJobService.cancel(jobId);
+  const cancelledJob = await backgroundChatJobService.cancel(jobId, undefined, identity);
   if (job.providerResponseId) {
     await openAIResponseLifecycleService.cancel(job.providerResponseId);
   }
 
-  response.status(200).json(cancelledJob ?? await backgroundChatJobService.get(jobId));
+  response.status(200).json(cancelledJob ?? await backgroundChatJobService.get(jobId, identity));
 }
 
 export async function postChatStream(request: Request, response: Response): Promise<void> {
@@ -185,8 +187,7 @@ export async function patchConversation(request: Request, response: Response): P
 }
 
 function requestIdentity(request: Request): string {
-  const ownerId = typeof request.header === "function" ? request.header("x-owner-id") : undefined;
-  return ownerId?.slice(0, 200) || request.ip || "anonymous";
+  return requestOwnerId(request);
 }
 
 function shouldRunInBackground(payload: ChatRequest): boolean {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildLaraeStyleReference, resetLaraeStyleReferenceCache } from "../services/laraeStyleReferenceBuilder.js";
+import { estimateTextTokens } from "../utils/tokenBudget.js";
 
 describe("laraeStyleReferenceBuilder", () => {
   it("builds a style-only reference from synthetic and golden pairs", () => {
@@ -21,5 +22,18 @@ describe("laraeStyleReferenceBuilder", () => {
     expect(reference.match(/OUTPUT:/g)).toHaveLength(25);
     expect(reference).not.toContain("Preserve all names, dates, years, numbers");
     expect(reference).not.toContain("\"instruction\"");
+  });
+
+  it("can bound the reference examples by token budget", () => {
+    resetLaraeStyleReferenceCache();
+
+    const reference = buildLaraeStyleReference({
+      syntheticLimit: 20,
+      goldenLimit: 5,
+      maxTokens: 700
+    });
+
+    expect(estimateTextTokens(reference)).toBeLessThanOrEqual(710);
+    expect(reference).toContain("LaRae style reference examples.");
   });
 });
