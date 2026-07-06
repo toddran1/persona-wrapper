@@ -38,8 +38,11 @@ const reviewRecordDeleteSchema = z.object({
 const promoteRejectedPairSchema = z.object({
   id: z.string().min(1)
 });
-const renameConversationSchema = z.object({
-  title: z.string().trim().min(1).max(120)
+const patchConversationSchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+  pinned: z.boolean().optional()
+}).refine((payload) => payload.title !== undefined || payload.pinned !== undefined, {
+  message: "At least one conversation field must be provided."
 });
 
 export async function postChat(request: Request, response: Response): Promise<void> {
@@ -168,8 +171,13 @@ export async function deleteConversation(request: Request, response: Response): 
 
 export async function patchConversation(request: Request, response: Response): Promise<void> {
   const conversationId = String(request.params.conversationId ?? "");
-  const payload = renameConversationSchema.parse(request.body);
-  const conversation = await conversationStore.rename(conversationId, payload.title, requestIdentity(request));
+  const payload = patchConversationSchema.parse(request.body);
+  let conversation = payload.title !== undefined
+    ? await conversationStore.rename(conversationId, payload.title, requestIdentity(request))
+    : await conversationStore.get(conversationId, requestIdentity(request));
+  if (conversation && payload.pinned !== undefined) {
+    conversation = await conversationStore.setPinned(conversationId, payload.pinned, requestIdentity(request));
+  }
   if (!conversation) {
     throw new HttpError("Conversation not found", 404);
   }

@@ -47,6 +47,7 @@ STORAGE_LOCAL_ROOT=/Volumes/ReggieSSD/mac/coding-projects/python/persona_wrapper
 UPLOAD_TTL_HOURS=24
 GENERATED_MEDIA_TTL_HOURS=0
 GENERATED_AUDIO_TTL_HOURS=236
+STORAGE_CLEANUP_INTERVAL_MS=900000
 ```
 
 When `STORAGE_LOCAL_ROOT` is set, the API stores objects under:

@@ -52,4 +52,17 @@ describe("generatedMediaService", () => {
     expect(media.mimeType).toBe("image/png");
     expect(media.buffer.toString()).toBe("png-smoke");
   });
+
+  it("rejects generated media downloads for the wrong owner", async () => {
+    const { generatedMediaService } = await import("../services/generatedMediaService.js");
+    const persisted = await generatedMediaService.persistDataUrl(
+      `data:image/png;base64,${Buffer.from("owned-png").toString("base64")}`,
+      { ownerId: "owner-a" }
+    );
+
+    await expect(generatedMediaService.download(persisted.id, "owner-b")).rejects.toThrow("Generated media not found.");
+    await expect(generatedMediaService.download(persisted.id, "owner-a")).resolves.toMatchObject({
+      mimeType: "image/png"
+    });
+  });
 });

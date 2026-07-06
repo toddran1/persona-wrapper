@@ -196,6 +196,13 @@ export const api = {
     });
     return payload.conversation;
   },
+  pinConversation: async (conversationId: string, pinned: boolean): Promise<ConversationSummary> => {
+    const payload = await requestJson<{ conversation: ConversationSummary }>(`/api/chat/conversations/${conversationId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ pinned })
+    });
+    return payload.conversation;
+  },
   deleteConversation: async (conversationId: string): Promise<void> => {
     await requestNoContent(`/api/chat/conversations/${conversationId}`, { method: "DELETE" });
   },

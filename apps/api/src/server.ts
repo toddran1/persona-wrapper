@@ -1,11 +1,13 @@
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { closeDatabase } from "./db/client.js";
+import { backgroundCleanupService } from "./services/backgroundCleanupService.js";
 import { logger } from "./utils/logger.js";
 
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
+  backgroundCleanupService.start();
   logger.info("API server started", {
     port: env.PORT,
     nodeEnv: env.NODE_ENV
@@ -14,6 +16,7 @@ const server = app.listen(env.PORT, () => {
 
 const shutdown = async (signal: NodeJS.Signals) => {
   logger.info("API server shutting down", { signal });
+  backgroundCleanupService.stop();
   server.close(async () => {
     await closeDatabase();
     process.exit(0);

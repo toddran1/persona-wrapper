@@ -3,6 +3,7 @@ import {
   chatMessageSchema,
   contentBlockSchema,
   conversationUserAssetSchema,
+  providerSchema,
   type ChatMessage,
   type ConversationDetail,
   type ConversationSummary,
@@ -31,6 +32,10 @@ type ConversationMessageMetadata = {
   usage?: ConversationTurn["usage"];
   userAssets?: ConversationTurn["userAssets"];
   backgroundJobId?: string;
+  provider?: ConversationTurn["provider"];
+  providerModel?: string;
+  responseId?: string;
+  styleTransferProvider?: string;
 };
 
 type ConversationAppendMessage = ChatMessage & {
@@ -194,27 +199,33 @@ export class ConversationStore {
           }
         },
         orderBy: desc(conversations.updatedAt),
-        limit: 100
+        limit: 250
       });
 
       return rows.map((row) => ({
         id: row.id,
         ...(row.personaId ? { personaId: row.personaId } : {}),
         title: row.title || titleFromMessages([]) || "New conversation",
+        pinned: isPinned(metadataRecord(row.metadata)),
         messageCount: row.messages.length,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString()
-      }));
+      })).sort(sortConversationSummaries).slice(0, 100);
     }
 
     return [...this.conversations.values()]
       .filter((conversation) => userId ? conversation.userId === userId : !conversation.userId)
-      .sort((left, right) => (right.updatedAt?.getTime() ?? 0) - (left.updatedAt?.getTime() ?? 0))
+      .sort((left, right) => {
+        const pinnedDelta = Number(isPinned(right.metadata)) - Number(isPinned(left.metadata));
+        if (pinnedDelta !== 0) return pinnedDelta;
+        return (right.updatedAt?.getTime() ?? 0) - (left.updatedAt?.getTime() ?? 0);
+      })
       .slice(0, 100)
       .map((conversation) => ({
         id: conversation.id,
         ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
         title: conversation.title || titleFromMessages(conversation.messages) || "New conversation",
+        pinned: isPinned(conversation.metadata),
         messageCount: conversation.messages.length,
         createdAt: (conversation.createdAt ?? new Date()).toISOString(),
         updatedAt: (conversation.updatedAt ?? new Date()).toISOString()
@@ -241,6 +252,7 @@ export class ConversationStore {
         id: row.id,
         ...(row.personaId ? { personaId: row.personaId } : {}),
         title: row.title || titleFromMessages(history) || "New conversation",
+        pinned: isPinned(metadataRecord(row.metadata)),
         messageCount: history.length,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
@@ -256,6 +268,7 @@ export class ConversationStore {
       id: conversation.id,
       ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
       title: conversation.title || titleFromMessages(conversation.messages) || "New conversation",
+      pinned: isPinned(conversation.metadata),
       messageCount: conversation.messages.length,
       createdAt: (conversation.createdAt ?? new Date()).toISOString(),
       updatedAt: (conversation.updatedAt ?? new Date()).toISOString(),
@@ -296,6 +309,7 @@ export class ConversationStore {
           id: conversations.id,
           personaId: conversations.personaId,
           title: conversations.title,
+          metadata: conversations.metadata,
           createdAt: conversations.createdAt,
           updatedAt: conversations.updatedAt
         });
@@ -309,6 +323,7 @@ export class ConversationStore {
         id: row.id,
         ...(row.personaId ? { personaId: row.personaId } : {}),
         title: row.title || normalizedTitle,
+        pinned: isPinned(metadataRecord(row.metadata)),
         messageCount: messageCount.length,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString()
@@ -328,6 +343,71 @@ export class ConversationStore {
       id: updated.id,
       ...(updated.personaId ? { personaId: updated.personaId } : {}),
       title: updated.title || normalizedTitle,
+      pinned: isPinned(updated.metadata),
+      messageCount: updated.messages.length,
+      createdAt: (updated.createdAt ?? new Date()).toISOString(),
+      updatedAt: (updated.updatedAt ?? new Date()).toISOString()
+    };
+  }
+
+  async setPinned(conversationId: string, pinned: boolean, userId?: string): Promise<ConversationSummary | undefined> {
+    const db = getDatabase();
+    if (db) {
+      const row = await db.query.conversations.findFirst({
+        where: and(
+          eq(conversations.id, conversationId),
+          userId ? eq(conversations.userId, userId) : isNull(conversations.userId)
+        ),
+        with: {
+          messages: {
+            columns: {
+              id: true
+            }
+          }
+        }
+      });
+      if (!row) return undefined;
+      const updatedMetadata = setPinned(metadataRecord(row.metadata), pinned);
+      const updated = await db.update(conversations)
+        .set({ metadata: updatedMetadata })
+        .where(and(
+          eq(conversations.id, conversationId),
+          userId ? eq(conversations.userId, userId) : isNull(conversations.userId)
+        ))
+        .returning({
+          id: conversations.id,
+          personaId: conversations.personaId,
+          title: conversations.title,
+          metadata: conversations.metadata,
+          createdAt: conversations.createdAt,
+          updatedAt: conversations.updatedAt
+        });
+      const updatedRow = updated[0];
+      if (!updatedRow) return undefined;
+      return {
+        id: updatedRow.id,
+        ...(updatedRow.personaId ? { personaId: updatedRow.personaId } : {}),
+        title: updatedRow.title || "New conversation",
+        pinned: isPinned(metadataRecord(updatedRow.metadata)),
+        messageCount: row.messages.length,
+        createdAt: updatedRow.createdAt.toISOString(),
+        updatedAt: updatedRow.updatedAt.toISOString()
+      };
+    }
+
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return undefined;
+    if (userId && conversation.userId && conversation.userId !== userId) return undefined;
+    const updated: ConversationRecord = {
+      ...conversation,
+      metadata: setPinned(conversation.metadata, pinned)
+    };
+    this.conversations.set(conversationId, updated);
+    return {
+      id: updated.id,
+      ...(updated.personaId ? { personaId: updated.personaId } : {}),
+      title: updated.title || titleFromMessages(updated.messages) || "New conversation",
+      pinned: isPinned(updated.metadata),
       messageCount: updated.messages.length,
       createdAt: (updated.createdAt ?? new Date()).toISOString(),
       updatedAt: (updated.updatedAt ?? new Date()).toISOString()
@@ -363,7 +443,7 @@ export class ConversationStore {
           userId: existing.userId ?? options.userId ?? null,
           personaId: existing.personaId ?? options.personaId ?? null,
           title: existing.title,
-          metadata: existing.metadata ?? {},
+          metadata: metadataRecord(existing.metadata) ?? {},
           createdAt: existing.createdAt,
           updatedAt: existing.updatedAt,
           messages: existing.messages.map(rowToChatMessage),
@@ -406,6 +486,31 @@ export class ConversationStore {
 function getMemorySummary(metadata: Record<string, unknown> | null | undefined): string | undefined {
   const value = metadata?.memorySummary;
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function metadataRecord(metadata: unknown): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  return metadata as Record<string, unknown>;
+}
+
+function isPinned(metadata: Record<string, unknown> | null | undefined): boolean {
+  return metadata?.pinned === true;
+}
+
+function setPinned(metadata: Record<string, unknown> | null | undefined, pinned: boolean): Record<string, unknown> {
+  const next = { ...(metadata ?? {}) };
+  if (pinned) {
+    next.pinned = true;
+  } else {
+    delete next.pinned;
+  }
+  return next;
+}
+
+function sortConversationSummaries(left: ConversationSummary, right: ConversationSummary): number {
+  const pinnedDelta = Number(right.pinned) - Number(left.pinned);
+  if (pinnedDelta !== 0) return pinnedDelta;
+  return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
 }
 
 function buildConversationMetadata(
@@ -504,6 +609,10 @@ function appendRenderedTurns(existingTurns: ConversationTurn[], messages: Conver
       userAssets: userMetadata?.userAssets ?? [],
       assistantText: assistant.content,
       outputs: assistantMetadata?.outputs ?? (assistant.content ? [{ type: "text", text: assistant.content }] : []),
+      ...(assistantMetadata?.provider ? { provider: assistantMetadata.provider } : {}),
+      ...(assistantMetadata?.providerModel ? { providerModel: assistantMetadata.providerModel } : {}),
+      ...(assistantMetadata?.responseId ? { responseId: assistantMetadata.responseId } : {}),
+      ...(assistantMetadata?.styleTransferProvider ? { styleTransferProvider: assistantMetadata.styleTransferProvider } : {}),
       ...(assistantMetadata?.usage ? { usage: assistantMetadata.usage } : {}),
       ...(assistantMetadata?.backgroundJobId ? { backgroundJobId: assistantMetadata.backgroundJobId } : {})
     }
@@ -543,6 +652,23 @@ function sanitizeMessageMetadata(metadata: unknown): ConversationMessageMetadata
     normalized.backgroundJobId = raw.backgroundJobId;
   }
 
+  const provider = providerSchema.safeParse(raw.provider);
+  if (provider.success) {
+    normalized.provider = provider.data;
+  }
+
+  if (typeof raw.providerModel === "string" && raw.providerModel.trim()) {
+    normalized.providerModel = raw.providerModel.trim();
+  }
+
+  if (typeof raw.responseId === "string" && raw.responseId.trim()) {
+    normalized.responseId = raw.responseId.trim();
+  }
+
+  if (typeof raw.styleTransferProvider === "string" && raw.styleTransferProvider.trim()) {
+    normalized.styleTransferProvider = raw.styleTransferProvider.trim();
+  }
+
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
@@ -568,6 +694,10 @@ function buildConversationTurns(history: ChatMessage[], metadata: Array<Conversa
       userAssets: userMetadata?.userAssets ?? [],
       assistantText: assistant?.content ?? "",
       outputs: assistantMetadata?.outputs ?? (assistant?.content ? [{ type: "text", text: assistant.content }] : []),
+      ...(assistantMetadata?.provider ? { provider: assistantMetadata.provider } : {}),
+      ...(assistantMetadata?.providerModel ? { providerModel: assistantMetadata.providerModel } : {}),
+      ...(assistantMetadata?.responseId ? { responseId: assistantMetadata.responseId } : {}),
+      ...(assistantMetadata?.styleTransferProvider ? { styleTransferProvider: assistantMetadata.styleTransferProvider } : {}),
       ...(assistantMetadata?.usage ? { usage: assistantMetadata.usage } : {}),
       ...(assistantMetadata?.backgroundJobId ? { backgroundJobId: assistantMetadata.backgroundJobId } : {})
     });

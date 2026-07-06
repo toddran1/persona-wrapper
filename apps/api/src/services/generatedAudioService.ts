@@ -10,6 +10,7 @@ import { storageService } from "./storageService.js";
 
 type GeneratedAudio = {
   token: string;
+  ownerId?: string | null;
   fileName: string;
   localPath?: string | null;
   storageKey?: string | null;
@@ -57,6 +58,7 @@ export class GeneratedAudioService {
     } else {
       this.files.set(token, {
         token,
+        ...(options.ownerId ? { ownerId: options.ownerId } : {}),
         fileName,
         ...(stored.localPath ? { localPath: stored.localPath } : {}),
         storageKey: stored.storageKey,
@@ -68,13 +70,14 @@ export class GeneratedAudioService {
     return publicUrl;
   }
 
-  async download(token: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+  async download(token: string, ownerId?: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
     await this.cleanup();
     const db = getDatabase();
     const file = db
       ? await db.query.generatedAudio.findFirst({ where: eq(generatedAudio.token, token) })
       : this.files.get(token);
     if (!file) throw new HttpError("Generated audio not found.", 404);
+    if (file.ownerId && ownerId && file.ownerId !== ownerId) throw new HttpError("Generated audio not found.", 404);
     if (file.storageKey) {
       const stored = await storageService.get(file.storageKey);
       return {
@@ -89,6 +92,10 @@ export class GeneratedAudioService {
       fileName: file.fileName,
       mimeType: file.mimeType
     };
+  }
+
+  async cleanupExpiredNow(): Promise<void> {
+    await this.cleanup();
   }
 
   private async cleanup(): Promise<void> {

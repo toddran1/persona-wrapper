@@ -28,6 +28,12 @@ function isImageOnlyResponse(outputs: ContentBlock[]): boolean {
   });
 }
 
+function sortConversationSummaries(left: ConversationSummary, right: ConversationSummary): number {
+  const pinnedDelta = Number(right.pinned) - Number(left.pinned);
+  if (pinnedDelta !== 0) return pinnedDelta;
+  return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+}
+
 function renderTurnsFromHistory(history: ChatMessage[]): RenderedTurn[] {
   const turns: RenderedTurn[] = [];
   for (let index = 0; index < history.length; index += 1) {
@@ -434,9 +440,20 @@ export function App() {
       const renamed = await api.renameConversation(nextConversationId, title);
       setConversationList((current) => current.map((conversation) => (
         conversation.id === renamed.id ? renamed : conversation
-      )));
+      )).sort(sortConversationSummaries));
     } catch (renameError) {
       setError(renameError instanceof Error ? renameError.message : "Failed to rename conversation");
+    }
+  }
+
+  async function pinConversationFromHistory(nextConversationId: string, pinned: boolean): Promise<void> {
+    try {
+      const updated = await api.pinConversation(nextConversationId, pinned);
+      setConversationList((current) => current.map((conversation) => (
+        conversation.id === updated.id ? updated : conversation
+      )).sort(sortConversationSummaries));
+    } catch (pinError) {
+      setError(pinError instanceof Error ? pinError.message : "Failed to update pinned chat");
     }
   }
 
@@ -796,6 +813,9 @@ export function App() {
           }}
           onRenameConversation={(nextConversationId, title) => {
             void renameConversationFromHistory(nextConversationId, title);
+          }}
+          onPinConversation={(nextConversationId, pinned) => {
+            void pinConversationFromHistory(nextConversationId, pinned);
           }}
         />
         <PersonaHeader personaSummary={personas[0]} personaDetail={personaDetail} />

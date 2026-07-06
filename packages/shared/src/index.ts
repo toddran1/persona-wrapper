@@ -430,6 +430,7 @@ export const conversationSummarySchema = z.object({
   id: z.string(),
   personaId: z.string().optional(),
   title: z.string(),
+  pinned: z.boolean().default(false),
   messageCount: z.number().int().nonnegative(),
   createdAt: z.string(),
   updatedAt: z.string()
@@ -450,6 +451,10 @@ export const conversationTurnSchema = z.object({
   userAssets: z.array(conversationUserAssetSchema).default([]),
   assistantText: z.string(),
   outputs: z.array(contentBlockSchema),
+  provider: providerSchema.optional(),
+  providerModel: z.string().optional(),
+  responseId: z.string().optional(),
+  styleTransferProvider: z.string().optional(),
   usage: chatResponseSchema.shape.usage.optional(),
   backgroundJobId: z.string().optional()
 });

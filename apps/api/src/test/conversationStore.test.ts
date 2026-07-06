@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { env } from "../config/env.js";
 import { ConversationStore } from "../services/conversationStore.js";
+
+const originalContextMessages = env.OPENAI_MAX_CONTEXT_MESSAGES;
+const originalContextCharacters = env.OPENAI_MAX_CONTEXT_CHARACTERS;
+
+afterEach(() => {
+  env.OPENAI_MAX_CONTEXT_MESSAGES = originalContextMessages;
+  env.OPENAI_MAX_CONTEXT_CHARACTERS = originalContextCharacters;
+});
 
 describe("ConversationStore prompt context", () => {
   it("keeps complete recent turns and never starts context with an assistant reply", async () => {
@@ -27,6 +36,41 @@ describe("ConversationStore prompt context", () => {
 
     const history = store.getPromptHistory(conversation);
     expect(history.map((message) => message.content)).toEqual(["make an image", "describe the image"]);
+  });
+
+  it("respects the configured context message budget", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 4;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    const store = new ConversationStore();
+    const seed = Array.from({ length: 12 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" as const : "assistant" as const,
+      content: `message ${index}`
+    }));
+    const conversation = await store.getOrCreate("message-budget-test", seed);
+
+    const history = store.getPromptHistory(conversation);
+    expect(history).toHaveLength(4);
+    expect(history[0]?.role).toBe("user");
+    expect(history.map((message) => message.content)).toEqual(["message 8", "message 9", "message 10", "message 11"]);
+  });
+
+  it("respects the configured context character budget", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 20;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 90;
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate("character-budget-test", [
+      { role: "user", content: "older user message ".repeat(5) },
+      { role: "assistant", content: "older assistant message ".repeat(5) },
+      { role: "user", content: "recent user message with enough text" },
+      { role: "assistant", content: "recent assistant answer with enough text" }
+    ]);
+
+    const history = store.getPromptHistory(conversation);
+    expect(history.map((message) => message.content)).toEqual([
+      "recent user message with enough text",
+      "recent assistant answer with enough text"
+    ]);
+    expect(history.reduce((total, message) => total + message.content.length, 0)).toBeLessThanOrEqual(90);
   });
 
   it("adds a compact memory summary for older turns before recent context", async () => {
@@ -62,6 +106,36 @@ describe("ConversationStore prompt context", () => {
     expect(listed.find((conversation) => conversation.id === "rename-test")?.title).toBe("Better chat title");
   });
 
+  it("pins conversations to the top without changing their title", async () => {
+    const store = new ConversationStore();
+    const first = await store.getOrCreate("pin-first", [], { titleSeed: "First chat" });
+    const second = await store.getOrCreate("pin-second", [], { titleSeed: "Second chat" });
+    await store.appendTurn(first, [
+      { role: "user", content: "first" },
+      { role: "assistant", content: "first answer" }
+    ]);
+    await store.appendTurn(second, [
+      { role: "user", content: "second" },
+      { role: "assistant", content: "second answer" }
+    ]);
+
+    const pinned = await store.setPinned("pin-first", true);
+    expect(pinned?.pinned).toBe(true);
+    expect(pinned?.title).toBe("First chat");
+
+    const listed = await store.list();
+    expect(listed[0]?.id).toBe("pin-first");
+  });
+
+  it("deletes a conversation from the history list", async () => {
+    const store = new ConversationStore();
+    await store.getOrCreate("delete-test", [], { titleSeed: "Delete me" });
+
+    expect(await store.delete("delete-test")).toBe(true);
+    expect(await store.get("delete-test")).toBeUndefined();
+    expect((await store.list()).some((conversation) => conversation.id === "delete-test")).toBe(false);
+  });
+
   it("restores rich rendered turns from message metadata", async () => {
     const store = new ConversationStore();
     const conversation = await store.getOrCreate("turns-test");
@@ -93,7 +167,11 @@ describe("ConversationStore prompt context", () => {
             inputTokens: 10,
             outputTokens: 5,
             totalTokens: 15
-          }
+          },
+          provider: "openai_persona",
+          providerModel: "gpt-test",
+          responseId: "resp_123",
+          styleTransferProvider: "stub_style_transfer"
         }
       }
     ]);
@@ -105,6 +183,10 @@ describe("ConversationStore prompt context", () => {
     const restored = await store.get("turns-test");
     expect(restored?.turns[0]?.outputs[0]?.type).toBe("image");
     expect(restored?.turns[0]?.usage?.totalTokens).toBe(15);
+    expect(restored?.turns[0]?.provider).toBe("openai_persona");
+    expect(restored?.turns[0]?.providerModel).toBe("gpt-test");
+    expect(restored?.turns[0]?.responseId).toBe("resp_123");
+    expect(restored?.turns[0]?.styleTransferProvider).toBe("stub_style_transfer");
   });
 
   it("falls back to plain text when saved render metadata is malformed", async () => {

@@ -19,7 +19,8 @@ export function ConversationSidebar({
   onNewConversation,
   onSelectConversation,
   onDeleteConversation,
-  onRenameConversation
+  onRenameConversation,
+  onPinConversation
 }: {
   conversations: ConversationSummary[];
   activeConversationId?: string | undefined;
@@ -28,6 +29,7 @@ export function ConversationSidebar({
   onSelectConversation: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => void;
   onRenameConversation: (conversationId: string, title: string) => void;
+  onPinConversation: (conversationId: string, pinned: boolean) => void;
 }) {
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | undefined>();
@@ -142,6 +144,15 @@ export function ConversationSidebar({
                     aria-label={`Rename ${conversation.title}`}
                   >
                     Edit
+                  </button>
+                  <button
+                    type="button"
+                    className={`conversation-list-pin${conversation.pinned ? " conversation-list-pin-active" : ""}`}
+                    onClick={() => onPinConversation(conversation.id, !conversation.pinned)}
+                    title={conversation.pinned ? "Unpin chat" : "Pin chat"}
+                    aria-label={`${conversation.pinned ? "Unpin" : "Pin"} ${conversation.title}`}
+                  >
+                    ★
                   </button>
                   <button
                     type="button"

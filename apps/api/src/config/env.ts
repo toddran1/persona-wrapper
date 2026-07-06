@@ -96,6 +96,7 @@ const envSchema = z.object({
   GENERATED_AUDIO_TTL_HOURS: z.coerce.number().int().nonnegative().default(236),
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
   UPLOAD_TTL_HOURS: z.coerce.number().int().nonnegative().default(24),
+  STORAGE_CLEANUP_INTERVAL_MS: z.coerce.number().int().nonnegative().default(15 * 60 * 1000),
   ANTHROPIC_API_KEY: z.string().optional(),
   LOCAL_LLM_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   LOCAL_LLM_MODEL: z.string().default("llama3.2:3b"),

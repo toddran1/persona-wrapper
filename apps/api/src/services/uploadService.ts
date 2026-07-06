@@ -40,7 +40,6 @@ export class UploadService {
 
   constructor() {
     void this.cleanupOrphanedDiskFiles();
-    setInterval(() => void this.cleanupExpiredRemote(), 15 * 60 * 1000).unref();
   }
 
   async save(ownerId: string, file: Express.Multer.File): Promise<UploadedAsset> {
@@ -235,6 +234,10 @@ export class UploadService {
       this.vectorStores.set(vectorStore.id, { id: vectorStore.id, ownerId, expiresAt });
     }
     return { id: vectorStore.id, expiresAt };
+  }
+
+  async cleanupExpiredNow(): Promise<void> {
+    await this.cleanupExpiredRemote();
   }
 
   private publicAsset(asset: StoredAsset): UploadedAsset {

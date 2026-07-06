@@ -371,12 +371,15 @@ export class ChatService {
       mimeType: asset.mimeType,
       ...(asset.url ? { url: asset.url } : {})
     }));
+    const providerModel = typeof llmOutput.metadata?.providerModel === "string" ? llmOutput.metadata.providerModel : undefined;
+    const responseId = typeof llmOutput.metadata?.responseId === "string" ? llmOutput.metadata.responseId : undefined;
 
     const updatedConversation = await this.conversationStore.appendTurn(conversation, [
       {
         role: "user",
         content: request.message,
         metadata: {
+          provider: request.provider,
           userAssets
         }
       },
@@ -385,6 +388,10 @@ export class ChatService {
         content: assistantText,
         metadata: {
           outputs: persistedOutputs,
+          provider: responseLlmOutput.provider,
+          ...(providerModel ? { providerModel } : {}),
+          ...(responseId ? { responseId } : {}),
+          ...(styleTransferOutput.provider ? { styleTransferProvider: styleTransferOutput.provider } : {}),
           ...(responseLlmOutput.usage ? { usage: responseLlmOutput.usage } : {})
         }
       }

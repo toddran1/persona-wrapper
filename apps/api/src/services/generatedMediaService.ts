@@ -83,10 +83,6 @@ function generatedMediaExpiresAt(): Date {
 export class GeneratedMediaService {
   private readonly files = new Map<string, GeneratedMediaRecord>();
 
-  constructor() {
-    setInterval(() => void this.cleanupExpired(), 15 * 60 * 1000).unref();
-  }
-
   async persistDataUrl(
     dataUrl: string,
     options: PersistGeneratedMediaOptions = {}
@@ -181,7 +177,7 @@ export class GeneratedMediaService {
     );
   }
 
-  async download(idOrFileName: string): Promise<StoredGeneratedMedia> {
+  async download(idOrFileName: string, ownerId?: string): Promise<StoredGeneratedMedia> {
     await this.cleanupExpired();
     const db = getDatabase();
     const record = db
@@ -189,6 +185,9 @@ export class GeneratedMediaService {
       : this.files.get(idOrFileName);
 
     if (record?.storageKey) {
+      if (record.ownerId && ownerId && record.ownerId !== ownerId) {
+        throw new HttpError("Generated media not found.", 404);
+      }
       const stored = await storageService.get(record.storageKey);
       return {
         buffer: stored.buffer,
@@ -198,6 +197,10 @@ export class GeneratedMediaService {
     }
 
     return this.downloadLegacyFileName(idOrFileName);
+  }
+
+  async cleanupExpiredNow(): Promise<void> {
+    await this.cleanupExpired();
   }
 
   private async downloadLegacyFileName(fileName: string): Promise<StoredGeneratedMedia> {
