@@ -168,9 +168,102 @@ textarea {
 .conversation-sidebar-icon-button:hover,
 .conversation-list-rename:hover,
 .conversation-list-pin:hover,
-.conversation-list-delete:hover {
+.conversation-list-delete:hover,
+.conversation-auth-submit:hover,
+.conversation-auth-secondary:hover,
+.conversation-oauth-button:hover {
   border-color: rgba(214, 181, 94, 0.42);
   background: rgba(214, 181, 94, 0.12);
+}
+
+.conversation-auth-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(214, 181, 94, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.conversation-auth-label {
+  color: var(--accent-2);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.conversation-auth-name {
+  overflow: hidden;
+  color: var(--theme-text);
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-auth-form,
+.conversation-oauth-row {
+  display: grid;
+  gap: 7px;
+}
+
+.conversation-auth-form input {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid rgba(214, 181, 94, 0.14);
+  border-radius: 11px;
+  padding: 0 10px;
+  color: var(--theme-text);
+  background: rgba(255, 255, 255, 0.055);
+  outline: none;
+}
+
+.conversation-auth-form input:focus {
+  border-color: rgba(188, 135, 255, 0.68);
+  box-shadow: 0 0 0 2px rgba(188, 135, 255, 0.14);
+}
+
+.conversation-auth-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+
+.conversation-auth-submit,
+.conversation-auth-secondary,
+.conversation-oauth-button {
+  min-height: 30px;
+  border: 1px solid rgba(214, 181, 94, 0.16);
+  border-radius: 999px;
+  color: var(--theme-text);
+  background: rgba(255, 255, 255, 0.055);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.conversation-auth-submit {
+  color: #181018;
+  background: linear-gradient(135deg, rgba(188, 135, 255, 0.92), rgba(246, 213, 111, 0.88));
+}
+
+.conversation-auth-submit:disabled,
+.conversation-auth-secondary:disabled,
+.conversation-oauth-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.conversation-auth-error {
+  color: #ffb4c0;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.conversation-oauth-button {
+  width: 100%;
 }
 
 .conversation-search {

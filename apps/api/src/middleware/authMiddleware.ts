@@ -10,6 +10,7 @@ function bearerToken(request: Request): string | undefined {
 }
 
 function allowsAnonymousAuthRequest(request: Request): boolean {
+  if (/^\/api\/auth\/oauth\/(google|facebook)\/(start|callback)$/.test(request.path)) return true;
   return [
     "/api/auth/login",
     "/api/auth/register",

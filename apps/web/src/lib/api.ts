@@ -7,6 +7,7 @@ import type {
   ConversationDetail,
   ConversationSummary,
   LoginRequest,
+  OAuthProvider,
   MeResponse,
   OAuthProviderStatus,
   PersonaDefinition,
@@ -53,6 +54,41 @@ export function setAuthTokens(tokens: AuthTokens): void {
 
 export function clearAuthTokens(): void {
   localStorage.removeItem(AUTH_TOKENS_KEY);
+}
+
+export type OAuthCallbackResult = {
+  tokens?: AuthTokens;
+  error?: string;
+};
+
+export function oauthStartUrl(provider: OAuthProvider, clientType = "web", deviceId?: string): string {
+  const url = new URL(`/api/auth/oauth/${provider}/start`, API_BASE_URL);
+  url.searchParams.set("clientType", clientType);
+  if (deviceId) url.searchParams.set("deviceId", deviceId);
+  return url.toString();
+}
+
+export function consumeOAuthCallbackResult(): OAuthCallbackResult | undefined {
+  if (typeof window === "undefined" || window.location.pathname !== "/auth/callback") return undefined;
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const error = params.get("error") ?? undefined;
+  const accessToken = params.get("accessToken");
+  const refreshToken = params.get("refreshToken");
+  const expiresAt = params.get("expiresAt");
+  const refreshExpiresAt = params.get("refreshExpiresAt");
+  const tokenType = "Bearer";
+  window.history.replaceState(null, document.title, "/");
+  if (error) return { error };
+  if (!accessToken || !refreshToken || !expiresAt || !refreshExpiresAt) return undefined;
+  const tokens: AuthTokens = {
+    accessToken,
+    refreshToken,
+    expiresAt,
+    refreshExpiresAt,
+    tokenType
+  };
+  setAuthTokens(tokens);
+  return { tokens };
 }
 
 export type ChatPayload = {
@@ -253,6 +289,7 @@ export const api = {
     const payload = await requestJson<{ providers: OAuthProviderStatus[] }>("/api/auth/oauth/providers");
     return payload.providers;
   },
+  oauthStartUrl,
   getPersonas: async (): Promise<PersonaSummary[]> => {
     const payload = await requestJson<{ personas: PersonaSummary[] }>("/api/personas");
     return payload.personas;

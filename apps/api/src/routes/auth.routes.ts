@@ -1,7 +1,9 @@
 import { Router } from "express";
 import {
   getMe,
+  getOAuthCallback,
   getOAuthProviders,
+  getOAuthStart,
   postLogin,
   postLogout,
   postRefresh,
@@ -31,3 +33,11 @@ authRouter.get("/me", (request, response, next) => {
 });
 
 authRouter.get("/oauth/providers", getOAuthProviders);
+
+authRouter.get("/oauth/:provider/start", (request, response, next) => {
+  getOAuthStart(request, response).catch(next);
+});
+
+authRouter.get("/oauth/:provider/callback", (request, response, next) => {
+  getOAuthCallback(request, response).catch(next);
+});

@@ -1,8 +1,8 @@
-import type { ChatJobResponse, ChatMessage, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
+import type { AuthUser, ChatJobResponse, ChatMessage, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRef } from "react";
-import { api } from "./lib/api.js";
+import { api, authTokens, clearAuthTokens, consumeOAuthCallbackResult } from "./lib/api.js";
 import { ChatComposer } from "./components/ChatComposer.js";
 import { ConversationSidebar } from "./components/ConversationSidebar.js";
 import { ConversationHistory, type RenderedTurn, type UserPromptAsset } from "./components/ConversationHistory.js";
@@ -195,6 +195,10 @@ export function App() {
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [conversationList, setConversationList] = useState<ConversationSummary[]>([]);
   const [conversationListLoading, setConversationListLoading] = useState(false);
+  const [authUser, setAuthUser] = useState<AuthUser | undefined>();
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | undefined>();
+  const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
   const [evalSaving, setEvalSaving] = useState(false);
   const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
   const [evalError, setEvalError] = useState<string | undefined>();
@@ -293,7 +297,60 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    void refreshConversationList(undefined, true);
+    let cancelled = false;
+
+    void (async () => {
+      setAuthLoading(true);
+      const callbackResult = consumeOAuthCallbackResult();
+      if (callbackResult?.error && !cancelled) {
+        setAuthError(callbackResult.error);
+      }
+
+      try {
+        const providers = await retryWithBackoff(
+          () => api.getOAuthProviders(),
+          { shouldRetry: isTransientApiBootError }
+        );
+        if (!cancelled) setOAuthProviders(providers);
+      } catch (providerError) {
+        console.warn("Failed to load OAuth providers", providerError);
+      }
+
+      try {
+        if (authTokens()) {
+          try {
+            const me = await api.getCurrentUser();
+            if (!cancelled) {
+              setAuthUser(me.user);
+              setAuthError(undefined);
+            }
+          } catch {
+            const refreshed = await api.refreshAuth({ clientType: "web" });
+            if (!cancelled) {
+              setAuthUser(refreshed.user);
+              setAuthError(undefined);
+            }
+          }
+        }
+      } catch (authLoadError) {
+        clearAuthTokens();
+        if (!cancelled) {
+          setAuthUser(undefined);
+          if (!callbackResult?.error) {
+            setAuthError(authLoadError instanceof Error ? authLoadError.message : "Session expired.");
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthLoading(false);
+          void refreshConversationList(undefined, true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -841,6 +898,58 @@ export function App() {
     setPersonaAudioPlaying(false);
   }
 
+  async function handleLogin(identifier: string, password: string): Promise<void> {
+    setAuthLoading(true);
+    setAuthError(undefined);
+    try {
+      const auth = await api.login({ identifier, password, clientType: "web" });
+      setAuthUser(auth.user);
+      resetConversation();
+      await refreshConversationList(undefined, true);
+    } catch (loginError) {
+      const message = loginError instanceof Error ? loginError.message : "Login failed.";
+      setAuthError(message);
+      throw loginError;
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleRegister(payload: { email?: string; username?: string; displayName?: string; password: string }): Promise<void> {
+    setAuthLoading(true);
+    setAuthError(undefined);
+    try {
+      const auth = await api.register({ ...payload, clientType: "web" });
+      setAuthUser(auth.user);
+      resetConversation();
+      await refreshConversationList(undefined, true);
+    } catch (registerError) {
+      const message = registerError instanceof Error ? registerError.message : "Registration failed.";
+      setAuthError(message);
+      throw registerError;
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleLogout(): Promise<void> {
+    setAuthLoading(true);
+    setAuthError(undefined);
+    try {
+      await api.logout();
+    } finally {
+      clearAuthTokens();
+      setAuthUser(undefined);
+      resetConversation();
+      await refreshConversationList(undefined, true);
+      setAuthLoading(false);
+    }
+  }
+
+  function handleOAuthLogin(providerName: OAuthProvider): void {
+    window.location.href = api.oauthStartUrl(providerName, "web");
+  }
+
   async function saveEvalCapture(idealStyledText: string, notes: string, tags: string[]): Promise<void> {
     if (!response?.conversationId) {
       return;
@@ -898,9 +1007,17 @@ export function App() {
     <main className="page-shell" style={themeStyle}>
       <div className={`app-grid ${testModeEnabled ? "app-grid-test" : "app-grid-normal"}`}>
         <ConversationSidebar
+          authUser={authUser}
+          authLoading={authLoading}
+          authError={authError}
+          oauthProviders={oauthProviders}
           conversations={conversationList}
           activeConversationId={conversationId}
           loading={conversationListLoading}
+          onLogin={handleLogin}
+          onRegister={handleRegister}
+          onLogout={handleLogout}
+          onOAuthLogin={handleOAuthLogin}
           onNewConversation={resetConversation}
           onSelectConversation={(nextConversationId) => {
             void loadConversation(nextConversationId);

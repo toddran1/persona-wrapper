@@ -83,6 +83,7 @@ AUTH_ACCESS_TOKEN_TTL_MINUTES=15
 AUTH_REFRESH_TOKEN_TTL_DAYS=30
 AUTH_PASSWORD_MIN_LENGTH=8
 AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false
+WEB_APP_URL=http://localhost:5173
 OAUTH_REDIRECT_BASE_URL=http://localhost:4000
 GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
@@ -92,7 +93,7 @@ FACEBOOK_OAUTH_CLIENT_SECRET=
 
 Password auth stores only password hashes. Access and refresh tokens are opaque random tokens; only token hashes are stored in Postgres. Sessions include a client type so web, desktop, iOS, and Android clients can be tracked independently.
 
-OAuth provider tables and state storage are included in the schema so Google/Facebook sign-in can be wired without changing the core user model. The redirect/deep-link UX can be completed when the production domains and mobile callback schemes are finalized.
+OAuth provider tables and state storage are included in the schema for Google/Facebook sign-in. Provider callbacks return to the API at `/api/auth/oauth/:provider/callback`; after a successful callback the API redirects the browser to `${WEB_APP_URL}/auth/callback` with the short-lived access/refresh tokens in the URL fragment so the web client can consume them without sending them back to the server in a query string. Mobile clients can use the same auth tables and session model with platform-specific redirect/deep-link handling when those callback schemes are finalized.
 
 For production:
 
