@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { llmOutputSchema, type ChatMessage, type ChatRequest, type ChatResponse, type ContentBlock } from "@persona/shared";
 import type { TTSOutput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
@@ -14,6 +15,7 @@ import { generatedMediaService } from "./generatedMediaService.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
 import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
 import { CONVERSATION_MEDIA_UNAVAILABLE_TEXT, resolveConversationMediaContext } from "./conversationMediaContext.js";
+import { openAIArtifactService } from "./openAIArtifactService.js";
 
 export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
@@ -68,6 +70,21 @@ function truncateForTts(text: string): string {
   return `${(sentenceBoundary > 1200 ? truncated.slice(0, sentenceBoundary + 1) : truncated).trim()} ...`;
 }
 
+function isErrorLikeText(text: string): boolean {
+  const normalized = text.trim();
+  return /^request failed:/i.test(normalized) || /^failed\b/i.test(normalized);
+}
+
+function hasErrorLikeContent(blocks: ContentBlock[], rawText?: string): boolean {
+  if (rawText && isErrorLikeText(rawText)) return true;
+  return blocks.some((block) => {
+    if (block.type === "status" && (block.status === "failed" || block.status === "cancelled")) return true;
+    if (block.type === "tool_result" && block.status === "failed") return true;
+    if (block.type === "text" && isErrorLikeText(block.text)) return true;
+    return false;
+  });
+}
+
 export class ChatService {
   constructor(
     private readonly conversationStore = new ConversationStore(),
@@ -89,6 +106,8 @@ export class ChatService {
       throw new HttpError(`Unknown persona: ${request.personaId}`, 404);
     }
 
+    const userMessageId = `msg_${randomUUID()}`;
+    const assistantMessageId = `msg_${randomUUID()}`;
     const testMode = request.testMode || env.APP_TEST_MODE;
     const conversation = await this.conversationStore.getOrCreate(request.conversationId, request.history, {
       ...(options.ownerId ? { userId: options.ownerId } : {}),
@@ -165,6 +184,7 @@ export class ChatService {
       });
       const updatedConversation = await this.conversationStore.appendTurn(conversation, [
         {
+          id: userMessageId,
           role: "user",
           content: request.message,
           metadata: {
@@ -173,6 +193,7 @@ export class ChatService {
           }
         },
         {
+          id: assistantMessageId,
           role: "assistant",
           content: CONVERSATION_MEDIA_UNAVAILABLE_TEXT,
           metadata: {
@@ -370,23 +391,42 @@ export class ChatService {
       }
     });
 
+    const ownershipMetadata = {
+      provider: llmOutput.provider,
+      personaId: persona.id
+    };
     const persistedMediaContent = await generatedMediaService.normalizeContentBlocks(styledLlmOutput.content, {
       ...(options.ownerId ? { ownerId: options.ownerId } : {}),
       conversationId: conversation.id,
-      metadata: {
-        provider: llmOutput.provider,
-        personaId: persona.id
-      }
+      messageId: assistantMessageId,
+      metadata: ownershipMetadata
+    });
+    const persistedArtifactContent = await openAIArtifactService.assignOwnershipToContentBlocks(persistedMediaContent, {
+      ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+      conversationId: conversation.id,
+      messageId: assistantMessageId,
+      metadata: ownershipMetadata
     });
     const responseLlmOutput = llmOutputSchema.parse({
       ...styledLlmOutput,
-      content: persistedMediaContent
+      content: persistedArtifactContent
     });
 
     let ttsOutput: TTSOutput | undefined;
-    let ttsDiagnostic: TTSDiagnostic | undefined = request.audio ? { status: "skipped_no_text", reason: "No text content available for speech." } : { status: "not_requested" };
+    const responseHasErrorContent = hasErrorLikeContent(responseLlmOutput.content, responseLlmOutput.rawText);
+    let ttsDiagnostic: TTSDiagnostic | undefined = request.audio
+      ? responseHasErrorContent
+        ? { status: "skipped_no_text", reason: "Error responses are not narrated." }
+        : { status: "skipped_no_text", reason: "No text content available for speech." }
+      : { status: "not_requested" };
     let ttsScriptLog: { mode: "mechanical" | "openai_inline"; text: string; textCharacters: number } | undefined;
-    if (request.audio) {
+    if (request.audio && responseHasErrorContent) {
+      logger.info("Skipping TTS generation because response is an error", {
+        provider: request.provider,
+        personaId: persona.id,
+        conversationId: conversation.id
+      });
+    } else if (request.audio) {
       const textBlock = responseLlmOutput.content.find((block) => block.type === "text");
       const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
       if (speechText) {
@@ -427,7 +467,10 @@ export class ChatService {
             const ttsProvider = createTTSProvider(request.provider);
             ttsOutput = await ttsProvider.synthesize({
               text: ttsScript,
-              persona
+              persona,
+              ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+              conversationId: conversation.id,
+              messageId: assistantMessageId
             });
             ttsDiagnostic = {
               status: "generated",
@@ -583,6 +626,7 @@ export class ChatService {
 
     const updatedConversation = await this.conversationStore.appendTurn(conversation, [
       {
+        id: userMessageId,
         role: "user",
         content: request.message,
         metadata: {
@@ -591,6 +635,7 @@ export class ChatService {
         }
       },
       {
+        id: assistantMessageId,
         role: "assistant",
         content: assistantText,
         metadata: {

@@ -167,6 +167,7 @@ export class GeneratedMediaService {
           mimeType: block.mimeType ?? persisted.mimeType,
           metadata: {
             ...(block.metadata ?? {}),
+            ...(options.metadata ?? {}),
             storage: "generated_media",
             generatedMediaId: persisted.id,
             storageKey: persisted.storageKey,

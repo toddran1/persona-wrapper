@@ -350,7 +350,10 @@ export type StyleTransferOutput = z.infer<typeof styleTransferOutputSchema>;
 export const ttsInputSchema = z.object({
   text: z.string().min(1),
   persona: personaDefinitionSchema,
-  voiceId: z.string().optional()
+  voiceId: z.string().optional(),
+  ownerId: z.string().optional(),
+  conversationId: z.string().optional(),
+  messageId: z.string().optional()
 });
 export type TTSInput = z.infer<typeof ttsInputSchema>;
 

@@ -98,6 +98,7 @@ const envSchema = z.object({
   UPLOAD_DIR: z.string().default("apps/api/uploads"),
   GENERATED_MEDIA_DIR: z.preprocess(emptyStringToUndefined, z.string().optional()),
   GENERATED_MEDIA_TTL_HOURS: z.coerce.number().int().nonnegative().default(0),
+  OPENAI_ARTIFACT_TTL_HOURS: z.coerce.number().int().nonnegative().default(0),
   GENERATED_AUDIO_DIR: z.preprocess(emptyStringToUndefined, z.string().optional()),
   GENERATED_AUDIO_TTL_HOURS: z.coerce.number().int().nonnegative().default(236),
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),

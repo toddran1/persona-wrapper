@@ -208,12 +208,34 @@ export function App() {
   const completedTurnCountRef = useRef(0);
   const lastCompletedTurnWasImageOnlyRef = useRef(false);
   const suppressAudioVisualForCurrentTurnRef = useRef(false);
+  const suppressPersonaVisualTransitionsRef = useRef(false);
   const nonAudioVisualTimeoutRef = useRef<number | undefined>();
 
   function clearNonAudioVisualTimer(): void {
     if (nonAudioVisualTimeoutRef.current === undefined) return;
     window.clearTimeout(nonAudioVisualTimeoutRef.current);
     nonAudioVisualTimeoutRef.current = undefined;
+  }
+
+  function markCurrentTurnSilent(): void {
+    suppressAudioVisualForCurrentTurnRef.current = true;
+    lastCompletedTurnWasImageOnlyRef.current = true;
+    clearNonAudioVisualTimer();
+    setPersonaAudioPlaying(false);
+    setNonAudioVisualState("idle");
+  }
+
+  function holdPersonaVisualIdleForCurrentMutation(): void {
+    suppressPersonaVisualTransitionsRef.current = true;
+    markCurrentTurnSilent();
+  }
+
+  function releasePersonaVisualSuppressionSoon(): void {
+    window.setTimeout(() => {
+      suppressPersonaVisualTransitionsRef.current = false;
+      suppressAudioVisualForCurrentTurnRef.current = false;
+      lastCompletedTurnWasImageOnlyRef.current = false;
+    }, 0);
   }
 
   function mapUploadedAssetsToUserPromptAssets(attachments: UploadedAsset[]): UserPromptAsset[] {
@@ -290,6 +312,12 @@ export function App() {
   useEffect(() => {
     clearNonAudioVisualTimer();
 
+    if (suppressPersonaVisualTransitionsRef.current) {
+      completedTurnCountRef.current = renderedTurns.length;
+      setNonAudioVisualState("idle");
+      return;
+    }
+
     if (audioEnabled) {
       completedTurnCountRef.current = renderedTurns.length;
       setNonAudioVisualState("idle");
@@ -297,6 +325,10 @@ export function App() {
     }
 
     if (loading) {
+      if (suppressAudioVisualForCurrentTurnRef.current) {
+        setNonAudioVisualState("idle");
+        return;
+      }
       lastCompletedTurnWasImageOnlyRef.current = false;
       setNonAudioVisualState("thinking");
       return;
@@ -304,7 +336,9 @@ export function App() {
 
     if (renderedTurns.length > completedTurnCountRef.current) {
       completedTurnCountRef.current = renderedTurns.length;
-      if (lastCompletedTurnWasImageOnlyRef.current) {
+      if (lastCompletedTurnWasImageOnlyRef.current || suppressAudioVisualForCurrentTurnRef.current) {
+        lastCompletedTurnWasImageOnlyRef.current = false;
+        suppressAudioVisualForCurrentTurnRef.current = false;
         setNonAudioVisualState("idle");
         return;
       }
@@ -452,6 +486,7 @@ export function App() {
   }
 
   async function loadConversation(nextConversationId: string): Promise<void> {
+    holdPersonaVisualIdleForCurrentMutation();
     setLoading(true);
     setError(undefined);
     setPendingPrompt(undefined);
@@ -460,12 +495,12 @@ export function App() {
     setPersonaAudioPlaying(false);
     try {
       const conversation = await api.getConversation(nextConversationId);
+      const nextTurns = conversation.turns.length > 0
+        ? renderTurnsFromConversationTurns(conversation.turns)
+        : renderTurnsFromHistory(conversation.history);
       setConversationId(conversation.id);
-      setRenderedTurns(
-        conversation.turns.length > 0
-          ? renderTurnsFromConversationTurns(conversation.turns)
-          : renderTurnsFromHistory(conversation.history)
-      );
+      completedTurnCountRef.current = nextTurns.length;
+      setRenderedTurns(nextTurns);
       setResponse(undefined);
       setLatestRequest(undefined);
       setEvalSavedMessage(undefined);
@@ -474,6 +509,7 @@ export function App() {
       setError(loadError instanceof Error ? loadError.message : "Failed to load conversation");
     } finally {
       setLoading(false);
+      releasePersonaVisualSuppressionSoon();
     }
   }
 
@@ -512,6 +548,7 @@ export function App() {
   }
 
   function appendChatError(message: string, errorMessage: string, userAssets: UserPromptAsset[] = [], userFiles: File[] = []): void {
+    markCurrentTurnSilent();
     setRenderedTurns((current) => [
       ...current,
       {
@@ -535,6 +572,7 @@ export function App() {
   }
 
   function appendChatStillRunning(message: string, job: ChatJobResponse, userAssets: UserPromptAsset[] = [], userFiles: File[] = []): void {
+    markCurrentTurnSilent();
     setRenderedTurns((current) => [
       ...current,
       {
@@ -573,6 +611,7 @@ export function App() {
   }
 
   function appendChatJobError(message: string, job: ChatJobResponse, reason: string, userAssets: UserPromptAsset[] = [], userFiles: File[] = []): void {
+    markCurrentTurnSilent();
     const label = reason === "manual_cancel"
       ? "Request cancelled."
       : reason === "openai_background_timeout"
@@ -662,6 +701,7 @@ export function App() {
       activeBackgroundJobIdRef.current = undefined;
     } catch (resumeError) {
       if (resumeError instanceof BackgroundPollingTimeoutError) {
+        markCurrentTurnSilent();
         setRenderedTurns((current) => current.map((turn) => (
           turn.backgroundJobId === jobId
             ? {
@@ -673,6 +713,7 @@ export function App() {
         return;
       }
       if (resumeError instanceof BackgroundJobStateError) {
+        markCurrentTurnSilent();
         const reason = resumeError.job.failureReason ?? (resumeError.job.status === "cancelled" ? "manual_cancel" : "provider_failure");
         setRenderedTurns((current) => current.map((turn) => (
           turn.backgroundJobId === jobId
@@ -686,6 +727,7 @@ export function App() {
         return;
       }
       const messageText = resumeError instanceof Error ? resumeError.message : "Failed to resume background request";
+      markCurrentTurnSilent();
       setError(messageText);
     } finally {
       if (activeRequestRef.current === requestController) activeRequestRef.current = undefined;
@@ -748,6 +790,7 @@ export function App() {
   }
 
   function cancelRequest(): void {
+    markCurrentTurnSilent();
     const backgroundJobId = activeBackgroundJobIdRef.current;
     const cancelledPrompt = pendingPrompt;
     if (backgroundJobId) {
@@ -827,10 +870,10 @@ export function App() {
   const personaVisualState = audioEnabled
     ? personaAudioPlaying
       ? "speaking"
-      : loading
+      : loading && !suppressAudioVisualForCurrentTurnRef.current
         ? "thinking"
         : "idle"
-    : loading
+    : loading && !suppressAudioVisualForCurrentTurnRef.current
       ? "thinking"
       : nonAudioVisualState;
   const themeStyle = activeTheme
@@ -873,19 +916,6 @@ export function App() {
           }}
         />
         <PersonaHeader personaSummary={personas[0]} personaDetail={personaDetail} />
-        {testModeEnabled ? (
-          <aside className="sidebar-column">
-            <DebugPanel request={latestRequest} response={response} />
-            <NeutralResponsePanel response={response} />
-            <EvalCapturePanel
-              response={response}
-              saving={evalSaving}
-              savedMessage={evalSavedMessage}
-              error={evalError}
-              onSave={saveEvalCapture}
-            />
-          </aside>
-        ) : null}
         <section className={`chat-column${hasConversationContent ? "" : " chat-column-empty"}`}>
                 <div
                   className={`conversation-stage-grid${
@@ -943,6 +973,19 @@ export function App() {
             />
           </div>
         </section>
+        {testModeEnabled ? (
+          <aside className="sidebar-column">
+            <DebugPanel request={latestRequest} response={response} />
+            <NeutralResponsePanel response={response} />
+            <EvalCapturePanel
+              response={response}
+              saving={evalSaving}
+              savedMessage={evalSavedMessage}
+              error={evalError}
+              onSave={saveEvalCapture}
+            />
+          </aside>
+        ) : null}
         {error ? <div className="error-banner">{error}</div> : null}
       </div>
     </main>

@@ -40,6 +40,7 @@ type ConversationMessageMetadata = {
 };
 
 type ConversationAppendMessage = ChatMessage & {
+  id?: string;
   metadata?: ConversationMessageMetadata;
 };
 
@@ -150,7 +151,7 @@ export class ConversationStore {
           const firstSequence = Number(sequenceRows[0]?.maxSequence ?? -1) + 1;
 
           await tx.insert(dbMessages).values(messages.map((message, index) => ({
-            id: `msg_${randomUUID()}`,
+            id: message.id ?? `msg_${randomUUID()}`,
             conversationId: record.id,
             role: message.role,
             content: message.content,

@@ -11,7 +11,7 @@ import {
 import { env } from "../config/env.js";
 import { HttpError } from "../utils/httpError.js";
 
-export type StorageBucket = "uploads" | "generated-media" | "generated-audio";
+export type StorageBucket = "uploads" | "generated-media" | "generated-audio" | "openai-artifacts";
 
 export type StoredObject = {
   storageKey: string;
@@ -67,7 +67,10 @@ function keyFor(bucket: StorageBucket, fileName: string): string {
 function parseStorageKey(storageKey: string): ParsedStorageKey {
   const [bucket, ...rest] = storageKey.split("/");
   const fileName = rest.join("/");
-  if ((bucket !== "uploads" && bucket !== "generated-media" && bucket !== "generated-audio") || rest.length !== 1) {
+  if (
+    (bucket !== "uploads" && bucket !== "generated-media" && bucket !== "generated-audio" && bucket !== "openai-artifacts") ||
+    rest.length !== 1
+  ) {
     throw new HttpError("Stored object not found.", 404);
   }
   return { bucket, fileName: safeFileName(fileName) };
@@ -166,6 +169,9 @@ class LocalStorageDriver implements StorageDriver {
     }
     if (bucket === "generated-audio") {
       return resolve(env.GENERATED_AUDIO_DIR ?? env.UPLOAD_DIR, env.GENERATED_AUDIO_DIR ? "" : "generated-audio");
+    }
+    if (bucket === "openai-artifacts") {
+      return resolve(env.UPLOAD_DIR, "openai-artifacts");
     }
     return resolve(env.UPLOAD_DIR);
   }

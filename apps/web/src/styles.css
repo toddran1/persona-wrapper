@@ -2600,7 +2600,8 @@ button:disabled {
 @media (min-width: 960px) {
   .app-grid-test {
     --stage-width: clamp(320px, 21vw, 400px);
-    grid-template-columns: var(--chat-rail-width) 260px minmax(0, 1.5fr);
+    --test-panel-width: 260px;
+    grid-template-columns: var(--chat-rail-width) minmax(0, 1.5fr) var(--test-panel-width);
     justify-content: stretch;
     align-items: start;
   }
@@ -2634,14 +2635,14 @@ button:disabled {
   }
 
   .sidebar-column {
-    grid-column: 2;
+    grid-column: 3;
     position: sticky;
     top: 24px;
     gap: 14px;
   }
 
   .chat-column {
-    grid-column: 3;
+    grid-column: 2;
     grid-template-rows: 1fr auto;
     width: 100%;
   }
@@ -2674,8 +2675,8 @@ button:disabled {
   }
 
   .app-grid-test .composer-dock {
-    right: max(var(--page-inline-pad), calc((100vw - 1680px) / 2));
-    left: calc(max(var(--page-inline-pad), calc((100vw - 1680px) / 2)) + var(--chat-rail-width) + 316px);
+    right: calc(max(var(--page-inline-pad), calc((100vw - 1680px) / 2)) + var(--test-panel-width) + 28px);
+    left: calc(max(var(--page-inline-pad), calc((100vw - 1680px) / 2)) + var(--chat-rail-width) + 28px);
   }
 
   .persona-stage {
@@ -2698,6 +2699,7 @@ button:disabled {
 
   .app-grid-test .persona-stage {
     width: var(--stage-width);
+    right: calc(max(var(--page-inline-pad), calc((100vw - 1680px) / 2)) + var(--test-panel-width) + 28px);
   }
 
   .history-card .panel-header {
@@ -2734,11 +2736,11 @@ button:disabled {
   }
 
   .sidebar-column {
-    order: 3;
+    order: 4;
   }
 
   .chat-column {
-    order: 4;
+    order: 3;
   }
 
   .error-banner {

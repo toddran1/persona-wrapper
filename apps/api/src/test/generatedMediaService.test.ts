@@ -22,13 +22,21 @@ describe("generatedMediaService", () => {
     const { generatedMediaService } = await import("../services/generatedMediaService.js");
     const pngDataUrl = `data:image/png;base64,${Buffer.from("png-smoke").toString("base64")}`;
 
-    const [block] = await generatedMediaService.normalizeContentBlocks([
+    const [block] = await generatedMediaService.normalizeContentBlocks(
+      [
+        {
+          type: "image",
+          url: pngDataUrl,
+          alt: "smoke image"
+        }
+      ],
       {
-        type: "image",
-        url: pngDataUrl,
-        alt: "smoke image"
+        ownerId: "owner-a",
+        conversationId: "conv-a",
+        messageId: "msg-a",
+        metadata: { provider: "openai" }
       }
-    ]);
+    );
 
     expect(block?.type).toBe("image");
     if (!block || block.type !== "image") {
@@ -43,12 +51,14 @@ describe("generatedMediaService", () => {
     expect(block.metadata).toMatchObject({
       storage: "generated_media",
       generatedMediaId: expect.stringMatching(/^media_.+/),
+      provider: "openai",
       sizeBytes: Buffer.byteLength("png-smoke")
     });
 
     const id = block.url.split("/").pop();
     expect(id).toBeTruthy();
-    const media = await generatedMediaService.download(id ?? "");
+    await expect(generatedMediaService.download(id ?? "", "owner-b")).rejects.toThrow("Generated media not found.");
+    const media = await generatedMediaService.download(id ?? "", "owner-a");
     expect(media.mimeType).toBe("image/png");
     expect(media.buffer.toString()).toBe("png-smoke");
   });

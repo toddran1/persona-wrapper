@@ -99,6 +99,28 @@ export const generatedMedia = pgTable("generated_media", {
   expiresAtIdx: index("generated_media_expires_at_idx").on(table.expiresAt)
 }));
 
+export const openAIArtifacts = pgTable("openai_artifacts", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id"),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
+  containerId: text("container_id").notNull(),
+  fileId: text("file_id").notNull(),
+  fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes"),
+  localPath: text("local_path"),
+  storageKey: text("storage_key"),
+  publicUrl: text("public_url"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  ownerIdIdx: index("openai_artifacts_owner_id_idx").on(table.ownerId),
+  fileIdIdx: index("openai_artifacts_file_id_idx").on(table.fileId),
+  expiresAtIdx: index("openai_artifacts_expires_at_idx").on(table.expiresAt)
+}));
+
 export const backgroundJobs = pgTable("background_jobs", {
   id: text("id").primaryKey(),
   kind: text("kind").notNull().default("chat"),
@@ -119,6 +141,19 @@ export const backgroundJobs = pgTable("background_jobs", {
   ownerIdIdx: index("background_jobs_owner_id_idx").on(table.ownerId),
   statusIdx: index("background_jobs_status_idx").on(table.status),
   updatedAtIdx: index("background_jobs_updated_at_idx").on(table.updatedAt)
+}));
+
+export const usageEvents = pgTable("usage_events", {
+  id: text("id").primaryKey(),
+  identity: text("identity").notNull(),
+  eventType: text("event_type").notNull(),
+  tokens: integer("tokens").notNull().default(0),
+  costMicroUsd: integer("cost_micro_usd").notNull().default(0),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  identityCreatedAtIdx: index("usage_events_identity_created_at_idx").on(table.identity, table.createdAt),
+  eventTypeIdx: index("usage_events_event_type_idx").on(table.eventType)
 }));
 
 export const conversationRelations = relations(conversations, ({ many }) => ({

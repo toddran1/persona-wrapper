@@ -2,6 +2,7 @@ import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 import { generatedAudioService } from "./generatedAudioService.js";
 import { generatedMediaService } from "./generatedMediaService.js";
+import { openAIArtifactService } from "./openAIArtifactService.js";
 import { uploadService } from "./uploadService.js";
 
 export class BackgroundCleanupService {
@@ -31,7 +32,8 @@ export class BackgroundCleanupService {
       await Promise.all([
         uploadService.cleanupExpiredNow(),
         generatedMediaService.cleanupExpiredNow(),
-        generatedAudioService.cleanupExpiredNow()
+        generatedAudioService.cleanupExpiredNow(),
+        openAIArtifactService.cleanupExpiredNow()
       ]);
     } catch (error) {
       logger.warn("Storage cleanup job failed", {

@@ -48,7 +48,7 @@ const patchConversationSchema = z.object({
 
 export async function postChat(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
-  usageControlService.check(identity);
+  await usageControlService.check(identity);
   const payload = await selectTools(await resolveOwnedChatAssets(request));
   if (shouldRunInBackground(payload)) {
     const requestedConversationId = payload.conversationId ?? `conv_${randomUUID()}`;
@@ -82,7 +82,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
           void backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
         }
       }, { ownerId: identity });
-      usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
+      await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
       return result;
     });
     response.status(202).json(createPendingChatResponse(backgroundPayload, job.id));
@@ -90,7 +90,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
   }
   const controller = requestAbortController(request);
   const result = await chatService.handleChat(payload, undefined, controller.signal, undefined, { ownerId: identity });
-  usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
+  await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
   response.status(200).json(result);
 }
 
@@ -125,7 +125,7 @@ export async function cancelChatJob(request: Request, response: Response): Promi
 
 export async function postChatStream(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
-  usageControlService.check(identity);
+  await usageControlService.check(identity);
   const payload = await selectTools(await resolveOwnedChatAssets(request));
   response.status(200);
   response.setHeader("Content-Type", "text/event-stream");
@@ -141,7 +141,7 @@ export async function postChatStream(request: Request, response: Response): Prom
         }
       }
     }, controller.signal, undefined, { ownerId: identity });
-    usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
+    await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
     response.write(`event: response\ndata: ${JSON.stringify(result)}\n\n`);
     response.end();
   } catch (error) {
