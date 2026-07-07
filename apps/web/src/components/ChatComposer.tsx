@@ -279,8 +279,7 @@ export function ChatComposer(props: ChatComposerProps) {
         </div>
         <button
           type="button"
-          className="provider-pill"
-          style={{ whiteSpace: "nowrap" }}
+          className="provider-pill persona-card-new-conversation-toggle"
           onClick={props.onResetConversation}
           disabled={props.loading}
         >
