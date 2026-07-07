@@ -1,4 +1,5 @@
 import cors from "cors";
+import type { CorsOptions } from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import { ZodError } from "zod";
@@ -20,9 +21,24 @@ export function createApp() {
     ?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
-  app.use(cors({
-    origin: allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : undefined
-  }));
+  const corsOptions: CorsOptions = {
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (!allowedOrigins || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS origin not allowed: ${origin}`));
+    },
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "x-owner-id"],
+    optionsSuccessStatus: 204
+  };
+  app.use(cors(corsOptions));
+  app.options("*", cors(corsOptions));
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/health", (_request, response) => {

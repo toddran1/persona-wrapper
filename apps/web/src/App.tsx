@@ -104,6 +104,48 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+function isTransientApiBootError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("could not reach api") ||
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("load failed")
+  );
+}
+
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  options?: {
+    attempts?: number;
+    initialDelayMs?: number;
+    maxDelayMs?: number;
+    shouldRetry?: (error: unknown) => boolean;
+  }
+): Promise<T> {
+  const attempts = options?.attempts ?? 12;
+  const shouldRetry = options?.shouldRetry ?? (() => false);
+  let delayMs = options?.initialDelayMs ?? 250;
+  const maxDelayMs = options?.maxDelayMs ?? 1500;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts || !shouldRetry(error)) {
+        throw error;
+      }
+      await wait(delayMs);
+      delayMs = Math.min(maxDelayMs, Math.round(delayMs * 1.6));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Retry operation failed.");
+}
+
 function formatCheckTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "just now";
@@ -208,11 +250,18 @@ export function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const loadedPersonas = await api.getPersonas();
+        const loadedPersonas = await retryWithBackoff(
+          () => api.getPersonas(),
+          { shouldRetry: isTransientApiBootError }
+        );
         setPersonas(loadedPersonas);
 
-        if (loadedPersonas[0]) {
-          const detail = await api.getPersona(loadedPersonas[0].id);
+        const firstPersona = loadedPersonas[0];
+        if (firstPersona) {
+          const detail = await retryWithBackoff(
+            () => api.getPersona(firstPersona.id),
+            { shouldRetry: isTransientApiBootError }
+          );
           setPersonaDetail(detail);
         }
       } catch (loadError) {
@@ -222,7 +271,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    void refreshConversationList();
+    void refreshConversationList(undefined, true);
   }, []);
 
   useEffect(() => {
@@ -382,10 +431,15 @@ export function App() {
     ]);
   }
 
-  async function refreshConversationList(preferConversationId?: string): Promise<void> {
+  async function refreshConversationList(preferConversationId?: string, retryOnStartup = false): Promise<void> {
     setConversationListLoading(true);
     try {
-      const conversations = await api.listConversations();
+      const conversations = retryOnStartup
+        ? await retryWithBackoff(
+            () => api.listConversations(),
+            { shouldRetry: isTransientApiBootError }
+          )
+        : await api.listConversations();
       setConversationList(conversations);
       if (preferConversationId) {
         setConversationId(preferConversationId);

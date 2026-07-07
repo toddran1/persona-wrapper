@@ -13,6 +13,7 @@ import { logger } from "../utils/logger.js";
 import { generatedMediaService } from "./generatedMediaService.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
 import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
+import { CONVERSATION_MEDIA_UNAVAILABLE_TEXT, resolveConversationMediaContext } from "./conversationMediaContext.js";
 
 export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
@@ -94,9 +95,110 @@ export class ChatService {
       personaId: request.personaId,
       titleSeed: request.message
     });
+    const conversationMediaAttachments = await resolveConversationMediaContext(conversation, {
+      message: request.message,
+      ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+      maxImages: 1
+    });
+    const userAssets = (request.attachments ?? []).map((asset) => ({
+      id: asset.id,
+      kind: asset.kind,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      ...(asset.url ? { url: asset.url } : {})
+    }));
+
+    if (
+      !request.attachments?.length &&
+      conversationMediaAttachments.referenced &&
+      conversationMediaAttachments.candidateCount > 0 &&
+      conversationMediaAttachments.attachments.length === 0 &&
+      conversationMediaAttachments.unavailableCount > 0
+    ) {
+      const fallbackOutput = llmOutputSchema.parse({
+        provider: request.provider,
+        rawText: CONVERSATION_MEDIA_UNAVAILABLE_TEXT,
+        content: [
+          {
+            type: "text",
+            text: CONVERSATION_MEDIA_UNAVAILABLE_TEXT
+          },
+          {
+            type: "tool_result",
+            toolName: "conversation_media_context",
+            status: "failed",
+            result: {
+              reason: "generated_media_unavailable",
+              candidateCount: conversationMediaAttachments.candidateCount,
+              unavailableCount: conversationMediaAttachments.unavailableCount
+            }
+          }
+        ],
+        metadata: {
+          conversationMediaContext: {
+            status: "unavailable",
+            candidateCount: conversationMediaAttachments.candidateCount,
+            unavailableCount: conversationMediaAttachments.unavailableCount
+          }
+        }
+      });
+      logger.llmTurn({
+        conversationId: conversation.id,
+        personaId: persona.id,
+        provider: request.provider,
+        testMode,
+        status: "failed",
+        messageCharacters: request.message.length,
+        neutralLlm: testMode
+          ? {
+              skipped: "Referenced generated media was unavailable.",
+              conversationMediaContext: conversationMediaAttachments
+            }
+          : {
+              skipped: "Referenced generated media was unavailable.",
+              conversationMediaContext: {
+                imageCount: conversationMediaAttachments.attachments.length,
+                candidateCount: conversationMediaAttachments.candidateCount,
+                unavailableCount: conversationMediaAttachments.unavailableCount
+              }
+            }
+      });
+      const updatedConversation = await this.conversationStore.appendTurn(conversation, [
+        {
+          role: "user",
+          content: request.message,
+          metadata: {
+            provider: request.provider,
+            userAssets
+          }
+        },
+        {
+          role: "assistant",
+          content: CONVERSATION_MEDIA_UNAVAILABLE_TEXT,
+          metadata: {
+            outputs: fallbackOutput.content,
+            provider: fallbackOutput.provider
+          }
+        }
+      ]);
+
+      return this.responseFormatter.format({
+        persona,
+        llmOutput: fallbackOutput,
+        conversationId: updatedConversation.id,
+        history: updatedConversation.messages,
+        includeAudio: false,
+        diagnostics: {
+          testMode,
+          ...(testMode ? { neutralResponse: CONVERSATION_MEDIA_UNAVAILABLE_TEXT } : {})
+        }
+      });
+    }
+
     const llmProvider = createLLMProvider(request.provider);
     const llmInput = this.personaEngine.prepareInput(persona, {
       ...request,
+      attachments: [...(request.attachments ?? []), ...conversationMediaAttachments.attachments],
       conversationId: conversation.id,
       history: this.conversationStore.getPromptContext(conversation)
     });
@@ -157,11 +259,21 @@ export class ChatService {
           ? {
               requestMessages: llmInput.baseMessages ?? llmInput.messages,
               toolOptions: llmInput.toolOptions,
+              conversationMediaContext: {
+                imageCount: conversationMediaAttachments.attachments.length,
+                candidateCount: conversationMediaAttachments.candidateCount,
+                unavailableCount: conversationMediaAttachments.unavailableCount
+              },
               toolContext: toolContext?.results ?? []
             }
           : {
               requestMessageCount: (llmInput.baseMessages ?? llmInput.messages).length,
               toolOptions: llmInput.toolOptions,
+              conversationMediaContext: {
+                imageCount: conversationMediaAttachments.attachments.length,
+                candidateCount: conversationMediaAttachments.candidateCount,
+                unavailableCount: conversationMediaAttachments.unavailableCount
+              },
               toolContext: toolContext?.results.map((result) => ({
                 name: result.name,
                 status: result.status,
@@ -382,6 +494,11 @@ export class ChatService {
             responseMetadata: neutralResponseMetadata,
             usage: llmOutput.usage,
             responseText: neutralText,
+            conversationMediaContext: {
+              imageCount: conversationMediaAttachments.attachments.length,
+              candidateCount: conversationMediaAttachments.candidateCount,
+              unavailableCount: conversationMediaAttachments.unavailableCount
+            },
             ...(openAiDualTextPayload ? { responsePayload: openAiDualTextPayload } : {}),
             ...(typeof llmOutput.metadata?.ttsScriptParseStatus === "string" ? { responsePayloadStatus: llmOutput.metadata.ttsScriptParseStatus } : {}),
             toolContext: toolContext?.results ?? []
@@ -422,6 +539,11 @@ export class ChatService {
               ? llmOutput.metadata.ttsScriptParseStatus
               : undefined,
             contentTypes: llmOutput.content.map((block) => block.type),
+            conversationMediaContext: {
+              imageCount: conversationMediaAttachments.attachments.length,
+              candidateCount: conversationMediaAttachments.candidateCount,
+              unavailableCount: conversationMediaAttachments.unavailableCount
+            },
             toolContext: toolContext?.results.map((result) => ({
               name: result.name,
               status: result.status,
@@ -456,13 +578,6 @@ export class ChatService {
         transcript: firstTextBlock?.type === "text" ? firstTextBlock.text : responseLlmOutput.rawText
       });
     }
-    const userAssets = (request.attachments ?? []).map((asset) => ({
-      id: asset.id,
-      kind: asset.kind,
-      fileName: asset.fileName,
-      mimeType: asset.mimeType,
-      ...(asset.url ? { url: asset.url } : {})
-    }));
     const providerModel = typeof llmOutput.metadata?.providerModel === "string" ? llmOutput.metadata.providerModel : undefined;
     const responseId = typeof llmOutput.metadata?.responseId === "string" ? llmOutput.metadata.responseId : undefined;
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ChatService } from "../services/chatService.js";
+import { ConversationStore } from "../services/conversationStore.js";
 
 describe("ChatService", () => {
   it("does not echo the raw user prompt as the assistant reply", async () => {
@@ -104,5 +105,61 @@ describe("ChatService", () => {
       testMode: false,
       history: []
     }, undefined, controller.signal)).rejects.toThrow();
+  });
+
+  it("returns a deterministic fallback when referenced generated media is no longer available", async () => {
+    const conversationStore = new ConversationStore();
+    const service = new ChatService(conversationStore);
+    const conversation = await conversationStore.getOrCreate(undefined, [], {
+      userId: "owner-a",
+      personaId: "larae",
+      titleSeed: "Give me an image of a sleeping puppy."
+    });
+
+    const seededConversation = await conversationStore.appendTurn(conversation, [
+      {
+        role: "user",
+        content: "Give me an image of a sleeping puppy."
+      },
+      {
+        role: "assistant",
+        content: "Here is the image.",
+        metadata: {
+          provider: "openai_persona",
+          outputs: [
+            {
+              type: "image",
+              url: "/api/generated-media/media_missing",
+              alt: "sleeping puppy",
+              mimeType: "image/png",
+              metadata: {
+                generatedMediaId: "media_missing"
+              }
+            }
+          ]
+        }
+      }
+    ]);
+
+    const response = await service.handleChat(
+      {
+        personaId: "larae",
+        provider: "openai_persona",
+        message: "What breed of puppy did you just send me?",
+        audio: true,
+        testMode: false,
+        conversationId: seededConversation.id,
+        history: []
+      },
+      undefined,
+      undefined,
+      undefined,
+      { ownerId: "owner-a" }
+    );
+
+    const assistantReply = response.outputs.find((output) => output.type === "text");
+    expect(assistantReply?.type === "text" ? assistantReply.text : "").toContain("image file is no longer available");
+    expect(response.outputs.some((output) => output.type === "audio")).toBe(false);
+    expect(response.history.at(-1)?.content).toContain("image file is no longer available");
   });
 });

@@ -51,7 +51,13 @@ export async function postChat(request: Request, response: Response): Promise<vo
   usageControlService.check(identity);
   const payload = await selectTools(await resolveOwnedChatAssets(request));
   if (shouldRunInBackground(payload)) {
-    const conversationId = payload.conversationId ?? `conv_${randomUUID()}`;
+    const requestedConversationId = payload.conversationId ?? `conv_${randomUUID()}`;
+    const conversation = await conversationStore.getOrCreate(requestedConversationId, payload.history, {
+      userId: identity,
+      personaId: payload.personaId,
+      titleSeed: payload.message
+    });
+    const conversationId = conversation.id;
     const backgroundPayload: ChatRequest = {
       ...payload,
       conversationId,
