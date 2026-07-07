@@ -1,12 +1,19 @@
 import type {
+  AuthResponse,
+  AuthTokens,
   ChatResponse,
   ChatJobResponse,
   ClientContext,
   ConversationDetail,
   ConversationSummary,
+  LoginRequest,
+  MeResponse,
+  OAuthProviderStatus,
   PersonaDefinition,
   PersonaSummary,
   ProviderId,
+  RefreshAuthRequest,
+  RegisterRequest,
   ToolOptions,
   UploadedAsset
 } from "@persona/shared";
@@ -15,6 +22,7 @@ const DEFAULT_API_BASE_URL = "http://localhost:4000";
 const configuredApiBaseUrl = typeof import.meta.env.VITE_API_URL === "string" ? import.meta.env.VITE_API_URL.trim() : "";
 export const API_BASE_URL = configuredApiBaseUrl || DEFAULT_API_BASE_URL;
 const OWNER_ID_KEY = "persona-wrapper-owner-id";
+const AUTH_TOKENS_KEY = "persona-wrapper-auth-tokens";
 
 export function resolveApiUrl(pathOrUrl: string): string {
   return pathOrUrl.startsWith("/") ? `${API_BASE_URL}${pathOrUrl}` : pathOrUrl;
@@ -26,6 +34,25 @@ export function ownerId(): string {
   const created = crypto.randomUUID();
   localStorage.setItem(OWNER_ID_KEY, created);
   return created;
+}
+
+export function authTokens(): AuthTokens | undefined {
+  const value = localStorage.getItem(AUTH_TOKENS_KEY);
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value) as AuthTokens;
+  } catch {
+    localStorage.removeItem(AUTH_TOKENS_KEY);
+    return undefined;
+  }
+}
+
+export function setAuthTokens(tokens: AuthTokens): void {
+  localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(tokens));
+}
+
+export function clearAuthTokens(): void {
+  localStorage.removeItem(AUTH_TOKENS_KEY);
 }
 
 export type ChatPayload = {
@@ -78,15 +105,34 @@ export type ReviewRecordDeletePayload = {
   id: string;
 };
 
+function requestHeaders(includeJson: boolean, headers?: HeadersInit): HeadersInit {
+  const next: Record<string, string> = {
+    "x-owner-id": ownerId()
+  };
+  if (includeJson) next["Content-Type"] = "application/json";
+  const token = authTokens()?.accessToken;
+  if (token) next.Authorization = `Bearer ${token}`;
+
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      next[key] = value;
+    });
+    return next;
+  }
+  if (Array.isArray(headers)) {
+    for (const [key, value] of headers) next[key] = value;
+    return next;
+  }
+  return { ...next, ...(headers ?? {}) };
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const { headers, ...rest } = init ?? {};
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-owner-id": ownerId()
-      },
-      ...init
+      ...rest,
+      headers: requestHeaders(true, headers)
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -108,11 +154,12 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
+  const { headers, ...rest } = init ?? {};
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
-      headers: { "x-owner-id": ownerId() },
-      ...init
+      ...rest,
+      headers: requestHeaders(false, headers)
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -125,7 +172,7 @@ export const api = {
   fetchUploadBlob: async (url: string, signal?: AbortSignal): Promise<Blob> => {
     const resolvedUrl = resolveApiUrl(url);
     const response = await fetch(resolvedUrl, {
-      headers: { "x-owner-id": ownerId() },
+      headers: requestHeaders(false),
       ...(signal ? { signal } : {})
     });
     if (!response.ok) throw new Error(`Upload fetch failed with status ${response.status}`);
@@ -138,7 +185,7 @@ export const api = {
     try {
       response = await fetch(`${API_BASE_URL}/api/uploads`, {
         method: "POST",
-        headers: { "x-owner-id": ownerId() },
+        headers: requestHeaders(false),
         body
       });
     } catch (error) {
@@ -161,6 +208,50 @@ export const api = {
   },
   deleteVectorStore: async (vectorStoreId: string): Promise<void> => {
     await requestNoContent(`/api/uploads/vector-stores/${vectorStoreId}`, { method: "DELETE" });
+  },
+  register: async (payload: RegisterRequest): Promise<AuthResponse> => {
+    const response = await requestJson<AuthResponse>("/api/auth/register", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    setAuthTokens(response.tokens);
+    return response;
+  },
+  login: async (payload: LoginRequest): Promise<AuthResponse> => {
+    const response = await requestJson<AuthResponse>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    setAuthTokens(response.tokens);
+    return response;
+  },
+  refreshAuth: async (payload?: Partial<RefreshAuthRequest>): Promise<AuthResponse> => {
+    const refreshToken = payload?.refreshToken ?? authTokens()?.refreshToken;
+    if (!refreshToken) throw new Error("No refresh token available.");
+    const response = await requestJson<AuthResponse>("/api/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ ...payload, refreshToken })
+    });
+    setAuthTokens(response.tokens);
+    return response;
+  },
+  logout: async (): Promise<void> => {
+    const refreshToken = authTokens()?.refreshToken;
+    try {
+      await requestNoContent("/api/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(refreshToken ? { refreshToken } : {})
+      });
+    } finally {
+      clearAuthTokens();
+    }
+  },
+  getCurrentUser: async (): Promise<MeResponse> =>
+    requestJson<MeResponse>("/api/auth/me"),
+  getOAuthProviders: async (): Promise<OAuthProviderStatus[]> => {
+    const payload = await requestJson<{ providers: OAuthProviderStatus[] }>("/api/auth/oauth/providers");
+    return payload.providers;
   },
   getPersonas: async (): Promise<PersonaSummary[]> => {
     const payload = await requestJson<{ personas: PersonaSummary[] }>("/api/personas");

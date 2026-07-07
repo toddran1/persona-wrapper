@@ -36,6 +36,13 @@
       "when": 1783370000000,
       "tag": "0004_openai_artifacts_usage_events",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783450000000,
+      "tag": "0005_auth_users_sessions",
+      "breakpoints": true
     }
   ]
 }

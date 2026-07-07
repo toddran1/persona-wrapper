@@ -220,6 +220,94 @@ export const clientContextSchema = z.object({
 });
 export type ClientContext = z.infer<typeof clientContextSchema>;
 
+export const authClientTypeSchema = z.enum(["web", "desktop", "ios", "android", "unknown"]);
+export type AuthClientType = z.infer<typeof authClientTypeSchema>;
+
+export const oauthProviderSchema = z.enum(["google", "facebook"]);
+export type OAuthProvider = z.infer<typeof oauthProviderSchema>;
+
+export const authUserSchema = z.object({
+  id: z.string(),
+  email: z.string().email().nullable().optional(),
+  username: z.string().nullable().optional(),
+  displayName: z.string().nullable().optional(),
+  avatarUrl: z.string().nullable().optional(),
+  status: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type AuthUser = z.infer<typeof authUserSchema>;
+
+export const authSessionSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  clientType: authClientTypeSchema,
+  expiresAt: z.string(),
+  refreshExpiresAt: z.string()
+});
+export type AuthSession = z.infer<typeof authSessionSchema>;
+
+export const authTokensSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string(),
+  tokenType: z.literal("Bearer"),
+  expiresAt: z.string(),
+  refreshExpiresAt: z.string()
+});
+export type AuthTokens = z.infer<typeof authTokensSchema>;
+
+export const registerRequestSchema = z.object({
+  email: z.string().email().optional(),
+  username: z.string().min(3).max(64).optional(),
+  password: z.string().min(8).max(256),
+  displayName: z.string().min(1).max(120).optional(),
+  clientType: authClientTypeSchema.default("web"),
+  deviceId: z.string().max(200).optional()
+}).refine((value) => Boolean(value.email || value.username), {
+  message: "Either email or username is required.",
+  path: ["email"]
+});
+export type RegisterRequest = z.infer<typeof registerRequestSchema>;
+
+export const loginRequestSchema = z.object({
+  identifier: z.string().min(1).max(320),
+  password: z.string().min(1).max(256),
+  clientType: authClientTypeSchema.default("web"),
+  deviceId: z.string().max(200).optional()
+});
+export type LoginRequest = z.infer<typeof loginRequestSchema>;
+
+export const refreshAuthRequestSchema = z.object({
+  refreshToken: z.string().min(1),
+  clientType: authClientTypeSchema.default("web"),
+  deviceId: z.string().max(200).optional()
+});
+export type RefreshAuthRequest = z.infer<typeof refreshAuthRequestSchema>;
+
+export const logoutRequestSchema = z.object({
+  refreshToken: z.string().min(1).optional()
+});
+export type LogoutRequest = z.infer<typeof logoutRequestSchema>;
+
+export const authResponseSchema = z.object({
+  user: authUserSchema,
+  session: authSessionSchema,
+  tokens: authTokensSchema
+});
+export type AuthResponse = z.infer<typeof authResponseSchema>;
+
+export const meResponseSchema = z.object({
+  user: authUserSchema,
+  session: authSessionSchema.optional()
+});
+export type MeResponse = z.infer<typeof meResponseSchema>;
+
+export const oauthProviderStatusSchema = z.object({
+  provider: oauthProviderSchema,
+  enabled: z.boolean()
+});
+export type OAuthProviderStatus = z.infer<typeof oauthProviderStatusSchema>;
+
 export const chatRequestSchema = z.object({
   personaId: z.string().min(1),
   message: z.string().min(1),

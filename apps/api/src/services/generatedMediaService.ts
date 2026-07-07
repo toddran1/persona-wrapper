@@ -186,6 +186,9 @@ export class GeneratedMediaService {
       : this.files.get(idOrFileName);
 
     if (record?.storageKey) {
+      if (record.ownerId && !ownerId && env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS) {
+        throw new HttpError("Generated media not found.", 404);
+      }
       if (record.ownerId && ownerId && record.ownerId !== ownerId) {
         throw new HttpError("Generated media not found.", 404);
       }

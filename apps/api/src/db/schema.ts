@@ -1,5 +1,87 @@
 import { relations } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  email: text("email"),
+  username: text("username"),
+  displayName: text("display_name"),
+  avatarUrl: text("avatar_url"),
+  status: text("status").notNull().default("active"),
+  emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  emailUnique: uniqueIndex("users_email_unique").on(table.email),
+  usernameUnique: uniqueIndex("users_username_unique").on(table.username),
+  statusIdx: index("users_status_idx").on(table.status)
+}));
+
+export const userPasswordCredentials = pgTable("user_password_credentials", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  passwordHash: text("password_hash").notNull(),
+  algorithm: text("algorithm").notNull().default("scrypt"),
+  passwordUpdatedAt: timestamp("password_updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+export const userOAuthAccounts = pgTable("user_oauth_accounts", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  providerAccountId: text("provider_account_id").notNull(),
+  email: text("email"),
+  displayName: text("display_name"),
+  avatarUrl: text("avatar_url"),
+  accessTokenHash: text("access_token_hash"),
+  refreshTokenHash: text("refresh_token_hash"),
+  scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  userIdIdx: index("user_oauth_accounts_user_id_idx").on(table.userId),
+  providerAccountUnique: uniqueIndex("user_oauth_accounts_provider_account_unique").on(table.provider, table.providerAccountId)
+}));
+
+export const authSessions = pgTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  accessTokenHash: text("access_token_hash").notNull(),
+  refreshTokenHash: text("refresh_token_hash").notNull(),
+  clientType: text("client_type").notNull().default("web"),
+  deviceId: text("device_id"),
+  userAgent: text("user_agent"),
+  ipAddress: text("ip_address"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  refreshExpiresAt: timestamp("refresh_expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  userIdIdx: index("auth_sessions_user_id_idx").on(table.userId),
+  accessTokenHashUnique: uniqueIndex("auth_sessions_access_token_hash_unique").on(table.accessTokenHash),
+  refreshTokenHashUnique: uniqueIndex("auth_sessions_refresh_token_hash_unique").on(table.refreshTokenHash),
+  expiresAtIdx: index("auth_sessions_expires_at_idx").on(table.expiresAt),
+  refreshExpiresAtIdx: index("auth_sessions_refresh_expires_at_idx").on(table.refreshExpiresAt)
+}));
+
+export const oauthStates = pgTable("oauth_states", {
+  id: text("id").primaryKey(),
+  stateHash: text("state_hash").notNull(),
+  provider: text("provider").notNull(),
+  redirectUri: text("redirect_uri"),
+  codeVerifier: text("code_verifier"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  stateHashUnique: uniqueIndex("oauth_states_state_hash_unique").on(table.stateHash),
+  expiresAtIdx: index("oauth_states_expires_at_idx").on(table.expiresAt)
+}));
 
 export const conversations = pgTable("conversations", {
   id: text("id").primaryKey(),
@@ -164,5 +246,32 @@ export const messageRelations = relations(messages, ({ one }) => ({
   conversation: one(conversations, {
     fields: [messages.conversationId],
     references: [conversations.id]
+  })
+}));
+
+export const userRelations = relations(users, ({ many, one }) => ({
+  passwordCredential: one(userPasswordCredentials),
+  oauthAccounts: many(userOAuthAccounts),
+  sessions: many(authSessions)
+}));
+
+export const userPasswordCredentialRelations = relations(userPasswordCredentials, ({ one }) => ({
+  user: one(users, {
+    fields: [userPasswordCredentials.userId],
+    references: [users.id]
+  })
+}));
+
+export const userOAuthAccountRelations = relations(userOAuthAccounts, ({ one }) => ({
+  user: one(users, {
+    fields: [userOAuthAccounts.userId],
+    references: [users.id]
+  })
+}));
+
+export const authSessionRelations = relations(authSessions, ({ one }) => ({
+  user: one(users, {
+    fields: [authSessions.userId],
+    references: [users.id]
   })
 }));

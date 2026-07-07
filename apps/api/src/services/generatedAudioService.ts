@@ -77,6 +77,7 @@ export class GeneratedAudioService {
       ? await db.query.generatedAudio.findFirst({ where: eq(generatedAudio.token, token) })
       : this.files.get(token);
     if (!file) throw new HttpError("Generated audio not found.", 404);
+    if (file.ownerId && !ownerId && env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS) throw new HttpError("Generated audio not found.", 404);
     if (file.ownerId && ownerId && file.ownerId !== ownerId) throw new HttpError("Generated audio not found.", 404);
     if (file.storageKey) {
       const stored = await storageService.get(file.storageKey);

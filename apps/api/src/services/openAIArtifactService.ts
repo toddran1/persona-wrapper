@@ -191,10 +191,16 @@ export class OpenAIArtifactService {
     return updatedBlocks;
   }
 
-  async download(id: string): Promise<DownloadedArtifact> {
+  async download(id: string, ownerId?: string): Promise<DownloadedArtifact> {
     await this.cleanupExpiredNow();
     const artifact = await this.lookup(id);
     if (!artifact) throw new HttpError("Generated file not found.", 404);
+    if (artifact.ownerId && !ownerId && env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS) {
+      throw new HttpError("Generated file not found.", 404);
+    }
+    if (artifact.ownerId && ownerId && artifact.ownerId !== ownerId) {
+      throw new HttpError("Generated file not found.", 404);
+    }
 
     if (artifact.storageKey) {
       const stored = await storageService.get(artifact.storageKey);

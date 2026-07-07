@@ -88,6 +88,16 @@ const envSchema = z.object({
   CHAT_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(30),
   CHAT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   DATABASE_URL: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
+  AUTH_REQUIRED: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  AUTH_ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(60),
+  AUTH_REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  AUTH_PASSWORD_MIN_LENGTH: z.coerce.number().int().min(8).max(128).default(10),
+  AUTH_REQUIRE_OWNED_MEDIA_ACCESS: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  OAUTH_REDIRECT_BASE_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),
+  GOOGLE_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.preprocess(optionalTrimmedString, z.string().optional()),
+  FACEBOOK_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
+  FACEBOOK_OAUTH_CLIENT_SECRET: z.preprocess(optionalTrimmedString, z.string().optional()),
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_ROOT: z.preprocess(emptyStringToUndefined, z.string().optional()),
   STORAGE_S3_BUCKET: z.preprocess(optionalTrimmedString, z.string().optional()),
@@ -127,6 +137,27 @@ const envSchema = z.object({
   STYLE_TRANSFER_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   STYLE_TRANSFER_MODEL_ID: z.preprocess(emptyStringToUndefined, z.string().optional())
 }).superRefine((value, context) => {
+  if (value.AUTH_REQUIRED && !value.DATABASE_URL) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["DATABASE_URL"],
+      message: "DATABASE_URL is required when AUTH_REQUIRED=true."
+    });
+  }
+  if (Boolean(value.GOOGLE_OAUTH_CLIENT_ID) !== Boolean(value.GOOGLE_OAUTH_CLIENT_SECRET)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["GOOGLE_OAUTH_CLIENT_ID"],
+      message: "GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET must be configured together."
+    });
+  }
+  if (Boolean(value.FACEBOOK_OAUTH_CLIENT_ID) !== Boolean(value.FACEBOOK_OAUTH_CLIENT_SECRET)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["FACEBOOK_OAUTH_CLIENT_ID"],
+      message: "FACEBOOK_OAUTH_CLIENT_ID and FACEBOOK_OAUTH_CLIENT_SECRET must be configured together."
+    });
+  }
   if (value.STORAGE_DRIVER === "s3") {
     if (value.NODE_ENV !== "production") {
       context.addIssue({

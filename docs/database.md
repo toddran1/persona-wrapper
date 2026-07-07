@@ -31,6 +31,7 @@ With `DATABASE_URL` unset, the API falls back to in-memory/local-only storage so
 
 With `DATABASE_URL` set, the API currently persists:
 
+- users, password credentials, OAuth account links, and auth sessions
 - conversations and messages
 - upload metadata and reusable vector-store metadata
 - generated-media metadata
@@ -69,6 +70,36 @@ curl http://localhost:4000/health/storage
 ```
 
 Active OpenAI background polling and cancel controllers are still runtime process state for now. The database-backed job record is there so polling, status checks, and completed results are still available even when the original in-memory job map is gone.
+
+## Auth
+
+The local app can still use the `x-owner-id` header for quick persistence when auth is not required. Once users log in, request identity should come from the bearer token middleware instead. Authenticated requests set `request.auth.userId`, and persistence helpers prefer that authenticated user ID over `x-owner-id`.
+
+Recommended local auth defaults:
+
+```env
+AUTH_REQUIRED=false
+AUTH_ACCESS_TOKEN_TTL_MINUTES=15
+AUTH_REFRESH_TOKEN_TTL_DAYS=30
+AUTH_PASSWORD_MIN_LENGTH=8
+AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false
+OAUTH_REDIRECT_BASE_URL=http://localhost:4000
+GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
+FACEBOOK_OAUTH_CLIENT_ID=
+FACEBOOK_OAUTH_CLIENT_SECRET=
+```
+
+Password auth stores only password hashes. Access and refresh tokens are opaque random tokens; only token hashes are stored in Postgres. Sessions include a client type so web, desktop, iOS, and Android clients can be tracked independently.
+
+OAuth provider tables and state storage are included in the schema so Google/Facebook sign-in can be wired without changing the core user model. The redirect/deep-link UX can be completed when the production domains and mobile callback schemes are finalized.
+
+For production:
+
+- Set `AUTH_REQUIRED=true` so unauthenticated requests cannot create or read owned data.
+- Set `AUTH_REQUIRE_OWNED_MEDIA_ACCESS=true` after media downloads move behind authenticated or signed URLs.
+- Use TLS only and store client tokens in platform-appropriate secure storage.
+- Use signed URLs, authenticated download routes, or short-lived cookies for generated media/audio instead of long-lived bearer-style browser URLs.
 
 ## Production
 

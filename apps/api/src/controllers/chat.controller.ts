@@ -277,8 +277,7 @@ async function resolveOwnedChatAssets(request: Request) {
   const vectorStoreIds = payload.toolOptions?.vectorStoreIds ?? [];
   if (assetIds.length === 0 && vectorStoreIds.length === 0) return payload;
 
-  const ownerId = request.header("x-owner-id");
-  if (!ownerId) throw new HttpError("A valid x-owner-id header is required for files.", 400);
+  const ownerId = requestOwnerId(request);
   await uploadService.validateVectorStores(ownerId, vectorStoreIds);
   return {
     ...payload,

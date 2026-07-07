@@ -3,6 +3,8 @@ import type { CorsOptions } from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import { ZodError } from "zod";
+import { authenticateRequest } from "./middleware/authMiddleware.js";
+import { authRouter } from "./routes/auth.routes.js";
 import { chatRouter } from "./routes/chat.routes.js";
 import { personaRouter } from "./routes/persona.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
@@ -34,7 +36,7 @@ export function createApp() {
       callback(new Error(`CORS origin not allowed: ${origin}`));
     },
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "x-owner-id"],
+    allowedHeaders: ["Authorization", "Content-Type", "x-client-type", "x-owner-id"],
     optionsSuccessStatus: 204
   };
   app.use(cors(corsOptions));
@@ -50,6 +52,9 @@ export function createApp() {
     response.status(storage.ok ? 200 : 503).json({ status: storage.ok ? "ok" : "error", storage });
   }) as express.RequestHandler);
 
+  app.use(authenticateRequest);
+
+  app.use("/api/auth", authRouter);
   app.use("/api/chat", chatRouter);
   app.use("/api/personas", personaRouter);
   app.use("/api/uploads", uploadRouter);
