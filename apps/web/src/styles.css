@@ -93,10 +93,11 @@ textarea {
 }
 
 .conversation-sidebar {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   min-width: 0;
+  min-height: 0;
   padding: 14px;
   border: 1px solid rgba(214, 181, 94, 0.12);
   border-radius: 24px;
@@ -186,6 +187,77 @@ textarea {
     linear-gradient(135deg, rgba(138, 92, 246, 0.16), rgba(214, 181, 94, 0.08) 58%, rgba(255, 255, 255, 0.035)),
     rgba(12, 8, 18, 0.78);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 48px rgba(0, 0, 0, 0.18);
+}
+
+.conversation-auth-card-open {
+  border-color: rgba(214, 181, 94, 0.24);
+  background:
+    linear-gradient(135deg, rgba(138, 92, 246, 0.2), rgba(214, 181, 94, 0.09) 58%, rgba(255, 255, 255, 0.04)),
+    rgba(12, 8, 18, 0.82);
+}
+
+.conversation-auth-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.conversation-auth-toggle-copy {
+  min-width: 0;
+}
+
+.conversation-auth-toggle .conversation-auth-label,
+.conversation-auth-toggle .conversation-auth-title {
+  display: block;
+}
+
+.conversation-auth-toggle-meta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.conversation-auth-chevron {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgba(214, 181, 94, 0.22);
+  border-radius: 999px;
+  color: var(--accent-2);
+  background: rgba(8, 6, 13, 0.5);
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.conversation-auth-toggle:hover .conversation-auth-chevron,
+.conversation-auth-toggle:focus-visible .conversation-auth-chevron {
+  border-color: rgba(214, 181, 94, 0.48);
+  background: rgba(214, 181, 94, 0.14);
+  box-shadow: 0 0 0 3px rgba(138, 92, 246, 0.14);
+}
+
+.conversation-auth-toggle:focus-visible {
+  border-radius: 14px;
+  outline: 2px solid rgba(247, 239, 232, 0.82);
+  outline-offset: 4px;
+}
+
+.conversation-auth-panel {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
 }
 
 .conversation-auth-label {
@@ -430,10 +502,162 @@ textarea {
 
 .conversation-list {
   display: grid;
+  flex: 1 1 auto;
+  align-content: start;
   gap: 4px;
-  max-height: calc(100vh - 210px);
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding-right: 2px;
+  scrollbar-gutter: stable;
+}
+
+.conversation-account-footer {
+  position: relative;
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.conversation-account-button {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid rgba(214, 181, 94, 0.16);
+  border-radius: 14px;
+  padding: 7px 9px;
+  color: var(--theme-text);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.065), rgba(214, 181, 94, 0.055)),
+    rgba(13, 9, 19, 0.82);
+  cursor: pointer;
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.conversation-account-button:hover,
+.conversation-account-button:focus-visible {
+  border-color: rgba(214, 181, 94, 0.42);
+  background:
+    linear-gradient(135deg, rgba(188, 135, 255, 0.13), rgba(214, 181, 94, 0.09)),
+    rgba(13, 9, 19, 0.9);
+  outline: none;
+}
+
+.conversation-account-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgba(214, 181, 94, 0.28);
+  border-radius: 12px;
+  color: #17101a;
+  background: linear-gradient(135deg, #d8bcff, #f1cf67);
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.conversation-account-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.conversation-account-name,
+.conversation-account-detail,
+.conversation-account-menu-name,
+.conversation-account-menu-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-account-name {
+  color: var(--theme-text);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.conversation-account-detail {
+  color: rgba(200, 189, 216, 0.72);
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.conversation-account-dots {
+  color: rgba(247, 239, 232, 0.58);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+
+.conversation-account-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(214, 181, 94, 0.18);
+  border-radius: 16px;
+  padding: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 42%),
+    rgba(9, 7, 14, 0.96);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.44);
+  backdrop-filter: blur(18px);
+}
+
+.conversation-account-menu-label {
+  color: var(--accent-2);
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.conversation-account-menu-name {
+  color: var(--theme-text);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.conversation-account-menu-detail {
+  color: rgba(200, 189, 216, 0.72);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.conversation-account-menu-divider {
+  height: 1px;
+  margin: 5px 0;
+  background: rgba(214, 181, 94, 0.14);
+}
+
+.conversation-account-menu-button {
+  min-height: 32px;
+  border: 1px solid rgba(255, 180, 192, 0.18);
+  border-radius: 999px;
+  color: #ffd4db;
+  background: rgba(127, 31, 58, 0.16);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.conversation-account-menu-button:hover,
+.conversation-account-menu-button:focus-visible {
+  border-color: rgba(255, 180, 192, 0.36);
+  background: rgba(127, 31, 58, 0.25);
+  outline: none;
+}
+
+.conversation-account-menu-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .conversation-list-empty {
@@ -2848,10 +3072,15 @@ button:disabled {
 
   .conversation-sidebar {
     grid-column: 1;
-    position: sticky;
+    position: fixed;
     top: 24px;
-    max-height: calc(100vh - 48px);
+    bottom: 24px;
+    left: max(var(--page-inline-pad), calc((100vw - 1680px) / 2));
+    width: var(--chat-rail-width);
+    height: auto;
+    max-height: none;
     overflow: hidden;
+    z-index: 20;
   }
 
   .hero-card {
@@ -2960,12 +3189,12 @@ button:disabled {
 
   .conversation-sidebar {
     order: 2;
-    max-height: 260px;
+    max-height: min(72vh, 520px);
     overflow: hidden;
   }
 
   .conversation-list {
-    max-height: 150px;
+    max-height: min(34vh, 240px);
   }
 
   .sidebar-column {
