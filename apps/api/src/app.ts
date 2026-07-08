@@ -90,10 +90,10 @@ export function createApp() {
     }
 
     logger.error("Unhandled API error", error);
-    const message = env.NODE_ENV === "production"
-      ? "Internal server error"
-      : error instanceof Error ? error.message : "Internal server error";
-    response.status(500).json({ error: message });
+    response.status(500).json({
+      error: "Something went wrong on the server. Please try again.",
+      code: "INTERNAL_SERVER_ERROR"
+    });
   });
 
   return app;

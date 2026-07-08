@@ -387,7 +387,7 @@ export class AuthService {
     const username = normalizeUsername(payload.username);
     if (!email && !username) throw new HttpError("Email or username is required.", 400);
 
-    const existing = await db.query.users.findFirst({ where: accountLookupWhere(email, username) });
+    const [existing] = await db.select().from(users).where(accountLookupWhere(email, username)).limit(1);
     if (existing) throw new HttpError("An account with that email or username already exists.", 409);
 
     try {
@@ -414,14 +414,16 @@ export class AuthService {
   async login(payload: LoginRequest, metadata: AuthMetadata = {}): Promise<AuthResponse> {
     const db = requireDatabase();
     const identifier = payload.identifier.trim().toLowerCase();
-    const user = await db.query.users.findFirst({
-      where: or(eq(users.email, identifier), eq(users.username, identifier))
-    });
+    const [user] = await db.select()
+      .from(users)
+      .where(or(eq(users.email, identifier), eq(users.username, identifier)))
+      .limit(1);
     if (!user || user.status !== "active") throw new HttpError("Invalid username/email or password.", 401);
 
-    const credential = await db.query.userPasswordCredentials.findFirst({
-      where: eq(userPasswordCredentials.userId, user.id)
-    });
+    const [credential] = await db.select()
+      .from(userPasswordCredentials)
+      .where(eq(userPasswordCredentials.userId, user.id))
+      .limit(1);
     if (!credential || !(await verifyPassword(payload.password, credential.passwordHash))) {
       throw new HttpError("Invalid username/email or password.", 401);
     }

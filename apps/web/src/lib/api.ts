@@ -141,6 +141,50 @@ export type ReviewRecordDeletePayload = {
   id: string;
 };
 
+type ApiErrorPayload = {
+  error?: string;
+  message?: string;
+  code?: string;
+  details?: {
+    fieldErrors?: Record<string, string[] | undefined>;
+    formErrors?: string[];
+  };
+};
+
+function firstValidationMessage(payload: ApiErrorPayload): string | undefined {
+  const fieldErrors = payload.details?.fieldErrors
+    ? Object.values(payload.details.fieldErrors).flatMap((messages) => messages ?? [])
+    : [];
+  return [...(payload.details?.formErrors ?? []), ...fieldErrors].find(Boolean);
+}
+
+function isInternalErrorDetail(message: string): boolean {
+  return /failed query|params:|drizzle|postgres|syntax error|violates|duplicate key|relation .* does not exist|insert into|select .* from/i.test(message);
+}
+
+async function parseApiError(response: Response): Promise<string> {
+  let detail = "";
+  let code = "";
+  try {
+    const payload = await response.json() as ApiErrorPayload;
+    detail = firstValidationMessage(payload) ?? payload.error ?? payload.message ?? "";
+    code = payload.code ?? "";
+  } catch {
+    detail = "";
+  }
+
+  if (response.status === 401) return "Invalid email/username or password.";
+  if (response.status === 409) return "An account with that email or username already exists.";
+  if (response.status === 429) return detail || "Too many requests. Please wait and try again.";
+  if (response.status === 413) return detail || "That file is too large.";
+  if (response.status === 415) return detail || "That file type is not supported.";
+  if (response.status >= 500 || code === "INTERNAL_SERVER_ERROR" || (detail && isInternalErrorDetail(detail))) {
+    return "Something went wrong on the server. Please try again.";
+  }
+  if (detail) return detail;
+  return `Request failed with status ${response.status}.`;
+}
+
 function requestHeaders(includeJson: boolean, headers?: HeadersInit): HeadersInit {
   const next: Record<string, string> = {
     "x-owner-id": ownerId()
@@ -171,19 +215,11 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       headers: requestHeaders(true, headers)
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Could not reach API at ${API_BASE_URL}${path}: ${message}`);
+    throw new Error("Could not connect to the app server. Make sure the API is running.");
   }
 
   if (!response.ok) {
-    let detail = "";
-    try {
-      const payload = await response.json() as { error?: string; message?: string };
-      detail = payload.error ?? payload.message ?? "";
-    } catch {
-      detail = "";
-    }
-    throw new Error(detail ? `Request failed with status ${response.status}: ${detail}` : `Request failed with status ${response.status}`);
+    throw new Error(await parseApiError(response));
   }
 
   return response.json() as Promise<T>;
@@ -198,10 +234,9 @@ async function requestNoContent(path: string, init?: RequestInit): Promise<void>
       headers: requestHeaders(false, headers)
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Could not reach API at ${API_BASE_URL}${path}: ${message}`);
+    throw new Error("Could not connect to the app server. Make sure the API is running.");
   }
-  if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+  if (!response.ok) throw new Error(await parseApiError(response));
 }
 
 export const api = {

@@ -915,7 +915,7 @@ export function App() {
     }
   }
 
-  async function handleRegister(payload: { email?: string; username?: string; displayName?: string; password: string }): Promise<void> {
+  async function handleRegister(payload: { email?: string; username?: string; password: string }): Promise<void> {
     setAuthLoading(true);
     setAuthError(undefined);
     try {
