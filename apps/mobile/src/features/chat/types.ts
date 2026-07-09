@@ -12,4 +12,14 @@ export type RenderedTurn = {
   }>;
   assistantText: string;
   outputs: ContentBlock[];
+  backgroundJobId?: string | undefined;
+};
+
+export type MobilePickedFile = {
+  id: string;
+  uri: string;
+  name: string;
+  mimeType: string;
+  kind: "image" | "file";
+  size?: number | undefined;
 };

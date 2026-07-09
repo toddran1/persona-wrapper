@@ -6,6 +6,12 @@
     "exactOptionalPropertyTypes": true,
     "baseUrl": ".",
     "paths": {
+      "react-native": [
+        "./node_modules/react-native"
+      ],
+      "react-native/*": [
+        "./node_modules/react-native/*"
+      ],
       "@/*": [
         "./src/*"
       ]

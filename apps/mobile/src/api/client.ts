@@ -9,6 +9,8 @@ import type {
   ConversationSummary,
   LoginRequest,
   MeResponse,
+  OAuthExchangeRequest,
+  OAuthProvider,
   OAuthProviderStatus,
   PersonaDefinition,
   PersonaSummary,
@@ -35,20 +37,34 @@ export type MobileChatPayload = {
   toolOptions?: ToolOptions;
 };
 
+export type MobileUploadFile = {
+  uri: string;
+  name: string;
+  mimeType: string;
+};
+
 type MobileRegisterRequest = Omit<RegisterRequest, "clientType" | "deviceId">;
 type MobileLoginRequest = Omit<LoginRequest, "clientType" | "deviceId">;
+type MobileOAuthExchangeRequest = Omit<OAuthExchangeRequest, "clientType" | "deviceId">;
 
 type ApiErrorPayload = {
   error?: string;
   message?: string;
 };
 
-async function parseApiError(response: Response): Promise<string> {
+class ApiResponseError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "ApiResponseError";
+  }
+}
+
+async function parseApiError(response: Response): Promise<ApiResponseError> {
   try {
     const payload = await response.json() as ApiErrorPayload;
-    return payload.error || payload.message || `Request failed with status ${response.status}.`;
+    return new ApiResponseError(response.status, payload.error || payload.message || `Request failed with status ${response.status}.`);
   } catch {
-    return `Request failed with status ${response.status}.`;
+    return new ApiResponseError(response.status, `Request failed with status ${response.status}.`);
   }
 }
 
@@ -72,7 +88,27 @@ async function requestHeaders(includeJson: boolean, headers?: HeadersInit): Prom
   return { ...next, ...(headers ?? {}) };
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function refreshStoredAuth(): Promise<boolean> {
+  const refreshToken = (await getAuthTokens())?.refreshToken;
+  if (!refreshToken) return false;
+  try {
+    const response = await requestJson<AuthResponse>("/api/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken, clientType: clientType(), deviceId: await getDeviceId() })
+    }, { skipAuthRefresh: true });
+    await setAuthTokens(response.tokens);
+    return true;
+  } catch {
+    await clearAuthTokens();
+    return false;
+  }
+}
+
+async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { skipAuthRefresh?: boolean }
+): Promise<T> {
   const { headers, ...rest } = init ?? {};
   let response: Response;
   try {
@@ -83,22 +119,67 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
   }
-  if (!response.ok) throw new Error(await parseApiError(response));
+  if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
+    return requestJson<T>(path, init, { skipAuthRefresh: true });
+  }
+  if (!response.ok) throw await parseApiError(response);
   return response.json() as Promise<T>;
 }
 
-async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
+async function requestNoContent(
+  path: string,
+  init?: RequestInit,
+  options?: { skipAuthRefresh?: boolean }
+): Promise<void> {
   const { headers, ...rest } = init ?? {};
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
     headers: await requestHeaders(false, headers)
   });
-  if (!response.ok) throw new Error(await parseApiError(response));
+  if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
+    return requestNoContent(path, init, { skipAuthRefresh: true });
+  }
+  if (!response.ok) throw await parseApiError(response);
 }
 
 export const api = {
   resolveUrl: (pathOrUrl: string): string => pathOrUrl.startsWith("/") ? `${API_BASE_URL}${pathOrUrl}` : pathOrUrl,
   getDeviceId,
+  uploadFiles: async (
+    files: MobileUploadFile[],
+    options?: { skipAuthRefresh?: boolean }
+  ): Promise<UploadedAsset[]> => {
+    const body = new FormData();
+    for (const file of files) {
+      body.append("files", {
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType
+      } as unknown as Blob);
+    }
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}/api/uploads`, {
+        method: "POST",
+        headers: await requestHeaders(false),
+        body
+      });
+    } catch {
+      throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
+    }
+    if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
+      return api.uploadFiles(files, { skipAuthRefresh: true });
+    }
+    if (!response.ok) throw await parseApiError(response);
+    const payload = await response.json() as { assets: UploadedAsset[] };
+    return payload.assets;
+  },
+  oauthStartUrl: async (provider: OAuthProvider): Promise<string> => {
+    const url = new URL(`/api/auth/oauth/${provider}/start`, API_BASE_URL);
+    url.searchParams.set("clientType", clientType());
+    url.searchParams.set("deviceId", await getDeviceId());
+    return url.toString();
+  },
   register: async (payload: MobileRegisterRequest): Promise<AuthResponse> => {
     const response = await requestJson<AuthResponse>("/api/auth/register", {
       method: "POST",
@@ -115,13 +196,21 @@ export const api = {
     await setAuthTokens(response.tokens);
     return response;
   },
+  exchangeOAuthCode: async (payload: MobileOAuthExchangeRequest): Promise<AuthResponse> => {
+    const response = await requestJson<AuthResponse>("/api/auth/oauth/exchange", {
+      method: "POST",
+      body: JSON.stringify({ ...payload, clientType: clientType(), deviceId: await getDeviceId() })
+    }, { skipAuthRefresh: true });
+    await setAuthTokens(response.tokens);
+    return response;
+  },
   refreshAuth: async (payload?: Partial<RefreshAuthRequest>): Promise<AuthResponse> => {
     const refreshToken = payload?.refreshToken ?? (await getAuthTokens())?.refreshToken;
     if (!refreshToken) throw new Error("No refresh token available.");
     const response = await requestJson<AuthResponse>("/api/auth/refresh", {
       method: "POST",
       body: JSON.stringify({ clientType: clientType(), deviceId: await getDeviceId(), ...payload, refreshToken })
-    });
+    }, { skipAuthRefresh: true });
     await setAuthTokens(response.tokens);
     return response;
   },
@@ -167,6 +256,29 @@ export const api = {
   },
   getConversation: async (conversationId: string): Promise<ConversationDetail> => {
     const payload = await requestJson<{ conversation: ConversationDetail }>(`/api/chat/conversations/${conversationId}`);
+    return payload.conversation;
+  },
+  createVectorStore: async (assetIds: string[], name?: string): Promise<{ id: string; expiresAt: string }> => {
+    const payload = await requestJson<{ vectorStore: { id: string; expiresAt: string } }>("/api/uploads/vector-stores", {
+      method: "POST",
+      body: JSON.stringify({ assetIds, name })
+    });
+    return payload.vectorStore;
+  },
+  deleteVectorStore: (vectorStoreId: string): Promise<void> =>
+    requestNoContent(`/api/uploads/vector-stores/${vectorStoreId}`, { method: "DELETE" }),
+  renameConversation: async (conversationId: string, title: string): Promise<ConversationSummary> => {
+    const payload = await requestJson<{ conversation: ConversationSummary }>(`/api/chat/conversations/${conversationId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title })
+    });
+    return payload.conversation;
+  },
+  pinConversation: async (conversationId: string, pinned: boolean): Promise<ConversationSummary> => {
+    const payload = await requestJson<{ conversation: ConversationSummary }>(`/api/chat/conversations/${conversationId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ pinned })
+    });
     return payload.conversation;
   },
   deleteConversation: (conversationId: string): Promise<void> =>

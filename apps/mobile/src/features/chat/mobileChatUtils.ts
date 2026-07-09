@@ -13,7 +13,8 @@ export function turnsFromConversationTurns(turns: ConversationTurn[]): RenderedT
     userMessage: turn.userMessage,
     userAssets: turn.userAssets,
     assistantText: turn.assistantText,
-    outputs: turn.outputs
+    outputs: turn.outputs,
+    backgroundJobId: turn.backgroundJobId
   }));
 }
 

@@ -7,6 +7,7 @@ const config: ExpoConfig = {
   version: "0.1.0",
   orientation: "portrait",
   userInterfaceStyle: "dark",
+  newArchEnabled: true,
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.personawrapper.mobile"

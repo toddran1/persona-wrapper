@@ -27,5 +27,10 @@
   "devDependencies": {
     "concurrently": "^9.1.2",
     "drizzle-orm": "^0.45.2"
+  },
+  "overrides": {
+    "@types/react": "18.3.31",
+    "expo": "52.0.49",
+    "react-native": "0.76.9"
   }
 }

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -12,9 +13,11 @@ import {
   TextInput,
   View
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { LinearGradient, type LinearGradientProps } from "expo-linear-gradient";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
-import type { AuthUser, ConversationSummary, PersonaDefinition, PersonaSummary, ProviderId } from "@persona/shared";
+import type { AuthUser, ChatJobResponse, ChatResponse, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { PanGestureHandler, type PanGestureHandlerGestureEvent } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -28,6 +31,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
 import { IconButton } from "../../components/IconButton";
+import { clearSelectedConversationId, getSelectedConversationId, setSelectedConversationId } from "../../storage/secureTokens";
 import { silkNoirTheme, themeFromPersona } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
@@ -38,14 +42,32 @@ import {
   turnFromChatResponse,
   turnsFromConversationTurns
 } from "./mobileChatUtils";
-import type { RenderedTurn } from "./types";
+import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const screenWidth = Dimensions.get("window").width;
 const drawerWidth = Math.min(screenWidth * 0.82, 340);
+const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
+const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 
 type GestureContext = {
   startX: number;
 };
+
+type AuthMode = "login" | "register";
+
+class BackgroundPollingTimeoutError extends Error {
+  constructor(readonly job: ChatJobResponse) {
+    super("This is still running in the background.");
+    this.name = "BackgroundPollingTimeoutError";
+  }
+}
+
+class BackgroundJobStateError extends Error {
+  constructor(readonly job: ChatJobResponse) {
+    super(job.error ?? "Background request failed.");
+    this.name = "BackgroundJobStateError";
+  }
+}
 
 export function MobileChatScreen() {
   const insets = useSafeAreaInsets();
@@ -56,12 +78,20 @@ export function MobileChatScreen() {
   const [turns, setTurns] = useState<RenderedTurn[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationId, setConversationId] = useState<string | undefined>();
+  const [conversationsRefreshing, setConversationsRefreshing] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | undefined>();
+  const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [resumingJobId, setResumingJobId] = useState<string | undefined>();
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [loginVisible, setLoginVisible] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
+  const [renameTitle, setRenameTitle] = useState("");
   const [identifier, setIdentifier] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [drawerInteractive, setDrawerInteractive] = useState(false);
@@ -70,6 +100,7 @@ export function MobileChatScreen() {
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
+  const [selectedFiles, setSelectedFiles] = useState<MobilePickedFile[]>([]);
 
   const openDrawer = useCallback(() => {
     setDrawerInteractive(true);
@@ -125,9 +156,279 @@ export function MobileChatScreen() {
     }
   });
 
-  async function refreshConversations(): Promise<void> {
+  async function refreshConversations(): Promise<ConversationSummary[]> {
     const list = await api.listConversations();
-    setConversations([...list].sort(sortConversationSummaries));
+    const sorted = [...list].sort(sortConversationSummaries);
+    setConversations(sorted);
+    return sorted;
+  }
+
+  async function refreshConversationsFromDrawer(): Promise<void> {
+    setConversationsRefreshing(true);
+    try {
+      await refreshConversations();
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "Could not refresh chats.");
+    } finally {
+      setConversationsRefreshing(false);
+    }
+  }
+
+  async function retryLoadAppData(): Promise<void> {
+    setLoading(true);
+    setError(undefined);
+    try {
+      const personaList = await api.getPersonas();
+      setPersonas(personaList);
+      const selected = persona ?? personaList[0];
+      if (selected) {
+        const detail = await api.getPersona(selected.id);
+        setPersona(detail);
+        setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
+      }
+      const [providers, user] = await Promise.all([
+        api.getOAuthProviders().catch(() => []),
+        api.getCurrentUser().then((payload) => payload.user).catch(() => undefined)
+      ]);
+      setOAuthProviders(providers);
+      if (user) setAuthUser(user);
+      const nextConversations = await refreshConversations().catch(() => []);
+      const savedConversationId = await getSelectedConversationId();
+      if (!conversationId && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
+        await selectConversation(savedConversationId, { keepDrawerOpen: true });
+      }
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : "Could not load mobile app data.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function appendPickedFiles(files: MobilePickedFile[]): void {
+    setSelectedFiles((current) => [...current, ...files].slice(0, 10));
+  }
+
+  function pickedId(prefix: string): string {
+    return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  }
+
+  function fileNameFromUri(uri: string, fallback: string): string {
+    const lastSegment = uri.split("/").pop();
+    return lastSegment && lastSegment.includes(".") ? lastSegment : fallback;
+  }
+
+  async function pickImage(): Promise<void> {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Photos unavailable", "Allow photo access to attach images.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+      allowsMultipleSelection: true
+    });
+    if (result.canceled) return;
+    appendPickedFiles(result.assets.map((asset, index) => ({
+      id: pickedId("image"),
+      uri: asset.uri,
+      name: asset.fileName ?? fileNameFromUri(asset.uri, `image-${index + 1}.jpg`),
+      mimeType: asset.mimeType ?? "image/jpeg",
+      kind: "image",
+      size: asset.fileSize
+    })));
+  }
+
+  async function pickDocument(): Promise<void> {
+    const result = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: true,
+      multiple: true
+    });
+    if (result.canceled) return;
+    appendPickedFiles(result.assets.map((asset) => ({
+      id: pickedId("file"),
+      uri: asset.uri,
+      name: asset.name,
+      mimeType: asset.mimeType ?? "application/octet-stream",
+      kind: asset.mimeType?.startsWith("image/") ? "image" : "file",
+      size: asset.size
+    })));
+  }
+
+  function openAttachmentPicker(): void {
+    Alert.alert("Attach", "Choose what to add to this message.", [
+      { text: "Photo", onPress: () => void pickImage() },
+      { text: "File", onPress: () => void pickDocument() },
+      { text: "Cancel", style: "cancel" }
+    ]);
+  }
+
+  function mapUploadedAssetsToUserAssets(assets: UploadedAsset[]): NonNullable<RenderedTurn["userAssets"]> {
+    return assets.map((asset) => ({
+      id: asset.id,
+      kind: asset.kind,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      ...(asset.url ? { url: asset.url } : {})
+    }));
+  }
+
+  function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  function backgroundStatusMessage(job: ChatJobResponse, checked: boolean): string {
+    const updatedAt = new Date(job.updatedAt);
+    const checkedAt = Number.isNaN(updatedAt.getTime())
+      ? "just now"
+      : updatedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return checked
+      ? `Still working in the background. Last checked at ${checkedAt}.`
+      : "Still working in the background. You can keep this chat open while it finishes.";
+  }
+
+  function updateTurnOutputs(turnId: string, outputs: RenderedTurn["outputs"], backgroundJobId?: string): void {
+    setTurns((current) => current.map((turn) => (
+      turn.id === turnId
+        ? {
+          ...turn,
+          outputs,
+          ...(backgroundJobId ? { backgroundJobId } : {})
+        }
+        : turn
+    )));
+  }
+
+  function replaceTurnWithResponse(turnId: string, userMessage: string, userAssets: RenderedTurn["userAssets"], response: ChatResponse): void {
+    const completedTurn: RenderedTurn = {
+      ...turnFromChatResponse(userMessage, response),
+      ...(userAssets ? { userAssets } : {})
+    };
+    setConversationId(response.conversationId);
+    setTurns((current) => current.map((turn) => (
+      turn.id === turnId ? completedTurn : turn
+    )));
+  }
+
+  function isStillRunningTurn(turn: RenderedTurn): boolean {
+    return Boolean(turn.backgroundJobId && turn.outputs.some((output) => output.type === "status" && output.status === "in_progress"));
+  }
+
+  async function pollChatJob(
+    jobId: string,
+    onStatus: (job: ChatJobResponse) => void
+  ): Promise<ChatResponse> {
+    const startedAt = Date.now();
+    let intervalMs = 1200;
+    let latestJob: ChatJobResponse | undefined;
+
+    while (Date.now() - startedAt < BACKGROUND_POLL_TIMEOUT_MS) {
+      const job = await api.getChatJob(jobId);
+      latestJob = job;
+      if (job.status === "completed" && job.response) {
+        return job.response;
+      }
+      if (job.status === "failed" || job.status === "cancelled") {
+        throw new BackgroundJobStateError(job);
+      }
+      onStatus(job);
+      await wait(intervalMs);
+      intervalMs = Math.min(5000, Math.round(intervalMs * 1.35));
+    }
+
+    throw new BackgroundPollingTimeoutError(latestJob ?? await api.getChatJob(jobId));
+  }
+
+  async function resumeBackgroundJob(turn: RenderedTurn): Promise<void> {
+    if (!turn.backgroundJobId || resumingJobId) return;
+    setResumingJobId(turn.backgroundJobId);
+    setError(undefined);
+    try {
+      const firstJob = await api.getChatJob(turn.backgroundJobId);
+      if (firstJob.status === "completed" && firstJob.response) {
+        replaceTurnWithResponse(turn.id, turn.userMessage, turn.userAssets, firstJob.response);
+        await refreshConversations();
+        return;
+      }
+      if (firstJob.status === "failed" || firstJob.status === "cancelled") {
+        throw new BackgroundJobStateError(firstJob);
+      }
+      updateTurnOutputs(turn.id, [{
+        type: "status",
+        status: "in_progress",
+        message: backgroundStatusMessage(firstJob, true)
+      }], firstJob.id);
+      const response = await pollChatJob(firstJob.id, (job) => {
+        updateTurnOutputs(turn.id, [{
+          type: "status",
+          status: "in_progress",
+          message: backgroundStatusMessage(job, true)
+        }], job.id);
+      });
+      replaceTurnWithResponse(turn.id, turn.userMessage, turn.userAssets, response);
+      await refreshConversations();
+    } catch (resumeError) {
+      if (resumeError instanceof BackgroundPollingTimeoutError) {
+        updateTurnOutputs(turn.id, [{
+          type: "status",
+          status: "in_progress",
+          message: backgroundStatusMessage(resumeError.job, true)
+        }], resumeError.job.id);
+        return;
+      }
+      if (resumeError instanceof BackgroundJobStateError) {
+        const failedStatus = resumeError.job.status === "cancelled" ? "cancelled" : "failed";
+        updateTurnOutputs(turn.id, [{
+          type: "status",
+          status: failedStatus,
+          message: resumeError.job.error ?? resumeError.message
+        }], resumeError.job.id);
+        setError(resumeError.message);
+        return;
+      }
+      setError(resumeError instanceof Error ? resumeError.message : "Could not check background job.");
+    } finally {
+      setResumingJobId(undefined);
+    }
+  }
+
+  async function finishAuth(user: AuthUser): Promise<void> {
+    setAuthUser(user);
+    setLoginVisible(false);
+    setPassword("");
+    setIdentifier("");
+    setDisplayName("");
+    await refreshConversations();
+  }
+
+  async function handleOAuthCallback(url: string | null): Promise<void> {
+    if (!url) return;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return;
+    }
+    if (parsed.hostname !== "auth" || parsed.pathname !== "/callback") return;
+    const errorMessage = parsed.searchParams.get("error");
+    if (errorMessage) {
+      Alert.alert("Sign in failed", errorMessage);
+      return;
+    }
+    const code = parsed.searchParams.get("code");
+    if (!code) return;
+    setAuthBusy(true);
+    try {
+      const auth = await api.exchangeOAuthCode({ code });
+      await finishAuth(auth.user);
+      closeDrawer();
+    } catch (exchangeError) {
+      Alert.alert("Sign in failed", exchangeError instanceof Error ? exchangeError.message : "Could not finish sign in.");
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -149,7 +450,16 @@ export function MobileChatScreen() {
           if (mounted) setPersona(detail);
         }
         if (user && mounted) setAuthUser(user);
-        if (mounted) await refreshConversations();
+        api.getOAuthProviders().then((providers) => {
+          if (mounted) setOAuthProviders(providers);
+        }).catch(() => {
+          if (mounted) setOAuthProviders([]);
+        });
+        const nextConversations = mounted ? await refreshConversations().catch(() => []) : [];
+        const savedConversationId = await getSelectedConversationId();
+        if (mounted && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
+          await selectConversation(savedConversationId, { keepDrawerOpen: true });
+        }
       } catch (loadError) {
         if (mounted) setError(loadError instanceof Error ? loadError.message : "Could not load mobile app data.");
       } finally {
@@ -159,6 +469,16 @@ export function MobileChatScreen() {
     void loadInitial();
     return () => {
       mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    void Linking.getInitialURL().then((url) => handleOAuthCallback(url));
+    const subscription = Linking.addEventListener("url", (event) => {
+      void handleOAuthCallback(event.url);
+    });
+    return () => {
+      subscription.remove();
     };
   }, []);
 
@@ -182,14 +502,15 @@ export function MobileChatScreen() {
     }
   }
 
-  async function selectConversation(nextConversationId: string): Promise<void> {
+  async function selectConversation(nextConversationId: string, options?: { keepDrawerOpen?: boolean }): Promise<void> {
     try {
       setLoading(true);
       setError(undefined);
       const detail = await api.getConversation(nextConversationId);
       setConversationId(detail.id);
+      await setSelectedConversationId(detail.id);
       setTurns(turnsFromConversationTurns(detail.turns));
-      closeDrawer();
+      if (!options?.keepDrawerOpen) closeDrawer();
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load that chat.");
     } finally {
@@ -200,65 +521,214 @@ export function MobileChatScreen() {
   function newChat(): void {
     setConversationId(undefined);
     setTurns([]);
+    setSelectedFiles([]);
+    void clearSelectedConversationId();
     closeDrawer();
+  }
+
+  function showConversationActions(conversation: ConversationSummary): void {
+    Alert.alert(conversation.title, undefined, [
+      {
+        text: "Rename",
+        onPress: () => {
+          setRenameTarget(conversation);
+          setRenameTitle(conversation.title);
+        }
+      },
+      {
+        text: conversation.pinned ? "Unpin" : "Pin",
+        onPress: () => void pinConversation(conversation)
+      },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => confirmDeleteConversation(conversation)
+      },
+      { text: "Cancel", style: "cancel" }
+    ]);
+  }
+
+  async function renameConversation(): Promise<void> {
+    const title = renameTitle.trim();
+    if (!renameTarget || !title) return;
+    try {
+      const renamed = await api.renameConversation(renameTarget.id, title);
+      setConversations((current) => current.map((conversation) => (
+        conversation.id === renamed.id ? renamed : conversation
+      )).sort(sortConversationSummaries));
+      setRenameTarget(undefined);
+      setRenameTitle("");
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : "Could not rename chat.");
+    }
+  }
+
+  async function pinConversation(conversation: ConversationSummary): Promise<void> {
+    try {
+      const updated = await api.pinConversation(conversation.id, !conversation.pinned);
+      setConversations((current) => current.map((item) => (
+        item.id === updated.id ? updated : item
+      )).sort(sortConversationSummaries));
+    } catch (pinError) {
+      setError(pinError instanceof Error ? pinError.message : "Could not update pinned chat.");
+    }
+  }
+
+  function confirmDeleteConversation(conversation: ConversationSummary): void {
+    Alert.alert("Delete chat?", `"${conversation.title}" will be removed from your history.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () => void deleteConversation(conversation.id)
+      }
+    ]);
+  }
+
+  async function deleteConversation(nextConversationId: string): Promise<void> {
+    try {
+      await api.deleteConversation(nextConversationId);
+      setConversations((current) => current.filter((conversation) => conversation.id !== nextConversationId));
+      if (conversationId === nextConversationId) {
+        setConversationId(undefined);
+        setTurns([]);
+        await clearSelectedConversationId();
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Could not delete chat.");
+    }
   }
 
   async function submit(message: string): Promise<void> {
     if (!activePersona || sending) return;
     setSending(true);
     setError(undefined);
-    const optimistic: RenderedTurn = {
-      id: `pending-${Date.now()}`,
-      userMessage: message,
-      assistantText: "",
-      outputs: [{ type: "status", status: "in_progress", message: `${activePersona.name} is thinking...` }]
-    };
-    setTurns((current) => [...current, optimistic]);
+    const submittedFiles = selectedFiles;
+    setSelectedFiles([]);
+    let optimistic: RenderedTurn | undefined;
     try {
+      setUploadingAttachments(submittedFiles.length > 0);
+      const attachments = submittedFiles.length > 0
+        ? await api.uploadFiles(submittedFiles.map((file) => ({
+          uri: file.uri,
+          name: file.name,
+          mimeType: file.mimeType
+        })))
+        : [];
+      const fileAttachmentIds = attachments
+        .filter((attachment) => attachment.kind === "file")
+        .map((attachment) => attachment.id);
+      const vectorStore = fileAttachmentIds.length > 0
+        ? await api.createVectorStore(fileAttachmentIds, `mobile-${Date.now()}`)
+        : undefined;
+      const resolvedToolOptions = {
+        webSearch: false,
+        fileSearch: fileAttachmentIds.length > 0,
+        codeInterpreter: false,
+        imageGeneration: false,
+        appFunctions: true,
+        background: true,
+        vectorStoreIds: vectorStore ? [vectorStore.id] : []
+      };
+      setUploadingAttachments(false);
+      optimistic = {
+        id: `pending-${Date.now()}`,
+        userMessage: message,
+        userAssets: mapUploadedAssetsToUserAssets(attachments),
+        assistantText: "",
+        outputs: [{ type: "status", status: "in_progress", message: `${activePersona.name} is thinking...` }]
+      };
+      setTurns((current) => [...current, optimistic as RenderedTurn]);
       const response = await api.sendChat({
         personaId: activePersona.id,
         message,
         provider,
         audio: audioEnabled,
         clientContext: getClientContext(),
-        toolOptions: {
-          webSearch: false,
-          fileSearch: false,
-          codeInterpreter: false,
-          imageGeneration: false,
-          appFunctions: true,
-          background: true,
-          vectorStoreIds: []
-        },
+        toolOptions: resolvedToolOptions,
+        ...(attachments.length > 0 ? { attachments } : {}),
         ...(conversationId ? { conversationId } : {})
       });
-      setConversationId(response.conversationId);
-      setTurns((current) => [...current.slice(0, -1), turnFromChatResponse(message, response)]);
+      const backgroundJob = response.diagnostics.backgroundJob;
+      const finalResponse = backgroundJob
+        ? await pollChatJob(backgroundJob.id, (job) => {
+          updateTurnOutputs(optimistic?.id ?? "", [{
+            type: "status",
+            status: "in_progress",
+            message: backgroundStatusMessage(job, true)
+          }], job.id);
+        })
+        : response;
+      setConversationId(finalResponse.conversationId);
+      await setSelectedConversationId(finalResponse.conversationId);
+      const completedTurn: RenderedTurn = {
+        ...turnFromChatResponse(message, finalResponse),
+        userAssets: mapUploadedAssetsToUserAssets(attachments)
+      };
+      setTurns((current) => current.map((turn) => (
+        turn.id === optimistic?.id ? completedTurn : turn
+      )));
       await refreshConversations();
     } catch (sendError) {
       const messageText = sendError instanceof Error ? sendError.message : "Message failed.";
-      setError(messageText);
-      setTurns((current) => current.map((turn) => (
-        turn.id === optimistic.id
-          ? { ...turn, outputs: [{ type: "status", status: "failed", message: messageText }] }
-          : turn
-      )));
+      if (optimistic) {
+        if (sendError instanceof BackgroundPollingTimeoutError) {
+          setError(undefined);
+          updateTurnOutputs(optimistic.id, [{
+            type: "status",
+            status: "in_progress",
+            message: backgroundStatusMessage(sendError.job, true)
+          }], sendError.job.id);
+          await refreshConversations().catch(() => undefined);
+        } else if (sendError instanceof BackgroundJobStateError) {
+          const failedStatus = sendError.job.status === "cancelled" ? "cancelled" : "failed";
+          setError(sendError.message);
+          updateTurnOutputs(optimistic.id, [{
+            type: "status",
+            status: failedStatus,
+            message: sendError.job.error ?? sendError.message
+          }], sendError.job.id);
+        } else {
+          setError(messageText);
+          updateTurnOutputs(optimistic.id, [{ type: "status", status: "failed", message: messageText }]);
+        }
+      } else {
+        setError(messageText);
+        setSelectedFiles(submittedFiles);
+      }
     } finally {
+      setUploadingAttachments(false);
       setSending(false);
     }
   }
 
-  async function login(): Promise<void> {
+  async function submitAuth(): Promise<void> {
     if (!identifier.trim() || !password) return;
     setAuthBusy(true);
     try {
-      const auth = await api.login({ identifier: identifier.trim(), password });
-      setAuthUser(auth.user);
-      setLoginVisible(false);
-      setPassword("");
-      await refreshConversations();
-    } catch (loginError) {
-      Alert.alert("Sign in failed", loginError instanceof Error ? loginError.message : "Could not sign in.");
+      const trimmedIdentifier = identifier.trim();
+      const auth = authMode === "login"
+        ? await api.login({ identifier: trimmedIdentifier, password })
+        : await api.register({
+          password,
+          ...(trimmedIdentifier.includes("@") ? { email: trimmedIdentifier } : { username: trimmedIdentifier }),
+          ...(displayName.trim() ? { displayName: displayName.trim() } : {})
+        });
+      await finishAuth(auth.user);
+    } catch (authError) {
+      Alert.alert(authMode === "login" ? "Sign in failed" : "Could not create account", authError instanceof Error ? authError.message : "Authentication failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function startOAuth(provider: OAuthProvider): Promise<void> {
+    setAuthBusy(true);
+    try {
+      const url = await api.oauthStartUrl(provider);
+      await Linking.openURL(url);
+    } catch (oauthError) {
+      Alert.alert("Sign in failed", oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
     } finally {
       setAuthBusy(false);
     }
@@ -269,6 +739,7 @@ export function MobileChatScreen() {
     setAuthUser(undefined);
     setConversations([]);
     setConversationId(undefined);
+    void clearSelectedConversationId();
     setTurns([]);
   }
 
@@ -276,11 +747,11 @@ export function MobileChatScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
-      <LinearGradient
+      <BackgroundGradient
         colors={[theme.background, theme.backgroundAlt, theme.background]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
+        style={StyleSheet.absoluteFillObject}
       />
       <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={12}>
         <Animated.View style={[styles.edgeSwipe, { top: insets.top, bottom: insets.bottom }]} />
@@ -312,6 +783,12 @@ export function MobileChatScreen() {
           {error ? (
             <View style={[styles.error, { borderColor: theme.danger }]}>
               <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
+              <Pressable
+                onPress={() => void retryLoadAppData()}
+                style={[styles.errorRetryButton, { borderColor: theme.border }]}
+              >
+                <Text style={[styles.errorRetryText, { color: theme.text }]}>Try again</Text>
+              </Pressable>
             </View>
           ) : null}
 
@@ -354,6 +831,16 @@ export function MobileChatScreen() {
                 <View key={turn.id} style={styles.turn}>
                   <View style={[styles.userBubble, { backgroundColor: "rgba(255,255,255,0.10)" }]}>
                     <Text style={[styles.userText, { color: theme.text }]}>{turn.userMessage}</Text>
+                    {turn.userAssets && turn.userAssets.length > 0 ? (
+                      <View style={styles.sentAssetStack}>
+                        {turn.userAssets.map((asset) => (
+                          <View key={asset.id} style={styles.sentAsset}>
+                            <Ionicons name={asset.kind === "image" ? "image-outline" : "document-text-outline"} size={14} color={theme.accent2} />
+                            <Text style={[styles.sentAssetText, { color: theme.muted }]} numberOfLines={1}>{asset.fileName}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
                   </View>
                   <View style={styles.assistantRow}>
                     <View style={[styles.assistantMark, { backgroundColor: theme.accent }]}>
@@ -363,6 +850,25 @@ export function MobileChatScreen() {
                     </View>
                     <View style={styles.assistantContent}>
                       <OutputBlocks outputs={turn.outputs} theme={theme} />
+                      {isStillRunningTurn(turn) ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={resumingJobId === turn.backgroundJobId}
+                          onPress={() => void resumeBackgroundJob(turn)}
+                          style={[
+                            styles.checkStatusButton,
+                            {
+                              borderColor: theme.border,
+                              backgroundColor: resumingJobId === turn.backgroundJobId ? "rgba(255,255,255,0.05)" : "rgba(214,181,94,0.12)"
+                            }
+                          ]}
+                        >
+                          <Ionicons name="refresh" size={16} color={theme.accent2} />
+                          <Text style={[styles.checkStatusText, { color: theme.text }]}>
+                            {resumingJobId === turn.backgroundJobId ? "Checking..." : "Check status"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
                 </View>
@@ -373,7 +879,11 @@ export function MobileChatScreen() {
           <ChatComposer
             theme={theme}
             disabled={sending || !activePersona}
+            uploadingAttachments={uploadingAttachments}
+            attachments={selectedFiles}
             placeholder={activePersona?.promptPlaceholder ?? "Ask anything"}
+            onAttach={openAttachmentPicker}
+            onRemoveAttachment={(id) => setSelectedFiles((current) => current.filter((file) => file.id !== id))}
             onSubmit={(message) => void submit(message)}
           />
         </KeyboardAvoidingView>
@@ -395,9 +905,12 @@ export function MobileChatScreen() {
             activePersona={activePersona}
             theme={theme}
             loading={loading}
+            refreshing={conversationsRefreshing}
             onClose={closeDrawer}
             onNewChat={newChat}
             onSelectConversation={(id) => void selectConversation(id)}
+            onShowConversationActions={showConversationActions}
+            onRefreshConversations={() => void refreshConversationsFromDrawer()}
             onSelectPersona={(id) => void selectPersona(id)}
             onShowLogin={() => setLoginVisible(true)}
             onLogout={() => void logout()}
@@ -409,16 +922,43 @@ export function MobileChatScreen() {
         <View style={styles.loginScrim}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setLoginVisible(false)} />
           <View style={[styles.loginCard, { borderColor: theme.border, backgroundColor: silkNoirTheme.surfaceStrong }]}>
-            <Text style={[styles.loginTitle, { color: theme.text }]}>Sign in</Text>
-            <Text style={[styles.loginCopy, { color: theme.muted }]}>Use the same account as the web app.</Text>
+            <View style={styles.authModeRow}>
+              <Pressable
+                onPress={() => setAuthMode("login")}
+                style={[styles.authModeButton, { backgroundColor: authMode === "login" ? theme.text : "rgba(255,255,255,0.06)" }]}
+              >
+                <Text style={[styles.authModeText, { color: authMode === "login" ? theme.background : theme.text }]}>Sign in</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setAuthMode("register")}
+                style={[styles.authModeButton, { backgroundColor: authMode === "register" ? theme.text : "rgba(255,255,255,0.06)" }]}
+              >
+                <Text style={[styles.authModeText, { color: authMode === "register" ? theme.background : theme.text }]}>Create</Text>
+              </Pressable>
+            </View>
+            <Text style={[styles.loginTitle, { color: theme.text }]}>
+              {authMode === "login" ? "Sign in" : "Create account"}
+            </Text>
+            <Text style={[styles.loginCopy, { color: theme.muted }]}>
+              {authMode === "login" ? "Use the same account as the web app." : "Save chats and pick them up on any device."}
+            </Text>
             <TextInput
               autoCapitalize="none"
               value={identifier}
               onChangeText={setIdentifier}
-              placeholder="Email or username"
+              placeholder={authMode === "login" ? "Email or username" : "Email or username"}
               placeholderTextColor={theme.muted}
               style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
             />
+            {authMode === "register" ? (
+              <TextInput
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder="Display name"
+                placeholderTextColor={theme.muted}
+                style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
+              />
+            ) : null}
             <TextInput
               secureTextEntry
               value={password}
@@ -429,13 +969,61 @@ export function MobileChatScreen() {
             />
             <Pressable
               disabled={authBusy}
-              onPress={() => void login()}
+              onPress={() => void submitAuth()}
               style={[styles.loginButton, { backgroundColor: theme.text, opacity: authBusy ? 0.65 : 1 }]}
             >
               <Text style={[styles.loginButtonText, { color: theme.background }]}>
-                {authBusy ? "Signing in..." : "Sign in"}
+                {authBusy ? "Working..." : authMode === "login" ? "Sign in" : "Create account"}
               </Text>
             </Pressable>
+            {oauthProviders.some((providerStatus) => providerStatus.enabled) ? (
+              <View style={styles.oauthStack}>
+                <Text style={[styles.oauthLabel, { color: theme.muted }]}>Or continue with</Text>
+                {oauthProviders.filter((providerStatus) => providerStatus.enabled).map((providerStatus) => (
+                  <Pressable
+                    key={providerStatus.provider}
+                    disabled={authBusy}
+                    onPress={() => void startOAuth(providerStatus.provider)}
+                    style={[styles.oauthButton, { borderColor: theme.border }]}
+                  >
+                    <Ionicons name={providerStatus.provider === "google" ? "logo-google" : "logo-facebook"} size={18} color={theme.text} />
+                    <Text style={[styles.oauthButtonText, { color: theme.text }]}>
+                      {providerStatus.provider === "google" ? "Google" : "Facebook"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+      {renameTarget ? (
+        <View style={styles.loginScrim}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setRenameTarget(undefined)} />
+          <View style={[styles.loginCard, { borderColor: theme.border, backgroundColor: silkNoirTheme.surfaceStrong }]}>
+            <Text style={[styles.loginTitle, { color: theme.text }]}>Rename chat</Text>
+            <TextInput
+              value={renameTitle}
+              onChangeText={setRenameTitle}
+              placeholder="Chat title"
+              placeholderTextColor={theme.muted}
+              autoFocus
+              style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
+            />
+            <View style={styles.renameActions}>
+              <Pressable
+                onPress={() => setRenameTarget(undefined)}
+                style={[styles.renameSecondaryButton, { borderColor: theme.border }]}
+              >
+                <Text style={[styles.renameSecondaryText, { color: theme.text }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void renameConversation()}
+                style={[styles.renamePrimaryButton, { backgroundColor: theme.text }]}
+              >
+                <Text style={[styles.renamePrimaryText, { color: theme.background }]}>Save</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       ) : null}
@@ -444,6 +1032,24 @@ export function MobileChatScreen() {
 }
 
 const styles = StyleSheet.create({
+  authModeButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 38
+  },
+  authModeRow: {
+    backgroundColor: "rgba(0,0,0,0.18)",
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: 6,
+    padding: 4
+  },
+  authModeText: {
+    fontSize: 14,
+    fontWeight: "900"
+  },
   assistantContent: {
     flex: 1,
     gap: 8,
@@ -481,6 +1087,21 @@ const styles = StyleSheet.create({
   chatPlane: {
     flex: 1
   },
+  checkStatusButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    marginTop: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  checkStatusText: {
+    fontSize: 13,
+    fontWeight: "800"
+  },
   drawerWrap: {
     bottom: 0,
     left: 0,
@@ -517,9 +1138,21 @@ const styles = StyleSheet.create({
   error: {
     borderRadius: 18,
     borderWidth: 1,
+    gap: 10,
     marginHorizontal: 14,
     marginTop: 8,
     padding: 12
+  },
+  errorRetryButton: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 7
+  },
+  errorRetryText: {
+    fontSize: 12,
+    fontWeight: "900"
   },
   errorText: {
     fontSize: 13,
@@ -588,6 +1221,29 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "900"
   },
+  oauthButton: {
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+    minHeight: 44
+  },
+  oauthButtonText: {
+    fontSize: 14,
+    fontWeight: "800",
+    textTransform: "capitalize"
+  },
+  oauthLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center"
+  },
+  oauthStack: {
+    gap: 9,
+    paddingTop: 4
+  },
   overlay: {
     backgroundColor: "#000",
     bottom: 0,
@@ -604,6 +1260,48 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     overflow: "hidden"
+  },
+  renameActions: {
+    flexDirection: "row",
+    gap: 10
+  },
+  renamePrimaryButton: {
+    alignItems: "center",
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46
+  },
+  renamePrimaryText: {
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  renameSecondaryButton: {
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 46
+  },
+  renameSecondaryText: {
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  sentAsset: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
+    minWidth: 0
+  },
+  sentAssetStack: {
+    gap: 6,
+    marginTop: 9
+  },
+  sentAssetText: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "700"
   },
   suggestion: {
     borderRadius: 18,

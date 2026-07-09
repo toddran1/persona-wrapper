@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import type { AuthUser, ConversationSummary, PersonaSummary } from "@persona/shared";
 import { Ionicons } from "@expo/vector-icons";
 import type { MobileTheme } from "../../theme/personaTheme";
@@ -12,9 +12,12 @@ type ChatDrawerProps = {
   activePersona?: PersonaSummary | undefined;
   theme: MobileTheme;
   loading: boolean;
+  refreshing: boolean;
   onClose: () => void;
   onNewChat: () => void;
   onSelectConversation: (conversationId: string) => void;
+  onShowConversationActions: (conversation: ConversationSummary) => void;
+  onRefreshConversations: () => void;
   onSelectPersona: (personaId: string) => void;
   onShowLogin: () => void;
   onLogout: () => void;
@@ -28,9 +31,12 @@ export function ChatDrawer({
   activePersona,
   theme,
   loading,
+  refreshing,
   onClose,
   onNewChat,
   onSelectConversation,
+  onShowConversationActions,
+  onRefreshConversations,
   onSelectPersona,
   onShowLogin,
   onLogout
@@ -100,7 +106,17 @@ export function ChatDrawer({
         <Text style={[styles.sectionLabel, { color: theme.accent2 }]}>Chats</Text>
         <Text style={[styles.subtle, { color: theme.muted }]}>{loading ? "Loading" : `${conversations.length}`}</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.conversationList} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.conversationList}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefreshConversations}
+            tintColor={theme.accent2}
+          />
+        }
+      >
         {conversations.length === 0 ? (
           <Text style={[styles.empty, { color: theme.muted }]}>No chats yet. Start with the persona that fits the mood.</Text>
         ) : conversations.map((conversation) => {
@@ -123,6 +139,17 @@ export function ChatDrawer({
                 <Text style={[styles.conversationTitle, { color: theme.text }]} numberOfLines={1}>{conversation.title}</Text>
                 <Text style={[styles.subtle, { color: theme.muted }]}>{formatConversationTime(conversation.updatedAt)}</Text>
               </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Actions for ${conversation.title}`}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  onShowConversationActions(conversation);
+                }}
+                style={styles.conversationAction}
+              >
+                <Ionicons name="ellipsis-horizontal" size={18} color={theme.muted} />
+              </Pressable>
             </Pressable>
           );
         })}
@@ -144,6 +171,7 @@ type DrawerStyles = {
   brand: TextStyle;
   close: ViewStyle;
   conversationCopy: ViewStyle;
+  conversationAction: ViewStyle;
   conversationList: ViewStyle;
   conversationRow: ViewStyle;
   conversationTitle: TextStyle;
@@ -208,6 +236,13 @@ const styles = StyleSheet.create<DrawerStyles>({
   conversationCopy: {
     flex: 1,
     minWidth: 0
+  },
+  conversationAction: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 34,
+    justifyContent: "center",
+    width: 34
   },
   conversationList: {
     gap: 3,
