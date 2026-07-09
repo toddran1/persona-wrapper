@@ -6,6 +6,7 @@ import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { generatedMedia } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
+import { logger } from "../utils/logger.js";
 import { storageService } from "./storageService.js";
 
 type StoredGeneratedMedia = {
@@ -158,7 +159,16 @@ export class GeneratedMediaService {
             ...(options.metadata ?? {}),
             originalBlockType: block.type
           }
-        }).catch(() => undefined);
+        }).catch((error) => {
+          logger.warn("Generated media persistence failed", {
+            blockType: block.type,
+            ownerId: options.ownerId,
+            conversationId: options.conversationId,
+            messageId: options.messageId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return undefined;
+        });
         if (!persisted) return block;
 
         return {

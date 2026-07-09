@@ -84,6 +84,21 @@ export function extractGeneratedMediaId(block: ContentBlock): string | undefined
   return match?.[1];
 }
 
+function dataImageMimeType(url: string): string | undefined {
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,/.exec(url);
+  return match?.[1];
+}
+
+function dataUrlSizeBytes(url: string): number {
+  const encoded = url.split(",", 2)[1]?.replace(/\s/g, "") ?? "";
+  if (!encoded) return 0;
+  return Buffer.byteLength(encoded, "base64");
+}
+
+function isConversationImageCandidate(block: ContentBlock): block is Extract<ContentBlock, { type: "image" }> {
+  return block.type === "image" && Boolean(extractGeneratedMediaId(block) || dataImageMimeType(block.url));
+}
+
 export function findRecentGeneratedImages(conversation: ConversationWithOutputs, maxImages = 1): Array<Extract<ContentBlock, { type: "image" }>> {
   const images: Array<Extract<ContentBlock, { type: "image" }>> = [];
   const turns = conversation.turns ?? [];
@@ -92,7 +107,7 @@ export function findRecentGeneratedImages(conversation: ConversationWithOutputs,
     if (!turn) continue;
     for (let outputIndex = turn.outputs.length - 1; outputIndex >= 0 && images.length < maxImages; outputIndex -= 1) {
       const output = turn.outputs[outputIndex];
-      if (output?.type === "image" && extractGeneratedMediaId(output)) {
+      if (output && isConversationImageCandidate(output)) {
         images.push(output);
       }
     }
@@ -118,23 +133,37 @@ export async function resolveConversationMediaContext(
   let unavailableCount = 0;
   for (const image of images) {
     const mediaId = extractGeneratedMediaId(image);
-    if (!mediaId) continue;
-    try {
-      const media = await generatedMediaService.download(mediaId, options.ownerId);
+    if (mediaId) {
+      try {
+        const media = await generatedMediaService.download(mediaId, options.ownerId);
+        attachments.push({
+          id: `conversation-media:${mediaId}`,
+          kind: "image",
+          fileName: media.fileName,
+          mimeType: media.mimeType,
+          sizeBytes: media.buffer.byteLength,
+          url: `data:${media.mimeType};base64,${media.buffer.toString("base64")}`
+        });
+      } catch (error) {
+        unavailableCount += 1;
+        logger.warn("Failed to resolve generated media for conversation context", {
+          conversationId: conversation.id,
+          mediaId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      continue;
+    }
+
+    const mimeType = dataImageMimeType(image.url);
+    if (mimeType) {
       attachments.push({
-        id: `conversation-media:${mediaId}`,
+        id: `conversation-media:data-url:${attachments.length + 1}`,
         kind: "image",
-        fileName: media.fileName,
-        mimeType: media.mimeType,
-        sizeBytes: media.buffer.byteLength,
-        url: `data:${media.mimeType};base64,${media.buffer.toString("base64")}`
-      });
-    } catch (error) {
-      unavailableCount += 1;
-      logger.warn("Failed to resolve generated media for conversation context", {
-        conversationId: conversation.id,
-        mediaId,
-        error: error instanceof Error ? error.message : String(error)
+        fileName: `conversation-image-${attachments.length + 1}.${mimeType.split("/")[1] ?? "png"}`,
+        mimeType,
+        sizeBytes: dataUrlSizeBytes(image.url),
+        url: image.url
       });
     }
   }

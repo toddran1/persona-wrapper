@@ -24,6 +24,7 @@ describe("conversation media context", () => {
     const { shouldUseConversationMediaContext } = await import("../services/conversationMediaContext.js");
 
     expect(shouldUseConversationMediaContext("What breed of puppy did you just send me?")).toBe(true);
+    expect(shouldUseConversationMediaContext("What car was in the image you just gave me?")).toBe(true);
     expect(shouldUseConversationMediaContext("Can you make the image brighter?")).toBe(true);
     expect(shouldUseConversationMediaContext("Give me a pound cake recipe.")).toBe(false);
   });
@@ -103,6 +104,47 @@ describe("conversation media context", () => {
       sizeBytes: Buffer.byteLength("puppy-image")
     });
     expect(attachments[0]?.url).toBe(`data:image/png;base64,${Buffer.from("puppy-image").toString("base64")}`);
+  });
+
+  it("uses legacy data URL image outputs as follow-up visual context", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const pngDataUrl = `data:image/png;base64,${Buffer.from("lexus-image").toString("base64")}`;
+
+    const result = await resolveConversationMediaContext(
+      {
+        id: "conv-test",
+        turns: [
+          {
+            outputs: [
+              {
+                type: "image",
+                url: pngDataUrl,
+                alt: "LaRae driving",
+                mimeType: "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        message: "What car was in the image you just gave me?",
+        ownerId: "owner-a"
+      }
+    );
+
+    expect(result).toMatchObject({
+      referenced: true,
+      candidateCount: 1,
+      unavailableCount: 0
+    });
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0]).toMatchObject({
+      kind: "image",
+      fileName: "conversation-image-1.png",
+      mimeType: "image/png",
+      sizeBytes: Buffer.byteLength("lexus-image"),
+      url: pngDataUrl
+    });
   });
 
   it("does not leak generated media across owners", async () => {

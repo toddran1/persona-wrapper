@@ -398,7 +398,6 @@ export class ChatService {
     const persistedMediaContent = await generatedMediaService.normalizeContentBlocks(styledLlmOutput.content, {
       ...(options.ownerId ? { ownerId: options.ownerId } : {}),
       conversationId: conversation.id,
-      messageId: assistantMessageId,
       metadata: ownershipMetadata
     });
     const persistedArtifactContent = await openAIArtifactService.assignOwnershipToContentBlocks(persistedMediaContent, {
