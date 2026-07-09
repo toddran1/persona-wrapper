@@ -284,6 +284,13 @@ export const refreshAuthRequestSchema = z.object({
 });
 export type RefreshAuthRequest = z.infer<typeof refreshAuthRequestSchema>;
 
+export const oauthExchangeRequestSchema = z.object({
+  code: z.string().min(1).max(256),
+  clientType: authClientTypeSchema.default("unknown"),
+  deviceId: z.string().max(200).optional()
+});
+export type OAuthExchangeRequest = z.infer<typeof oauthExchangeRequestSchema>;
+
 export const logoutRequestSchema = z.object({
   refreshToken: z.string().min(1).optional()
 });

@@ -1,4 +1,4 @@
-import { resolveApiUrl } from "../../lib/api.js";
+import { useProtectedMediaUrl } from "../../hooks/useProtectedMediaUrl.js";
 
 type VideoBlockProps = {
   url: string;
@@ -8,7 +8,7 @@ type VideoBlockProps = {
 };
 
 export function VideoBlock({ url, mimeType, title, fileName }: VideoBlockProps) {
-  const resolvedUrl = resolveApiUrl(url);
+  const resolvedUrl = useProtectedMediaUrl(url);
   const label = title ?? fileName ?? "Generated video";
 
   return (

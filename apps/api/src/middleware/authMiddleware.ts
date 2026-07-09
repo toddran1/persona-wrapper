@@ -15,6 +15,7 @@ function allowsAnonymousAuthRequest(request: Request): boolean {
     "/api/auth/login",
     "/api/auth/register",
     "/api/auth/refresh",
+    "/api/auth/oauth/exchange",
     "/api/auth/oauth/providers"
   ].includes(request.path);
 }

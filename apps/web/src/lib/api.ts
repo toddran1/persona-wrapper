@@ -186,12 +186,14 @@ async function parseApiError(response: Response): Promise<string> {
 }
 
 function requestHeaders(includeJson: boolean, headers?: HeadersInit): HeadersInit {
-  const next: Record<string, string> = {
-    "x-owner-id": ownerId()
-  };
+  const next: Record<string, string> = {};
   if (includeJson) next["Content-Type"] = "application/json";
   const token = authTokens()?.accessToken;
-  if (token) next.Authorization = `Bearer ${token}`;
+  if (token) {
+    next.Authorization = `Bearer ${token}`;
+  } else {
+    next["x-owner-id"] = ownerId();
+  }
 
   if (headers instanceof Headers) {
     headers.forEach((value, key) => {

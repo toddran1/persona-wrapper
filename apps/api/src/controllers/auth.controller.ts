@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import {
   loginRequestSchema,
+  oauthExchangeRequestSchema,
   oauthProviderSchema,
   refreshAuthRequestSchema,
   registerRequestSchema,
@@ -38,6 +39,28 @@ function authCallbackUrl(params: Record<string, string>): string {
   return url.toString();
 }
 
+function mobileAuthCallbackUrl(clientType: AuthClientType, params: Record<string, string>): string | undefined {
+  const configuredUrl = clientType === "ios"
+    ? env.IOS_OAUTH_REDIRECT_URL
+    : clientType === "android"
+      ? env.ANDROID_OAUTH_REDIRECT_URL
+      : undefined;
+  if (!configuredUrl) return undefined;
+  const url = new URL(configuredUrl);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+  return url.toString();
+}
+
+function hasMobileAuthCallbackUrl(clientType: AuthClientType): boolean {
+  return Boolean(clientType === "ios"
+    ? env.IOS_OAUTH_REDIRECT_URL
+    : clientType === "android"
+      ? env.ANDROID_OAUTH_REDIRECT_URL
+      : undefined);
+}
+
 export async function postRegister(request: Request, response: Response): Promise<void> {
   const payload = registerRequestSchema.parse({
     clientType: clientTypeFromHeader(request),
@@ -62,6 +85,15 @@ export async function postRefresh(request: Request, response: Response): Promise
     ...request.body
   });
   const auth = await authService.refresh(payload, requestMetadata(request));
+  response.status(200).json(auth);
+}
+
+export async function postOAuthExchange(request: Request, response: Response): Promise<void> {
+  const payload = oauthExchangeRequestSchema.parse({
+    clientType: clientTypeFromHeader(request),
+    ...request.body
+  });
+  const auth = await authService.exchangeOAuthCode(payload, requestMetadata(request));
   response.status(200).json(auth);
 }
 
@@ -115,6 +147,16 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
       state,
       metadata: requestMetadata(request)
     });
+    if (hasMobileAuthCallbackUrl(auth.session.clientType)) {
+      const exchangeCode = await authService.createOAuthExchangeCode(auth);
+      const mobileCallbackUrl = mobileAuthCallbackUrl(auth.session.clientType, {
+        code: exchangeCode,
+        provider
+      });
+      if (!mobileCallbackUrl) throw new HttpError("Mobile OAuth callback URL is not configured.", 500);
+      response.redirect(302, mobileCallbackUrl);
+      return;
+    }
     response.redirect(302, authCallbackUrl({
       accessToken: auth.tokens.accessToken,
       refreshToken: auth.tokens.refreshToken,

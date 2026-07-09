@@ -1,4 +1,4 @@
-import { resolveApiUrl } from "../../lib/api.js";
+import { useProtectedMediaUrl } from "../../hooks/useProtectedMediaUrl.js";
 
 type AudioBlockProps = {
   url: string;
@@ -7,7 +7,7 @@ type AudioBlockProps = {
 };
 
 export function AudioBlock({ url, mimeType }: AudioBlockProps) {
-  const resolvedUrl = resolveApiUrl(url);
+  const resolvedUrl = useProtectedMediaUrl(url);
 
   return (
     <div className="media-card">

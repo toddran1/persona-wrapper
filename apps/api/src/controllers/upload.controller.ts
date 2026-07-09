@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { uploadService } from "../services/uploadService.js";
 import { HttpError } from "../utils/httpError.js";
-import { optionalRequestOwnerId, requestOwnerId } from "../utils/requestIdentity.js";
+import { requestAuthenticatedOwnerId, requestOwnerId } from "../utils/requestIdentity.js";
 
 const vectorStoreRequestSchema = z.object({
   assetIds: z.array(z.string()).min(1).max(20),
@@ -21,7 +21,7 @@ export async function getUploads(request: Request, response: Response): Promise<
 }
 
 export async function getUpload(request: Request, response: Response): Promise<void> {
-  const asset = await uploadService.download(optionalRequestOwnerId(request), String(request.params.id));
+  const asset = await uploadService.download(requestAuthenticatedOwnerId(request), String(request.params.id));
   response.setHeader("Content-Disposition", `inline; filename="${asset.fileName.replaceAll('"', "")}"`);
   response.type(asset.mimeType).send(asset.buffer);
 }

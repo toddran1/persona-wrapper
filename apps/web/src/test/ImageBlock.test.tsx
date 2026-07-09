@@ -18,8 +18,8 @@ describe("ImageBlock", () => {
       />
     );
 
-    const downloadLinks = screen.getAllByLabelText("Download image");
-    expect(downloadLinks[0]).toHaveAttribute("download", "knuckles-in-a-black-suit-and-sunglasses-456789abcdef.png");
+    const downloadButtons = screen.getAllByLabelText("Download image");
+    expect(downloadButtons[0]).toHaveAttribute("type", "button");
     expect(screen.getByLabelText("More image actions")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
 

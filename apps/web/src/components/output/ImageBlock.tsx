@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { resolveApiUrl } from "../../lib/api.js";
+import { downloadProtectedMedia, useProtectedMediaUrl } from "../../hooks/useProtectedMediaUrl.js";
 
 type ImageBlockProps = {
   url: string;
@@ -82,16 +82,16 @@ function imageFileName(alt: string, prompt?: string, mimeType?: string, metadata
   return `${baseName}${suffix ? `-${suffix}` : ""}.${extension}`;
 }
 
-function resolveMediaUrl(url: string): string {
-  return resolveApiUrl(url);
-}
-
 export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
-  const resolvedUrl = resolveMediaUrl(url);
+  const resolvedUrl = useProtectedMediaUrl(url);
+  const fileName = imageFileName(alt, prompt, mimeType, metadata);
+  const downloadImage = () => {
+    void downloadProtectedMedia(url, fileName);
+  };
 
   useEffect(() => {
     if (!modalOpen) return;
@@ -142,9 +142,9 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
         <div className="image-modal-toolbar">
           <span>{alt}</span>
           <div className="image-modal-actions">
-            <a className="image-icon-button" href={resolvedUrl} download={imageFileName(alt, prompt, mimeType, metadata)} aria-label="Download image" title="Download image">
+            <button type="button" className="image-icon-button" aria-label="Download image" title="Download image" onClick={downloadImage}>
               <Icon name="download" />
-            </a>
+            </button>
             <button type="button" className="image-icon-button" aria-label="Close full size image" title="Close" onClick={() => setModalOpen(false)}>
               <Icon name="close" />
             </button>
@@ -163,9 +163,9 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
             <img src={resolvedUrl} alt={alt} />
           </button>
           <div className="image-action-bar" aria-label="Image actions">
-            <a className="image-icon-button" href={resolvedUrl} download={imageFileName(alt, prompt, mimeType, metadata)} aria-label="Download image" title="Download image">
+            <button type="button" className="image-icon-button" aria-label="Download image" title="Download image" onClick={downloadImage}>
               <Icon name="download" />
-            </a>
+            </button>
             <div className="image-menu-wrap" ref={menuRef}>
               <button
                 type="button"

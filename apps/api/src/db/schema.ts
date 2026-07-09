@@ -83,6 +83,21 @@ export const oauthStates = pgTable("oauth_states", {
   expiresAtIdx: index("oauth_states_expires_at_idx").on(table.expiresAt)
 }));
 
+export const oauthExchangeCodes = pgTable("oauth_exchange_codes", {
+  id: text("id").primaryKey(),
+  codeHash: text("code_hash").notNull(),
+  sessionId: text("session_id").notNull().references(() => authSessions.id, { onDelete: "cascade" }),
+  clientType: text("client_type").notNull().default("unknown"),
+  deviceId: text("device_id"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  codeHashUnique: uniqueIndex("oauth_exchange_codes_code_hash_unique").on(table.codeHash),
+  sessionIdIdx: index("oauth_exchange_codes_session_id_idx").on(table.sessionId),
+  expiresAtIdx: index("oauth_exchange_codes_expires_at_idx").on(table.expiresAt)
+}));
+
 export const conversations = pgTable("conversations", {
   id: text("id").primaryKey(),
   userId: text("user_id"),
@@ -273,5 +288,12 @@ export const authSessionRelations = relations(authSessions, ({ one }) => ({
   user: one(users, {
     fields: [authSessions.userId],
     references: [users.id]
+  })
+}));
+
+export const oauthExchangeCodeRelations = relations(oauthExchangeCodes, ({ one }) => ({
+  session: one(authSessions, {
+    fields: [oauthExchangeCodes.sessionId],
+    references: [authSessions.id]
   })
 }));

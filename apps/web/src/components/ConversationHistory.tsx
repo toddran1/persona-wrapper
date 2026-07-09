@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
 import { api, resolveApiUrl } from "../lib/api.js";
+import { downloadProtectedMedia, useProtectedMediaUrl } from "../hooks/useProtectedMediaUrl.js";
 
 export type UserPromptAsset = {
   id: string;
@@ -107,21 +108,6 @@ function playAudioElement(audio: HTMLAudioElement): void {
   } catch {
     // Unsupported playback should never break message rendering.
   }
-}
-
-async function downloadAsset(url: string, fileName: string): Promise<void> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = objectUrl;
-  link.download = fileName;
-  link.style.display = "none";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(objectUrl);
 }
 
 function Icon({ name }: { name: "audio" | "copy" | "check" | "download" | "more" | "sources" | "retry" | "edit" | "file" | "image" }) {
@@ -332,7 +318,7 @@ function AssistantActions({
   const autoPlayedUrlRef = useRef<string | undefined>(undefined);
   const flatSources = sources.flatMap((sourceList) => sourceList.sources);
   const primaryAudio = audioBlocks[0];
-  const resolvedAudioUrl = primaryAudio ? resolveAssetUrl(primaryAudio.url) : "";
+  const resolvedAudioUrl = useProtectedMediaUrl(primaryAudio?.url ?? "");
 
   useEffect(() => {
     if (!sourcesOpen && !menuOpen && !audioOpen) return;
@@ -367,7 +353,7 @@ function AssistantActions({
   const downloadAudio = () => {
     if (!primaryAudio) return;
     setAudioOpen(false);
-    void downloadAsset(resolvedAudioUrl, `larae-response.${audioFileExtension(primaryAudio.mimeType)}`);
+    void downloadProtectedMedia(primaryAudio.url, `larae-response.${audioFileExtension(primaryAudio.mimeType)}`);
   };
 
   return (

@@ -8,6 +8,12 @@ export function requestOwnerId(request: Request): string {
   return value;
 }
 
+export function requestAuthenticatedOwnerId(request: Request): string {
+  if (request.auth?.userId) return request.auth.userId;
+  if (env.NODE_ENV !== "production" && !env.AUTH_REQUIRED) return requestOwnerId(request);
+  throw new HttpError("Authentication required.", 401);
+}
+
 export function optionalRequestOwnerId(request: Request): string | undefined {
   if (request.auth?.userId) return request.auth.userId;
   const value = request.header("x-owner-id");

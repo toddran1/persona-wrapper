@@ -94,6 +94,8 @@ const envSchema = z.object({
   AUTH_PASSWORD_MIN_LENGTH: z.coerce.number().int().min(8).max(128).default(10),
   AUTH_REQUIRE_OWNED_MEDIA_ACCESS: z.preprocess(stringToBoolean, z.boolean().default(false)),
   WEB_APP_URL: z.preprocess(optionalTrimmedString, z.string().url().default("http://localhost:5173")),
+  IOS_OAUTH_REDIRECT_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),
+  ANDROID_OAUTH_REDIRECT_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),
   OAUTH_REDIRECT_BASE_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),
   GOOGLE_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   GOOGLE_OAUTH_CLIENT_SECRET: z.preprocess(optionalTrimmedString, z.string().optional()),

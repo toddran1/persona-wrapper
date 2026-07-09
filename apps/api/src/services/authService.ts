@@ -8,6 +8,7 @@ import {
   type AuthSession,
   type AuthUser,
   type LoginRequest,
+  type OAuthExchangeRequest,
   oauthProviderSchema,
   type OAuthProvider,
   type OAuthProviderStatus,
@@ -16,7 +17,7 @@ import {
 } from "@persona/shared";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
-import { authSessions, oauthStates, userOAuthAccounts, userPasswordCredentials, users } from "../db/schema.js";
+import { authSessions, oauthExchangeCodes, oauthStates, userOAuthAccounts, userPasswordCredentials, users } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 
 const scrypt = promisify(scryptCallback);
@@ -86,6 +87,10 @@ function hashToken(token: string): string {
 
 function oauthStateExpiry(): Date {
   return new Date(Date.now() + 10 * 60 * 1000);
+}
+
+function oauthExchangeExpiry(): Date {
+  return new Date(Date.now() + 2 * 60 * 1000);
 }
 
 function generateToken(prefix: "access" | "refresh"): string {
@@ -362,6 +367,38 @@ async function createSession(
   };
 }
 
+async function rotateSessionTokens(
+  session: typeof authSessions.$inferSelect,
+  user: typeof users.$inferSelect,
+  clientType: AuthClientType,
+  deviceId: string | undefined,
+  metadata: AuthMetadata
+): Promise<AuthResponse> {
+  const db = requireDatabase();
+  const accessToken = generateToken("access");
+  const refreshToken = generateToken("refresh");
+  const expiresAt = tokenExpiry(env.AUTH_ACCESS_TOKEN_TTL_MINUTES);
+  const refreshExpiresAt = refreshTokenExpiry(env.AUTH_REFRESH_TOKEN_TTL_DAYS);
+  const [updatedSession] = await db.update(authSessions).set({
+    accessTokenHash: hashToken(accessToken),
+    refreshTokenHash: hashToken(refreshToken),
+    clientType,
+    deviceId: deviceId ?? session.deviceId,
+    userAgent: metadata.userAgent ?? session.userAgent,
+    ipAddress: metadata.ipAddress ?? session.ipAddress,
+    expiresAt,
+    refreshExpiresAt,
+    updatedAt: new Date()
+  }).where(eq(authSessions.id, session.id)).returning();
+  if (!updatedSession) throw new HttpError("Session is invalid or expired.", 401);
+
+  return buildAuthResponse(user, {
+    session: toSessionPayload(updatedSession),
+    accessToken,
+    refreshToken
+  });
+}
+
 function duplicateAccountError(error: unknown): never {
   if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
     throw new HttpError("An account with that email or username already exists.", 409);
@@ -536,6 +573,57 @@ export class AuthService {
     return buildAuthResponse(user, session);
   }
 
+  async createOAuthExchangeCode(auth: AuthResponse): Promise<string> {
+    const db = requireDatabase();
+    const code = randomBytes(32).toString("base64url");
+    await db.insert(oauthExchangeCodes).values({
+      id: `oauth_exchange_${randomUUID()}`,
+      codeHash: hashToken(code),
+      sessionId: auth.session.id,
+      clientType: auth.session.clientType,
+      expiresAt: oauthExchangeExpiry()
+    });
+    return code;
+  }
+
+  async exchangeOAuthCode(payload: OAuthExchangeRequest, metadata: AuthMetadata = {}): Promise<AuthResponse> {
+    const db = requireDatabase();
+    const codeHash = hashToken(payload.code);
+    const codeRow = await db.query.oauthExchangeCodes.findFirst({
+      where: and(
+        eq(oauthExchangeCodes.codeHash, codeHash),
+        isNull(oauthExchangeCodes.consumedAt)
+      )
+    });
+    if (!codeRow || codeRow.expiresAt.getTime() <= Date.now()) {
+      throw new HttpError("OAuth exchange code is invalid or expired.", 401);
+    }
+
+    const [consumedCode] = await db.update(oauthExchangeCodes)
+      .set({ consumedAt: new Date() })
+      .where(and(eq(oauthExchangeCodes.id, codeRow.id), isNull(oauthExchangeCodes.consumedAt)))
+      .returning();
+    if (!consumedCode) throw new HttpError("OAuth exchange code is invalid or expired.", 401);
+
+    const session = await db.query.authSessions.findFirst({
+      where: and(eq(authSessions.id, codeRow.sessionId), isNull(authSessions.revokedAt))
+    });
+    if (!session || session.refreshExpiresAt.getTime() <= Date.now()) {
+      throw new HttpError("OAuth exchange code is invalid or expired.", 401);
+    }
+
+    const user = await db.query.users.findFirst({ where: eq(users.id, session.userId) });
+    if (!user || user.status !== "active") throw new HttpError("OAuth exchange code is invalid or expired.", 401);
+
+    return rotateSessionTokens(
+      session,
+      user,
+      payload.clientType,
+      payload.deviceId ?? codeRow.deviceId ?? undefined,
+      metadata
+    );
+  }
+
   async refresh(payload: RefreshAuthRequest, metadata: AuthMetadata = {}): Promise<AuthResponse> {
     const db = requireDatabase();
     const refreshTokenHash = hashToken(payload.refreshToken);
@@ -552,28 +640,7 @@ export class AuthService {
     const user = await db.query.users.findFirst({ where: eq(users.id, session.userId) });
     if (!user || user.status !== "active") throw new HttpError("Refresh token is invalid or expired.", 401);
 
-    const accessToken = generateToken("access");
-    const refreshToken = generateToken("refresh");
-    const expiresAt = tokenExpiry(env.AUTH_ACCESS_TOKEN_TTL_MINUTES);
-    const refreshExpiresAt = refreshTokenExpiry(env.AUTH_REFRESH_TOKEN_TTL_DAYS);
-    const [updatedSession] = await db.update(authSessions).set({
-      accessTokenHash: hashToken(accessToken),
-      refreshTokenHash: hashToken(refreshToken),
-      clientType: payload.clientType,
-      deviceId: payload.deviceId ?? session.deviceId,
-      userAgent: metadata.userAgent ?? session.userAgent,
-      ipAddress: metadata.ipAddress ?? session.ipAddress,
-      expiresAt,
-      refreshExpiresAt,
-      updatedAt: new Date()
-    }).where(eq(authSessions.id, session.id)).returning();
-    if (!updatedSession) throw new HttpError("Refresh token is invalid or expired.", 401);
-
-    return buildAuthResponse(user, {
-      session: toSessionPayload(updatedSession),
-      accessToken,
-      refreshToken
-    });
+    return rotateSessionTokens(session, user, payload.clientType, payload.deviceId, metadata);
   }
 
   async logout(options: { accessToken?: string; refreshToken?: string }): Promise<void> {

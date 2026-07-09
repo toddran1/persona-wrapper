@@ -43,6 +43,13 @@
       "when": 1783450000000,
       "tag": "0005_auth_users_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783530000000,
+      "tag": "0006_oauth_exchange_codes",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ import {
   getOAuthStart,
   postLogin,
   postLogout,
+  postOAuthExchange,
   postRefresh,
   postRegister
 } from "../controllers/auth.controller.js";
@@ -22,6 +23,10 @@ authRouter.post("/login", (request, response, next) => {
 
 authRouter.post("/refresh", (request, response, next) => {
   postRefresh(request, response).catch(next);
+});
+
+authRouter.post("/oauth/exchange", (request, response, next) => {
+  postOAuthExchange(request, response).catch(next);
 });
 
 authRouter.post("/logout", (request, response, next) => {
