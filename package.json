@@ -11,13 +11,14 @@
     "dev:test": "node scripts/dev.mjs --test-mode",
     "dev:test-mode": "node scripts/dev.mjs --test-mode",
     "dev:api": "npm run dev -w @persona/api",
+    "dev:mobile": "npm run dev -w @persona/mobile",
     "dev:web": "npm run dev -w @persona/web",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:migrate": "npm run db:migrate -w @persona/api",
-    "build": "npm run build -w @persona/shared && npm run build -w @persona/api && npm run build -w @persona/web",
-    "typecheck": "npm run build -w @persona/shared && npm run typecheck -w @persona/api && npm run typecheck -w @persona/web",
-    "lint": "npm run lint -w @persona/shared && npm run lint -w @persona/api && npm run lint -w @persona/web",
+    "build": "npm run build -w @persona/shared && npm run build -w @persona/api && npm run build -w @persona/web && npm run build -w @persona/mobile",
+    "typecheck": "npm run build -w @persona/shared && npm run typecheck -w @persona/api && npm run typecheck -w @persona/web && npm run typecheck -w @persona/mobile",
+    "lint": "npm run lint -w @persona/shared && npm run lint -w @persona/api && npm run lint -w @persona/web && npm run lint -w @persona/mobile",
     "test": "npm run build -w @persona/shared && npm run test -w @persona/api && npm run test -w @persona/web"
   },
   "engines": {
