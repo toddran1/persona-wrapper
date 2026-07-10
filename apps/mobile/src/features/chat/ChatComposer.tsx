@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { MobileTheme } from "../../theme/personaTheme";
@@ -9,6 +9,7 @@ type ChatComposerProps = {
   disabled?: boolean;
   uploadingAttachments?: boolean;
   attachments: MobilePickedFile[];
+  draftMessage?: string | undefined;
   placeholder: string;
   onAttach: () => void;
   onRemoveAttachment: (id: string) => void;
@@ -20,6 +21,7 @@ export function ChatComposer({
   disabled,
   uploadingAttachments,
   attachments,
+  draftMessage,
   placeholder,
   onAttach,
   onRemoveAttachment,
@@ -27,6 +29,11 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const [draft, setDraft] = useState("");
   const canSend = draft.trim().length > 0 && !disabled && !uploadingAttachments;
+
+  useEffect(() => {
+    if (draftMessage === undefined) return;
+    setDraft(draftMessage);
+  }, [draftMessage]);
 
   function submit(): void {
     const message = draft.trim();

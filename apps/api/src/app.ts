@@ -1,6 +1,8 @@
 import cors from "cors";
 import type { CorsOptions } from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import multer from "multer";
 import { ZodError } from "zod";
 import { authenticateRequest } from "./middleware/authMiddleware.js";
@@ -16,8 +18,31 @@ import { storageService } from "./services/storageService.js";
 import { HttpError } from "./utils/httpError.js";
 import { logger } from "./utils/logger.js";
 
+function findRepoRoot(startDir: string): string {
+  let current = startDir;
+
+  for (let depth = 0; depth < 8; depth += 1) {
+    const packageJsonPath = resolve(current, "package.json");
+    if (existsSync(packageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { name?: string };
+        if (packageJson.name === "persona-wrapper-app") return current;
+      } catch {
+        // Keep walking if this is not the repo root package.json.
+      }
+    }
+
+    const parent = resolve(current, "..");
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return process.cwd();
+}
+
 export function createApp() {
   const app = express();
+  const personaAssetsRoot = resolve(findRepoRoot(process.cwd()), "apps/web/public/personas");
 
   const allowedOrigins = env.CORS_ALLOWED_ORIGINS
     ?.split(",")
@@ -46,6 +71,11 @@ export function createApp() {
   app.get("/health", (_request, response) => {
     response.status(200).json({ status: "ok" });
   });
+  app.use("/personas", express.static(personaAssetsRoot, {
+    fallthrough: false,
+    immutable: true,
+    maxAge: "1d"
+  }));
 
   app.get("/health/storage", (async (_request: Request, response: Response) => {
     const storage = await storageService.healthCheck();

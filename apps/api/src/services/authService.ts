@@ -39,6 +39,7 @@ type OAuthStartOptions = {
   provider: OAuthProvider;
   clientType: AuthClientType;
   deviceId?: string;
+  returnUrl?: string;
 };
 
 type OAuthCallbackOptions = {
@@ -46,6 +47,10 @@ type OAuthCallbackOptions = {
   code: string;
   state: string;
   metadata?: AuthMetadata;
+};
+
+type OAuthCallbackResult = AuthResponse & {
+  oauthReturnUrl?: string;
 };
 
 type OAuthTokenResponse = {
@@ -259,12 +264,13 @@ async function requestOAuthProfile(provider: OAuthProvider, accessToken: string)
   return profileFromProvider(provider, payload);
 }
 
-function oauthStateMetadata(value: Record<string, unknown> | null | undefined): { clientType: AuthClientType; deviceId?: string } {
+function oauthStateMetadata(value: Record<string, unknown> | null | undefined): { clientType: AuthClientType; deviceId?: string; returnUrl?: string } {
   const metadata = value ?? {};
-  const result: { clientType: AuthClientType; deviceId?: string } = {
+  const result: { clientType: AuthClientType; deviceId?: string; returnUrl?: string } = {
     clientType: parseClientType(metadata.clientType)
   };
   if (typeof metadata.deviceId === "string" && metadata.deviceId.trim()) result.deviceId = metadata.deviceId.trim();
+  if (typeof metadata.returnUrl === "string" && metadata.returnUrl.trim()) result.returnUrl = metadata.returnUrl.trim();
   return result;
 }
 
@@ -481,6 +487,7 @@ export class AuthService {
       clientType: options.clientType
     };
     if (options.deviceId) stateMetadata.deviceId = options.deviceId;
+    if (options.returnUrl) stateMetadata.returnUrl = options.returnUrl;
 
     await db.insert(oauthStates).values({
       id: `oauth_state_${randomUUID()}`,
@@ -507,7 +514,7 @@ export class AuthService {
     return url.toString();
   }
 
-  async completeOAuthCallback(options: OAuthCallbackOptions): Promise<AuthResponse> {
+  async completeOAuthCallback(options: OAuthCallbackOptions): Promise<OAuthCallbackResult> {
     const provider = parseOAuthProvider(options.provider);
     const db = requireDatabase();
     const stateHash = hashToken(options.state);
@@ -570,7 +577,10 @@ export class AuthService {
       stateMetadata.deviceId,
       options.metadata ?? {}
     );
-    return buildAuthResponse(user, session);
+    return {
+      ...buildAuthResponse(user, session),
+      ...(stateMetadata.returnUrl ? { oauthReturnUrl: stateMetadata.returnUrl } : {})
+    };
   }
 
   async createOAuthExchangeCode(auth: AuthResponse): Promise<string> {

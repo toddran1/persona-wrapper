@@ -14,8 +14,10 @@ import {
   View
 } from "react-native";
 import { LinearGradient, type LinearGradientProps } from "expo-linear-gradient";
+import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
+import * as ExpoLinking from "expo-linking";
 import { Ionicons } from "@expo/vector-icons";
 import type { AuthUser, ChatJobResponse, ChatResponse, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { PanGestureHandler, type PanGestureHandlerGestureEvent } from "react-native-gesture-handler";
@@ -32,10 +34,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
 import { IconButton } from "../../components/IconButton";
 import { clearSelectedConversationId, getSelectedConversationId, setSelectedConversationId } from "../../storage/secureTokens";
-import { silkNoirTheme, themeFromPersona } from "../../theme/personaTheme";
+import { silkNoirTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
 import { OutputBlocks } from "./OutputBlocks";
+import { PersonaVisualStage, type PersonaVisualState } from "./PersonaVisualStage";
 import {
   getClientContext,
   sortConversationSummaries,
@@ -54,6 +57,9 @@ type GestureContext = {
 };
 
 type AuthMode = "login" | "register";
+const IMAGE_REQUEST_PATTERN =
+  /\b(generate|create|make|draw|design|edit|change|remove|replace|recolor|retouch|give|get|show|provide|turn|convert)\b[\s\S]{0,80}\b(image|photo|picture|poster|logo|art|illustration|avatar|thumbnail|banner|flyer)\b/i;
+const NON_AUDIO_SPEAKING_MS = 8000;
 
 class BackgroundPollingTimeoutError extends Error {
   constructor(readonly job: ChatJobResponse) {
@@ -90,6 +96,9 @@ export function MobileChatScreen() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [renameTitle, setRenameTitle] = useState("");
+  const [composerDraft, setComposerDraft] = useState<string | undefined>();
+  const [personaVisualState, setPersonaVisualState] = useState<PersonaVisualState>("idle");
+  const [personaCardHidden, setPersonaCardHidden] = useState(false);
   const [identifier, setIdentifier] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -97,10 +106,35 @@ export function MobileChatScreen() {
   const [drawerInteractive, setDrawerInteractive] = useState(false);
   const drawerX = useSharedValue(-drawerWidth);
   const scrollRef = useRef<ScrollView>(null);
+  const visualStateTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
   const [selectedFiles, setSelectedFiles] = useState<MobilePickedFile[]>([]);
+
+  function clearVisualStateTimer(): void {
+    if (!visualStateTimerRef.current) return;
+    clearTimeout(visualStateTimerRef.current);
+    visualStateTimerRef.current = undefined;
+  }
+
+  function markPersonaSpeaking(outputs: RenderedTurn["outputs"]): void {
+    clearVisualStateTimer();
+    if (isImageOnlyResponse(outputs)) {
+      setPersonaVisualState("idle");
+      return;
+    }
+    setPersonaVisualState("speaking");
+    visualStateTimerRef.current = setTimeout(() => {
+      setPersonaVisualState("idle");
+      visualStateTimerRef.current = undefined;
+    }, NON_AUDIO_SPEAKING_MS);
+  }
+
+  function markPersonaIdle(): void {
+    clearVisualStateTimer();
+    setPersonaVisualState("idle");
+  }
 
   const openDrawer = useCallback(() => {
     setDrawerInteractive(true);
@@ -273,6 +307,67 @@ export function MobileChatScreen() {
     }));
   }
 
+  function isImageOnlyResponse(outputs: RenderedTurn["outputs"]): boolean {
+    const hasImage = outputs.some((output) => output.type === "image");
+    if (!hasImage) return false;
+    return outputs.every((output) => {
+      if (output.type === "image" || output.type === "status" || output.type === "tool_call" || output.type === "tool_result") return true;
+      if (output.type === "text") return output.text.trim().length === 0;
+      return false;
+    });
+  }
+
+  function shouldEnableImageGeneration(message: string, files: MobilePickedFile[]): boolean {
+    return IMAGE_REQUEST_PATTERN.test(message) ||
+      files.some((file) => file.kind === "image") && /\b(edit|change|remove|replace|recolor|retouch|put|add|turn|make)\b/i.test(message);
+  }
+
+  async function copyMessage(label: string, message: string): Promise<void> {
+    if (!message.trim()) return;
+    try {
+      await Clipboard.setStringAsync(message);
+      Alert.alert("Copied", label);
+    } catch (copyError) {
+      Alert.alert(label, copyError instanceof Error ? copyError.message : "Could not copy this message.");
+    }
+  }
+
+  function editUserMessage(message: string): void {
+    setComposerDraft(message);
+  }
+
+  function showUserMessageActions(turn: RenderedTurn): void {
+    Alert.alert("Message actions", undefined, [
+      { text: "Copy", onPress: () => void copyMessage("Prompt copied.", turn.userMessage) },
+      { text: "Edit", onPress: () => editUserMessage(turn.userMessage) },
+      { text: "Cancel", style: "cancel" }
+    ]);
+  }
+
+  function showAssistantActions(turn: RenderedTurn): void {
+    const canCheckStatus = isStillRunningTurn(turn);
+    Alert.alert("Response actions", undefined, [
+      ...(turn.assistantText.trim() ? [{ text: "Copy", onPress: () => void copyMessage("Response copied.", turn.assistantText) }] : []),
+      { text: "Retry", onPress: () => void retryAssistantTurn(turn) },
+      ...(canCheckStatus ? [{ text: "Check status", onPress: () => void resumeBackgroundJob(turn) }] : []),
+      { text: "Cancel", style: "cancel" }
+    ]);
+  }
+
+  async function retryAssistantTurn(turn: RenderedTurn): Promise<void> {
+    if (sending) return;
+    setTurns((current) => current.filter((candidate) => candidate.id !== turn.id));
+    await submit(turn.userMessage, { files: [] });
+  }
+
+  async function handleOutputAction(action: Extract<RenderedTurn["outputs"][number], { type: "action" }>): Promise<void> {
+    if (action.action !== "resume_background_job") return;
+    const jobId = typeof action.arguments?.jobId === "string" ? action.arguments.jobId : undefined;
+    if (!jobId) return;
+    const turn = turns.find((candidate) => candidate.backgroundJobId === jobId);
+    if (turn) await resumeBackgroundJob(turn);
+  }
+
   function wait(ms: number): Promise<void> {
     return new Promise((resolve) => {
       setTimeout(resolve, ms);
@@ -307,6 +402,7 @@ export function MobileChatScreen() {
       ...(userAssets ? { userAssets } : {})
     };
     setConversationId(response.conversationId);
+    markPersonaSpeaking(response.outputs);
     setTurns((current) => current.map((turn) => (
       turn.id === turnId ? completedTurn : turn
     )));
@@ -318,7 +414,7 @@ export function MobileChatScreen() {
 
   async function pollChatJob(
     jobId: string,
-    onStatus: (job: ChatJobResponse) => void
+    onStatus?: (job: ChatJobResponse) => void
   ): Promise<ChatResponse> {
     const startedAt = Date.now();
     let intervalMs = 1200;
@@ -333,7 +429,7 @@ export function MobileChatScreen() {
       if (job.status === "failed" || job.status === "cancelled") {
         throw new BackgroundJobStateError(job);
       }
-      onStatus(job);
+      onStatus?.(job);
       await wait(intervalMs);
       intervalMs = Math.min(5000, Math.round(intervalMs * 1.35));
     }
@@ -355,22 +451,13 @@ export function MobileChatScreen() {
       if (firstJob.status === "failed" || firstJob.status === "cancelled") {
         throw new BackgroundJobStateError(firstJob);
       }
-      updateTurnOutputs(turn.id, [{
-        type: "status",
-        status: "in_progress",
-        message: backgroundStatusMessage(firstJob, true)
-      }], firstJob.id);
-      const response = await pollChatJob(firstJob.id, (job) => {
-        updateTurnOutputs(turn.id, [{
-          type: "status",
-          status: "in_progress",
-          message: backgroundStatusMessage(job, true)
-        }], job.id);
-      });
+      updateTurnOutputs(turn.id, [{ type: "status", status: "in_progress", message: "Thinking" }], firstJob.id);
+      const response = await pollChatJob(firstJob.id);
       replaceTurnWithResponse(turn.id, turn.userMessage, turn.userAssets, response);
       await refreshConversations();
     } catch (resumeError) {
       if (resumeError instanceof BackgroundPollingTimeoutError) {
+        markPersonaIdle();
         updateTurnOutputs(turn.id, [{
           type: "status",
           status: "in_progress",
@@ -380,6 +467,7 @@ export function MobileChatScreen() {
       }
       if (resumeError instanceof BackgroundJobStateError) {
         const failedStatus = resumeError.job.status === "cancelled" ? "cancelled" : "failed";
+        markPersonaIdle();
         updateTurnOutputs(turn.id, [{
           type: "status",
           status: failedStatus,
@@ -388,6 +476,7 @@ export function MobileChatScreen() {
         setError(resumeError.message);
         return;
       }
+      markPersonaIdle();
       setError(resumeError instanceof Error ? resumeError.message : "Could not check background job.");
     } finally {
       setResumingJobId(undefined);
@@ -411,7 +500,10 @@ export function MobileChatScreen() {
     } catch {
       return;
     }
-    if (parsed.hostname !== "auth" || parsed.pathname !== "/callback") return;
+    const isOAuthCallback =
+      (parsed.hostname === "auth" && parsed.pathname === "/callback") ||
+      parsed.pathname.endsWith("/auth/callback");
+    if (!isOAuthCallback) return;
     const errorMessage = parsed.searchParams.get("error");
     if (errorMessage) {
       Alert.alert("Sign in failed", errorMessage);
@@ -485,6 +577,8 @@ export function MobileChatScreen() {
   useEffect(() => {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, [turns.length, sending]);
+
+  useEffect(() => () => clearVisualStateTimer(), []);
 
   async function selectPersona(personaId: string): Promise<void> {
     try {
@@ -599,12 +693,15 @@ export function MobileChatScreen() {
     }
   }
 
-  async function submit(message: string): Promise<void> {
+  async function submit(message: string, options?: { files?: MobilePickedFile[] }): Promise<void> {
     if (!activePersona || sending) return;
     setSending(true);
+    clearVisualStateTimer();
+    setPersonaVisualState("thinking");
     setError(undefined);
-    const submittedFiles = selectedFiles;
-    setSelectedFiles([]);
+    setComposerDraft(undefined);
+    const submittedFiles = options?.files ?? selectedFiles;
+    if (!options?.files) setSelectedFiles([]);
     let optimistic: RenderedTurn | undefined;
     try {
       setUploadingAttachments(submittedFiles.length > 0);
@@ -621,11 +718,12 @@ export function MobileChatScreen() {
       const vectorStore = fileAttachmentIds.length > 0
         ? await api.createVectorStore(fileAttachmentIds, `mobile-${Date.now()}`)
         : undefined;
+      const imageGeneration = shouldEnableImageGeneration(message, submittedFiles);
       const resolvedToolOptions = {
         webSearch: false,
         fileSearch: fileAttachmentIds.length > 0,
         codeInterpreter: false,
-        imageGeneration: false,
+        imageGeneration,
         appFunctions: true,
         background: true,
         vectorStoreIds: vectorStore ? [vectorStore.id] : []
@@ -636,7 +734,7 @@ export function MobileChatScreen() {
         userMessage: message,
         userAssets: mapUploadedAssetsToUserAssets(attachments),
         assistantText: "",
-        outputs: [{ type: "status", status: "in_progress", message: `${activePersona.name} is thinking...` }]
+        outputs: [{ type: "status", status: "in_progress", message: "Thinking" }]
       };
       setTurns((current) => [...current, optimistic as RenderedTurn]);
       const response = await api.sendChat({
@@ -650,21 +748,14 @@ export function MobileChatScreen() {
         ...(conversationId ? { conversationId } : {})
       });
       const backgroundJob = response.diagnostics.backgroundJob;
-      const finalResponse = backgroundJob
-        ? await pollChatJob(backgroundJob.id, (job) => {
-          updateTurnOutputs(optimistic?.id ?? "", [{
-            type: "status",
-            status: "in_progress",
-            message: backgroundStatusMessage(job, true)
-          }], job.id);
-        })
-        : response;
+      const finalResponse = backgroundJob ? await pollChatJob(backgroundJob.id) : response;
       setConversationId(finalResponse.conversationId);
       await setSelectedConversationId(finalResponse.conversationId);
       const completedTurn: RenderedTurn = {
         ...turnFromChatResponse(message, finalResponse),
         userAssets: mapUploadedAssetsToUserAssets(attachments)
       };
+      markPersonaSpeaking(finalResponse.outputs);
       setTurns((current) => current.map((turn) => (
         turn.id === optimistic?.id ? completedTurn : turn
       )));
@@ -674,6 +765,7 @@ export function MobileChatScreen() {
       if (optimistic) {
         if (sendError instanceof BackgroundPollingTimeoutError) {
           setError(undefined);
+          markPersonaIdle();
           updateTurnOutputs(optimistic.id, [{
             type: "status",
             status: "in_progress",
@@ -683,6 +775,7 @@ export function MobileChatScreen() {
         } else if (sendError instanceof BackgroundJobStateError) {
           const failedStatus = sendError.job.status === "cancelled" ? "cancelled" : "failed";
           setError(sendError.message);
+          markPersonaIdle();
           updateTurnOutputs(optimistic.id, [{
             type: "status",
             status: failedStatus,
@@ -690,10 +783,12 @@ export function MobileChatScreen() {
           }], sendError.job.id);
         } else {
           setError(messageText);
+          markPersonaIdle();
           updateTurnOutputs(optimistic.id, [{ type: "status", status: "failed", message: messageText }]);
         }
       } else {
         setError(messageText);
+        markPersonaIdle();
         setSelectedFiles(submittedFiles);
       }
     } finally {
@@ -725,7 +820,8 @@ export function MobileChatScreen() {
   async function startOAuth(provider: OAuthProvider): Promise<void> {
     setAuthBusy(true);
     try {
-      const url = await api.oauthStartUrl(provider);
+      const returnUrl = ExpoLinking.createURL("auth/callback");
+      const url = await api.oauthStartUrl(provider, returnUrl);
       await Linking.openURL(url);
     } catch (oauthError) {
       Alert.alert("Sign in failed", oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
@@ -744,6 +840,7 @@ export function MobileChatScreen() {
   }
 
   const suggestedPrompts = activePersona?.suggestedPrompts ?? [];
+  const visualStateLabel = personaVisualState[0]?.toUpperCase() + personaVisualState.slice(1);
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -769,7 +866,7 @@ export function MobileChatScreen() {
                 {activePersona?.name ?? "Persona Wrapper"}
               </Text>
               <Text style={[styles.themeName, { color: theme.muted }]} numberOfLines={1}>
-                {theme.name} · {provider.replace("_", " ")}
+                {theme.name} · {provider.replace("_", " ")} · {visualStateLabel}
               </Text>
             </View>
             <IconButton
@@ -779,6 +876,14 @@ export function MobileChatScreen() {
               onPress={() => setAudioEnabled((value) => !value)}
             />
           </View>
+
+          <PersonaVisualStage
+            hidden={personaCardHidden}
+            personaName={activePersona?.name ?? "LaRae"}
+            state={personaVisualState}
+            theme={theme}
+            onHiddenChange={setPersonaCardHidden}
+          />
 
           {error ? (
             <View style={[styles.error, { borderColor: theme.danger }]}>
@@ -842,6 +947,15 @@ export function MobileChatScreen() {
                       </View>
                     ) : null}
                   </View>
+                  <MessageActionRow
+                    align="right"
+                    theme={theme}
+                    actions={[
+                      { icon: "copy-outline", label: "Copy prompt", onPress: () => void copyMessage("Prompt copied.", turn.userMessage) },
+                      { icon: "create-outline", label: "Edit prompt", onPress: () => editUserMessage(turn.userMessage) },
+                      { icon: "ellipsis-horizontal", label: "More prompt actions", onPress: () => showUserMessageActions(turn) }
+                    ]}
+                  />
                   <View style={styles.assistantRow}>
                     <View style={[styles.assistantMark, { backgroundColor: theme.accent }]}>
                       <Text style={[styles.assistantMarkText, { color: theme.text }]}>
@@ -849,7 +963,7 @@ export function MobileChatScreen() {
                       </Text>
                     </View>
                     <View style={styles.assistantContent}>
-                      <OutputBlocks outputs={turn.outputs} theme={theme} />
+                      <OutputBlocks outputs={turn.outputs} theme={theme} onAction={(action) => void handleOutputAction(action)} />
                       {isStillRunningTurn(turn) ? (
                         <Pressable
                           accessibilityRole="button"
@@ -869,6 +983,16 @@ export function MobileChatScreen() {
                           </Text>
                         </Pressable>
                       ) : null}
+                      <MessageActionRow
+                        align="left"
+                        theme={theme}
+                        actions={[
+                          ...(turn.assistantText.trim()
+                            ? [{ icon: "copy-outline" as const, label: "Copy response", onPress: () => void copyMessage("Response copied.", turn.assistantText) }]
+                            : []),
+                          { icon: "ellipsis-horizontal", label: "More response actions", onPress: () => showAssistantActions(turn) }
+                        ]}
+                      />
                     </View>
                   </View>
                 </View>
@@ -881,6 +1005,7 @@ export function MobileChatScreen() {
             disabled={sending || !activePersona}
             uploadingAttachments={uploadingAttachments}
             attachments={selectedFiles}
+            draftMessage={composerDraft}
             placeholder={activePersona?.promptPlaceholder ?? "Ask anything"}
             onAttach={openAttachmentPicker}
             onRemoveAttachment={(id) => setSelectedFiles((current) => current.filter((file) => file.id !== id))}
@@ -1031,6 +1156,39 @@ export function MobileChatScreen() {
   );
 }
 
+type MessageAction = {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+};
+
+function MessageActionRow({
+  actions,
+  align,
+  theme
+}: {
+  actions: MessageAction[];
+  align: "left" | "right";
+  theme: MobileTheme;
+}) {
+  if (actions.length === 0) return null;
+  return (
+    <View style={[styles.messageActions, align === "right" ? styles.messageActionsRight : styles.messageActionsLeft]}>
+      {actions.map((action) => (
+        <Pressable
+          key={action.label}
+          accessibilityRole="button"
+          accessibilityLabel={action.label}
+          onPress={action.onPress}
+          style={[styles.messageActionButton, { backgroundColor: "rgba(255,255,255,0.065)" }]}
+        >
+          <Ionicons name={action.icon} size={15} color={theme.muted} />
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   authModeButton: {
     alignItems: "center",
@@ -1166,7 +1324,8 @@ const styles = StyleSheet.create({
   },
   keyboard: {
     flex: 1,
-    paddingHorizontal: 12
+    paddingHorizontal: 12,
+    position: "relative"
   },
   loadingState: {
     alignItems: "center",
@@ -1220,6 +1379,26 @@ const styles = StyleSheet.create({
   loginTitle: {
     fontSize: 22,
     fontWeight: "900"
+  },
+  messageActionButton: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 31,
+    justifyContent: "center",
+    width: 31
+  },
+  messageActions: {
+    flexDirection: "row",
+    gap: 7,
+    marginTop: -8
+  },
+  messageActionsLeft: {
+    alignSelf: "flex-start",
+    marginLeft: 2
+  },
+  messageActionsRight: {
+    alignSelf: "flex-end",
+    marginRight: 8
   },
   oauthButton: {
     alignItems: "center",

@@ -39,12 +39,12 @@ function authCallbackUrl(params: Record<string, string>): string {
   return url.toString();
 }
 
-function mobileAuthCallbackUrl(clientType: AuthClientType, params: Record<string, string>): string | undefined {
-  const configuredUrl = clientType === "ios"
+function mobileAuthCallbackUrl(clientType: AuthClientType, params: Record<string, string>, returnUrl?: string): string | undefined {
+  const configuredUrl = returnUrl ?? (clientType === "ios"
     ? env.IOS_OAUTH_REDIRECT_URL
     : clientType === "android"
       ? env.ANDROID_OAUTH_REDIRECT_URL
-      : undefined;
+      : undefined);
   if (!configuredUrl) return undefined;
   const url = new URL(configuredUrl);
   for (const [key, value] of Object.entries(params)) {
@@ -59,6 +59,22 @@ function hasMobileAuthCallbackUrl(clientType: AuthClientType): boolean {
     : clientType === "android"
       ? env.ANDROID_OAUTH_REDIRECT_URL
       : undefined);
+}
+
+function mobileReturnUrlFromQuery(request: Request): string | undefined {
+  const value = typeof request.query.returnUrl === "string" ? request.query.returnUrl.trim() : undefined;
+  if (!value) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new HttpError("Unsupported mobile OAuth return URL.", 400);
+  }
+  if (parsed.protocol === "personawrapper:" || parsed.protocol === "exp:") return parsed.toString();
+  if ((parsed.protocol === "http:" || parsed.protocol === "https:") && ["localhost", "127.0.0.1"].includes(parsed.hostname)) {
+    return parsed.toString();
+  }
+  throw new HttpError("Unsupported mobile OAuth return URL.", 400);
 }
 
 export async function postRegister(request: Request, response: Response): Promise<void> {
@@ -124,10 +140,12 @@ export async function getOAuthStart(request: Request, response: Response): Promi
   const normalizedClientType = clientType === "web" || clientType === "desktop" || clientType === "ios" || clientType === "android"
     ? clientType
     : "unknown";
+  const returnUrl = mobileReturnUrlFromQuery(request);
   const authorizationUrl = await authService.createOAuthAuthorizationUrl({
     provider,
     clientType: normalizedClientType,
-    ...(deviceId ? { deviceId } : {})
+    ...(deviceId ? { deviceId } : {}),
+    ...(returnUrl ? { returnUrl } : {})
   });
   response.redirect(302, authorizationUrl);
 }
@@ -147,12 +165,12 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
       state,
       metadata: requestMetadata(request)
     });
-    if (hasMobileAuthCallbackUrl(auth.session.clientType)) {
+    if (auth.oauthReturnUrl || hasMobileAuthCallbackUrl(auth.session.clientType)) {
       const exchangeCode = await authService.createOAuthExchangeCode(auth);
       const mobileCallbackUrl = mobileAuthCallbackUrl(auth.session.clientType, {
         code: exchangeCode,
         provider
-      });
+      }, auth.oauthReturnUrl);
       if (!mobileCallbackUrl) throw new HttpError("Mobile OAuth callback URL is not configured.", 500);
       response.redirect(302, mobileCallbackUrl);
       return;

@@ -20,7 +20,14 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
-    "expo-secure-store"
+    "expo-secure-store",
+    [
+      "expo-media-library",
+      {
+        photosPermission: "Allow Persona Wrapper to access photos for generated image downloads.",
+        savePhotosPermission: "Allow Persona Wrapper to save generated images to your photo library."
+      }
+    ]
   ],
   experiments: {
     typedRoutes: true

@@ -74,7 +74,7 @@ function clientType(): "ios" | "android" | "unknown" {
   return "unknown";
 }
 
-async function requestHeaders(includeJson: boolean, headers?: HeadersInit): Promise<HeadersInit> {
+async function requestHeaders(includeJson: boolean, headers?: HeadersInit): Promise<Record<string, string>> {
   const next: Record<string, string> = {
     "x-client-type": clientType()
   };
@@ -85,7 +85,7 @@ async function requestHeaders(includeJson: boolean, headers?: HeadersInit): Prom
   } else {
     next["x-owner-id"] = await getOwnerId();
   }
-  return { ...next, ...(headers ?? {}) };
+  return { ...next, ...(headers as Record<string, string> | undefined ?? {}) };
 }
 
 async function refreshStoredAuth(): Promise<boolean> {
@@ -144,6 +144,7 @@ async function requestNoContent(
 
 export const api = {
   resolveUrl: (pathOrUrl: string): string => pathOrUrl.startsWith("/") ? `${API_BASE_URL}${pathOrUrl}` : pathOrUrl,
+  mediaHeaders: (): Promise<Record<string, string>> => requestHeaders(false),
   getDeviceId,
   uploadFiles: async (
     files: MobileUploadFile[],
@@ -174,10 +175,11 @@ export const api = {
     const payload = await response.json() as { assets: UploadedAsset[] };
     return payload.assets;
   },
-  oauthStartUrl: async (provider: OAuthProvider): Promise<string> => {
+  oauthStartUrl: async (provider: OAuthProvider, returnUrl?: string): Promise<string> => {
     const url = new URL(`/api/auth/oauth/${provider}/start`, API_BASE_URL);
     url.searchParams.set("clientType", clientType());
     url.searchParams.set("deviceId", await getDeviceId());
+    if (returnUrl) url.searchParams.set("returnUrl", returnUrl);
     return url.toString();
   },
   register: async (payload: MobileRegisterRequest): Promise<AuthResponse> => {
