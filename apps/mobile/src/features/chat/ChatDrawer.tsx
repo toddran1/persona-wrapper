@@ -20,7 +20,7 @@ type ChatDrawerProps = {
   onRefreshConversations: () => void;
   onSelectPersona: (personaId: string) => void;
   onShowLogin: () => void;
-  onLogout: () => void;
+  onShowSettings: () => void;
 };
 
 export function ChatDrawer({
@@ -39,38 +39,29 @@ export function ChatDrawer({
   onRefreshConversations,
   onSelectPersona,
   onShowLogin,
-  onLogout
+  onShowSettings
 }: ChatDrawerProps) {
+  const accountInitial = (authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? authUser?.email?.[0] ?? "P").toUpperCase();
+
   return (
     <View style={[styles.drawer, { backgroundColor: theme.background, borderRightColor: theme.border }]}>
       <View style={[styles.rail, { backgroundColor: theme.rail }]} />
       <View style={styles.header}>
-        <View>
-          <Text style={[styles.brand, { color: theme.text }]}>Persona Wrapper</Text>
-          <Text style={[styles.subtle, { color: theme.muted }]}>Chats and personas</Text>
+        <Text style={[styles.brand, { color: theme.text }]}>Persona</Text>
+        <View style={[styles.accountPill, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.075)" }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Search chats" style={styles.pillIconButton}>
+            <Ionicons name="search" size={21} color={theme.text} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={authUser ? "Open settings" : "Sign in"}
+            onPress={authUser ? onShowSettings : onShowLogin}
+            style={[styles.accountAvatar, { backgroundColor: theme.accent }]}
+          >
+            <Text style={[styles.accountInitial, { color: theme.text }]}>{accountInitial}</Text>
+          </Pressable>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Close drawer" onPress={onClose} style={styles.close}>
-          <Ionicons name="close" size={22} color={theme.text} />
-        </Pressable>
       </View>
-
-      <Pressable
-        accessibilityRole="button"
-        onPress={authUser ? onLogout : onShowLogin}
-        style={[styles.accountCard, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.055)" }]}
-      >
-        <View style={[styles.accountAvatar, { backgroundColor: theme.accent }]}>
-          <Text style={[styles.accountInitial, { color: theme.text }]}>{authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? "P"}</Text>
-        </View>
-        <View style={styles.accountCopy}>
-          <Text style={[styles.accountTitle, { color: theme.text }]} numberOfLines={1}>
-            {authUser?.displayName ?? authUser?.username ?? "Sign in"}
-          </Text>
-          <Text style={[styles.subtle, { color: theme.muted }]} numberOfLines={1}>
-            {authUser ? "Tap to sign out" : "Sync chats across devices"}
-          </Text>
-        </View>
-      </Pressable>
 
       <Pressable accessibilityRole="button" onPress={onNewChat} style={[styles.newChat, { backgroundColor: theme.text }]}>
         <Ionicons name="create-outline" size={18} color={theme.background} />
@@ -154,22 +145,15 @@ export function ChatDrawer({
           );
         })}
       </ScrollView>
-      <View style={[styles.footer, { borderTopColor: theme.border }]}>
-        <Ionicons name="settings-outline" size={18} color={theme.muted} />
-        <Text style={[styles.footerText, { color: theme.muted }]}>Settings</Text>
-      </View>
     </View>
   );
 }
 
 type DrawerStyles = {
   accountAvatar: ViewStyle;
-  accountCard: ViewStyle;
-  accountCopy: ViewStyle;
   accountInitial: TextStyle;
-  accountTitle: TextStyle;
+  accountPill: ViewStyle;
   brand: TextStyle;
-  close: ViewStyle;
   conversationCopy: ViewStyle;
   conversationAction: ViewStyle;
   conversationList: ViewStyle;
@@ -177,11 +161,10 @@ type DrawerStyles = {
   conversationTitle: TextStyle;
   drawer: ViewStyle;
   empty: TextStyle;
-  footer: ViewStyle;
-  footerText: TextStyle;
   header: ViewStyle;
   newChat: ViewStyle;
   newChatText: TextStyle;
+  pillIconButton: ViewStyle;
   personaChip: ViewStyle;
   personaChipText: TextStyle;
   personaRow: ViewStyle;
@@ -196,42 +179,28 @@ const styles = StyleSheet.create<DrawerStyles>({
   accountAvatar: {
     alignItems: "center",
     borderRadius: 999,
-    height: 38,
+    height: 42,
     justifyContent: "center",
-    width: 38
-  },
-  accountCard: {
-    alignItems: "center",
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 11,
-    marginHorizontal: 14,
-    padding: 12
-  },
-  accountCopy: {
-    flex: 1,
-    minWidth: 0
+    width: 42
   },
   accountInitial: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "900",
     textTransform: "uppercase"
   },
-  accountTitle: {
-    fontSize: 15,
-    fontWeight: "800"
+  accountPill: {
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 54,
+    paddingHorizontal: 9
   },
   brand: {
-    fontSize: 17,
+    fontSize: 36,
     fontWeight: "900",
-    letterSpacing: 0.2
-  },
-  close: {
-    alignItems: "center",
-    height: 40,
-    justifyContent: "center",
-    width: 40
+    letterSpacing: 0
   },
   conversationCopy: {
     flex: 1,
@@ -265,30 +234,19 @@ const styles = StyleSheet.create<DrawerStyles>({
   drawer: {
     borderRightWidth: 1,
     flex: 1,
-    paddingTop: 8
+    paddingTop: 20
   },
   empty: {
     fontSize: 14,
     lineHeight: 20,
     padding: 12
   },
-  footer: {
-    alignItems: "center",
-    borderTopWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    minHeight: 54,
-    paddingHorizontal: 18
-  },
-  footerText: {
-    fontSize: 14,
-    fontWeight: "700"
-  },
   header: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    padding: 14
+    paddingHorizontal: 22,
+    paddingVertical: 18
   },
   newChat: {
     alignItems: "center",
@@ -302,6 +260,12 @@ const styles = StyleSheet.create<DrawerStyles>({
   newChatText: {
     fontSize: 15,
     fontWeight: "900"
+  },
+  pillIconButton: {
+    alignItems: "center",
+    height: 42,
+    justifyContent: "center",
+    width: 42
   },
   personaChip: {
     borderRadius: 999,

@@ -51,7 +51,7 @@ import {
 import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const screenWidth = Dimensions.get("window").width;
-const drawerWidth = Math.min(screenWidth * 0.82, 340);
+const drawerWidth = screenWidth;
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 
@@ -99,6 +99,7 @@ export function MobileChatScreen() {
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [loginVisible, setLoginVisible] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [renameTitle, setRenameTitle] = useState("");
@@ -181,7 +182,7 @@ export function MobileChatScreen() {
   }));
 
   const chatShiftStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: interpolate(drawerX.value, [-drawerWidth, 0], [0, 28], Extrapolation.CLAMP) }]
+    transform: [{ translateX: interpolate(drawerX.value, [-drawerWidth, 0], [0, 0], Extrapolation.CLAMP) }]
   }));
 
   const gesture = useAnimatedGestureHandler<PanGestureHandlerGestureEvent, GestureContext>({
@@ -1051,6 +1052,8 @@ export function MobileChatScreen() {
   async function logout(): Promise<void> {
     await api.logout();
     setAuthUser(undefined);
+    setSettingsVisible(false);
+    closeDrawer();
     setConversations([]);
     setConversationId(undefined);
     void clearSelectedConversationId();
@@ -1068,15 +1071,12 @@ export function MobileChatScreen() {
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
-      <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={12}>
-        <Animated.View style={[styles.edgeSwipe, { top: insets.top, bottom: insets.bottom }]} />
-      </PanGestureHandler>
-
-      <Animated.View style={[styles.chatPlane, chatShiftStyle]}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={[styles.keyboard, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 10) }]}
-        >
+      <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={30} failOffsetY={[-14, 14]} enabled={!drawerInteractive && !loginVisible && !settingsVisible}>
+        <Animated.View style={[styles.chatPlane, chatShiftStyle]}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={[styles.keyboard, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 10) }]}
+          >
           <View style={styles.topBar}>
             <IconButton name="menu" label="Open chats" theme={theme} onPress={openDrawer} />
             <View style={styles.titleBlock}>
@@ -1233,8 +1233,9 @@ export function MobileChatScreen() {
             onRemoveAttachment={(id) => setSelectedFiles((current) => current.filter((file) => file.id !== id))}
             onSubmit={(message) => void submit(message)}
           />
-        </KeyboardAvoidingView>
-      </Animated.View>
+          </KeyboardAvoidingView>
+        </Animated.View>
+      </PanGestureHandler>
 
       {drawerInteractive ? (
         <Animated.View style={[styles.overlay, overlayStyle]}>
@@ -1260,10 +1261,49 @@ export function MobileChatScreen() {
             onRefreshConversations={() => void refreshConversationsFromDrawer()}
             onSelectPersona={(id) => void selectPersona(id)}
             onShowLogin={() => setLoginVisible(true)}
-            onLogout={() => void logout()}
+            onShowSettings={() => setSettingsVisible(true)}
           />
         </Animated.View>
       </PanGestureHandler>
+
+      {settingsVisible ? (
+        <View style={[styles.settingsScreen, { backgroundColor: theme.background, paddingTop: insets.top + 12, paddingBottom: Math.max(insets.bottom, 18) }]}>
+          <View style={styles.settingsTopBar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Back to chats"
+              onPress={() => setSettingsVisible(false)}
+              style={[styles.settingsBackButton, { backgroundColor: "rgba(255,255,255,0.08)" }]}
+            >
+              <Ionicons name="arrow-back" size={25} color={theme.text} />
+            </Pressable>
+          </View>
+          <View style={styles.settingsProfile}>
+            <View style={[styles.settingsAvatar, { backgroundColor: theme.accent }]}>
+              <Text style={[styles.settingsAvatarText, { color: theme.text }]}>
+                {(authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? authUser?.email?.[0] ?? "P").toUpperCase()}
+              </Text>
+            </View>
+            <Text style={[styles.settingsName, { color: theme.text }]} numberOfLines={1}>
+              {authUser?.displayName ?? authUser?.username ?? "Account"}
+            </Text>
+            {authUser?.email ? (
+              <Text style={[styles.settingsEmail, { color: theme.muted }]} numberOfLines={1}>{authUser.email}</Text>
+            ) : null}
+          </View>
+          <View style={styles.settingsSection}>
+            <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Account</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void logout()}
+              style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}
+            >
+              <Ionicons name="log-out-outline" size={22} color={theme.text} />
+              <Text style={[styles.settingsRowText, { color: theme.text }]}>Log out</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       {loginVisible ? (
         <View style={styles.loginScrim}>
@@ -1703,6 +1743,73 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontSize: 12,
     fontWeight: "700"
+  },
+  settingsAvatar: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 108,
+    justifyContent: "center",
+    width: 108
+  },
+  settingsAvatarText: {
+    fontSize: 42,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  settingsBackButton: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 54,
+    justifyContent: "center",
+    width: 54
+  },
+  settingsEmail: {
+    fontSize: 14,
+    fontWeight: "700",
+    maxWidth: "82%"
+  },
+  settingsName: {
+    fontSize: 32,
+    fontWeight: "900",
+    maxWidth: "82%"
+  },
+  settingsProfile: {
+    alignItems: "center",
+    gap: 10,
+    paddingBottom: 42,
+    paddingTop: 6
+  },
+  settingsRow: {
+    alignItems: "center",
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: 16,
+    minHeight: 64,
+    paddingHorizontal: 18
+  },
+  settingsRowText: {
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  settingsScreen: {
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: 20,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 9
+  },
+  settingsSection: {
+    gap: 12
+  },
+  settingsSectionTitle: {
+    fontSize: 23,
+    fontWeight: "900",
+    paddingHorizontal: 4
+  },
+  settingsTopBar: {
+    minHeight: 60
   },
   suggestion: {
     borderRadius: 18,
