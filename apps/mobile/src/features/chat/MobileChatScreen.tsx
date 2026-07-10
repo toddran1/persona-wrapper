@@ -1579,12 +1579,12 @@ const styles = StyleSheet.create({
   },
   avatarOrb: {
     alignItems: "center",
-    borderRadius: 999,
+    borderRadius: 30,
     borderWidth: 1,
-    height: 76,
+    height: 186,
     justifyContent: "center",
     overflow: "hidden",
-    width: 76
+    width: 186
   },
   chatPlane: {
     flex: 1
