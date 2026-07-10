@@ -134,7 +134,7 @@ function ImageOutputBlock({
       if (!usesProtectedFetch || !FileSystem.cacheDirectory) return;
 
       try {
-        const destination = `${FileSystem.cacheDirectory}${fileNameFromUrl(imageUrl)}`;
+        const destination = `${FileSystem.cacheDirectory}${fileNameFromUrl(imageUrl, output.mimeType)}`;
         const result = await FileSystem.downloadAsync(imageUrl, destination, {
           headers: await api.mediaHeaders()
         });
@@ -159,11 +159,20 @@ function ImageOutputBlock({
     return url.startsWith("/api/") || imageUrl.includes("/api/");
   }
 
-  function fileNameFromUrl(url: string): string {
+  function extensionForMimeType(mimeType?: string): string {
+    if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "jpg";
+    if (mimeType === "image/webp") return "webp";
+    if (mimeType === "image/gif") return "gif";
+    return "png";
+  }
+
+  function fileNameFromUrl(url: string, mimeType?: string): string {
     const cleanPath = url.split("?")[0] ?? "";
     const lastSegment = cleanPath.split("/").pop();
-    const fileName = lastSegment?.trim() || `persona-image-${Date.now()}.png`;
-    return fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const extension = extensionForMimeType(mimeType);
+    const rawName = lastSegment?.trim() || `persona-image-${Date.now()}`;
+    const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, "-");
+    return /\.[a-zA-Z0-9]{2,5}$/.test(safeName) ? safeName : `${safeName}.${extension}`;
   }
 
   async function copyPrompt(): Promise<void> {
@@ -197,9 +206,11 @@ function ImageOutputBlock({
         return;
       }
       if (localImageUri) {
-        await MediaLibrary.saveToLibraryAsync(localImageUri);
+        const destination = `${FileSystem.documentDirectory}${fileNameFromUrl(imageUrl, output.mimeType)}`;
+        await FileSystem.copyAsync({ from: localImageUri, to: destination });
+        await MediaLibrary.saveToLibraryAsync(destination);
       } else {
-        const destination = `${FileSystem.documentDirectory}${fileNameFromUrl(imageUrl)}`;
+        const destination = `${FileSystem.documentDirectory}${fileNameFromUrl(imageUrl, output.mimeType)}`;
         const downloadOptions = shouldFetchWithAuth(output.url) ? { headers: await api.mediaHeaders() } : undefined;
         const result = await FileSystem.downloadAsync(imageUrl, destination, downloadOptions);
         await MediaLibrary.saveToLibraryAsync(result.uri);
