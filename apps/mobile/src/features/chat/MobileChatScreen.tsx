@@ -16,6 +16,7 @@ import {
 import { LinearGradient, type LinearGradientProps } from "expo-linear-gradient";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import * as ExpoLinking from "expo-linking";
 import { Audio } from "expo-av";
@@ -118,6 +119,7 @@ export function MobileChatScreen() {
   const speechRuntimeRef = useRef<SpeechRecognitionRuntime | undefined>();
   const speechSubscriptionsRef = useRef<SpeechRecognitionSubscription[]>([]);
   const audioPlaybackRef = useRef<Audio.Sound | undefined>();
+  const audioPlaybackUriRef = useRef<string | undefined>();
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
@@ -130,7 +132,7 @@ export function MobileChatScreen() {
       } catch {
         // Native speech recognition may be unavailable in Expo Go or unsupported builds.
       }
-      void audioPlaybackRef.current?.unloadAsync().catch(() => undefined);
+      void releaseCurrentAudioPlayback();
       speechSubscriptionsRef.current.forEach((subscription) => subscription.remove());
       speechSubscriptionsRef.current = [];
     };
@@ -356,25 +358,72 @@ export function MobileChatScreen() {
     }
   }
 
+  function audioFileExtension(mimeType: string): string {
+    if (mimeType.includes("wav")) return "wav";
+    if (mimeType.includes("ogg")) return "ogg";
+    if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
+    if (mimeType.includes("mp4")) return "m4a";
+    return "audio";
+  }
+
+  function shouldFetchMediaWithAuth(url: string, resolvedUrl: string): boolean {
+    return url.startsWith("/api/") || resolvedUrl.includes("/api/");
+  }
+
+  async function releaseCurrentAudioPlayback(): Promise<void> {
+    const sound = audioPlaybackRef.current;
+    const uri = audioPlaybackUriRef.current;
+    audioPlaybackRef.current = undefined;
+    audioPlaybackUriRef.current = undefined;
+    await sound?.unloadAsync().catch(() => undefined);
+    if (uri?.startsWith(FileSystem.cacheDirectory ?? "")) {
+      await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+    }
+  }
+
+  async function prepareAudioUri(output: Extract<RenderedTurn["outputs"][number], { type: "audio" }>): Promise<string> {
+    const audioUrl = api.resolveUrl(output.url);
+    if (!FileSystem.cacheDirectory) return audioUrl;
+
+    const destination = `${FileSystem.cacheDirectory}persona-audio-${Date.now()}.${audioFileExtension(output.mimeType)}`;
+    const downloadOptions = shouldFetchMediaWithAuth(output.url, audioUrl) ? { headers: await api.mediaHeaders() } : undefined;
+    const result = await FileSystem.downloadAsync(audioUrl, destination, downloadOptions);
+    const info = await FileSystem.getInfoAsync(result.uri);
+    if (!info.exists || info.size === 0) {
+      await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
+      throw new Error("Downloaded audio file was empty.");
+    }
+    return result.uri;
+  }
+
   async function replayAudioOutput(output: Extract<RenderedTurn["outputs"][number], { type: "audio" }>): Promise<void> {
     try {
-      await audioPlaybackRef.current?.unloadAsync().catch(() => undefined);
-      audioPlaybackRef.current = undefined;
+      await releaseCurrentAudioPlayback();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        staysActiveInBackground: false,
+        playThroughEarpieceAndroid: false
+      });
+      const audioUri = await prepareAudioUri(output);
       const { sound } = await Audio.Sound.createAsync(
-        {
-          uri: api.resolveUrl(output.url),
-          headers: await api.mediaHeaders()
-        },
+        { uri: audioUri },
         { shouldPlay: true }
       );
       audioPlaybackRef.current = sound;
+      audioPlaybackUriRef.current = audioUri;
       sound.setOnPlaybackStatusUpdate((status) => {
         if ("didJustFinish" in status && status.didJustFinish) {
-          void sound.unloadAsync().catch(() => undefined);
-          if (audioPlaybackRef.current === sound) audioPlaybackRef.current = undefined;
+          if (audioPlaybackRef.current === sound) {
+            void releaseCurrentAudioPlayback();
+          } else {
+            void sound.unloadAsync().catch(() => undefined);
+          }
         }
       });
     } catch (playbackError) {
+      await releaseCurrentAudioPlayback();
       Alert.alert("Audio playback failed", playbackError instanceof Error ? playbackError.message : "Could not play this audio response.");
     }
   }
