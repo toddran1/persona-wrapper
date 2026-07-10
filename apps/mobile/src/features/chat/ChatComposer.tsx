@@ -8,10 +8,14 @@ type ChatComposerProps = {
   theme: MobileTheme;
   disabled?: boolean;
   uploadingAttachments?: boolean;
+  voiceInputActive?: boolean;
   attachments: MobilePickedFile[];
   draftMessage?: string | undefined;
   placeholder: string;
   onAttach: () => void;
+  onAudioMenu: () => void;
+  onDraftChange?: (draft: string) => void;
+  onMicPress: () => void;
   onRemoveAttachment: (id: string) => void;
   onSubmit: (message: string) => void;
 };
@@ -20,10 +24,14 @@ export function ChatComposer({
   theme,
   disabled,
   uploadingAttachments,
+  voiceInputActive,
   attachments,
   draftMessage,
   placeholder,
   onAttach,
+  onAudioMenu,
+  onDraftChange,
+  onMicPress,
   onRemoveAttachment,
   onSubmit
 }: ChatComposerProps) {
@@ -39,7 +47,13 @@ export function ChatComposer({
     const message = draft.trim();
     if (!message || disabled || uploadingAttachments) return;
     setDraft("");
+    onDraftChange?.("");
     onSubmit(message);
+  }
+
+  function updateDraft(nextDraft: string): void {
+    setDraft(nextDraft);
+    onDraftChange?.(nextDraft);
   }
 
   return (
@@ -74,7 +88,7 @@ export function ChatComposer({
         </Pressable>
         <TextInput
           value={draft}
-          onChangeText={setDraft}
+          onChangeText={updateDraft}
           editable={!disabled && !uploadingAttachments}
           placeholder={uploadingAttachments ? "Uploading attachments..." : placeholder}
           placeholderTextColor={theme.muted}
@@ -82,17 +96,45 @@ export function ChatComposer({
           maxLength={4000}
           style={[styles.input, { color: theme.text }]}
         />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={canSend ? "Send message" : "Voice input"}
-          onPress={canSend ? submit : undefined}
-          style={[
-            styles.sendButton,
-            { backgroundColor: canSend ? theme.text : "rgba(255,255,255,0.08)" }
-          ]}
-        >
-          <Ionicons name={canSend ? "arrow-up" : "mic-outline"} size={20} color={canSend ? theme.background : theme.text} />
-        </Pressable>
+        <View style={styles.trailingControls}>
+          {canSend ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Send message"
+              onPress={submit}
+              style={[styles.sendButton, { backgroundColor: theme.text }]}
+            >
+              <Ionicons name="arrow-up" size={20} color={theme.background} />
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Voice input"
+              disabled={disabled || uploadingAttachments}
+              onPress={onMicPress}
+              style={[
+                styles.micButton,
+                {
+                  backgroundColor: voiceInputActive ? theme.accent : "rgba(255,255,255,0.08)"
+                }
+              ]}
+            >
+              <Ionicons name={voiceInputActive ? "stop" : "mic-outline"} size={20} color={theme.text} />
+            </Pressable>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Persona audio options"
+            onPress={onAudioMenu}
+            style={[styles.audioButton, { backgroundColor: theme.accent }]}
+          >
+            <View style={styles.audioGlyph}>
+              <View style={[styles.audioBar, styles.audioBarShort, { backgroundColor: theme.text }]} />
+              <View style={[styles.audioBar, styles.audioBarTall, { backgroundColor: theme.text }]} />
+              <View style={[styles.audioBar, styles.audioBarMedium, { backgroundColor: theme.text }]} />
+            </View>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -119,6 +161,32 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 2
   },
+  audioBar: {
+    borderRadius: 999,
+    width: 3
+  },
+  audioBarMedium: {
+    height: 16
+  },
+  audioBarShort: {
+    height: 10
+  },
+  audioBarTall: {
+    height: 22
+  },
+  audioButton: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 46,
+    justifyContent: "center",
+    width: 46
+  },
+  audioGlyph: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    justifyContent: "center"
+  },
   input: {
     flex: 1,
     fontSize: 16,
@@ -126,6 +194,13 @@ const styles = StyleSheet.create({
     maxHeight: 110,
     minHeight: 24,
     paddingVertical: 10
+  },
+  micButton: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 36,
+    justifyContent: "center",
+    width: 36
   },
   removeAttachment: {
     alignItems: "center",
@@ -148,6 +223,11 @@ const styles = StyleSheet.create({
   },
   shell: {
     gap: 8
+  },
+  trailingControls: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6
   },
   wrap: {
     alignItems: "flex-end",

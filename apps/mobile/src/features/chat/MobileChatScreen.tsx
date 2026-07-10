@@ -18,7 +18,9 @@ import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as ExpoLinking from "expo-linking";
+import { Audio } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
+import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
 import type { AuthUser, ChatJobResponse, ChatResponse, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { PanGestureHandler, type PanGestureHandlerGestureEvent } from "react-native-gesture-handler";
 import Animated, {
@@ -57,6 +59,9 @@ type GestureContext = {
 };
 
 type AuthMode = "login" | "register";
+type SpeechRecognitionRuntime = typeof import("expo-speech-recognition");
+type SpeechRecognitionSubscription = { remove: () => void };
+declare const require: (moduleName: string) => unknown;
 const IMAGE_REQUEST_PATTERN =
   /\b(generate|create|make|draw|design|edit|change|remove|replace|recolor|retouch|give|get|show|provide|turn|convert)\b[\s\S]{0,80}\b(image|photo|picture|poster|logo|art|illustration|avatar|thumbnail|banner|flyer)\b/i;
 const NON_AUDIO_SPEAKING_MS = 8000;
@@ -97,6 +102,7 @@ export function MobileChatScreen() {
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [renameTitle, setRenameTitle] = useState("");
   const [composerDraft, setComposerDraft] = useState<string | undefined>();
+  const [voiceInputActive, setVoiceInputActive] = useState(false);
   const [personaVisualState, setPersonaVisualState] = useState<PersonaVisualState>("idle");
   const [personaCardHidden, setPersonaCardHidden] = useState(false);
   const [identifier, setIdentifier] = useState("");
@@ -107,10 +113,28 @@ export function MobileChatScreen() {
   const drawerX = useSharedValue(-drawerWidth);
   const scrollRef = useRef<ScrollView>(null);
   const visualStateTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
+  const currentComposerDraftRef = useRef("");
+  const speechBaseDraftRef = useRef("");
+  const speechRuntimeRef = useRef<SpeechRecognitionRuntime | undefined>();
+  const speechSubscriptionsRef = useRef<SpeechRecognitionSubscription[]>([]);
+  const audioPlaybackRef = useRef<Audio.Sound | undefined>();
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
   const [selectedFiles, setSelectedFiles] = useState<MobilePickedFile[]>([]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        speechRuntimeRef.current?.ExpoSpeechRecognitionModule.abort();
+      } catch {
+        // Native speech recognition may be unavailable in Expo Go or unsupported builds.
+      }
+      void audioPlaybackRef.current?.unloadAsync().catch(() => undefined);
+      speechSubscriptionsRef.current.forEach((subscription) => subscription.remove());
+      speechSubscriptionsRef.current = [];
+    };
+  }, []);
 
   function clearVisualStateTimer(): void {
     if (!visualStateTimerRef.current) return;
@@ -332,7 +356,31 @@ export function MobileChatScreen() {
     }
   }
 
+  async function replayAudioOutput(output: Extract<RenderedTurn["outputs"][number], { type: "audio" }>): Promise<void> {
+    try {
+      await audioPlaybackRef.current?.unloadAsync().catch(() => undefined);
+      audioPlaybackRef.current = undefined;
+      const { sound } = await Audio.Sound.createAsync(
+        {
+          uri: api.resolveUrl(output.url),
+          headers: await api.mediaHeaders()
+        },
+        { shouldPlay: true }
+      );
+      audioPlaybackRef.current = sound;
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if ("didJustFinish" in status && status.didJustFinish) {
+          void sound.unloadAsync().catch(() => undefined);
+          if (audioPlaybackRef.current === sound) audioPlaybackRef.current = undefined;
+        }
+      });
+    } catch (playbackError) {
+      Alert.alert("Audio playback failed", playbackError instanceof Error ? playbackError.message : "Could not play this audio response.");
+    }
+  }
+
   function editUserMessage(message: string): void {
+    currentComposerDraftRef.current = message;
     setComposerDraft(message);
   }
 
@@ -346,12 +394,132 @@ export function MobileChatScreen() {
 
   function showAssistantActions(turn: RenderedTurn): void {
     const canCheckStatus = isStillRunningTurn(turn);
+    const audioOutput = turn.outputs.find((output): output is Extract<RenderedTurn["outputs"][number], { type: "audio" }> => output.type === "audio");
     Alert.alert("Response actions", undefined, [
       ...(turn.assistantText.trim() ? [{ text: "Copy", onPress: () => void copyMessage("Response copied.", turn.assistantText) }] : []),
+      ...(audioOutput ? [{ text: "Replay audio", onPress: () => void replayAudioOutput(audioOutput) }] : []),
       { text: "Retry", onPress: () => void retryAssistantTurn(turn) },
       ...(canCheckStatus ? [{ text: "Check status", onPress: () => void resumeBackgroundJob(turn) }] : []),
       { text: "Cancel", style: "cancel" }
     ]);
+  }
+
+  function showPersonaAudioMenu(): void {
+    Alert.alert(
+      "Persona audio",
+      audioEnabled ? "Turn off persona audio?" : "Turn on persona audio?",
+      [
+        {
+          text: "Yes",
+          onPress: () => setAudioEnabled((enabled) => !enabled)
+        },
+        { text: "No", style: "cancel" }
+      ]
+    );
+  }
+
+  function updateComposerDraft(nextDraft: string): void {
+    currentComposerDraftRef.current = nextDraft;
+    setComposerDraft(nextDraft);
+  }
+
+  function handleSpeechResult(event: ExpoSpeechRecognitionResultEvent): void {
+    const transcript = event.results[0]?.transcript.trim();
+    if (!transcript) return;
+    const baseDraft = speechBaseDraftRef.current.trim();
+    const nextDraft = baseDraft ? `${baseDraft} ${transcript}` : transcript;
+    currentComposerDraftRef.current = nextDraft;
+    setComposerDraft(nextDraft);
+  }
+
+  function handleSpeechError(event: ExpoSpeechRecognitionErrorEvent): void {
+    setVoiceInputActive(false);
+    if (event.error === "aborted") return;
+    Alert.alert("Voice input", event.message || "Speech recognition stopped before it could transcribe your voice.");
+  }
+
+  function attachSpeechRecognitionListeners(runtime: SpeechRecognitionRuntime): void {
+    if (speechSubscriptionsRef.current.length > 0) return;
+    const module = runtime.ExpoSpeechRecognitionModule;
+    speechSubscriptionsRef.current = [
+      module.addListener("start", () => setVoiceInputActive(true)),
+      module.addListener("end", () => setVoiceInputActive(false)),
+      module.addListener("result", handleSpeechResult),
+      module.addListener("error", handleSpeechError)
+    ];
+  }
+
+  function alertSpeechRecognitionUnavailable(error?: unknown): void {
+    const detail = error instanceof Error ? error.message : undefined;
+    Alert.alert(
+      "Voice input unavailable",
+      detail && !/Cannot find native module|undefined is not/i.test(detail)
+        ? detail
+        : "Speech recognition is not available in this build or on this device. If you are using Expo Go, rebuild the iOS/Android development app after installing speech recognition."
+    );
+  }
+
+  async function loadSpeechRecognitionRuntime(): Promise<SpeechRecognitionRuntime | undefined> {
+    if (speechRuntimeRef.current) return speechRuntimeRef.current;
+    try {
+      const runtime = require("expo-speech-recognition") as SpeechRecognitionRuntime;
+      speechRuntimeRef.current = runtime;
+      attachSpeechRecognitionListeners(runtime);
+      return runtime;
+    } catch (speechError) {
+      alertSpeechRecognitionUnavailable(speechError);
+      return undefined;
+    }
+  }
+
+  async function toggleSpeechToText(): Promise<void> {
+    const runtime = await loadSpeechRecognitionRuntime();
+    if (!runtime) return;
+    const module = runtime.ExpoSpeechRecognitionModule;
+
+    if (voiceInputActive) {
+      try {
+        module.stop();
+      } catch {
+        setVoiceInputActive(false);
+      }
+      return;
+    }
+
+    try {
+      if (!module.isRecognitionAvailable()) {
+        alertSpeechRecognitionUnavailable();
+        return;
+      }
+
+      const permission = await module.requestPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Voice input permission needed",
+          permission.canAskAgain
+            ? "Microphone and speech recognition permissions are required for voice input."
+            : "Microphone or speech recognition permission is disabled. Enable it in system settings to use voice input."
+        );
+        return;
+      }
+
+      speechBaseDraftRef.current = currentComposerDraftRef.current.trim();
+      setVoiceInputActive(true);
+      module.start({
+        lang: "en-US",
+        interimResults: true,
+        continuous: false,
+        maxAlternatives: 1,
+        addsPunctuation: true,
+        iosTaskHint: "dictation",
+        androidIntentOptions: {
+          EXTRA_LANGUAGE_MODEL: "free_form"
+        }
+      });
+    } catch (speechError) {
+      setVoiceInputActive(false);
+      alertSpeechRecognitionUnavailable(speechError);
+    }
   }
 
   async function retryAssistantTurn(turn: RenderedTurn): Promise<void> {
@@ -699,6 +867,7 @@ export function MobileChatScreen() {
     clearVisualStateTimer();
     setPersonaVisualState("thinking");
     setError(undefined);
+    currentComposerDraftRef.current = "";
     setComposerDraft(undefined);
     const submittedFiles = options?.files ?? selectedFiles;
     if (!options?.files) setSelectedFiles([]);
@@ -873,7 +1042,7 @@ export function MobileChatScreen() {
               name={audioEnabled ? "volume-high" : "volume-mute-outline"}
               label={audioEnabled ? "Disable audio" : "Enable audio"}
               theme={theme}
-              onPress={() => setAudioEnabled((value) => !value)}
+              onPress={() => setAudioEnabled((enabled) => !enabled)}
             />
           </View>
 
@@ -1004,10 +1173,14 @@ export function MobileChatScreen() {
             theme={theme}
             disabled={sending || !activePersona}
             uploadingAttachments={uploadingAttachments}
+            voiceInputActive={voiceInputActive}
             attachments={selectedFiles}
             draftMessage={composerDraft}
-            placeholder={activePersona?.promptPlaceholder ?? "Ask anything"}
+            placeholder={voiceInputActive ? "Listening..." : activePersona?.promptPlaceholder ?? "Ask anything"}
             onAttach={openAttachmentPicker}
+            onAudioMenu={showPersonaAudioMenu}
+            onDraftChange={updateComposerDraft}
+            onMicPress={() => void toggleSpeechToText()}
             onRemoveAttachment={(id) => setSelectedFiles((current) => current.filter((file) => file.id !== id))}
             onSubmit={(message) => void submit(message)}
           />

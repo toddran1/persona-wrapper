@@ -27,6 +27,14 @@ const config: ExpoConfig = {
         photosPermission: "Allow Persona Wrapper to access photos for generated image downloads.",
         savePhotosPermission: "Allow Persona Wrapper to save generated images to your photo library."
       }
+    ],
+    [
+      "expo-speech-recognition",
+      {
+        microphonePermission: "Allow Persona Wrapper to use the microphone for voice input.",
+        speechRecognitionPermission: "Allow Persona Wrapper to transcribe your voice into chat messages.",
+        androidSpeechServicePackages: ["com.google.android.googlequicksearchbox"]
+      }
     ]
   ],
   experiments: {

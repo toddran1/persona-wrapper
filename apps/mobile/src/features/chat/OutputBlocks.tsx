@@ -58,14 +58,14 @@ function OutputBlock({
   if (output.type === "image") {
     return <ImageOutputBlock output={output} theme={theme} />;
   }
-  if (output.type === "audio" || output.type === "file" || output.type === "video") {
-    const title = output.type === "audio" ? "Audio response" : output.type === "file" ? output.fileName : output.title ?? "Video";
+  if (output.type === "file" || output.type === "video") {
+    const title = output.type === "file" ? output.fileName : output.title ?? "Video";
     return (
       <Pressable
         style={[styles.linkCard, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.045)" }]}
         onPress={() => Linking.openURL(api.resolveUrl(output.url))}
       >
-        <Ionicons name={output.type === "audio" ? "play-circle" : "document-text-outline"} size={22} color={theme.accent2} />
+        <Ionicons name="document-text-outline" size={22} color={theme.accent2} />
         <View style={styles.linkCopy}>
           <Text style={[styles.linkTitle, { color: theme.text }]}>{title}</Text>
           <Text style={[styles.caption, { color: theme.muted }]}>{output.mimeType}</Text>
@@ -102,11 +102,13 @@ function OutputBlock({
       </View>
     );
   }
-  return (
-    <View style={[styles.status, { borderColor: theme.border }]}>
-      <Text style={[styles.statusText, { color: theme.muted }]}>{output.type.replace(/_/g, " ")}</Text>
-    </View>
-  );
+  if (output.type !== "audio") {
+    return (
+      <View style={[styles.status, { borderColor: theme.border }]}>
+        <Text style={[styles.statusText, { color: theme.muted }]}>{output.type.replace(/_/g, " ")}</Text>
+      </View>
+    );
+  }
 }
 
 function ImageOutputBlock({

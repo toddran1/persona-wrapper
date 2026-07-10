@@ -468,8 +468,7 @@ export class ChatService {
               text: ttsScript,
               persona,
               ...(options.ownerId ? { ownerId: options.ownerId } : {}),
-              conversationId: conversation.id,
-              messageId: assistantMessageId
+              conversationId: conversation.id
             });
             ttsDiagnostic = {
               status: "generated",
