@@ -188,6 +188,7 @@ export function App() {
   const [response, setResponse] = useState<ChatResponse | undefined>();
   const [latestRequest, setLatestRequest] = useState<Record<string, unknown> | undefined>();
   const [renderedTurns, setRenderedTurns] = useState<RenderedTurn[]>([]);
+  const [autoPlayAudioTurnIndex, setAutoPlayAudioTurnIndex] = useState<number | undefined>();
   const [loading, setLoading] = useState(false);
   const [personaAudioPlaying, setPersonaAudioPlaying] = useState(false);
   const [nonAudioVisualState, setNonAudioVisualState] = useState<PersonaVisualState>("idle");
@@ -509,17 +510,20 @@ export function App() {
 
     setConversationId(result.conversationId);
     setResponse(result);
-    setRenderedTurns((current) => [
-      ...current,
-      {
-        userMessage: message,
-        userAssets,
-        userFiles,
-        assistantText,
-        outputs: result.outputs,
-        usage: result.usage
-      }
-    ]);
+    setRenderedTurns((current) => {
+      setAutoPlayAudioTurnIndex(current.length);
+      return [
+        ...current,
+        {
+          userMessage: message,
+          userAssets,
+          userFiles,
+          assistantText,
+          outputs: result.outputs,
+          usage: result.usage
+        }
+      ];
+    });
   }
 
   async function refreshConversationList(preferConversationId?: string, retryOnStartup = false): Promise<void> {
@@ -550,6 +554,7 @@ export function App() {
     setPendingPromptAssets([]);
     setPendingPromptFiles([]);
     setPersonaAudioPlaying(false);
+    setAutoPlayAudioTurnIndex(undefined);
     try {
       const conversation = await api.getConversation(nextConversationId);
       const nextTurns = conversation.turns.length > 0
@@ -606,6 +611,7 @@ export function App() {
 
   function appendChatError(message: string, errorMessage: string, userAssets: UserPromptAsset[] = [], userFiles: File[] = []): void {
     markCurrentTurnSilent();
+    setAutoPlayAudioTurnIndex(undefined);
     setRenderedTurns((current) => [
       ...current,
       {
@@ -630,6 +636,7 @@ export function App() {
 
   function appendChatStillRunning(message: string, job: ChatJobResponse, userAssets: UserPromptAsset[] = [], userFiles: File[] = []): void {
     markCurrentTurnSilent();
+    setAutoPlayAudioTurnIndex(undefined);
     setRenderedTurns((current) => [
       ...current,
       {
@@ -669,6 +676,7 @@ export function App() {
 
   function appendChatJobError(message: string, job: ChatJobResponse, reason: string, userAssets: UserPromptAsset[] = [], userFiles: File[] = []): void {
     markCurrentTurnSilent();
+    setAutoPlayAudioTurnIndex(undefined);
     const label = reason === "manual_cancel"
       ? "Request cancelled."
       : reason === "openai_background_timeout"
@@ -745,16 +753,21 @@ export function App() {
       suppressAudioVisualForCurrentTurnRef.current = imageOnlyResponse;
       setConversationId(finalResult.conversationId);
       setResponse(finalResult);
-      setRenderedTurns((current) => current.map((turn) => (
-        turn.backgroundJobId === jobId
-          ? {
-              ...turn,
-              assistantText,
-              outputs: finalResult.outputs,
-              usage: finalResult.usage
-            }
-          : turn
-      )));
+      setRenderedTurns((current) => {
+        const nextTurns = current.map((turn) => (
+          turn.backgroundJobId === jobId
+            ? {
+                ...turn,
+                assistantText,
+                outputs: finalResult.outputs,
+                usage: finalResult.usage
+              }
+            : turn
+        ));
+        const nextAutoPlayIndex = nextTurns.findIndex((turn) => turn.backgroundJobId === jobId);
+        setAutoPlayAudioTurnIndex(nextAutoPlayIndex >= 0 ? nextAutoPlayIndex : undefined);
+        return nextTurns;
+      });
       activeBackgroundJobIdRef.current = undefined;
     } catch (resumeError) {
       if (resumeError instanceof BackgroundPollingTimeoutError) {
@@ -767,6 +780,7 @@ export function App() {
               }
             : turn
         )));
+        setAutoPlayAudioTurnIndex(undefined);
         return;
       }
       if (resumeError instanceof BackgroundJobStateError) {
@@ -781,6 +795,7 @@ export function App() {
               }
             : turn
         )));
+        setAutoPlayAudioTurnIndex(undefined);
         return;
       }
       const messageText = resumeError instanceof Error ? resumeError.message : "Failed to resume background request";
@@ -848,6 +863,7 @@ export function App() {
 
   function cancelRequest(): void {
     markCurrentTurnSilent();
+    setAutoPlayAudioTurnIndex(undefined);
     const backgroundJobId = activeBackgroundJobIdRef.current;
     const cancelledPrompt = pendingPrompt;
     if (backgroundJobId) {
@@ -896,6 +912,7 @@ export function App() {
     setComposerDraft(undefined);
     setComposerDraftAttachments(undefined);
     setPersonaAudioPlaying(false);
+    setAutoPlayAudioTurnIndex(undefined);
   }
 
   async function handleLogin(identifier: string, password: string): Promise<void> {
@@ -1046,6 +1063,7 @@ export function App() {
               pendingFiles={pendingPromptFiles}
               thinking={loading && Boolean(pendingPrompt)}
               testMode={testModeEnabled}
+              autoPlayAudioTurnIndex={autoPlayAudioTurnIndex}
               onAudioPlaybackChange={audioEnabled ? (playing) => {
                 if (suppressAudioVisualForCurrentTurnRef.current) return;
                 setPersonaAudioPlaying(playing);

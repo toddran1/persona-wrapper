@@ -242,6 +242,7 @@ describe("ConversationHistory pending state", () => {
             ]
           }
         ]}
+        autoPlayAudioTurnIndex={0}
       />
     );
 
@@ -250,6 +251,33 @@ describe("ConversationHistory pending state", () => {
     await user.click(screen.getByRole("button", { name: "Audio settings" }));
     expect(screen.getByRole("menuitem", { name: "Replay audio" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Download audio" })).toBeInstanceOf(HTMLButtonElement);
+
+    playSpy.mockRestore();
+  });
+
+  it("does not autoplay response audio when rendering existing history", async () => {
+    const user = userEvent.setup();
+    const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+
+    render(
+      <ConversationHistory
+        turns={[
+          {
+            userMessage: "Open this old chat.",
+            assistantText: "Saved audio answer.",
+            outputs: [
+              { type: "text", text: "Saved audio answer." },
+              { type: "audio", url: "/api/generated-audio/audio-token", mimeType: "audio/mpeg", transcript: "Saved audio answer." }
+            ]
+          }
+        ]}
+      />
+    );
+
+    expect(playSpy).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Audio settings" }));
+    expect(screen.getByRole("menuitem", { name: "Replay audio" })).toBeInTheDocument();
 
     playSpy.mockRestore();
   });

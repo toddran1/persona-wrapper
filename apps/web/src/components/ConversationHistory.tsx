@@ -495,6 +495,7 @@ export function ConversationHistory({
   pendingFiles = [],
   thinking,
   testMode = false,
+  autoPlayAudioTurnIndex,
   onAudioPlaybackChange,
   onOutputAction,
   onEditUserPrompt
@@ -505,6 +506,7 @@ export function ConversationHistory({
   pendingFiles?: File[] | undefined;
   thinking?: boolean | undefined;
   testMode?: boolean | undefined;
+  autoPlayAudioTurnIndex?: number | undefined;
   onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
   onOutputAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
   onEditUserPrompt?: ((message: string, files: File[]) => void) | undefined;
@@ -606,7 +608,7 @@ export function ConversationHistory({
                     text={turn.assistantText}
                     sources={sources}
                     audioBlocks={audioBlocks}
-                    autoPlayAudio={turnIndex === turns.length - 1}
+                    autoPlayAudio={turnIndex === autoPlayAudioTurnIndex}
                     onAudioPlaybackChange={onAudioPlaybackChange}
                   />
                 </article>
