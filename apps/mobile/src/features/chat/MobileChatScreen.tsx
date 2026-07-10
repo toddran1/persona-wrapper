@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -105,6 +106,7 @@ export function MobileChatScreen() {
   const [renameTitle, setRenameTitle] = useState("");
   const [composerDraft, setComposerDraft] = useState<string | undefined>();
   const [voiceInputActive, setVoiceInputActive] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [personaVisualState, setPersonaVisualState] = useState<PersonaVisualState>("idle");
   const [personaCardHidden, setPersonaCardHidden] = useState(false);
   const [identifier, setIdentifier] = useState("");
@@ -115,6 +117,8 @@ export function MobileChatScreen() {
   const drawerX = useSharedValue(-drawerWidth);
   const scrollRef = useRef<ScrollView>(null);
   const visualStateTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
+  const scrollButtonTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
+  const nearConversationBottomRef = useRef(true);
   const currentComposerDraftRef = useRef("");
   const speechBaseDraftRef = useRef("");
   const speechRuntimeRef = useRef<SpeechRecognitionRuntime | undefined>();
@@ -134,6 +138,7 @@ export function MobileChatScreen() {
         // Native speech recognition may be unavailable in Expo Go or unsupported builds.
       }
       void releaseCurrentAudioPlayback();
+      clearScrollButtonTimer();
       speechSubscriptionsRef.current.forEach((subscription) => subscription.remove());
       speechSubscriptionsRef.current = [];
     };
@@ -143,6 +148,54 @@ export function MobileChatScreen() {
     if (!visualStateTimerRef.current) return;
     clearTimeout(visualStateTimerRef.current);
     visualStateTimerRef.current = undefined;
+  }
+
+  function clearScrollButtonTimer(): void {
+    if (!scrollButtonTimerRef.current) return;
+    clearTimeout(scrollButtonTimerRef.current);
+    scrollButtonTimerRef.current = undefined;
+  }
+
+  function scheduleScrollButtonHide(): void {
+    clearScrollButtonTimer();
+    scrollButtonTimerRef.current = setTimeout(() => {
+      setShowScrollToBottom(false);
+      scrollButtonTimerRef.current = undefined;
+    }, 1800);
+  }
+
+  function scrollConversationToBottom(): void {
+    clearScrollButtonTimer();
+    nearConversationBottomRef.current = true;
+    setShowScrollToBottom(false);
+    scrollRef.current?.scrollToEnd({ animated: true });
+  }
+
+  function handleConversationScroll(event: {
+    nativeEvent: {
+      contentOffset: { y: number };
+      contentSize: { height: number };
+      layoutMeasurement: { height: number };
+    };
+  }): void {
+    if (turns.length === 0) {
+      setShowScrollToBottom(false);
+      return;
+    }
+
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    const awayFromBottom = distanceFromBottom > 160;
+    nearConversationBottomRef.current = !awayFromBottom;
+
+    if (awayFromBottom) {
+      setShowScrollToBottom(true);
+      scheduleScrollButtonHide();
+      return;
+    }
+
+    clearScrollButtonTimer();
+    setShowScrollToBottom(false);
   }
 
   function markPersonaSpeaking(outputs: RenderedTurn["outputs"]): void {
@@ -793,10 +846,17 @@ export function MobileChatScreen() {
   }, []);
 
   useEffect(() => {
-    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    requestAnimationFrame(() => {
+      if (nearConversationBottomRef.current || sending) {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }
+    });
   }, [turns.length, sending]);
 
-  useEffect(() => () => clearVisualStateTimer(), []);
+  useEffect(() => () => {
+    clearVisualStateTimer();
+    clearScrollButtonTimer();
+  }, []);
 
   async function selectPersona(personaId: string): Promise<void> {
     try {
@@ -1120,6 +1180,8 @@ export function MobileChatScreen() {
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.history}
             showsVerticalScrollIndicator={false}
+            scrollEventThrottle={80}
+            onScroll={handleConversationScroll}
           >
             {loading && turns.length === 0 ? (
               <View style={styles.loadingState}>
@@ -1129,9 +1191,17 @@ export function MobileChatScreen() {
             ) : turns.length === 0 ? (
               <View style={styles.emptyState}>
                 <View style={[styles.avatarOrb, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.055)" }]}>
-                  <Text style={[styles.avatarInitials, { color: theme.accent2 }]}>
-                    {(activePersona?.name ?? "PW").split(" ").slice(0, 2).map((part) => part[0]).join("")}
-                  </Text>
+                  {activePersona?.avatarUrl ? (
+                    <Image
+                      source={{ uri: api.resolveUrl(activePersona.avatarUrl) }}
+                      style={styles.emptyAvatarImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Text style={[styles.avatarInitials, { color: theme.accent2 }]}>
+                      {(activePersona?.name ?? "PW").split(" ").slice(0, 2).map((part) => part[0]).join("")}
+                    </Text>
+                  )}
                 </View>
                 <Text style={[styles.emptyTitle, { color: theme.text }]}>{activePersona?.documentTitle ?? "Persona Wrapper"}</Text>
                 <Text style={[styles.emptyCopy, { color: theme.muted }]}>
@@ -1217,6 +1287,17 @@ export function MobileChatScreen() {
               ))
             )}
           </ScrollView>
+
+          {showScrollToBottom && turns.length > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Scroll to latest message"
+              onPress={scrollConversationToBottom}
+              style={[styles.scrollToBottomButton, { backgroundColor: "rgba(255,255,255,0.13)", borderColor: theme.border }]}
+            >
+              <Ionicons name="arrow-down" size={22} color={theme.text} />
+            </Pressable>
+          ) : null}
 
           <ChatComposer
             theme={theme}
@@ -1502,6 +1583,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 76,
     justifyContent: "center",
+    overflow: "hidden",
     width: 76
   },
   chatPlane: {
@@ -1528,6 +1610,10 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     zIndex: 5
+  },
+  emptyAvatarImage: {
+    height: "100%",
+    width: "100%"
   },
   edgeSwipe: {
     left: 0,
@@ -1743,6 +1829,18 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontSize: 12,
     fontWeight: "700"
+  },
+  scrollToBottomButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    bottom: 86,
+    height: 52,
+    justifyContent: "center",
+    position: "absolute",
+    width: 52,
+    zIndex: 2
   },
   settingsAvatar: {
     alignItems: "center",
