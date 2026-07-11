@@ -5,6 +5,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -24,7 +25,7 @@ import * as WebBrowser from "expo-web-browser";
 import { Audio } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import type { AuthUser, ChatJobResponse, ChatResponse, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
+import type { AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { PanGestureHandler, type PanGestureHandlerGestureEvent } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -108,6 +109,8 @@ export function MobileChatScreen() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
+  const [assistantActionTurn, setAssistantActionTurn] = useState<RenderedTurn | undefined>();
+  const [referenceSources, setReferenceSources] = useState<Citation[]>([]);
   const [renameTitle, setRenameTitle] = useState("");
   const [composerDraft, setComposerDraft] = useState<string | undefined>();
   const [voiceInputActive, setVoiceInputActive] = useState(false);
@@ -507,15 +510,26 @@ export function MobileChatScreen() {
   }
 
   function showAssistantActions(turn: RenderedTurn): void {
-    const canCheckStatus = isStillRunningTurn(turn);
-    const audioOutput = turn.outputs.find((output): output is Extract<RenderedTurn["outputs"][number], { type: "audio" }> => output.type === "audio");
-    Alert.alert("Response actions", undefined, [
-      ...(turn.assistantText.trim() ? [{ text: "Copy", onPress: () => void copyMessage("Response copied.", turn.assistantText) }] : []),
-      ...(audioOutput ? [{ text: "Replay audio", onPress: () => void replayAudioOutput(audioOutput) }] : []),
-      { text: "Retry", onPress: () => void retryAssistantTurn(turn) },
-      ...(canCheckStatus ? [{ text: "Check status", onPress: () => void resumeBackgroundJob(turn) }] : []),
-      { text: "Cancel", style: "cancel" }
-    ]);
+    setAssistantActionTurn(turn);
+  }
+
+  function showReferences(references: Citation[]): void {
+    setAssistantActionTurn(undefined);
+    setReferenceSources(references);
+  }
+
+  async function openReference(reference: Citation): Promise<void> {
+    try {
+      const parsed = new URL(reference.url);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        throw new Error("This reference uses an unsupported URL scheme.");
+      }
+      const canOpen = await Linking.canOpenURL(parsed.toString());
+      if (!canOpen) throw new Error("This reference cannot be opened on this device.");
+      await Linking.openURL(parsed.toString());
+    } catch (openError) {
+      Alert.alert("Open failed", openError instanceof Error ? openError.message : "Could not open this reference.");
+    }
   }
 
   function showPersonaAudioMenu(): void {
@@ -1136,6 +1150,12 @@ export function MobileChatScreen() {
 
   const suggestedPrompts = activePersona?.suggestedPrompts ?? [];
   const visualStateLabel = personaVisualState[0]?.toUpperCase() + personaVisualState.slice(1);
+  const assistantActionAudio = assistantActionTurn?.outputs.find(
+    (output): output is Extract<RenderedTurn["outputs"][number], { type: "audio" }> => output.type === "audio"
+  );
+  const assistantActionReferences = assistantActionTurn?.outputs
+    .filter((output): output is Extract<RenderedTurn["outputs"][number], { type: "source_list" }> => output.type === "source_list")
+    .flatMap((output) => output.sources) ?? [];
   const handlePersonaExpandedChange = (expanded: boolean): void => {
     setPersonaCardExpanded(expanded);
     if (expanded) setPersonaCardHidden(false);
@@ -1572,6 +1592,100 @@ export function MobileChatScreen() {
           </View>
         </KeyboardAvoidingView>
       ) : null}
+      <Modal
+        visible={Boolean(assistantActionTurn)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAssistantActionTurn(undefined)}
+      >
+        <View style={styles.actionSheetScrim}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setAssistantActionTurn(undefined)} />
+          <View style={[styles.actionSheet, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Response actions</Text>
+            {assistantActionTurn?.assistantText.trim() ? (
+              <Pressable style={styles.actionSheetRow} onPress={() => {
+                const text = assistantActionTurn.assistantText;
+                setAssistantActionTurn(undefined);
+                void copyMessage("Response copied.", text);
+              }}>
+                <Ionicons name="copy-outline" size={20} color={theme.text} />
+                <Text style={[styles.actionSheetText, { color: theme.text }]}>Copy</Text>
+              </Pressable>
+            ) : null}
+            {assistantActionAudio ? (
+              <Pressable style={styles.actionSheetRow} onPress={() => {
+                const audio = assistantActionAudio;
+                setAssistantActionTurn(undefined);
+                void replayAudioOutput(audio);
+              }}>
+                <Ionicons name="volume-high-outline" size={20} color={theme.text} />
+                <Text style={[styles.actionSheetText, { color: theme.text }]}>Replay audio</Text>
+              </Pressable>
+            ) : null}
+            {assistantActionReferences.length > 0 ? (
+              <Pressable style={styles.actionSheetRow} onPress={() => showReferences(assistantActionReferences)}>
+                <Ionicons name="book-outline" size={20} color={theme.text} />
+                <Text style={[styles.actionSheetText, { color: theme.text }]}>References</Text>
+              </Pressable>
+            ) : null}
+            {assistantActionTurn ? (
+              <Pressable style={styles.actionSheetRow} onPress={() => {
+                const turn = assistantActionTurn;
+                setAssistantActionTurn(undefined);
+                void retryAssistantTurn(turn);
+              }}>
+                <Ionicons name="refresh" size={20} color={theme.text} />
+                <Text style={[styles.actionSheetText, { color: theme.text }]}>Retry</Text>
+              </Pressable>
+            ) : null}
+            {assistantActionTurn && isStillRunningTurn(assistantActionTurn) ? (
+              <Pressable style={styles.actionSheetRow} onPress={() => {
+                const turn = assistantActionTurn;
+                setAssistantActionTurn(undefined);
+                void resumeBackgroundJob(turn);
+              }}>
+                <Ionicons name="time-outline" size={20} color={theme.text} />
+                <Text style={[styles.actionSheetText, { color: theme.text }]}>Check status</Text>
+              </Pressable>
+            ) : null}
+            <Pressable style={styles.actionSheetCancel} onPress={() => setAssistantActionTurn(undefined)}>
+              <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={referenceSources.length > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReferenceSources([])}
+      >
+        <View style={styles.referenceScrim}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setReferenceSources([])} />
+          <View style={[styles.referenceCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
+            <View style={styles.referenceHeader}>
+              <Text style={[styles.loginTitle, { color: theme.text }]}>References</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close references" onPress={() => setReferenceSources([])}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.referenceList} showsVerticalScrollIndicator={false}>
+              {referenceSources.map((reference, index) => (
+                <Pressable
+                  key={`${reference.url}-${index}`}
+                  accessibilityRole="link"
+                  onPress={() => void openReference(reference)}
+                  style={[styles.referenceRow, { borderColor: theme.border }]}
+                >
+                  <Text style={[styles.referenceTitle, { color: theme.accent2 }]}>{reference.title}</Text>
+                  {reference.snippet ? <Text style={[styles.referenceSnippet, { color: theme.muted }]}>{reference.snippet}</Text> : null}
+                  <Text style={[styles.referenceUrl, { color: theme.muted }]} numberOfLines={1}>{reference.url}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1610,6 +1724,43 @@ function MessageActionRow({
 }
 
 const styles = StyleSheet.create({
+  actionSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    gap: 2,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    width: "100%"
+  },
+  actionSheetCancel: {
+    alignItems: "center",
+    minHeight: 50,
+    justifyContent: "center",
+    marginTop: 4
+  },
+  actionSheetRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 14,
+    minHeight: 52,
+    paddingHorizontal: 8
+  },
+  actionSheetScrim: {
+    backgroundColor: "rgba(0,0,0,0.48)",
+    flex: 1,
+    justifyContent: "flex-end"
+  },
+  actionSheetText: {
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  actionSheetTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    paddingBottom: 8,
+    paddingHorizontal: 8
+  },
   authModeButton: {
     alignItems: "center",
     borderRadius: 14,
@@ -1959,6 +2110,46 @@ const styles = StyleSheet.create({
   renameSecondaryText: {
     fontSize: 15,
     fontWeight: "800"
+  },
+  referenceCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    maxHeight: "78%",
+    maxWidth: 520,
+    padding: 18,
+    width: "90%"
+  },
+  referenceHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12
+  },
+  referenceList: {
+    gap: 10,
+    paddingBottom: 4
+  },
+  referenceRow: {
+    borderBottomWidth: 1,
+    gap: 4,
+    paddingVertical: 12
+  },
+  referenceScrim: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.62)",
+    flex: 1,
+    justifyContent: "center"
+  },
+  referenceSnippet: {
+    fontSize: 13,
+    lineHeight: 18
+  },
+  referenceTitle: {
+    fontSize: 15,
+    fontWeight: "800"
+  },
+  referenceUrl: {
+    fontSize: 11
   },
   sentAsset: {
     alignItems: "center",

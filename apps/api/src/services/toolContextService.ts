@@ -1,4 +1,5 @@
 import type { ChatMessage, ClientContext } from "@persona/shared";
+import { shouldEnableWebSearchForMessage } from "./toolSelectionService.js";
 
 type ToolContextResult = {
   name: "current_date" | "user_location" | "web_search";
@@ -12,14 +13,8 @@ export type ToolContext = {
   results: ToolContextResult[];
 };
 
-const CURRENT_INFO_PATTERN =
-  /\b(latest|recent|news|current events|current information|current|right now|as of|this year|last year|newest|most recent)\b/i;
-const WEB_SEARCH_PATTERN = /\b(web search|internet search|search the web|look up|google|online|browse|internet)\b/i;
 const DATE_PATTERN = /\b(today|current date|what date|what day|current time|date of today|what time|time is it|right now)\b/i;
 const LOCATION_PATTERN = /\b(my location|where am i|where i am|near me|nearby|local to me|in my area)\b/i;
-const EVENT_RESULT_PATTERN =
-  /\b(who won|winner|won the|champion|championship|finals|top\s*\d+|standings|score|scores|election|results?|official event|lineup|roster|schedule|release date)\b/i;
-const STALE_CUTOFF_YEAR = 2023;
 
 function formatCurrentDate(clientContext?: ClientContext): string {
   const date = clientContext?.currentDateTime ? new Date(clientContext.currentDateTime) : new Date();
@@ -43,21 +38,7 @@ function shouldRunDateTool(message: string): boolean {
 }
 
 function shouldRunWebSearch(message: string): boolean {
-  return (
-    WEB_SEARCH_PATTERN.test(message) ||
-    hasPostCutoffYear(message) ||
-    EVENT_RESULT_PATTERN.test(message) ||
-    (CURRENT_INFO_PATTERN.test(message) && !shouldRunDateTool(message))
-  );
-}
-
-function hasPostCutoffYear(message: string): boolean {
-  const currentYear = new Date().getFullYear();
-  const years = message.match(/\b20\d{2}\b/g) ?? [];
-  return years.some((year) => {
-    const numericYear = Number(year);
-    return numericYear > STALE_CUTOFF_YEAR && numericYear <= currentYear + 1;
-  });
+  return !shouldRunDateTool(message) && shouldEnableWebSearchForMessage(message);
 }
 
 function normalizeSearchQuery(message: string): string {

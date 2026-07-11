@@ -58,9 +58,8 @@ describe("ConversationHistory pending state", () => {
     expect(screen.getByLabelText("LaRae is thinking")).toBeInTheDocument();
   });
 
-  it("renders markdown text and exposes sources as response actions", async () => {
+  it("renders markdown text and exposes references from the response action menu", async () => {
     const user = userEvent.setup();
-
     render(
       <ConversationHistory
         turns={[
@@ -99,8 +98,10 @@ describe("ConversationHistory pending state", () => {
     expect(screen.getByRole("columnheader", { name: "Album" })).toBeInTheDocument();
     expect(screen.queryByText("web_search · completed")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Sources" }));
-    expect(screen.getByRole("dialog", { name: "Sources" })).toBeInTheDocument();
+    expect(screen.queryByText("Billboard report")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "More response actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "References" }));
+    expect(screen.getByRole("dialog", { name: "References" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Billboard report" })).toHaveAttribute("href", "https://example.com/billboard");
   });
 

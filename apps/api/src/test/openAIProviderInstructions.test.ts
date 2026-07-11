@@ -109,6 +109,22 @@ describe("OpenAIProvider instructions", () => {
     });
   });
 
+  it("honors a selected web-search tool without applying a second keyword veto", () => {
+    const input = inputForLaRae();
+    input.userMessage = "Tell me more about that topic.";
+    input.toolOptions = {
+      webSearch: true,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: false,
+      appFunctions: false,
+      background: false,
+      vectorStoreIds: []
+    };
+
+    expect(buildOpenAITools(input)).toContainEqual({ type: "web_search" });
+  });
+
   it("does not retry image generation when OpenAI returns a safety refusal", () => {
     const input = inputForLaRae();
     input.toolOptions = {

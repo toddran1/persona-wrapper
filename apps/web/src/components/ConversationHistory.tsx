@@ -424,59 +424,53 @@ function AssistantActions({
           title="More"
           onClick={() => {
             setMenuOpen((current) => !current);
-            setSourcesOpen(false);
             setAudioOpen(false);
+            setSourcesOpen(false);
           }}
         >
           <Icon name="more" />
         </button>
         {menuOpen ? (
           <div id={menuId} className="message-action-menu" role="menu">
+            {flatSources.length > 0 ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setSourcesOpen(true);
+                }}
+              >
+                <Icon name="sources" />
+                <span>References</span>
+              </button>
+            ) : null}
             <button type="button" role="menuitem" onClick={() => setMenuOpen(false)}>
               <Icon name="retry" />
               <span>Retry</span>
             </button>
           </div>
         ) : null}
+        {sourcesOpen ? (
+          <div id={sourcesId} className="message-sources-popover" role="dialog" aria-label="References">
+            <div className="message-sources-title">References</div>
+            {flatSources.map((source, index) => {
+              const safeUrl = safeExternalUrl(source.url);
+              const content = (
+                <>
+                  <span>{source.title}</span>
+                  {source.snippet ? <small>{source.snippet}</small> : null}
+                </>
+              );
+              return safeUrl ? (
+                <a key={`${source.url}-${index}`} href={safeUrl} target="_blank" rel="noreferrer" className="message-source-item">{content}</a>
+              ) : (
+                <div key={`${source.url}-${index}`} className="message-source-item">{content}</div>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
-      {flatSources.length > 0 ? (
-        <div className="message-action-wrap">
-          <button
-            type="button"
-            className="message-sources-button"
-            aria-haspopup="dialog"
-            aria-expanded={sourcesOpen}
-            aria-controls={sourcesId}
-            onClick={() => {
-              setSourcesOpen((current) => !current);
-              setMenuOpen(false);
-              setAudioOpen(false);
-            }}
-          >
-            <Icon name="sources" />
-            <span>Sources</span>
-          </button>
-          {sourcesOpen ? (
-            <div id={sourcesId} className="message-sources-popover" role="dialog" aria-label="Sources">
-              <div className="message-sources-title">Sources</div>
-              {flatSources.map((source, index) => {
-                const safeUrl = safeExternalUrl(source.url);
-                const content = (
-                  <>
-                    <span>{source.title}</span>
-                    {source.snippet ? <small>{source.snippet}</small> : null}
-                  </>
-                );
-                return safeUrl ? (
-                  <a key={`${source.url}-${index}`} href={safeUrl} target="_blank" rel="noreferrer" className="message-source-item">{content}</a>
-                ) : (
-                  <div key={`${source.url}-${index}`} className="message-source-item">{content}</div>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -644,10 +638,10 @@ export function ConversationHistory({
           ) : null}
           {thinking ? (
             <article className="chat-row chat-row-assistant">
-              <div className="chat-avatar chat-avatar-assistant">{personaName}</div>
+              <div className="chat-avatar chat-avatar-assistant">{personaId}</div>
               <div className="chat-bubble chat-bubble-assistant">
                 <span className="history-role">Thinking</span>
-                <div className="thinking-indicator" aria-live="polite" aria-label={`${personaName} is thinking`}>
+                <div className="thinking-indicator" aria-live="polite" aria-label={`${personaId} is thinking`}>
                   <span />
                   <span />
                   <span />

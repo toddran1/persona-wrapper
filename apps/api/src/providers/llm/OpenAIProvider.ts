@@ -6,7 +6,6 @@ import { executeApplicationTool } from "../tools/toolRegistry.js";
 import { openAIArtifactService } from "../../services/openAIArtifactService.js";
 import { buildLaraeStyleReference } from "../../services/laraeStyleReferenceBuilder.js";
 import { buildImageGenerationPrompt } from "../../services/imagePromptBuilder.js";
-import { shouldEnableWebSearchForMessage } from "../../services/toolSelectionService.js";
 import type { LLMProgressCallbacks, LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
 
@@ -168,7 +167,7 @@ export function buildOpenAITools(input: LLMInput): OpenAIItem[] {
   };
   const fileIds = (input.attachments ?? []).flatMap((attachment) => attachment.openaiFileId ? [attachment.openaiFileId] : []);
 
-  if (options.webSearch && env.OPENAI_ENABLE_WEB_SEARCH && shouldEnableWebSearchForMessage(input.userMessage)) {
+  if (options.webSearch && env.OPENAI_ENABLE_WEB_SEARCH) {
     tools.push({ type: "web_search" });
   }
   if (options.fileSearch && env.OPENAI_ENABLE_FILE_SEARCH && options.vectorStoreIds.length > 0) {
