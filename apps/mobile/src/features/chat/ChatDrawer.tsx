@@ -11,6 +11,8 @@ type ChatDrawerProps = {
   personas: PersonaSummary[];
   activePersona?: PersonaSummary | undefined;
   theme: MobileTheme;
+  topInset: number;
+  bottomInset: number;
   loading: boolean;
   refreshing: boolean;
   onClose: () => void;
@@ -30,6 +32,8 @@ export function ChatDrawer({
   personas,
   activePersona,
   theme,
+  topInset,
+  bottomInset,
   loading,
   refreshing,
   onClose,
@@ -44,10 +48,20 @@ export function ChatDrawer({
   const accountInitial = (authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? authUser?.email?.[0] ?? "P").toUpperCase();
 
   return (
-    <View style={[styles.drawer, { backgroundColor: theme.background, borderRightColor: theme.border }]}>
+    <View
+      style={[
+        styles.drawer,
+        {
+          backgroundColor: theme.background,
+          borderRightColor: theme.border,
+          paddingTop: Math.max(topInset + 6, 16),
+          paddingBottom: Math.max(bottomInset, 8)
+        }
+      ]}
+    >
       <View style={[styles.rail, { backgroundColor: theme.rail }]} />
       <View style={styles.header}>
-        <Text style={[styles.brand, { color: theme.text }]}>Persona</Text>
+        <Text style={[styles.brand, { color: theme.text }]} numberOfLines={1}>Persona</Text>
         <View style={authUser ? [styles.accountPill, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.075)" }] : undefined}>
           <Pressable accessibilityRole="button" accessibilityLabel="Search chats" style={styles.pillIconButton}>
             <Ionicons name="search" size={21} color={theme.text} />
@@ -112,6 +126,7 @@ export function ChatDrawer({
         <Text style={[styles.subtle, { color: theme.muted }]}>{loading ? "Loading" : `${conversations.length}`}</Text>
       </View>
       <ScrollView
+        style={styles.conversationScroller}
         contentContainerStyle={styles.conversationList}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -174,6 +189,7 @@ type DrawerStyles = {
   conversationAction: ViewStyle;
   conversationList: ViewStyle;
   conversationRow: ViewStyle;
+  conversationScroller: ViewStyle;
   conversationTitle: TextStyle;
   drawer: ViewStyle;
   empty: TextStyle;
@@ -225,10 +241,13 @@ const styles = StyleSheet.create<DrawerStyles>({
     minHeight: 44
   },
   authCallToActionText: {
+    flexShrink: 1,
     fontSize: 14,
-    fontWeight: "800"
+    fontWeight: "800",
+    textAlign: "center"
   },
   brand: {
+    flexShrink: 1,
     fontSize: 36,
     fontWeight: "900",
     letterSpacing: 0
@@ -258,14 +277,16 @@ const styles = StyleSheet.create<DrawerStyles>({
     minHeight: 48,
     paddingHorizontal: 10
   },
+  conversationScroller: {
+    flex: 1
+  },
   conversationTitle: {
     fontSize: 14,
     fontWeight: "600"
   },
   drawer: {
     borderRightWidth: 1,
-    flex: 1,
-    paddingTop: 20
+    flex: 1
   },
   empty: {
     fontSize: 14,

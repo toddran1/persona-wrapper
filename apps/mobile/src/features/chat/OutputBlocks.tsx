@@ -5,6 +5,7 @@ import * as FileSystem from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import type { ContentBlock } from "@persona/shared";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
 import type { MobileTheme } from "../../theme/personaTheme";
 
@@ -118,6 +119,7 @@ function ImageOutputBlock({
   output: Extract<ContentBlock, { type: "image" }>;
   theme: MobileTheme;
 }) {
+  const insets = useSafeAreaInsets();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [localImageUri, setLocalImageUri] = useState<string | undefined>();
   const [imageError, setImageError] = useState<string | undefined>();
@@ -260,7 +262,16 @@ function ImageOutputBlock({
         </View>
       </View>
       <Modal visible={viewerOpen} animationType="fade" presentationStyle="fullScreen" onRequestClose={() => setViewerOpen(false)}>
-        <View style={[styles.viewer, { backgroundColor: theme.background }]}>
+        <View
+          style={[
+            styles.viewer,
+            {
+              backgroundColor: theme.background,
+              paddingTop: Math.max(insets.top + 8, 20),
+              paddingBottom: Math.max(insets.bottom + 12, 20)
+            }
+          ]}
+        >
           <View style={styles.viewerTopBar}>
             <Pressable accessibilityRole="button" accessibilityLabel="Close image viewer" onPress={() => setViewerOpen(false)} style={styles.viewerIconButton}>
               <Ionicons name="close" size={22} color={theme.text} />
@@ -417,9 +428,7 @@ const styles = StyleSheet.create({
   },
   viewer: {
     flex: 1,
-    paddingBottom: 28,
-    paddingHorizontal: 14,
-    paddingTop: 56
+    paddingHorizontal: 14
   },
   viewerActionButton: {
     alignItems: "center",

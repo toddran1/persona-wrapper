@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import type { AVPlaybackStatus } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
@@ -130,6 +130,12 @@ function pickStateClip(state: PersonaVisualState, previousSrc?: string, failedSo
 }
 
 export function PersonaVisualStage({ expanded, hidden, personaName, state, theme, onExpandedChange, onHiddenChange }: PersonaVisualStageProps) {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const compactLayout = windowWidth < 360 || windowHeight < 700;
+  const tabletLayout = windowWidth >= 768;
+  const stageWidth = tabletLayout ? 132 : compactLayout ? 88 : 104;
+  const stageTop = tabletLayout ? 120 : compactLayout ? 100 : 112;
+  const hiddenTranslate = stageWidth + 24;
   const [activeClip, setActiveClip] = useState<PersonaVisualClip>(() => pickStateClip(state));
   const [mediaUnavailable, setMediaUnavailable] = useState(false);
   const activeClipRef = useRef<PersonaVisualClip | null>(activeClip);
@@ -138,11 +144,11 @@ export function PersonaVisualStage({ expanded, hidden, personaName, state, theme
   const settledStateRef = useRef<PersonaVisualState>(state);
   const targetStateRef = useRef<PersonaVisualState>(state);
   const expandedProgress = useSharedValue(expanded ? 1 : 0);
-  const translateX = useSharedValue(hidden ? 124 : 0);
+  const translateX = useSharedValue(hidden ? hiddenTranslate : 0);
 
   useEffect(() => {
-    translateX.value = withTiming(hidden ? 124 : 0, { duration: 260 });
-  }, [hidden, translateX]);
+    translateX.value = withTiming(hidden ? hiddenTranslate : 0, { duration: 260 });
+  }, [hidden, hiddenTranslate, translateX]);
 
   useEffect(() => {
     expandedProgress.value = withTiming(expanded ? 1 : 0, { duration: 280 });
@@ -219,11 +225,11 @@ export function PersonaVisualStage({ expanded, hidden, personaName, state, theme
       context.startX = translateX.value;
     },
     onActive: (event, context) => {
-      translateX.value = Math.max(0, Math.min(128, context.startX + event.translationX));
+      translateX.value = Math.max(0, Math.min(hiddenTranslate + 4, context.startX + event.translationX));
     },
     onEnd: (event) => {
       const shouldHide = translateX.value > 52 || event.velocityX > 360;
-      translateX.value = withTiming(shouldHide ? 124 : 0, { duration: 220 });
+      translateX.value = withTiming(shouldHide ? hiddenTranslate : 0, { duration: 220 });
       if (shouldHide) runOnJS(onHiddenChange)(true);
     }
   });
@@ -297,7 +303,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, state, theme
         accessibilityRole="button"
         accessibilityLabel="Show persona card"
         onPress={() => onHiddenChange(false)}
-        style={[styles.revealButton, { borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.90)" }]}
+        style={[styles.revealButton, { top: stageTop + 10, borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.90)" }]}
       >
         <Ionicons name="person-circle-outline" size={20} color={theme.accent2} />
       </Pressable>
@@ -322,7 +328,11 @@ export function PersonaVisualStage({ expanded, hidden, personaName, state, theme
     <PanGestureHandler onGestureEvent={panGesture} activeOffsetX={12}>
       <Animated.View
         accessibilityLabel={`${personaName} visual state: ${stateLabels[state]}`}
-        style={[styles.stage, { borderColor: theme.border, backgroundColor: "rgba(7,5,12,0.62)" }, stageStyle]}
+        style={[
+          styles.stage,
+          { top: stageTop, width: stageWidth, borderColor: theme.border, backgroundColor: "rgba(7,5,12,0.62)" },
+          stageStyle
+        ]}
       >
         <Pressable accessibilityRole="button" accessibilityLabel="Expand persona visual" onPress={handleStagePress} style={styles.frame}>
           {renderClip()}

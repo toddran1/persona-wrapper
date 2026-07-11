@@ -37,7 +37,7 @@ const envSchema = z.object({
   CORS_ALLOWED_ORIGINS: z.preprocess(emptyStringToUndefined, z.string().optional()),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_RUN_INTEGRATION_TESTS: z.preprocess(stringToBoolean, z.boolean().default(false)),
-  OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
+  OPENAI_MODEL: z.string().default("gpt-5.6-luna"),
   OPENAI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   OPENAI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(8192),
   OPENAI_TEMPERATURE: z.preprocess(emptyStringToUndefined, z.coerce.number().min(0).max(2).optional()),

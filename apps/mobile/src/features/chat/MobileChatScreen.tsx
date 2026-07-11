@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -12,6 +11,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View
 } from "react-native";
 import { LinearGradient, type LinearGradientProps } from "expo-linear-gradient";
@@ -52,8 +52,6 @@ import {
 } from "./mobileChatUtils";
 import type { MobilePickedFile, RenderedTurn } from "./types";
 
-const screenWidth = Dimensions.get("window").width;
-const drawerWidth = screenWidth;
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 
@@ -87,6 +85,10 @@ class BackgroundJobStateError extends Error {
 
 export function MobileChatScreen() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const drawerWidth = windowWidth;
+  const compactLayout = windowWidth < 360 || windowHeight < 700;
+  const tabletLayout = windowWidth >= 768;
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
   const [persona, setPersona] = useState<PersonaDefinition | undefined>();
   const [provider, setProvider] = useState<ProviderId>("openai_persona");
@@ -110,6 +112,7 @@ export function MobileChatScreen() {
   const [composerDraft, setComposerDraft] = useState<string | undefined>();
   const [voiceInputActive, setVoiceInputActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(62);
   const [personaVisualState, setPersonaVisualState] = useState<PersonaVisualState>("idle");
   const [personaCardExpanded, setPersonaCardExpanded] = useState(false);
   const [personaCardHidden, setPersonaCardHidden] = useState(false);
@@ -133,6 +136,10 @@ export function MobileChatScreen() {
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
   const [selectedFiles, setSelectedFiles] = useState<MobilePickedFile[]>([]);
+
+  useEffect(() => {
+    if (!drawerInteractive) drawerX.value = -drawerWidth;
+  }, [drawerInteractive, drawerWidth, drawerX]);
 
   useEffect(() => {
     return () => {
@@ -228,7 +235,7 @@ export function MobileChatScreen() {
   const closeDrawer = useCallback(() => {
     setDrawerInteractive(false);
     drawerX.value = withSpring(-drawerWidth, { damping: 22, stiffness: 180 });
-  }, [drawerX]);
+  }, [drawerWidth, drawerX]);
 
   const drawerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: drawerX.value }]
@@ -1146,7 +1153,13 @@ export function MobileChatScreen() {
         <Animated.View style={[styles.chatPlane, chatShiftStyle]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={[styles.keyboard, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 10) }]}
+            keyboardVerticalOffset={0}
+            style={[
+              styles.keyboard,
+              tabletLayout ? styles.keyboardTablet : null,
+              compactLayout ? styles.keyboardCompact : null,
+              { paddingTop: insets.top + (compactLayout ? 4 : 8), paddingBottom: Math.max(insets.bottom, 8) }
+            ]}
           >
           <View style={[styles.topBar, personaCardExpanded ? styles.layerAbovePersonaBackground : null]}>
             <IconButton name="menu" label="Open chats" theme={theme} onPress={openDrawer} />
@@ -1181,7 +1194,11 @@ export function MobileChatScreen() {
               accessibilityRole="button"
               accessibilityLabel="Minimize persona background"
               onPress={() => setPersonaCardExpanded(false)}
-              style={[styles.personaMinimizeButton, { borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.82)" }]}
+              style={[
+                styles.personaMinimizeButton,
+                { top: tabletLayout ? 120 : compactLayout ? 100 : 112 },
+                { borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.82)" }
+              ]}
             >
               <Ionicons name="contract-outline" size={20} color={theme.text} />
             </Pressable>
@@ -1202,7 +1219,7 @@ export function MobileChatScreen() {
           <ScrollView
             ref={scrollRef}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.history}
+            contentContainerStyle={[styles.history, compactLayout ? styles.historyCompact : null]}
             style={personaCardExpanded ? styles.layerAbovePersonaBackground : undefined}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={80}
@@ -1214,8 +1231,15 @@ export function MobileChatScreen() {
                 <Text style={[styles.loadingText, { color: theme.muted }]}>Loading your personas...</Text>
               </View>
             ) : turns.length === 0 ? (
-              <View style={styles.emptyState}>
-                <View style={[styles.avatarOrb, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.055)" }]}>
+              <View style={[styles.emptyState, compactLayout ? styles.emptyStateCompact : null]}>
+                <View
+                  style={[
+                    styles.avatarOrb,
+                    compactLayout ? styles.avatarOrbCompact : null,
+                    tabletLayout ? styles.avatarOrbTablet : null,
+                    { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.055)" }
+                  ]}
+                >
                   {activePersona?.avatarUrl ? (
                     <Image
                       source={{ uri: api.resolveUrl(activePersona.avatarUrl) }}
@@ -1228,7 +1252,7 @@ export function MobileChatScreen() {
                     </Text>
                   )}
                 </View>
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>{activePersona?.documentTitle ?? "Persona Wrapper"}</Text>
+                <Text style={[styles.emptyTitle, compactLayout ? styles.emptyTitleCompact : null, { color: theme.text }]}>{activePersona?.documentTitle ?? "Persona Wrapper"}</Text>
                 <Text style={[styles.emptyCopy, { color: theme.muted }]}>
                   {activePersona?.tagline ?? "Choose a persona and start a chat."}
                 </Text>
@@ -1323,7 +1347,11 @@ export function MobileChatScreen() {
               accessibilityRole="button"
               accessibilityLabel="Scroll to latest message"
               onPress={scrollConversationToBottom}
-              style={[styles.scrollToBottomButton, { backgroundColor: "rgba(255,255,255,0.13)", borderColor: theme.border }]}
+              style={[
+                styles.scrollToBottomButton,
+                { bottom: composerHeight + Math.max(insets.bottom, 8) + 12 },
+                { backgroundColor: "rgba(255,255,255,0.13)", borderColor: theme.border }
+              ]}
             >
               <Ionicons name="arrow-down" size={22} color={theme.text} />
             </Pressable>
@@ -1331,6 +1359,7 @@ export function MobileChatScreen() {
 
           <ChatComposer
             theme={theme}
+            compact={compactLayout}
             disabled={sending || !activePersona}
             uploadingAttachments={uploadingAttachments}
             voiceInputActive={voiceInputActive}
@@ -1341,6 +1370,7 @@ export function MobileChatScreen() {
             onAudioMenu={showPersonaAudioMenu}
             onDraftChange={updateComposerDraft}
             onMicPress={() => void toggleSpeechToText()}
+            onHeightChange={setComposerHeight}
             onRemoveAttachment={(id) => setSelectedFiles((current) => current.filter((file) => file.id !== id))}
             onSubmit={(message) => void submit(message)}
           />
@@ -1363,6 +1393,8 @@ export function MobileChatScreen() {
             personas={personas}
             activePersona={activePersona}
             theme={theme}
+            topInset={insets.top}
+            bottomInset={insets.bottom}
             loading={loading}
             refreshing={conversationsRefreshing}
             onClose={closeDrawer}
@@ -1378,7 +1410,14 @@ export function MobileChatScreen() {
       </PanGestureHandler>
 
       {settingsVisible ? (
-        <View style={[styles.settingsScreen, { backgroundColor: theme.background, paddingTop: insets.top + 12, paddingBottom: Math.max(insets.bottom, 18) }]}>
+        <ScrollView
+          style={[styles.settingsScreen, { backgroundColor: theme.background }]}
+          contentContainerStyle={[
+            styles.settingsContent,
+            { paddingTop: insets.top + 12, paddingBottom: Math.max(insets.bottom, 18) }
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.settingsTopBar}>
             <Pressable
               accessibilityRole="button"
@@ -1413,13 +1452,18 @@ export function MobileChatScreen() {
               <Text style={[styles.settingsRowText, { color: theme.text }]}>Log out</Text>
             </Pressable>
           </View>
-        </View>
+        </ScrollView>
       ) : null}
 
       {loginVisible ? (
-        <View style={styles.loginScrim}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setLoginVisible(false)} />
-          <View style={[styles.loginCard, { borderColor: theme.border, backgroundColor: silkNoirTheme.surfaceStrong }]}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            style={[styles.loginCard, { borderColor: theme.border, backgroundColor: silkNoirTheme.surfaceStrong }]}
+            contentContainerStyle={styles.loginCardContent}
+          >
             <View style={styles.authModeRow}>
               <Pressable
                 onPress={() => setAuthMode("login")}
@@ -1492,13 +1536,13 @@ export function MobileChatScreen() {
                 ))}
               </View>
             ) : null}
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       ) : null}
       {renameTarget ? (
-        <View style={styles.loginScrim}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setRenameTarget(undefined)} />
-          <View style={[styles.loginCard, { borderColor: theme.border, backgroundColor: silkNoirTheme.surfaceStrong }]}>
+          <View style={[styles.loginCard, styles.renameCard, { borderColor: theme.border, backgroundColor: silkNoirTheme.surfaceStrong }]}>
             <Text style={[styles.loginTitle, { color: theme.text }]}>Rename chat</Text>
             <TextInput
               value={renameTitle}
@@ -1523,7 +1567,7 @@ export function MobileChatScreen() {
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       ) : null}
     </View>
   );
@@ -1616,6 +1660,16 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     width: 186
   },
+  avatarOrbCompact: {
+    borderRadius: 24,
+    height: 132,
+    width: 132
+  },
+  avatarOrbTablet: {
+    borderRadius: 34,
+    height: 220,
+    width: 220
+  },
   chatPlane: {
     flex: 1
   },
@@ -1662,14 +1716,24 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 14,
     justifyContent: "center",
-    minHeight: 520,
-    paddingHorizontal: 20
+    minHeight: 360,
+    paddingHorizontal: 20,
+    paddingVertical: 28
+  },
+  emptyStateCompact: {
+    gap: 10,
+    minHeight: 300,
+    paddingHorizontal: 10,
+    paddingVertical: 16
   },
   emptyTitle: {
     fontSize: 27,
     fontWeight: "900",
     letterSpacing: -0.4,
     textAlign: "center"
+  },
+  emptyTitleCompact: {
+    fontSize: 23
   },
   error: {
     borderRadius: 18,
@@ -1709,10 +1773,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 18
   },
+  historyCompact: {
+    gap: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 12
+  },
   keyboard: {
+    alignSelf: "center",
     flex: 1,
+    maxWidth: 760,
     paddingHorizontal: 12,
-    position: "relative"
+    position: "relative",
+    width: "100%"
+  },
+  keyboardCompact: {
+    paddingHorizontal: 8
+  },
+  keyboardTablet: {
+    paddingHorizontal: 20,
   },
   layerAbovePersonaBackground: {
     position: "relative",
@@ -1723,7 +1801,8 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 12,
     justifyContent: "center",
-    minHeight: 460
+    minHeight: 300,
+    paddingVertical: 32
   },
   loadingText: {
     fontSize: 14
@@ -1741,9 +1820,13 @@ const styles = StyleSheet.create({
   loginCard: {
     borderRadius: 26,
     borderWidth: 1,
-    gap: 12,
-    padding: 18,
+    maxHeight: "88%",
+    maxWidth: 440,
     width: "88%"
+  },
+  loginCardContent: {
+    gap: 12,
+    padding: 18
   },
   loginCopy: {
     fontSize: 14,
@@ -1847,6 +1930,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10
   },
+  renameCard: {
+    gap: 12,
+    padding: 18
+  },
   renamePrimaryButton: {
     alignItems: "center",
     borderRadius: 16,
@@ -1947,11 +2034,17 @@ const styles = StyleSheet.create({
   settingsScreen: {
     bottom: 0,
     left: 0,
-    paddingHorizontal: 20,
     position: "absolute",
     right: 0,
     top: 0,
     zIndex: 9
+  },
+  settingsContent: {
+    alignSelf: "center",
+    flexGrow: 1,
+    maxWidth: 640,
+    paddingHorizontal: 20,
+    width: "100%"
   },
   settingsSection: {
     gap: 12
@@ -1976,8 +2069,10 @@ const styles = StyleSheet.create({
     lineHeight: 19
   },
   suggestions: {
+    alignSelf: "center",
     gap: 9,
     marginTop: 8,
+    maxWidth: 520,
     width: "100%"
   },
   themeName: {

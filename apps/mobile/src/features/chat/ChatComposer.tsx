@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { MobileTheme } from "../../theme/personaTheme";
 import type { MobilePickedFile } from "./types";
 
 type ChatComposerProps = {
   theme: MobileTheme;
+  compact?: boolean;
   disabled?: boolean;
   uploadingAttachments?: boolean;
   voiceInputActive?: boolean;
@@ -16,12 +17,14 @@ type ChatComposerProps = {
   onAudioMenu: () => void;
   onDraftChange?: (draft: string) => void;
   onMicPress: () => void;
+  onHeightChange?: (height: number) => void;
   onRemoveAttachment: (id: string) => void;
   onSubmit: (message: string) => void;
 };
 
 export function ChatComposer({
   theme,
+  compact = false,
   disabled,
   uploadingAttachments,
   voiceInputActive,
@@ -32,6 +35,7 @@ export function ChatComposer({
   onAudioMenu,
   onDraftChange,
   onMicPress,
+  onHeightChange,
   onRemoveAttachment,
   onSubmit
 }: ChatComposerProps) {
@@ -57,7 +61,10 @@ export function ChatComposer({
   }
 
   return (
-    <View style={styles.shell}>
+    <View
+      style={styles.shell}
+      onLayout={(event: LayoutChangeEvent) => onHeightChange?.(event.nativeEvent.layout.height)}
+    >
       {attachments.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attachmentTray}>
           {attachments.map((attachment) => (
@@ -76,7 +83,7 @@ export function ChatComposer({
           ))}
         </ScrollView>
       ) : null}
-      <View style={[styles.wrap, { borderColor: theme.border, backgroundColor: theme.surfaceStrong }]}>
+      <View style={[styles.wrap, compact ? styles.wrapCompact : null, { borderColor: theme.border, backgroundColor: theme.surfaceStrong }]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Attach file"
@@ -94,7 +101,7 @@ export function ChatComposer({
           placeholderTextColor={theme.muted}
           multiline
           maxLength={4000}
-          style={[styles.input, { color: theme.text }]}
+          style={[styles.input, compact ? styles.inputCompact : null, { color: theme.text }]}
         />
         <View style={styles.trailingControls}>
           {canSend ? (
@@ -114,6 +121,7 @@ export function ChatComposer({
               onPress={onMicPress}
               style={[
                 styles.micButton,
+                compact ? styles.micButtonCompact : null,
                 {
                   backgroundColor: voiceInputActive ? theme.accent : "rgba(255,255,255,0.08)"
                 }
@@ -128,6 +136,7 @@ export function ChatComposer({
             onPress={onAudioMenu}
             style={[
               styles.audioButton,
+              compact ? styles.audioButtonCompact : null,
               {
                 backgroundColor: theme.accent2,
                 borderColor: theme.accent,
@@ -192,6 +201,10 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     width: 46
   },
+  audioButtonCompact: {
+    height: 42,
+    width: 42
+  },
   audioGlyph: {
     alignItems: "center",
     flexDirection: "row",
@@ -206,12 +219,20 @@ const styles = StyleSheet.create({
     minHeight: 24,
     paddingVertical: 10
   },
+  inputCompact: {
+    fontSize: 15,
+    lineHeight: 20
+  },
   micButton: {
     alignItems: "center",
     borderRadius: 999,
     height: 36,
     justifyContent: "center",
     width: 36
+  },
+  micButtonCompact: {
+    height: 34,
+    width: 34
   },
   removeAttachment: {
     alignItems: "center",
@@ -249,5 +270,9 @@ const styles = StyleSheet.create({
     paddingBottom: 7,
     paddingHorizontal: 9,
     paddingTop: 7
+  },
+  wrapCompact: {
+    gap: 5,
+    paddingHorizontal: 6
   }
 });
