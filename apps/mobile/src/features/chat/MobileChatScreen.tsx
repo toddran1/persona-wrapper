@@ -20,6 +20,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 import * as ExpoLinking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import { Audio } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
@@ -55,6 +56,8 @@ const screenWidth = Dimensions.get("window").width;
 const drawerWidth = screenWidth;
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
+
+WebBrowser.maybeCompleteAuthSession();
 
 type GestureContext = {
   startX: number;
@@ -1102,7 +1105,10 @@ export function MobileChatScreen() {
     try {
       const returnUrl = ExpoLinking.createURL("auth/callback");
       const url = await api.oauthStartUrl(provider, returnUrl);
-      await Linking.openURL(url);
+      const result = await WebBrowser.openAuthSessionAsync(url, returnUrl);
+      if (result.type === "success") {
+        await handleOAuthCallback(result.url);
+      }
     } catch (oauthError) {
       Alert.alert("Sign in failed", oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
     } finally {
@@ -1149,7 +1155,7 @@ export function MobileChatScreen() {
                 {activePersona?.name ?? "Persona Wrapper"}
               </Text>
               <Text style={[styles.themeName, { color: theme.muted }]} numberOfLines={1}>
-                {theme.name} · {provider.replace("_", " ")} · {visualStateLabel}
+                {theme.name}
               </Text>
             </View>
             <IconButton

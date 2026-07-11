@@ -48,20 +48,34 @@ export function ChatDrawer({
       <View style={[styles.rail, { backgroundColor: theme.rail }]} />
       <View style={styles.header}>
         <Text style={[styles.brand, { color: theme.text }]}>Persona</Text>
-        <View style={[styles.accountPill, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.075)" }]}>
+        <View style={authUser ? [styles.accountPill, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.075)" }] : undefined}>
           <Pressable accessibilityRole="button" accessibilityLabel="Search chats" style={styles.pillIconButton}>
             <Ionicons name="search" size={21} color={theme.text} />
           </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={authUser ? "Open settings" : "Sign in"}
-            onPress={authUser ? onShowSettings : onShowLogin}
-            style={[styles.accountAvatar, { backgroundColor: theme.accent }]}
-          >
-            <Text style={[styles.accountInitial, { color: theme.text }]}>{accountInitial}</Text>
-          </Pressable>
+          {authUser ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open settings"
+              onPress={onShowSettings}
+              style={[styles.accountAvatar, { backgroundColor: theme.accent }]}
+            >
+              <Text style={[styles.accountInitial, { color: theme.text }]}>{accountInitial}</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
+
+      {!authUser ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Sign in or create an account"
+          onPress={onShowLogin}
+          style={[styles.authCallToAction, { backgroundColor: "rgba(255,255,255,0.075)", borderColor: theme.border }]}
+        >
+          <Ionicons name="log-in-outline" size={18} color={theme.accent2} />
+          <Text style={[styles.authCallToActionText, { color: theme.text }]}>Sign in | Create account</Text>
+        </Pressable>
+      ) : null}
 
       <Pressable accessibilityRole="button" onPress={onNewChat} style={[styles.newChat, { backgroundColor: theme.text }]}>
         <Ionicons name="create-outline" size={18} color={theme.background} />
@@ -153,6 +167,8 @@ type DrawerStyles = {
   accountAvatar: ViewStyle;
   accountInitial: TextStyle;
   accountPill: ViewStyle;
+  authCallToAction: ViewStyle;
+  authCallToActionText: TextStyle;
   brand: TextStyle;
   conversationCopy: ViewStyle;
   conversationAction: ViewStyle;
@@ -196,6 +212,21 @@ const styles = StyleSheet.create<DrawerStyles>({
     gap: 8,
     minHeight: 54,
     paddingHorizontal: 9
+  },
+  authCallToAction: {
+    alignItems: "center",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    marginHorizontal: 14,
+    marginTop: 4,
+    minHeight: 44
+  },
+  authCallToActionText: {
+    fontSize: 14,
+    fontWeight: "800"
   },
   brand: {
     fontSize: 36,
