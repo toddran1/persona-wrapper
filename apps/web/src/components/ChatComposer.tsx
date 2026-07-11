@@ -193,7 +193,7 @@ export function ChatComposer(props: ChatComposerProps) {
               <summary>Settings</summary>
               <div className="composer-settings-body">
                 <div className="composer-meta-row">
-                  <label>
+                  {/* <label>
                     Provider
                     <select
                       // value={props.provider}
@@ -210,7 +210,7 @@ export function ChatComposer(props: ChatComposerProps) {
                       <option value="claude">Claude</option>
                       <option value="local">Local</option>
                     </select>
-                  </label>
+                  </label> */}
                   <label style={{ height: "100%" }}>
                     <div>
                       <span>Audio</span>
@@ -226,35 +226,35 @@ export function ChatComposer(props: ChatComposerProps) {
                       </div>
                     </div>
                   </label>
+                  {props.provider === "openai" ||
+                  props.provider === "openai_persona" ? (
+                    <fieldset className="tool-options">
+                      <legend>OpenAI tools</legend>
+                      {(
+                        [
+                          ["webSearch", "Web"],
+                          ["fileSearch", "File search"],
+                          ["codeInterpreter", "Analysis"],
+                          ["imageGeneration", "Images"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <label key={key} className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={toolOptions[key]}
+                            onChange={(event) =>
+                              setToolOptions((current) => ({
+                                ...current,
+                                [key]: event.target.checked,
+                              }))
+                            }
+                          />
+                          <span>{label}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : null}
                 </div>
-                {props.provider === "openai" ||
-                props.provider === "openai_persona" ? (
-                  <fieldset className="tool-options">
-                    <legend>OpenAI tools</legend>
-                    {(
-                      [
-                        ["webSearch", "Web"],
-                        ["fileSearch", "File search"],
-                        ["codeInterpreter", "Analysis"],
-                        ["imageGeneration", "Images"],
-                      ] as const
-                    ).map(([key, label]) => (
-                      <label key={key} className="toggle">
-                        <input
-                          type="checkbox"
-                          checked={toolOptions[key]}
-                          onChange={(event) =>
-                            setToolOptions((current) => ({
-                              ...current,
-                              [key]: event.target.checked,
-                            }))
-                          }
-                        />
-                        <span>{label}</span>
-                      </label>
-                    ))}
-                  </fieldset>
-                ) : null}
               </div>
             </details>
             {props.suggestedPrompts.length > 0 ? (
@@ -277,14 +277,6 @@ export function ChatComposer(props: ChatComposerProps) {
             ) : null}
           </div>
         </div>
-        <button
-          type="button"
-          className="provider-pill persona-card-new-conversation-toggle"
-          onClick={props.onResetConversation}
-          disabled={props.loading}
-        >
-          New conversation
-        </button>
         {props.personaCardHidden && props.onShowPersonaCard ? (
           <button
             type="button"

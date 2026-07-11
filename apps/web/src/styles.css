@@ -1630,11 +1630,6 @@ button:disabled {
   margin: 6px 0 0;
 }
 
-.persona-card-new-conversation-toggle {
-  white-space: nowrap;
-  margin-top: -11px;
-}
-
 .provider-pill {
   padding: 8px 12px;
   border-radius: 999px;
@@ -3585,12 +3580,6 @@ button:disabled {
   .suggested-prompts-panel summary {
     white-space: nowrap;
     font-size: 0.68rem;
-  }
-
-  .persona-card-new-conversation-toggle {
-    margin-top: 0;
-    padding: 6px 9px;
-    font-size: 0.62rem;
   }
 
   .sample-prompt-row {

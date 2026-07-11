@@ -1,6 +1,0 @@
-module Pods_PersonaWrapper {
-  umbrella header "Pods-PersonaWrapper-umbrella.h"
-
-  export *
-  module * { export * }
-}

@@ -143,12 +143,10 @@ describe("ChatComposer", () => {
     expect(screen.getByPlaceholderText("Talk to me nice...")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Suggested prompts")).toBeInTheDocument();
-    expect(screen.getByText("New conversation")).toBeVisible();
     expect(screen.getByText("OpenAI tools")).not.toBeVisible();
     expect(screen.getByText("Search the web for the most current tea.")).not.toBeVisible();
 
     await user.click(screen.getByText("Settings"));
-    expect(screen.getByText("New conversation")).toBeVisible();
     expect(screen.getByText("OpenAI tools")).toBeVisible();
   });
 
