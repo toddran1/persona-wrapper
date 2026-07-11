@@ -92,6 +92,11 @@ textarea {
   width: min(100%, 1680px);
 }
 
+.mobile-sidebar-toggle,
+.mobile-sidebar-backdrop {
+  display: none;
+}
+
 .conversation-sidebar {
   display: flex;
   flex-direction: column;
@@ -3054,7 +3059,7 @@ button:disabled {
   color: #ffd4db;
 }
 
-@media (min-width: 960px) {
+@media (min-width: 1180px) {
   .app-grid-test {
     --stage-width: clamp(320px, 21vw, 400px);
     --test-panel-width: 260px;
@@ -3170,12 +3175,76 @@ button:disabled {
   }
 }
 
-@media (max-width: 959px) {
+@media (max-width: 1179px) {
   .page-shell {
     --page-inline-pad: 14px;
     --conversation-stage-height: clamp(320px, 54vh, 420px);
     --composer-reserved-height: 180px;
-    padding: 20px 14px 28px;
+    min-height: 100dvh;
+    padding: 76px 14px 28px;
+  }
+
+  .mobile-sidebar-toggle {
+    position: fixed;
+    top: max(14px, env(safe-area-inset-top));
+    left: 14px;
+    z-index: 70;
+    display: grid;
+    width: 46px;
+    height: 46px;
+    place-content: center;
+    gap: 5px;
+    padding: 0;
+    border: 1px solid rgba(214, 181, 94, 0.22);
+    border-radius: 999px;
+    background: rgba(18, 12, 30, 0.94);
+    color: var(--theme-text);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+    transition: left 240ms ease, background-color 160ms ease;
+  }
+
+  .mobile-sidebar-toggle span {
+    display: block;
+    width: 19px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+    transition: transform 180ms ease, opacity 180ms ease;
+  }
+
+  .mobile-sidebar-toggle-open {
+    left: min(calc(88vw - 58px), 302px);
+    background: rgba(39, 23, 63, 0.98);
+  }
+
+  .mobile-sidebar-toggle-open span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+  }
+
+  .mobile-sidebar-toggle-open span:nth-child(2) {
+    opacity: 0;
+  }
+
+  .mobile-sidebar-toggle-open span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+  }
+
+  .mobile-sidebar-toggle:focus-visible {
+    outline: 2px solid var(--theme-text);
+    outline-offset: 3px;
+  }
+
+  .mobile-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    display: block;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgba(2, 1, 5, 0.58);
+    box-shadow: none;
+    backdrop-filter: blur(4px);
   }
 
   .app-grid {
@@ -3188,13 +3257,30 @@ button:disabled {
   }
 
   .conversation-sidebar {
-    order: 2;
-    max-height: min(72vh, 520px);
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 60;
+    width: min(88vw, 360px);
+    height: 100dvh;
+    max-height: none;
+    padding: max(72px, calc(env(safe-area-inset-top) + 58px)) 14px max(14px, env(safe-area-inset-bottom));
+    border-radius: 0 24px 24px 0;
     overflow: hidden;
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition: transform 240ms ease, visibility 240ms step-end;
+  }
+
+  .conversation-sidebar-mobile-open {
+    transform: translateX(0);
+    visibility: visible;
+    transition: transform 240ms ease, visibility 0ms step-start;
   }
 
   .conversation-list {
-    max-height: min(34vh, 240px);
+    max-height: none;
   }
 
   .sidebar-column {
@@ -3202,7 +3288,7 @@ button:disabled {
   }
 
   .chat-column {
-    order: 3;
+    order: 2;
   }
 
   .error-banner {
@@ -3316,7 +3402,7 @@ button:disabled {
   }
 
   .chat-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 72px minmax(0, 1fr);
   }
 
   .sidebar-column,
@@ -3331,12 +3417,29 @@ button:disabled {
   }
 }
 
+@media (min-width: 760px) and (max-width: 1179px) {
+  .conversation-stage-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 34vw);
+    align-items: start;
+  }
+
+  .conversation-stage-grid-persona-hidden {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .persona-stage {
+    position: sticky;
+    top: 76px;
+    width: 100%;
+  }
+}
+
 @media (max-width: 640px) {
   .page-shell {
     --page-inline-pad: 10px;
     --conversation-stage-height: 320px;
-    --composer-reserved-height: 170px;
-    padding: 12px 10px 24px;
+    --composer-reserved-height: 172px;
+    padding: 70px 10px 24px;
   }
 
   .app-grid {
@@ -3355,12 +3458,16 @@ button:disabled {
     border-radius: 18px;
   }
 
+  .hero-card {
+    padding: 12px;
+  }
+
   .hero-topline {
     display: grid;
   }
 
   .hero-layout {
-    grid-template-columns: 92px minmax(0, 1fr);
+    grid-template-columns: 72px minmax(0, 1fr);
     gap: 12px;
     align-items: start;
   }
@@ -3374,12 +3481,74 @@ button:disabled {
   }
 
   .hero-card h1 {
-    font-size: clamp(2.2rem, 12vw, 3.6rem);
+    margin: 6px 0 5px;
+    font-size: clamp(2rem, 10vw, 2.8rem);
   }
 
   .hero-tagline,
   .hero-description {
     font-size: 0.94rem;
+  }
+
+  .hero-description-compact {
+    display: none;
+  }
+
+  .hero-details {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .composer-dock {
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+  }
+
+  .composer-dock .composer-card {
+    max-height: min(64dvh, 480px);
+    overflow-y: auto;
+  }
+
+  .composer-card {
+    padding: 10px;
+  }
+
+  .composer-header {
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .composer-header-left {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .composer-header-left > .eyebrow {
+    display: none;
+  }
+
+  .composer-panel-row {
+    flex-wrap: nowrap;
+    gap: 12px;
+    margin-bottom: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .composer-panel-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .composer-settings-panel summary,
+  .suggested-prompts-panel summary {
+    white-space: nowrap;
+    font-size: 0.68rem;
+  }
+
+  .persona-card-new-conversation-toggle {
+    margin-top: 0;
+    padding: 6px 9px;
+    font-size: 0.62rem;
   }
 
   .sample-prompt-row {
@@ -3391,20 +3560,35 @@ button:disabled {
   }
 
   .prompt-shell {
-    padding: 12px;
+    padding: 9px 10px 8px;
+    border-radius: 18px;
   }
 
   .prompt-shell textarea {
-    min-height: 58px;
+    min-height: 42px;
+    max-height: 120px;
   }
 
   .prompt-toolbar {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    margin-top: 6px;
   }
 
   .prompt-toolbar-left {
-    width: 100%;
-    flex-wrap: wrap;
+    min-width: 0;
+    width: auto;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .prompt-toolbar-left::-webkit-scrollbar {
+    display: none;
+  }
+
+  .prompt-toolbar-left > * {
+    flex: 0 0 auto;
   }
 
   .send-button {
@@ -3427,12 +3611,13 @@ button:disabled {
   }
 
   .chat-row {
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
 
   .user-message-actions,
   .message-actions {
-    grid-column: 2;
+    grid-column: 1;
   }
 
   .chat-avatar {
@@ -3440,6 +3625,24 @@ button:disabled {
     min-height: 32px;
     padding: 0 10px;
     font-size: 0.68rem;
+  }
+
+  .persona-stage {
+    position: fixed;
+    top: max(70px, calc(env(safe-area-inset-top) + 58px));
+    right: 10px;
+    z-index: 30;
+    width: clamp(112px, 32vw, 150px);
+    padding: 6px;
+    border-radius: 18px;
+  }
+
+  .persona-stage-status {
+    display: none;
+  }
+
+  .persona-stage-frame {
+    border-radius: 14px;
   }
 
   .chat-bubble {
@@ -3488,7 +3691,8 @@ button:disabled {
   }
 
   .image-modal {
-    padding: 12px;
+    min-height: 100dvh;
+    padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
   }
 
   .image-modal-close-button {
@@ -3530,7 +3734,7 @@ button:disabled {
   }
 
   .hero-layout {
-    grid-template-columns: 76px minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
     gap: 10px;
   }
 
@@ -3544,6 +3748,27 @@ button:disabled {
   }
 
   .persona-stage {
-    width: min(100%, 320px);
+    width: 112px;
+  }
+}
+
+@media (max-width: 360px) {
+  .hero-card {
+    padding-top: 132px;
+  }
+
+  .persona-stage {
+    width: 96px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

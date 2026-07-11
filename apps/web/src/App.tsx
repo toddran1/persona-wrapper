@@ -208,6 +208,7 @@ export function App() {
   const [pendingPromptFiles, setPendingPromptFiles] = useState<File[]>([]);
   const [composerDraft, setComposerDraft] = useState<string | undefined>();
   const [composerDraftAttachments, setComposerDraftAttachments] = useState<File[] | undefined>();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const activeRequestRef = useRef<AbortController | undefined>();
   const activeBackgroundJobIdRef = useRef<string | undefined>();
   const completedTurnCountRef = useRef(0);
@@ -215,6 +216,15 @@ export function App() {
   const suppressAudioVisualForCurrentTurnRef = useRef(false);
   const suppressPersonaVisualTransitionsRef = useRef(false);
   const nonAudioVisualTimeoutRef = useRef<number | undefined>();
+
+  useEffect(() => {
+    const desktopQuery = window.matchMedia("(min-width: 1180px)");
+    const closeMobileSidebar = (event: MediaQueryListEvent | MediaQueryList) => {
+      if (event.matches) setMobileSidebarOpen(false);
+    };
+    desktopQuery.addEventListener("change", closeMobileSidebar);
+    return () => desktopQuery.removeEventListener("change", closeMobileSidebar);
+  }, []);
 
   function clearNonAudioVisualTimer(): void {
     if (nonAudioVisualTimeoutRef.current === undefined) return;
@@ -1022,8 +1032,28 @@ export function App() {
       <GoldenPairReviewPage />
     ) : (
     <main className="page-shell" style={themeStyle}>
+      <button
+        type="button"
+        className={`mobile-sidebar-toggle${mobileSidebarOpen ? " mobile-sidebar-toggle-open" : ""}`}
+        aria-label={mobileSidebarOpen ? "Close chats" : "Open chats"}
+        aria-expanded={mobileSidebarOpen}
+        onClick={() => setMobileSidebarOpen((open) => !open)}
+      >
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
+      </button>
+      {mobileSidebarOpen ? (
+        <button
+          type="button"
+          className="mobile-sidebar-backdrop"
+          aria-label="Close chats"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      ) : null}
       <div className={`app-grid ${testModeEnabled ? "app-grid-test" : "app-grid-normal"}`}>
         <ConversationSidebar
+          mobileOpen={mobileSidebarOpen}
           authUser={authUser}
           authLoading={authLoading}
           authError={authError}
@@ -1035,8 +1065,12 @@ export function App() {
           onRegister={handleRegister}
           onLogout={handleLogout}
           onOAuthLogin={handleOAuthLogin}
-          onNewConversation={resetConversation}
+          onNewConversation={() => {
+            setMobileSidebarOpen(false);
+            resetConversation();
+          }}
           onSelectConversation={(nextConversationId) => {
+            setMobileSidebarOpen(false);
             void loadConversation(nextConversationId);
           }}
           onDeleteConversation={(nextConversationId) => {
