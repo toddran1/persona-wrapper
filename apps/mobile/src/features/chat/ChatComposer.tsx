@@ -126,12 +126,19 @@ export function ChatComposer({
             accessibilityRole="button"
             accessibilityLabel="Persona audio options"
             onPress={onAudioMenu}
-            style={[styles.audioButton, { backgroundColor: theme.accent }]}
+            style={[
+              styles.audioButton,
+              {
+                backgroundColor: theme.accent2,
+                borderColor: theme.accent,
+                shadowColor: theme.accent2
+              }
+            ]}
           >
             <View style={styles.audioGlyph}>
-              <View style={[styles.audioBar, styles.audioBarShort, { backgroundColor: theme.text }]} />
-              <View style={[styles.audioBar, styles.audioBarTall, { backgroundColor: theme.text }]} />
-              <View style={[styles.audioBar, styles.audioBarMedium, { backgroundColor: theme.text }]} />
+              <View style={[styles.audioBar, styles.audioBarShort, { backgroundColor: theme.background }]} />
+              <View style={[styles.audioBar, styles.audioBarTall, { backgroundColor: theme.background }]} />
+              <View style={[styles.audioBar, styles.audioBarMedium, { backgroundColor: theme.background }]} />
             </View>
           </Pressable>
         </View>
@@ -177,8 +184,12 @@ const styles = StyleSheet.create({
   audioButton: {
     alignItems: "center",
     borderRadius: 999,
+    borderWidth: 1,
     height: 46,
     justifyContent: "center",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
     width: 46
   },
   audioGlyph: {

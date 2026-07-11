@@ -1136,7 +1136,7 @@ export function MobileChatScreen() {
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
-      <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={30} failOffsetY={[-14, 14]} enabled={!drawerInteractive && !loginVisible && !settingsVisible && !personaCardExpanded}>
+      <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={30} failOffsetY={[-14, 14]} enabled={!drawerInteractive && !loginVisible && !settingsVisible}>
         <Animated.View style={[styles.chatPlane, chatShiftStyle]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
