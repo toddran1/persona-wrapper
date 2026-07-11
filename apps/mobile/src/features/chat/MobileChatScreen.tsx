@@ -39,7 +39,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
 import { IconButton } from "../../components/IconButton";
 import { clearSelectedConversationId, getSelectedConversationId, setSelectedConversationId } from "../../storage/secureTokens";
-import { silkNoirTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
+import { defaultPersonaTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
 import { OutputBlocks } from "./OutputBlocks";
@@ -1179,15 +1179,18 @@ export function MobileChatScreen() {
             />
           </View>
 
-          <PersonaVisualStage
-            expanded={personaCardExpanded}
-            hidden={personaCardHidden}
-            personaName={activePersona?.name ?? "LaRae"}
-            state={personaVisualState}
-            theme={theme}
-            onExpandedChange={handlePersonaExpandedChange}
-            onHiddenChange={setPersonaCardHidden}
-          />
+          {activePersona?.visualStage ? (
+            <PersonaVisualStage
+              expanded={personaCardExpanded}
+              hidden={personaCardHidden}
+              personaName={activePersona.name}
+              profile={activePersona.visualStage}
+              state={personaVisualState}
+              theme={theme}
+              onExpandedChange={handlePersonaExpandedChange}
+              onHiddenChange={setPersonaCardHidden}
+            />
+          ) : null}
 
           {personaCardExpanded ? (
             <Pressable
@@ -1461,7 +1464,7 @@ export function MobileChatScreen() {
           <ScrollView
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            style={[styles.loginCard, { borderColor: theme.border, backgroundColor: silkNoirTheme.surfaceStrong }]}
+            style={[styles.loginCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}
             contentContainerStyle={styles.loginCardContent}
           >
             <View style={styles.authModeRow}>
@@ -1542,7 +1545,7 @@ export function MobileChatScreen() {
       {renameTarget ? (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setRenameTarget(undefined)} />
-          <View style={[styles.loginCard, styles.renameCard, { borderColor: theme.border, backgroundColor: silkNoirTheme.surfaceStrong }]}>
+          <View style={[styles.loginCard, styles.renameCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
             <Text style={[styles.loginTitle, { color: theme.text }]}>Rename chat</Text>
             <TextInput
               value={renameTitle}

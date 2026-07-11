@@ -15,6 +15,23 @@ type OutputBlocksProps = {
   onAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
 };
 
+function safeExternalUrl(value: string): string | undefined {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function openExternalUrl(value: string): Promise<void> {
+  const safeUrl = safeExternalUrl(value);
+  if (!safeUrl) throw new Error("This link uses an unsupported URL scheme.");
+  const canOpen = await Linking.canOpenURL(safeUrl);
+  if (!canOpen) throw new Error("This link cannot be opened on this device.");
+  await Linking.openURL(safeUrl);
+}
+
 export function OutputBlocks({ outputs, theme, onAction }: OutputBlocksProps) {
   const visible = outputs.filter((output) => output.type !== "text" || output.text.trim().length > 0);
   if (visible.length === 0) return null;
@@ -64,7 +81,11 @@ function OutputBlock({
     return (
       <Pressable
         style={[styles.linkCard, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.045)" }]}
-        onPress={() => Linking.openURL(api.resolveUrl(output.url))}
+        onPress={() => {
+          void openExternalUrl(api.resolveUrl(output.url)).catch((openError) => {
+            Alert.alert("Open failed", openError instanceof Error ? openError.message : "Could not open this file.");
+          });
+        }}
       >
         <Ionicons name="document-text-outline" size={22} color={theme.accent2} />
         <View style={styles.linkCopy}>
@@ -190,9 +211,7 @@ function ImageOutputBlock({
 
   async function openOriginal(): Promise<void> {
     try {
-      const canOpen = await Linking.canOpenURL(imageUrl);
-      if (!canOpen) throw new Error("This image URL cannot be opened on this device.");
-      await Linking.openURL(imageUrl);
+      await openExternalUrl(imageUrl);
     } catch (openError) {
       Alert.alert("Open failed", openError instanceof Error ? openError.message : "Could not open the original image.");
     }

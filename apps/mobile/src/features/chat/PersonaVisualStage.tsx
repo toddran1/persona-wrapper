@@ -13,6 +13,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { api } from "../../api/client";
 import type { MobileTheme } from "../../theme/personaTheme";
+import type { PersonaVisualStage as PersonaVisualStageProfile } from "@persona/shared";
 
 export type PersonaVisualState = "idle" | "thinking" | "speaking";
 
@@ -20,6 +21,7 @@ type PersonaVisualStageProps = {
   expanded: boolean;
   hidden: boolean;
   personaName: string;
+  profile: PersonaVisualStageProfile;
   state: PersonaVisualState;
   theme: MobileTheme;
   onExpandedChange: (expanded: boolean) => void;
@@ -44,73 +46,12 @@ const stateLabels: Record<PersonaVisualState, string> = {
   speaking: "Speaking"
 };
 
-const stateClipSources: Record<PersonaVisualState, string[]> = {
-  idle: [
-    "/personas/larae/videos/loops/larae-video-idle-10s-1st.mp4",
-    "/personas/larae/videos/loops/larae-video-idle-10s-2nd.mp4",
-    "/personas/larae/videos/loops/larae-video-idle-10s-3rd.mp4",
-    "/personas/larae/videos/loops/larae-video-idle-10s-4th.mp4",
-    "/personas/larae/videos/loops/larae-video-idle-10s-5th.mp4",
-    "/personas/larae/videos/loops/larae-video-idle-10s-6th.mp4"
-  ],
-  thinking: [
-    "/personas/larae/videos/loops/larae-video-thinking-10s-1st.mp4",
-    "/personas/larae/videos/loops/larae-video-thinking-10s-2nd.mp4",
-    "/personas/larae/videos/loops/larae-video-thinking-10s-3rd.mp4"
-  ],
-  speaking: [
-    "/personas/larae/videos/loops/larae-video-talking-10s-1st.mp4",
-    "/personas/larae/videos/loops/larae-video-talking-10s-2nd.mp4",
-    "/personas/larae/videos/loops/larae-video-talking-10s-3rd.mp4",
-    "/personas/larae/videos/loops/larae-video-talking-10s-4th.mp4"
-  ]
-};
-
-const transitionClips: Partial<Record<`${PersonaVisualState}-${PersonaVisualState}`, Omit<PersonaVisualClip, "state">>> = {
-  "idle-thinking": {
-    src: "/personas/larae/videos/transitions/larae-video-idle-to-thinking-1s-1st.mp4",
-    label: "Thinking",
-    kind: "transition",
-    media: "video"
-  },
-  "idle-speaking": {
-    src: "/personas/larae/videos/transitions/larae-video-idle-to-talking-1s-1st.mp4",
-    label: "Speaking",
-    kind: "transition",
-    media: "video"
-  },
-  "thinking-speaking": {
-    src: "/personas/larae/videos/transitions/larae-video-thinking-to-talking-1s-1st.mp4",
-    label: "Speaking",
-    kind: "transition",
-    media: "video"
-  },
-  "thinking-idle": {
-    src: "/personas/larae/videos/transitions/larae-video-thinking-to-idle-1s.mp4",
-    label: "Idle",
-    kind: "transition",
-    media: "video"
-  },
-  "speaking-idle": {
-    src: "/personas/larae/videos/transitions/larae-video-talking-to-idle-2s-1st.mp4",
-    label: "Idle",
-    kind: "transition",
-    media: "video"
-  }
-};
-
-const fallbackImages: Record<PersonaVisualState, string> = {
-  idle: "/personas/larae/larae_vid_idle.png",
-  thinking: "/personas/larae/larae_vid_thinking.png",
-  speaking: "/personas/larae/larae_vid_speaking_1.png"
-};
-
-function pickStateClip(state: PersonaVisualState, previousSrc?: string, failedSources: ReadonlySet<string> = new Set()): PersonaVisualClip {
-  const sources = stateClipSources[state].filter((src) => !failedSources.has(src));
+function pickStateClip(profile: PersonaVisualStageProfile, state: PersonaVisualState, previousSrc?: string, failedSources: ReadonlySet<string> = new Set()): PersonaVisualClip {
+  const sources = profile.loops[state].filter((src) => !failedSources.has(src));
   const fallbackSource = sources[0];
   if (!fallbackSource) {
     return {
-      src: fallbackImages[state],
+      src: profile.fallbackImages[state],
       label: stateLabels[state],
       state,
       kind: "state",
@@ -129,14 +70,14 @@ function pickStateClip(state: PersonaVisualState, previousSrc?: string, failedSo
   };
 }
 
-export function PersonaVisualStage({ expanded, hidden, personaName, state, theme, onExpandedChange, onHiddenChange }: PersonaVisualStageProps) {
+export function PersonaVisualStage({ expanded, hidden, personaName, profile, state, theme, onExpandedChange, onHiddenChange }: PersonaVisualStageProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const compactLayout = windowWidth < 360 || windowHeight < 700;
   const tabletLayout = windowWidth >= 768;
   const stageWidth = tabletLayout ? 132 : compactLayout ? 88 : 104;
   const stageTop = tabletLayout ? 120 : compactLayout ? 100 : 112;
   const hiddenTranslate = stageWidth + 24;
-  const [activeClip, setActiveClip] = useState<PersonaVisualClip>(() => pickStateClip(state));
+  const [activeClip, setActiveClip] = useState<PersonaVisualClip>(() => pickStateClip(profile, state));
   const [mediaUnavailable, setMediaUnavailable] = useState(false);
   const activeClipRef = useRef<PersonaVisualClip | null>(activeClip);
   const failedSourcesRef = useRef<Set<string>>(new Set());
@@ -155,6 +96,13 @@ export function PersonaVisualStage({ expanded, hidden, personaName, state, theme
   }, [expanded, expandedProgress]);
 
   useEffect(() => {
+    failedSourcesRef.current.clear();
+    settledStateRef.current = state;
+    targetStateRef.current = state;
+    showClip(pickStateClip(profile, state));
+  }, [profile]);
+
+  useEffect(() => {
     if (targetStateRef.current === state) return;
 
     setMediaUnavailable(false);
@@ -164,19 +112,19 @@ export function PersonaVisualStage({ expanded, hidden, personaName, state, theme
 
     if (fromState === state) {
       settledStateRef.current = state;
-      showClip(pickStateClip(state, currentClip?.src, failedSourcesRef.current));
+      showClip(pickStateClip(profile, state, currentClip?.src, failedSourcesRef.current));
       return;
     }
 
-    const transition = transitionClips[`${fromState}-${state}`];
-    if (transition && !failedSourcesRef.current.has(transition.src)) {
-      showClip({ ...transition, state });
+    const transitionSrc = profile.transitions[`${fromState}-${state}`];
+    if (transitionSrc && !failedSourcesRef.current.has(transitionSrc)) {
+      showClip({ src: transitionSrc, label: stateLabels[state], kind: "transition", media: "video", state });
       return;
     }
 
     settledStateRef.current = state;
-    showClip(pickStateClip(state, currentClip?.src, failedSourcesRef.current));
-  }, [state]);
+    showClip(pickStateClip(profile, state, currentClip?.src, failedSourcesRef.current));
+  }, [profile, state]);
 
   function showClip(clip: PersonaVisualClip): void {
     setMediaUnavailable(false);
@@ -191,12 +139,12 @@ export function PersonaVisualStage({ expanded, hidden, personaName, state, theme
     if (currentClip.kind === "transition") {
       const nextState = targetStateRef.current;
       settledStateRef.current = nextState;
-      showClip(pickStateClip(nextState, undefined, failedSourcesRef.current));
+      showClip(pickStateClip(profile, nextState, undefined, failedSourcesRef.current));
       return;
     }
 
     if (currentClip.state === targetStateRef.current) {
-      showClip(pickStateClip(currentClip.state, currentClip.src, failedSourcesRef.current));
+      showClip(pickStateClip(profile, currentClip.state, currentClip.src, failedSourcesRef.current));
     }
   }
 
@@ -213,11 +161,11 @@ export function PersonaVisualStage({ expanded, hidden, personaName, state, theme
     if (currentClip.kind === "transition") {
       const nextState = targetStateRef.current;
       settledStateRef.current = nextState;
-      showClip(pickStateClip(nextState, undefined, failedSourcesRef.current));
+      showClip(pickStateClip(profile, nextState, undefined, failedSourcesRef.current));
       return;
     }
 
-    showClip(pickStateClip(currentClip.state, currentClip.src, failedSourcesRef.current));
+    showClip(pickStateClip(profile, currentClip.state, currentClip.src, failedSourcesRef.current));
   }
 
   const panGesture = useAnimatedGestureHandler<PanGestureHandlerGestureEvent, GestureContext>({

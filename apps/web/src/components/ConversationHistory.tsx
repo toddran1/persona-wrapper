@@ -5,6 +5,7 @@ import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
 import { api, resolveApiUrl } from "../lib/api.js";
 import { downloadProtectedMedia, useProtectedMediaUrl } from "../hooks/useProtectedMediaUrl.js";
+import { safeExternalUrl } from "../lib/security.js";
 
 export type UserPromptAsset = {
   id: string;
@@ -298,12 +299,14 @@ function AssistantActions({
   text,
   sources,
   audioBlocks,
+  personaId,
   autoPlayAudio = false,
   onAudioPlaybackChange
 }: {
   text: string;
   sources: Extract<ContentBlock, { type: "source_list" }>[];
   audioBlocks: Extract<ContentBlock, { type: "audio" }>[];
+  personaId: string;
   autoPlayAudio?: boolean;
   onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
 }) {
@@ -353,7 +356,7 @@ function AssistantActions({
   const downloadAudio = () => {
     if (!primaryAudio) return;
     setAudioOpen(false);
-    void downloadProtectedMedia(primaryAudio.url, `larae-response.${audioFileExtension(primaryAudio.mimeType)}`);
+    void downloadProtectedMedia(primaryAudio.url, `${personaId}-response.${audioFileExtension(primaryAudio.mimeType)}`);
   };
 
   return (
@@ -456,12 +459,20 @@ function AssistantActions({
           {sourcesOpen ? (
             <div id={sourcesId} className="message-sources-popover" role="dialog" aria-label="Sources">
               <div className="message-sources-title">Sources</div>
-              {flatSources.map((source, index) => (
-                <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="message-source-item">
-                  <span>{source.title}</span>
-                  {source.snippet ? <small>{source.snippet}</small> : null}
-                </a>
-              ))}
+              {flatSources.map((source, index) => {
+                const safeUrl = safeExternalUrl(source.url);
+                const content = (
+                  <>
+                    <span>{source.title}</span>
+                    {source.snippet ? <small>{source.snippet}</small> : null}
+                  </>
+                );
+                return safeUrl ? (
+                  <a key={`${source.url}-${index}`} href={safeUrl} target="_blank" rel="noreferrer" className="message-source-item">{content}</a>
+                ) : (
+                  <div key={`${source.url}-${index}`} className="message-source-item">{content}</div>
+                );
+              })}
             </div>
           ) : null}
         </div>
@@ -489,6 +500,8 @@ function TokenUsageFooter({ usage }: { usage: ChatResponse["usage"] }) {
 }
 
 export function ConversationHistory({
+  personaId = "persona",
+  personaName = "Persona",
   turns,
   pendingPrompt,
   pendingAssets = [],
@@ -500,6 +513,8 @@ export function ConversationHistory({
   onOutputAction,
   onEditUserPrompt
 }: {
+  personaId?: string;
+  personaName?: string;
   turns: RenderedTurn[];
   pendingPrompt?: string | undefined;
   pendingAssets?: UserPromptAsset[] | undefined;
@@ -589,7 +604,7 @@ export function ConversationHistory({
                   <UserMessageActions message={turn.userMessage} files={turn.userFiles ?? []} onEdit={onEditUserPrompt} />
                 </article>
                 <article className="chat-row chat-row-assistant">
-                  <div className="chat-avatar chat-avatar-assistant">LaRae</div>
+                  <div className="chat-avatar chat-avatar-assistant">{personaName}</div>
                   <div className="chat-bubble chat-bubble-assistant">
                     <span className="history-role">Reply</span>
                     {turn.assistantText ? <MarkdownText text={turn.assistantText} className="message-text markdown-text" /> : null}
@@ -608,6 +623,7 @@ export function ConversationHistory({
                     text={turn.assistantText}
                     sources={sources}
                     audioBlocks={audioBlocks}
+                    personaId={personaId}
                     autoPlayAudio={turnIndex === autoPlayAudioTurnIndex}
                     onAudioPlaybackChange={onAudioPlaybackChange}
                   />
@@ -628,10 +644,10 @@ export function ConversationHistory({
           ) : null}
           {thinking ? (
             <article className="chat-row chat-row-assistant">
-              <div className="chat-avatar chat-avatar-assistant">LaRae</div>
+              <div className="chat-avatar chat-avatar-assistant">{personaName}</div>
               <div className="chat-bubble chat-bubble-assistant">
                 <span className="history-role">Thinking</span>
-                <div className="thinking-indicator" aria-live="polite" aria-label="LaRae is thinking">
+                <div className="thinking-indicator" aria-live="polite" aria-label={`${personaName} is thinking`}>
                   <span />
                   <span />
                   <span />

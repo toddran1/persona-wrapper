@@ -87,6 +87,8 @@ const envSchema = z.object({
   OPENAI_DAILY_TOKEN_LIMIT: z.coerce.number().int().nonnegative().default(1000000),
   CHAT_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(30),
   CHAT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  AUTH_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(20),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   DATABASE_URL: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   AUTH_REQUIRED: z.preprocess(stringToBoolean, z.boolean().default(false)),
   AUTH_ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(60),
@@ -140,6 +142,57 @@ const envSchema = z.object({
   STYLE_TRANSFER_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   STYLE_TRANSFER_MODEL_ID: z.preprocess(emptyStringToUndefined, z.string().optional())
 }).superRefine((value, context) => {
+  if (value.NODE_ENV === "production" && !value.AUTH_REQUIRED) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["AUTH_REQUIRED"],
+      message: "AUTH_REQUIRED must be true in production."
+    });
+  }
+  if (value.NODE_ENV === "production" && !value.AUTH_REQUIRE_OWNED_MEDIA_ACCESS) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["AUTH_REQUIRE_OWNED_MEDIA_ACCESS"],
+      message: "AUTH_REQUIRE_OWNED_MEDIA_ACCESS must be true in production."
+    });
+  }
+  if (value.NODE_ENV === "production" && !value.CORS_ALLOWED_ORIGINS) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["CORS_ALLOWED_ORIGINS"],
+      message: "CORS_ALLOWED_ORIGINS is required in production."
+    });
+  }
+  if (value.CORS_ALLOWED_ORIGINS) {
+    for (const origin of value.CORS_ALLOWED_ORIGINS.split(",").map((item) => item.trim()).filter(Boolean)) {
+      try {
+        const parsed = new URL(origin);
+        if (parsed.origin !== origin || (value.NODE_ENV === "production" && parsed.protocol !== "https:")) {
+          throw new Error("invalid origin");
+        }
+      } catch {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["CORS_ALLOWED_ORIGINS"],
+          message: `Invalid allowed origin: ${origin}`
+        });
+      }
+    }
+  }
+  if (value.NODE_ENV === "production" && new URL(value.WEB_APP_URL).protocol !== "https:") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["WEB_APP_URL"],
+      message: "WEB_APP_URL must use HTTPS in production."
+    });
+  }
+  if (value.NODE_ENV === "production" && value.OAUTH_REDIRECT_BASE_URL && new URL(value.OAUTH_REDIRECT_BASE_URL).protocol !== "https:") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["OAUTH_REDIRECT_BASE_URL"],
+      message: "OAUTH_REDIRECT_BASE_URL must use HTTPS in production."
+    });
+  }
   if (value.AUTH_REQUIRED && !value.DATABASE_URL) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

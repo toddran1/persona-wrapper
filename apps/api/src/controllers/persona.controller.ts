@@ -13,6 +13,7 @@ export function getPersonas(_request: Request, response: Response): void {
     description: persona.description,
     avatarColor: persona.avatarColor,
     avatarUrl: persona.avatarUrl,
+    visualStage: persona.visualStage,
     theme: persona.theme,
     documentTitle: persona.documentTitle,
     promptPlaceholder: persona.promptPlaceholder,

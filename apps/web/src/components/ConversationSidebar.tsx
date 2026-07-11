@@ -21,6 +21,7 @@ function formatConversationTime(value: string): string {
 
 export function ConversationSidebar({
   mobileOpen = false,
+  personaName,
   authUser,
   authLoading = false,
   authError,
@@ -39,6 +40,7 @@ export function ConversationSidebar({
   onPinConversation,
 }: {
   mobileOpen?: boolean;
+  personaName: string;
   authUser?: AuthUser | undefined;
   authLoading?: boolean;
   authError?: string | undefined;
@@ -197,7 +199,7 @@ export function ConversationSidebar({
     <aside className={`conversation-sidebar${mobileOpen ? " conversation-sidebar-mobile-open" : ""}`} aria-label="Chat history">
       <div className="conversation-sidebar-top">
         <div>
-          <div className="conversation-sidebar-brand">LaRae</div>
+          <div className="conversation-sidebar-brand">{personaName}</div>
         </div>
       </div>
 

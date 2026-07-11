@@ -7,6 +7,7 @@ describe("ConversationHistory pending state", () => {
   it("shows a thinking indicator and replaces it with the final reply", () => {
     const { rerender } = render(
       <ConversationHistory
+        personaName="LaRae"
         turns={[]}
         pendingPrompt="Tell me something useful."
         thinking
@@ -18,6 +19,7 @@ describe("ConversationHistory pending state", () => {
 
     rerender(
       <ConversationHistory
+        personaName="LaRae"
         turns={[
           {
             userMessage: "Tell me something useful.",
@@ -35,6 +37,7 @@ describe("ConversationHistory pending state", () => {
   it("keeps each turn's artifacts attached to its own response", () => {
     render(
       <ConversationHistory
+        personaName="LaRae"
         turns={[
           {
             userMessage: "Make an image.",

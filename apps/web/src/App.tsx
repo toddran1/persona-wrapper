@@ -1001,7 +1001,8 @@ export function App() {
     }
   }
 
-  const activeTheme = personaDetail?.theme ?? personas[0]?.theme;
+  const activePersona = personaDetail ?? personas[0];
+  const activeTheme = activePersona?.theme;
   const hasConversationContent = renderedTurns.length > 0 || Boolean(pendingPrompt) || loading;
   const personaVisualState = audioEnabled
     ? personaAudioPlaying
@@ -1054,6 +1055,7 @@ export function App() {
       <div className={`app-grid ${testModeEnabled ? "app-grid-test" : "app-grid-normal"}`}>
         <ConversationSidebar
           mobileOpen={mobileSidebarOpen}
+          personaName={activePersona?.name ?? "Persona"}
           authUser={authUser}
           authLoading={authLoading}
           authError={authError}
@@ -1091,6 +1093,8 @@ export function App() {
                   }`}
                 >
             <ConversationHistory
+              personaId={activePersona?.id ?? "persona"}
+              personaName={activePersona?.name ?? "Persona"}
               turns={renderedTurns}
               pendingPrompt={pendingPrompt}
               pendingAssets={pendingPromptAssets}
@@ -1115,12 +1119,15 @@ export function App() {
               }}
             />
             <div className={`persona-stage-slot${personaCardVisible ? "" : " persona-stage-slot-hidden"}`}>
-              <PersonaVisualStage
-                state={personaVisualState}
-                personaName={personaDetail?.name ?? personas[0]?.name ?? "LaRae"}
-                hidden={!personaCardVisible}
-                onHide={() => setPersonaCardVisible(false)}
-              />
+              {activePersona?.visualStage ? (
+                <PersonaVisualStage
+                  state={personaVisualState}
+                  personaName={activePersona.name}
+                  profile={activePersona.visualStage}
+                  hidden={!personaCardVisible}
+                  onHide={() => setPersonaCardVisible(false)}
+                />
+              ) : null}
             </div>
           </div>
           <div className="composer-dock">

@@ -64,9 +64,22 @@ export function createApp() {
     allowedHeaders: ["Authorization", "Content-Type", "x-client-type", "x-owner-id"],
     optionsSuccessStatus: 204
   };
+  app.disable("x-powered-by");
+  app.use((_request, response, next) => {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("X-Frame-Options", "DENY");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    response.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=()");
+    response.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+    if (env.NODE_ENV === "production") {
+      response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
   app.use(cors(corsOptions));
   app.options("*", cors(corsOptions));
   app.use(express.json({ limit: "1mb" }));
+  app.use(authenticateRequest);
 
   app.get("/health", (_request, response) => {
     response.status(200).json({ status: "ok" });
@@ -78,11 +91,13 @@ export function createApp() {
   }));
 
   app.get("/health/storage", (async (_request: Request, response: Response) => {
+    if (env.NODE_ENV === "production" && !_request.auth) {
+      response.status(401).json({ error: "Authentication required." });
+      return;
+    }
     const storage = await storageService.healthCheck();
     response.status(storage.ok ? 200 : 503).json({ status: storage.ok ? "ok" : "error", storage });
   }) as express.RequestHandler);
-
-  app.use(authenticateRequest);
 
   app.use("/api/auth", authRouter);
   app.use("/api/chat", chatRouter);

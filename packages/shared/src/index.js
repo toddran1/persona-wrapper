@@ -86,6 +86,19 @@ export const chatRequestSchema = z.object({
     history: z.array(chatMessageSchema).default([]),
     requestedOutputs: z.array(outputTypeSchema).optional()
 });
+export const personaVisualStageSchema = z.object({
+    loops: z.object({
+        idle: z.array(z.string()),
+        thinking: z.array(z.string()),
+        speaking: z.array(z.string())
+    }),
+    transitions: z.record(z.string()).default({}),
+    fallbackImages: z.object({
+        idle: z.string(),
+        thinking: z.string(),
+        speaking: z.string()
+    })
+});
 export const personaSummarySchema = z.object({
     id: z.string(),
     name: z.string(),
@@ -97,6 +110,7 @@ export const personaSummarySchema = z.object({
     description: z.string(),
     avatarColor: z.string(),
     avatarUrl: z.string().optional(),
+    visualStage: personaVisualStageSchema.optional(),
     theme: personaThemeSchema,
     documentTitle: z.string().default("Persona Wrapper"),
     promptPlaceholder: z.string().default("Ask anything"),

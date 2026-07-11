@@ -615,7 +615,7 @@ function OpenAIPersonaReferencePanel({
         <div className="review-item-header">
           <div>
             <span className="eyebrow">OpenAI Persona Direct</span>
-            <h2>LaRae style reference pool</h2>
+            <h2>Persona style reference pool</h2>
             <p className="review-notes">
               These marked examples are the pool used by the OpenAI direct persona path. Each prompt randomly samples up to {OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE} synthetic pairs and {OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE} golden pairs from this pool as style-only examples.
               If a source has no marked rows yet, it falls back to the first {OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE} synthetic rows or first {OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE} golden rows. Editing a card here updates the underlying JSONL row.

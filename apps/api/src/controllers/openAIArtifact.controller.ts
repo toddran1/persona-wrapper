@@ -1,10 +1,11 @@
 import type { Request, Response } from "express";
 import { openAIArtifactService } from "../services/openAIArtifactService.js";
 import { requestAuthenticatedOwnerId } from "../utils/requestIdentity.js";
+import { contentDisposition } from "../utils/httpHeaders.js";
 
 export async function getOpenAIArtifact(request: Request, response: Response): Promise<void> {
   const artifact = await openAIArtifactService.download(String(request.params.token), requestAuthenticatedOwnerId(request));
-  response.setHeader("Content-Disposition", `attachment; filename="${artifact.fileName.replaceAll('"', "")}"`);
+  response.setHeader("Content-Disposition", contentDisposition("attachment", artifact.fileName));
   response.setHeader("Content-Type", artifact.mimeType);
   response.status(200).send(artifact.buffer);
 }

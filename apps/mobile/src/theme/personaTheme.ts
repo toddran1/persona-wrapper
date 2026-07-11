@@ -16,9 +16,9 @@ export type MobileTheme = {
   danger: string;
 };
 
-export const silkNoirTheme: MobileTheme = {
+export const defaultPersonaTheme: MobileTheme = {
   mode: "dark",
-  name: "Silk Noir",
+  name: "Persona",
   background: "#09060f",
   backgroundAlt: "#170f21",
   surface: "rgba(17, 11, 28, 0.86)",
@@ -42,26 +42,26 @@ function normalizeColor(value: string | undefined, fallback: string): string {
 }
 
 function backgroundFromPersona(theme: PersonaTheme | undefined): string {
-  if (!theme?.background) return silkNoirTheme.background;
+  if (!theme?.background) return defaultPersonaTheme.background;
   const hex = theme.background.match(/#[0-9a-f]{6}/i)?.[0];
-  return hex ?? silkNoirTheme.background;
+  return hex ?? defaultPersonaTheme.background;
 }
 
 export function themeFromPersona(persona?: PersonaSummary): MobileTheme {
   const theme = persona?.theme;
   return {
-    mode: theme?.mode ?? silkNoirTheme.mode,
-    name: theme?.themeName ?? silkNoirTheme.name,
+    mode: theme?.mode ?? defaultPersonaTheme.mode,
+    name: theme?.themeName ?? defaultPersonaTheme.name,
     background: backgroundFromPersona(theme),
     backgroundAlt: "#170f21",
-    surface: normalizeColor(theme?.surface, silkNoirTheme.surface),
-    surfaceStrong: normalizeColor(theme?.surfaceStrong, silkNoirTheme.surfaceStrong),
-    rail: normalizeColor(theme?.accent2, silkNoirTheme.rail),
-    accent: normalizeColor(theme?.accent, silkNoirTheme.accent),
-    accent2: normalizeColor(theme?.accent2, silkNoirTheme.accent2),
-    border: normalizeColor(theme?.border, silkNoirTheme.border),
-    text: normalizeColor(theme?.text, silkNoirTheme.text),
-    muted: normalizeColor(theme?.muted, silkNoirTheme.muted),
-    danger: silkNoirTheme.danger
+    surface: normalizeColor(theme?.surface, defaultPersonaTheme.surface),
+    surfaceStrong: normalizeColor(theme?.surfaceStrong, defaultPersonaTheme.surfaceStrong),
+    rail: normalizeColor(theme?.accent2, defaultPersonaTheme.rail),
+    accent: normalizeColor(theme?.accent, defaultPersonaTheme.accent),
+    accent2: normalizeColor(theme?.accent2, defaultPersonaTheme.accent2),
+    border: normalizeColor(theme?.border, defaultPersonaTheme.border),
+    text: normalizeColor(theme?.text, defaultPersonaTheme.text),
+    muted: normalizeColor(theme?.muted, defaultPersonaTheme.muted),
+    danger: defaultPersonaTheme.danger
   };
 }

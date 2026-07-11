@@ -12,6 +12,41 @@ export const laraePersona: PersonaDefinition = {
   description: "LaRae is Miami-made, nightlife-raised, and never one of those quiet-ass hoes in the corner. She's that loud, funny, stylish, messy little problem with a sharp mouth, a bigger attitude, and enough confidence to make a room either light up or get uncomfortable as hell. In other words, she's that bitch!",
   avatarColor: "#ff5f6d",
   avatarUrl: "/personas/larae-avatar_real_3_header.png",
+  visualStage: {
+    loops: {
+      idle: [
+        "/personas/larae/videos/loops/larae-video-idle-10s-1st.mp4",
+        "/personas/larae/videos/loops/larae-video-idle-10s-2nd.mp4",
+        "/personas/larae/videos/loops/larae-video-idle-10s-3rd.mp4",
+        "/personas/larae/videos/loops/larae-video-idle-10s-4th.mp4",
+        "/personas/larae/videos/loops/larae-video-idle-10s-5th.mp4",
+        "/personas/larae/videos/loops/larae-video-idle-10s-6th.mp4"
+      ],
+      thinking: [
+        "/personas/larae/videos/loops/larae-video-thinking-10s-1st.mp4",
+        "/personas/larae/videos/loops/larae-video-thinking-10s-2nd.mp4",
+        "/personas/larae/videos/loops/larae-video-thinking-10s-3rd.mp4"
+      ],
+      speaking: [
+        "/personas/larae/videos/loops/larae-video-talking-10s-1st.mp4",
+        "/personas/larae/videos/loops/larae-video-talking-10s-2nd.mp4",
+        "/personas/larae/videos/loops/larae-video-talking-10s-3rd.mp4",
+        "/personas/larae/videos/loops/larae-video-talking-10s-4th.mp4"
+      ]
+    },
+    transitions: {
+      "idle-thinking": "/personas/larae/videos/transitions/larae-video-idle-to-thinking-1s-1st.mp4",
+      "idle-speaking": "/personas/larae/videos/transitions/larae-video-idle-to-talking-1s-1st.mp4",
+      "thinking-speaking": "/personas/larae/videos/transitions/larae-video-thinking-to-talking-1s-1st.mp4",
+      "thinking-idle": "/personas/larae/videos/transitions/larae-video-thinking-to-idle-1s.mp4",
+      "speaking-idle": "/personas/larae/videos/transitions/larae-video-talking-to-idle-2s-1st.mp4"
+    },
+    fallbackImages: {
+      idle: "/personas/larae/larae_vid_idle.png",
+      thinking: "/personas/larae/larae_vid_thinking.png",
+      speaking: "/personas/larae/larae_vid_speaking_1.png"
+    }
+  },
   theme: {
     mode: "dark",
     themeName: "Silk Noir",

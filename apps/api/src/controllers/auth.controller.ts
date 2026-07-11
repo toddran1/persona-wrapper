@@ -64,6 +64,9 @@ function hasMobileAuthCallbackUrl(clientType: AuthClientType): boolean {
 function mobileReturnUrlFromQuery(request: Request): string | undefined {
   const value = typeof request.query.returnUrl === "string" ? request.query.returnUrl.trim() : undefined;
   if (!value) return undefined;
+  if (env.NODE_ENV === "production") {
+    throw new HttpError("Runtime mobile OAuth return URLs are disabled in production.", 400);
+  }
   let parsed: URL;
   try {
     parsed = new URL(value);

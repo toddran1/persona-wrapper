@@ -2,6 +2,27 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PersonaVisualStage } from "../components/PersonaVisualStage";
 
+const profile = {
+  loops: {
+    idle: [
+      "/personas/larae/videos/loops/larae-video-idle-10s-1st.mp4",
+      "/personas/larae/videos/loops/larae-video-idle-10s-2nd.mp4"
+    ],
+    thinking: ["/personas/larae/videos/loops/larae-video-thinking-10s-1st.mp4"],
+    speaking: ["/personas/larae/videos/loops/larae-video-talking-10s-1st.mp4"]
+  },
+  transitions: {
+    "idle-thinking": "/personas/larae/videos/transitions/larae-video-idle-to-thinking-1s-1st.mp4",
+    "thinking-speaking": "/personas/larae/videos/transitions/larae-video-thinking-to-talking-1s-1st.mp4",
+    "thinking-idle": "/personas/larae/videos/transitions/larae-video-thinking-to-idle-1s.mp4"
+  },
+  fallbackImages: {
+    idle: "/personas/larae/larae_vid_idle.png",
+    thinking: "/personas/larae/larae_vid_thinking.png",
+    speaking: "/personas/larae/larae_vid_speaking_1.png"
+  }
+};
+
 function activeVideo(container: HTMLElement): HTMLVideoElement {
   const video = container.querySelector('video[data-active="true"]');
   expect(video).toBeInstanceOf(HTMLVideoElement);
@@ -16,7 +37,7 @@ describe("PersonaVisualStage", () => {
   it("renders muted loop videos for persona states", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
 
-    const { container } = render(<PersonaVisualStage state="idle" personaName="LaRae" />);
+    const { container } = render(<PersonaVisualStage state="idle" personaName="LaRae" profile={profile} />);
     const video = activeVideo(container);
 
     expect(video).toHaveAttribute("src", "/personas/larae/videos/loops/larae-video-idle-10s-1st.mp4");
@@ -28,9 +49,9 @@ describe("PersonaVisualStage", () => {
   it("plays a transition before settling into the requested loop", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
 
-    const { container, rerender } = render(<PersonaVisualStage state="idle" personaName="LaRae" />);
+    const { container, rerender } = render(<PersonaVisualStage state="idle" personaName="LaRae" profile={profile} />);
 
-    rerender(<PersonaVisualStage state="thinking" personaName="LaRae" />);
+    rerender(<PersonaVisualStage state="thinking" personaName="LaRae" profile={profile} />);
     let video = activeVideo(container);
     expect(video).toHaveAttribute("src", "/personas/larae/videos/transitions/larae-video-idle-to-thinking-1s-1st.mp4");
     expect(video.loop).toBe(false);
@@ -40,7 +61,7 @@ describe("PersonaVisualStage", () => {
     expect(video).toHaveAttribute("src", "/personas/larae/videos/loops/larae-video-thinking-10s-1st.mp4");
     expect(video.loop).toBe(false);
 
-    rerender(<PersonaVisualStage state="speaking" personaName="LaRae" />);
+    rerender(<PersonaVisualStage state="speaking" personaName="LaRae" profile={profile} />);
     video = activeVideo(container);
     expect(video).toHaveAttribute("src", "/personas/larae/videos/transitions/larae-video-thinking-to-talking-1s-1st.mp4");
   });
@@ -48,13 +69,13 @@ describe("PersonaVisualStage", () => {
   it("chains transitions when the next state arrives before the current transition ends", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
 
-    const { container, rerender } = render(<PersonaVisualStage state="idle" personaName="LaRae" />);
+    const { container, rerender } = render(<PersonaVisualStage state="idle" personaName="LaRae" profile={profile} />);
 
-    rerender(<PersonaVisualStage state="thinking" personaName="LaRae" />);
+    rerender(<PersonaVisualStage state="thinking" personaName="LaRae" profile={profile} />);
     let video = activeVideo(container);
     expect(video).toHaveAttribute("src", "/personas/larae/videos/transitions/larae-video-idle-to-thinking-1s-1st.mp4");
 
-    rerender(<PersonaVisualStage state="speaking" personaName="LaRae" />);
+    rerender(<PersonaVisualStage state="speaking" personaName="LaRae" profile={profile} />);
     video = activeVideo(container);
     expect(video).toHaveAttribute("src", "/personas/larae/videos/transitions/larae-video-thinking-to-talking-1s-1st.mp4");
 
@@ -67,11 +88,11 @@ describe("PersonaVisualStage", () => {
   it("uses the direct thinking to idle transition when returning without speaking", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
 
-    const { container, rerender } = render(<PersonaVisualStage state="thinking" personaName="LaRae" />);
+    const { container, rerender } = render(<PersonaVisualStage state="thinking" personaName="LaRae" profile={profile} />);
     let video = activeVideo(container);
     expect(video).toHaveAttribute("src", "/personas/larae/videos/loops/larae-video-thinking-10s-1st.mp4");
 
-    rerender(<PersonaVisualStage state="idle" personaName="LaRae" />);
+    rerender(<PersonaVisualStage state="idle" personaName="LaRae" profile={profile} />);
     video = activeVideo(container);
     expect(video).toHaveAttribute("src", "/personas/larae/videos/transitions/larae-video-thinking-to-idle-1s.mp4");
 
@@ -83,7 +104,7 @@ describe("PersonaVisualStage", () => {
   it("picks another random clip from the same state after a state video ends", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
 
-    const { container } = render(<PersonaVisualStage state="idle" personaName="LaRae" />);
+    const { container } = render(<PersonaVisualStage state="idle" personaName="LaRae" profile={profile} />);
     let video = activeVideo(container);
     expect(video).toHaveAttribute("src", "/personas/larae/videos/loops/larae-video-idle-10s-1st.mp4");
 
@@ -95,7 +116,7 @@ describe("PersonaVisualStage", () => {
   it("skips a failed video source without crashing the visual stage", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
 
-    const { container } = render(<PersonaVisualStage state="idle" personaName="LaRae" />);
+    const { container } = render(<PersonaVisualStage state="idle" personaName="LaRae" profile={profile} />);
     let video = activeVideo(container);
     expect(video).toHaveAttribute("src", "/personas/larae/videos/loops/larae-video-idle-10s-1st.mp4");
 
@@ -107,7 +128,7 @@ describe("PersonaVisualStage", () => {
   it("renders a hide control when the stage can be collapsed", () => {
     const onHide = vi.fn();
 
-    render(<PersonaVisualStage state="idle" personaName="LaRae" onHide={onHide} />);
+    render(<PersonaVisualStage state="idle" personaName="LaRae" profile={profile} onHide={onHide} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Hide persona card" }));
     expect(onHide).toHaveBeenCalledOnce();

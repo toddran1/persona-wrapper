@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { authRateLimit } from "../middleware/authRateLimit.js";
 import {
   getMe,
   getOAuthCallback,
@@ -12,6 +13,8 @@ import {
 } from "../controllers/auth.controller.js";
 
 export const authRouter = Router();
+
+authRouter.use(["/login", "/register", "/refresh", "/oauth/exchange", "/oauth/:provider/start"], authRateLimit);
 
 authRouter.post("/register", (request, response, next) => {
   postRegister(request, response).catch(next);

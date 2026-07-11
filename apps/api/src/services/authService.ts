@@ -288,7 +288,9 @@ async function findOrCreateOAuthUser(profile: OAuthProfile, provider: OAuthProvi
   }
 
   const email = normalizeEmail(profile.email);
-  const userByEmail = email ? await db.query.users.findFirst({ where: eq(users.email, email) }) : undefined;
+  const userByEmail = email && profile.emailVerified
+    ? await db.query.users.findFirst({ where: eq(users.email, email) })
+    : undefined;
   if (userByEmail && userByEmail.status === "active") return userByEmail;
 
   const createUserValues: typeof users.$inferInsert = {
