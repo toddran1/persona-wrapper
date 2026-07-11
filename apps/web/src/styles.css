@@ -3250,6 +3250,7 @@ button:disabled {
   .app-grid {
     width: 100%;
     gap: 18px;
+    z-index: auto;
   }
 
   .hero-card {
