@@ -476,8 +476,14 @@ function AssistantActions({
 }
 
 function shouldRenderInlineOutput(output: ContentBlock): boolean {
-  if (output.type === "text" || output.type === "json" || output.type === "source_list" || output.type === "audio") return false;
-  if (output.type === "tool_result" && output.toolName === "web_search" && output.status === "completed") return false;
+  if (
+    output.type === "text" ||
+    output.type === "json" ||
+    output.type === "source_list" ||
+    output.type === "audio" ||
+    output.type === "tool_call" ||
+    output.type === "tool_result"
+  ) return false;
   return true;
 }
 
@@ -638,10 +644,10 @@ export function ConversationHistory({
           ) : null}
           {thinking ? (
             <article className="chat-row chat-row-assistant">
-              <div className="chat-avatar chat-avatar-assistant">{personaId}</div>
+              <div className="chat-avatar chat-avatar-assistant">{personaName}</div>
               <div className="chat-bubble chat-bubble-assistant">
                 <span className="history-role">Thinking</span>
-                <div className="thinking-indicator" aria-live="polite" aria-label={`${personaId} is thinking`}>
+                <div className="thinking-indicator" aria-live="polite" aria-label={`${personaName} is thinking`}>
                   <span />
                   <span />
                   <span />

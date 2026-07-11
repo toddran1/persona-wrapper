@@ -33,7 +33,12 @@ async function openExternalUrl(value: string): Promise<void> {
 }
 
 export function OutputBlocks({ outputs, theme, onAction }: OutputBlocksProps) {
-  const visible = outputs.filter((output) => output.type !== "source_list" && (output.type !== "text" || output.text.trim().length > 0));
+  const visible = outputs.filter((output) =>
+    output.type !== "source_list" &&
+    output.type !== "tool_call" &&
+    output.type !== "tool_result" &&
+    (output.type !== "text" || output.text.trim().length > 0)
+  );
   if (visible.length === 0) return null;
   return (
     <View style={styles.stack}>

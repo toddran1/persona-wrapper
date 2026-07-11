@@ -86,6 +86,18 @@ describe("ConversationHistory pending state", () => {
                 toolName: "web_search",
                 status: "completed",
                 result: { query: "Drake albums" }
+              },
+              {
+                type: "tool_call",
+                toolName: "data_analysis",
+                status: "completed",
+                arguments: { task: "Compare albums" }
+              },
+              {
+                type: "tool_result",
+                toolName: "data_analysis",
+                status: "completed",
+                result: { rows: 2 }
               }
             ]
           }
@@ -97,6 +109,7 @@ describe("ConversationHistory pending state", () => {
     expect(screen.getAllByText("ICEMAN")[0]).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Album" })).toBeInTheDocument();
     expect(screen.queryByText("web_search · completed")).not.toBeInTheDocument();
+    expect(screen.queryByText("data_analysis · completed")).not.toBeInTheDocument();
 
     expect(screen.queryByText("Billboard report")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "More response actions" }));
