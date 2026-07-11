@@ -138,7 +138,7 @@ export function ChatDrawer({
         }
       >
         {conversations.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.muted }]}>No chats yet. Start with the persona that fits the mood.</Text>
+          <Text style={[styles.empty, { color: theme.muted }]}>No chats yet. Start with the persona that fits your style.</Text>
         ) : conversations.map((conversation) => {
           const selected = conversation.id === activeConversationId;
           return (
