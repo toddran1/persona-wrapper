@@ -123,7 +123,11 @@ async function requestJson<T>(
     return requestJson<T>(path, init, { skipAuthRefresh: true });
   }
   if (!response.ok) throw await parseApiError(response);
-  return response.json() as Promise<T>;
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new Error("The app server returned an invalid response. Please try again.");
+  }
 }
 
 async function requestNoContent(
@@ -132,10 +136,15 @@ async function requestNoContent(
   options?: { skipAuthRefresh?: boolean }
 ): Promise<void> {
   const { headers, ...rest } = init ?? {};
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...rest,
-    headers: await requestHeaders(false, headers)
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...rest,
+      headers: await requestHeaders(false, headers)
+    });
+  } catch {
+    throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
+  }
   if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
     return requestNoContent(path, init, { skipAuthRefresh: true });
   }

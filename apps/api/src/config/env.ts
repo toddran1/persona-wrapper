@@ -33,6 +33,10 @@ const openAIImageSizeSchema = z.enum(["auto", "1024x1024", "1536x1024", "1024x15
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
+  API_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  API_HEADERS_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
+  API_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  API_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   APP_TEST_MODE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   CORS_ALLOWED_ORIGINS: z.preprocess(emptyStringToUndefined, z.string().optional()),
   OPENAI_API_KEY: z.string().optional(),

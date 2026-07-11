@@ -5,6 +5,7 @@ import { backgroundCleanupService } from "./services/backgroundCleanupService.js
 import { logger } from "./utils/logger.js";
 
 const app = createApp();
+let shuttingDown = false;
 
 const server = app.listen(env.PORT, () => {
   backgroundCleanupService.start();
@@ -13,15 +14,53 @@ const server = app.listen(env.PORT, () => {
     nodeEnv: env.NODE_ENV
   });
 });
+server.requestTimeout = env.API_REQUEST_TIMEOUT_MS;
+server.headersTimeout = env.API_HEADERS_TIMEOUT_MS;
+server.keepAliveTimeout = env.API_KEEP_ALIVE_TIMEOUT_MS;
 
-const shutdown = async (signal: NodeJS.Signals) => {
-  logger.info("API server shutting down", { signal });
+const shutdown = (reason: string, exitCode = 0): void => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  process.exitCode = exitCode;
+  logger.info("API server shutting down", { reason, exitCode });
   backgroundCleanupService.stop();
+
+  const forceExitTimer = setTimeout(() => {
+    logger.error("API shutdown timed out", { reason, timeoutMs: env.API_SHUTDOWN_TIMEOUT_MS });
+    process.exit(exitCode || 1);
+  }, env.API_SHUTDOWN_TIMEOUT_MS);
+  forceExitTimer.unref();
+
   server.close(async () => {
-    await closeDatabase();
-    process.exit(0);
+    try {
+      await closeDatabase();
+    } catch (error) {
+      process.exitCode = 1;
+      logger.error("Failed to close database during shutdown", error);
+    } finally {
+      clearTimeout(forceExitTimer);
+      process.exit(process.exitCode ?? exitCode);
+    }
   });
 };
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+server.on("error", (error) => {
+  logger.error("API server error", error);
+  shutdown("server_error", 1);
+});
+
+server.on("clientError", (error, socket) => {
+  logger.warn("Malformed client connection", { message: error.message });
+  if (socket.writable) socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+});
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection", reason);
+  shutdown("unhandled_rejection", 1);
+});
+process.on("uncaughtException", (error) => {
+  logger.error("Uncaught exception", error);
+  shutdown("uncaught_exception", 1);
+});

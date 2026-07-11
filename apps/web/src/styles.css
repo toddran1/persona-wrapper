@@ -46,6 +46,47 @@ textarea {
   font: inherit;
 }
 
+.fatal-error-page {
+  display: grid;
+  min-height: 100dvh;
+  padding: 24px;
+  place-items: center;
+  background: #09060f;
+  color: #f7efe8;
+}
+
+.fatal-error-card {
+  width: min(100%, 540px);
+  padding: clamp(24px, 5vw, 44px);
+  border: 1px solid rgba(214, 181, 94, 0.24);
+  border-radius: 8px;
+  background: #151020;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38);
+}
+
+.fatal-error-card h1 {
+  margin: 10px 0 12px;
+  font-size: clamp(2rem, 6vw, 3.5rem);
+}
+
+.fatal-error-card p {
+  margin: 0;
+  color: #c8bdd8;
+  line-height: 1.6;
+}
+
+.fatal-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.fatal-error-secondary {
+  background: transparent;
+  color: #f7efe8;
+}
+
 .page-shell {
   --page-inline-pad: clamp(12px, 2.4vw, 24px);
   position: relative;

@@ -12,7 +12,7 @@
     "db:studio": "drizzle-kit studio --config drizzle.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "DATABASE_URL= STYLE_TRANSFER_PROVIDER=stub vitest run",
+    "test": "NODE_ENV=test DATABASE_URL= AUTH_REQUIRED=false AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false STYLE_TRANSFER_PROVIDER=stub vitest run",
     "test:integration:openai": "DATABASE_URL= OPENAI_RUN_INTEGRATION_TESTS=true STYLE_TRANSFER_PROVIDER=stub vitest run src/test/openai.integration.test.ts"
   },
   "dependencies": {

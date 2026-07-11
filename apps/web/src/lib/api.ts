@@ -224,7 +224,11 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(await parseApiError(response));
   }
 
-  return response.json() as Promise<T>;
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new Error("The app server returned an invalid response. Please try again.");
+  }
 }
 
 async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
@@ -244,10 +248,16 @@ async function requestNoContent(path: string, init?: RequestInit): Promise<void>
 export const api = {
   fetchUploadBlob: async (url: string, signal?: AbortSignal): Promise<Blob> => {
     const resolvedUrl = resolveApiUrl(url);
-    const response = await fetch(resolvedUrl, {
-      headers: requestHeaders(false),
-      ...(signal ? { signal } : {})
-    });
+    let response: Response;
+    try {
+      response = await fetch(resolvedUrl, {
+        headers: requestHeaders(false),
+        ...(signal ? { signal } : {})
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      throw new Error("Could not download this file from the app server.");
+    }
     if (!response.ok) throw new Error(`Upload fetch failed with status ${response.status}`);
     return response.blob();
   },
@@ -266,7 +276,12 @@ export const api = {
       throw new Error(`Could not reach API at ${API_BASE_URL}/api/uploads: ${message}`);
     }
     if (!response.ok) throw new Error(`Upload failed with status ${response.status}`);
-    const payload = await response.json() as { assets: UploadedAsset[] };
+    let payload: { assets: UploadedAsset[] };
+    try {
+      payload = await response.json() as { assets: UploadedAsset[] };
+    } catch {
+      throw new Error("The app server returned an invalid upload response.");
+    }
     return payload.assets;
   },
   createVectorStore: async (assetIds: string[], name?: string): Promise<{ id: string; expiresAt: string }> => {

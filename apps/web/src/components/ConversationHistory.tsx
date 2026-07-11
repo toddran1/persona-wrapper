@@ -604,7 +604,7 @@ export function ConversationHistory({
                   <UserMessageActions message={turn.userMessage} files={turn.userFiles ?? []} onEdit={onEditUserPrompt} />
                 </article>
                 <article className="chat-row chat-row-assistant">
-                  <div className="chat-avatar chat-avatar-assistant">{personaName}</div>
+                  <div className="chat-avatar chat-avatar-assistant">{personaId}</div>
                   <div className="chat-bubble chat-bubble-assistant">
                     <span className="history-role">Reply</span>
                     {turn.assistantText ? <MarkdownText text={turn.assistantText} className="message-text markdown-text" /> : null}

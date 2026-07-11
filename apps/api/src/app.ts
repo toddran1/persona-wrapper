@@ -3,6 +3,7 @@ import type { CorsOptions } from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import multer from "multer";
 import { ZodError } from "zod";
 import { authenticateRequest } from "./middleware/authMiddleware.js";
@@ -40,6 +41,58 @@ function findRepoRoot(startDir: string): string {
   return process.cwd();
 }
 
+export function notFoundHandler(_request: Request, response: Response): void {
+  response.status(404).json({
+    error: "Route not found.",
+    code: "NOT_FOUND",
+    requestId: response.locals.requestId
+  });
+}
+
+export function apiErrorHandler(error: unknown, request: Request, response: Response, next: NextFunction): void {
+  if (response.headersSent) {
+    next(error);
+    return;
+  }
+  const requestId = response.locals.requestId as string | undefined;
+  if (error instanceof multer.MulterError) {
+    response.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({ error: error.message, code: error.code, requestId });
+    return;
+  }
+  if (error instanceof ZodError) {
+    response.status(400).json({ error: "Validation failed", details: error.flatten(), requestId });
+    return;
+  }
+  if (error instanceof HttpError) {
+    response.status(error.statusCode).json({ error: error.message, requestId });
+    return;
+  }
+
+  const errorStatus = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number"
+    ? error.status
+    : undefined;
+  if (errorStatus === 400) {
+    response.status(400).json({ error: "Malformed request body.", code: "BAD_REQUEST", requestId });
+    return;
+  }
+  if (error instanceof Error && error.message.startsWith("CORS origin not allowed:")) {
+    response.status(403).json({ error: "Origin not allowed.", code: "CORS_ORIGIN_DENIED", requestId });
+    return;
+  }
+
+  logger.error("Unhandled API error", {
+    requestId,
+    method: request.method,
+    path: request.path,
+    error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error)
+  });
+  response.status(500).json({
+    error: "Something went wrong on the server. Please try again.",
+    code: "INTERNAL_SERVER_ERROR",
+    requestId
+  });
+}
+
 export function createApp() {
   const app = express();
   const personaAssetsRoot = resolve(findRepoRoot(process.cwd()), "apps/web/public/personas");
@@ -65,7 +118,13 @@ export function createApp() {
     optionsSuccessStatus: 204
   };
   app.disable("x-powered-by");
-  app.use((_request, response, next) => {
+  app.use((request, response, next) => {
+    const suppliedRequestId = request.header("x-request-id")?.trim();
+    const requestId = suppliedRequestId && /^[a-zA-Z0-9._-]{1,100}$/.test(suppliedRequestId)
+      ? suppliedRequestId
+      : randomUUID();
+    response.locals.requestId = requestId;
+    response.setHeader("X-Request-Id", requestId);
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("X-Frame-Options", "DENY");
     response.setHeader("Referrer-Policy", "no-referrer");
@@ -113,33 +172,8 @@ export function createApp() {
     getOpenAIArtifact(request, response).catch(next);
   });
 
-  app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
-    if (error instanceof multer.MulterError) {
-      response.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({
-        error: error.message,
-        code: error.code
-      });
-      return;
-    }
-    if (error instanceof ZodError) {
-      response.status(400).json({
-        error: "Validation failed",
-        details: error.flatten()
-      });
-      return;
-    }
-
-    if (error instanceof HttpError) {
-      response.status(error.statusCode).json({ error: error.message });
-      return;
-    }
-
-    logger.error("Unhandled API error", error);
-    response.status(500).json({
-      error: "Something went wrong on the server. Please try again.",
-      code: "INTERNAL_SERVER_ERROR"
-    });
-  });
+  app.use(notFoundHandler);
+  app.use(apiErrorHandler);
 
   return app;
 }
