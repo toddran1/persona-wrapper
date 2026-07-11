@@ -1241,7 +1241,12 @@ export function MobileChatScreen() {
             ) : (
               turns.map((turn) => (
                 <View key={turn.id} style={styles.turn}>
-                  <View style={[styles.userBubble, { backgroundColor: "rgba(255,255,255,0.10)" }]}>
+                  <View
+                    style={[
+                      styles.userBubble,
+                      personaCardExpanded ? styles.expandedUserBubble : { backgroundColor: "rgba(255,255,255,0.10)" }
+                    ]}
+                  >
                     <Text style={[styles.userText, { color: theme.text }]}>{turn.userMessage}</Text>
                     {turn.userAssets && turn.userAssets.length > 0 ? (
                       <View style={styles.sentAssetStack}>
@@ -1269,7 +1274,7 @@ export function MobileChatScreen() {
                         {(activePersona?.name ?? "P")[0]}
                       </Text>
                     </View>
-                    <View style={styles.assistantContent}>
+                    <View style={[styles.assistantContent, personaCardExpanded ? styles.expandedAssistantBubble : null]}>
                       <OutputBlocks outputs={turn.outputs} theme={theme} onAction={(action) => void handleOutputAction(action)} />
                       {isStillRunningTurn(turn) ? (
                         <Pressable
@@ -1682,6 +1687,15 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 13,
     lineHeight: 18
+  },
+  expandedAssistantBubble: {
+    backgroundColor: "rgba(9,7,14,0.34)",
+    borderRadius: 22,
+    paddingHorizontal: 13,
+    paddingVertical: 11
+  },
+  expandedUserBubble: {
+    backgroundColor: "rgba(255,255,255,0.18)"
   },
   history: {
     flexGrow: 1,
