@@ -108,6 +108,7 @@ export function MobileChatScreen() {
   const [voiceInputActive, setVoiceInputActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [personaVisualState, setPersonaVisualState] = useState<PersonaVisualState>("idle");
+  const [personaCardExpanded, setPersonaCardExpanded] = useState(false);
   const [personaCardHidden, setPersonaCardHidden] = useState(false);
   const [identifier, setIdentifier] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -1122,6 +1123,10 @@ export function MobileChatScreen() {
 
   const suggestedPrompts = activePersona?.suggestedPrompts ?? [];
   const visualStateLabel = personaVisualState[0]?.toUpperCase() + personaVisualState.slice(1);
+  const handlePersonaExpandedChange = (expanded: boolean): void => {
+    setPersonaCardExpanded(expanded);
+    if (expanded) setPersonaCardHidden(false);
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -1131,13 +1136,13 @@ export function MobileChatScreen() {
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
-      <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={30} failOffsetY={[-14, 14]} enabled={!drawerInteractive && !loginVisible && !settingsVisible}>
+      <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={30} failOffsetY={[-14, 14]} enabled={!drawerInteractive && !loginVisible && !settingsVisible && !personaCardExpanded}>
         <Animated.View style={[styles.chatPlane, chatShiftStyle]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             style={[styles.keyboard, { paddingTop: insets.top + 8, paddingBottom: Math.max(insets.bottom, 10) }]}
           >
-          <View style={styles.topBar}>
+          <View style={[styles.topBar, personaCardExpanded ? styles.layerAbovePersonaBackground : null]}>
             <IconButton name="menu" label="Open chats" theme={theme} onPress={openDrawer} />
             <View style={styles.titleBlock}>
               <Text style={[styles.personaName, { color: theme.text }]} numberOfLines={1}>
@@ -1156,15 +1161,28 @@ export function MobileChatScreen() {
           </View>
 
           <PersonaVisualStage
+            expanded={personaCardExpanded}
             hidden={personaCardHidden}
             personaName={activePersona?.name ?? "LaRae"}
             state={personaVisualState}
             theme={theme}
+            onExpandedChange={handlePersonaExpandedChange}
             onHiddenChange={setPersonaCardHidden}
           />
 
+          {personaCardExpanded ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Minimize persona background"
+              onPress={() => setPersonaCardExpanded(false)}
+              style={[styles.personaMinimizeButton, { borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.82)" }]}
+            >
+              <Ionicons name="contract-outline" size={20} color={theme.text} />
+            </Pressable>
+          ) : null}
+
           {error ? (
-            <View style={[styles.error, { borderColor: theme.danger }]}>
+            <View style={[styles.error, personaCardExpanded ? styles.layerAbovePersonaBackground : null, { borderColor: theme.danger }]}>
               <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
               <Pressable
                 onPress={() => void retryLoadAppData()}
@@ -1179,6 +1197,7 @@ export function MobileChatScreen() {
             ref={scrollRef}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.history}
+            style={personaCardExpanded ? styles.layerAbovePersonaBackground : undefined}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={80}
             onScroll={handleConversationScroll}
@@ -1675,6 +1694,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     position: "relative"
   },
+  layerAbovePersonaBackground: {
+    position: "relative",
+    zIndex: 2
+  },
   loadingState: {
     alignItems: "center",
     flex: 1,
@@ -1783,6 +1806,18 @@ const styles = StyleSheet.create({
   personaName: {
     fontSize: 17,
     fontWeight: "900"
+  },
+  personaMinimizeButton: {
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: "center",
+    position: "absolute",
+    right: 11,
+    top: 82,
+    width: 42,
+    zIndex: 4
   },
   root: {
     flex: 1,
