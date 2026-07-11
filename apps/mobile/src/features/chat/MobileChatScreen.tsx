@@ -1324,7 +1324,7 @@ export function MobileChatScreen() {
                   <View style={styles.assistantRow}>
                     <View style={[styles.assistantMark, { backgroundColor: theme.accent }]}>
                       <Text style={[styles.assistantMarkText, { color: theme.text }]}>
-                        {(activePersona?.name ?? "P")[0]}
+                        {(activePersona?.shortName ?? activePersona?.name ?? "P")[0]}
                       </Text>
                     </View>
                     <View style={[styles.assistantContent, personaCardExpanded ? styles.expandedAssistantBubble : null]}>

@@ -1094,7 +1094,7 @@ export function App() {
                 >
             <ConversationHistory
               personaId={activePersona?.id ?? "persona"}
-              personaName={activePersona?.name ?? "Persona"}
+              personaShortName={activePersona?.shortName ?? activePersona?.name ?? "Persona"}
               turns={renderedTurns}
               pendingPrompt={pendingPrompt}
               pendingAssets={pendingPromptAssets}

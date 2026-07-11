@@ -7,7 +7,7 @@ describe("ConversationHistory pending state", () => {
   it("shows a thinking indicator and replaces it with the final reply", () => {
     const { rerender } = render(
       <ConversationHistory
-        personaName="LaRae"
+        personaShortName="LaRae"
         turns={[]}
         pendingPrompt="Tell me something useful."
         thinking
@@ -19,7 +19,7 @@ describe("ConversationHistory pending state", () => {
 
     rerender(
       <ConversationHistory
-        personaName="LaRae"
+        personaShortName="LaRae"
         turns={[
           {
             userMessage: "Tell me something useful.",
@@ -37,7 +37,7 @@ describe("ConversationHistory pending state", () => {
   it("keeps each turn's artifacts attached to its own response", () => {
     render(
       <ConversationHistory
-        personaName="LaRae"
+        personaShortName="LaRae"
         turns={[
           {
             userMessage: "Make an image.",
@@ -115,7 +115,10 @@ describe("ConversationHistory pending state", () => {
     await user.click(screen.getByRole("button", { name: "More response actions" }));
     await user.click(screen.getByRole("menuitem", { name: "References" }));
     expect(screen.getByRole("dialog", { name: "References" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Billboard report" })).toHaveAttribute("href", "https://example.com/billboard");
+    const referenceLink = screen.getByRole("link", { name: /Billboard report/ });
+    expect(referenceLink).toHaveAttribute("href", "https://example.com/billboard");
+    expect(referenceLink).toHaveAttribute("target", "_blank");
+    expect(referenceLink).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("preserves ordered markdown numbering when list items have paragraph details", () => {

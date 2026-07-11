@@ -2418,11 +2418,17 @@ button:disabled {
 
 .message-source-item span {
   font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .message-source-item small {
   color: var(--muted);
   line-height: 1.35;
+}
+
+.message-source-url {
+  overflow-wrap: anywhere;
 }
 
 .token-usage-footer {

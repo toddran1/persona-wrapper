@@ -364,6 +364,7 @@ export type PersonaVisualStage = z.infer<typeof personaVisualStageSchema>;
 export const personaSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
+  shortName: z.string().min(1).max(80).optional(),
   legalName: z.string().optional(),
   age: z.string().optional(),
   height: z.string().optional(),

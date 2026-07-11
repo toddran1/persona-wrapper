@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 export const laraePersona: PersonaDefinition = {
   id: "larae",
   name: "LaRae the Baddest",
+  shortName: "LaRae",
   legalName: "LaRae Candace Bronson",
   age: "25",
   height: "5 ft 3 in",

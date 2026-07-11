@@ -44,6 +44,7 @@ export class ResponseFormatter {
       persona: {
         id: params.persona.id,
         name: params.persona.name,
+        shortName: params.persona.shortName,
         tagline: params.persona.tagline,
         description: params.persona.description,
         avatarColor: params.persona.avatarColor,

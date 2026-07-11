@@ -221,6 +221,7 @@ function createPendingChatResponse(payload: ChatRequest, jobId: string): ChatRes
     persona: {
       id: persona.id,
       name: persona.name,
+      shortName: persona.shortName,
       legalName: persona.legalName,
       age: persona.age,
       height: persona.height,

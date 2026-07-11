@@ -463,7 +463,10 @@ function AssistantActions({
                 </>
               );
               return safeUrl ? (
-                <a key={`${source.url}-${index}`} href={safeUrl} target="_blank" rel="noreferrer" className="message-source-item">{content}</a>
+                <a key={`${source.url}-${index}`} href={safeUrl} target="_blank" rel="noopener noreferrer" className="message-source-item">
+                  {content}
+                  <small className="message-source-url">{safeUrl}</small>
+                </a>
               ) : (
                 <div key={`${source.url}-${index}`} className="message-source-item">{content}</div>
               );
@@ -501,7 +504,7 @@ function TokenUsageFooter({ usage }: { usage: ChatResponse["usage"] }) {
 
 export function ConversationHistory({
   personaId = "persona",
-  personaName = "Persona",
+  personaShortName = "Persona",
   turns,
   pendingPrompt,
   pendingAssets = [],
@@ -514,7 +517,7 @@ export function ConversationHistory({
   onEditUserPrompt
 }: {
   personaId?: string;
-  personaName?: string;
+  personaShortName?: string;
   turns: RenderedTurn[];
   pendingPrompt?: string | undefined;
   pendingAssets?: UserPromptAsset[] | undefined;
@@ -644,10 +647,10 @@ export function ConversationHistory({
           ) : null}
           {thinking ? (
             <article className="chat-row chat-row-assistant">
-              <div className="chat-avatar chat-avatar-assistant">{personaName}</div>
+              <div className="chat-avatar chat-avatar-assistant">{personaShortName}</div>
               <div className="chat-bubble chat-bubble-assistant">
                 <span className="history-role">Thinking</span>
-                <div className="thinking-indicator" aria-live="polite" aria-label={`${personaName} is thinking`}>
+                <div className="thinking-indicator" aria-live="polite" aria-label={`${personaShortName} is thinking`}>
                   <span />
                   <span />
                   <span />
