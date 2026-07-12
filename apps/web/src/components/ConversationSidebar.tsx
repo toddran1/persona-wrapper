@@ -586,6 +586,12 @@ export function ConversationSidebar({
                 {accountDetail}
               </div>
               <div className="conversation-account-menu-divider" />
+              <div className="conversation-account-menu-label">About</div>
+              <a className="conversation-account-menu-button" role="menuitem" href="/privacy">Privacy Policy</a>
+              <a className="conversation-account-menu-button" role="menuitem" href="/terms">Terms of Use</a>
+              <a className="conversation-account-menu-button" role="menuitem" href="/delete-account">Delete account policy</a>
+              <a className="conversation-account-menu-button" role="menuitem" href="/support">Support</a>
+              <div className="conversation-account-menu-divider" />
               {deleteAccountOpen ? (
                 <div className="conversation-auth-form">
                   <p className="conversation-auth-copy">You will be signed out now. All account data is permanently deleted after 30 days unless restored.</p>

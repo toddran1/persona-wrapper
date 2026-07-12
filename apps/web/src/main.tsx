@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App.js";
 import { AppErrorBoundary } from "./components/AppErrorBoundary.js";
+import { PublicLegalPage, PUBLIC_PAGE_PATHS } from "./components/PublicLegalPage.js";
 import "./styles.css";
 
 window.addEventListener("error", (event) => {
@@ -15,7 +16,9 @@ window.addEventListener("unhandledrejection", (event) => {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <AppErrorBoundary>
-      <App />
+      {PUBLIC_PAGE_PATHS.has(window.location.pathname.replace(/\/$/, "") || "/")
+        ? <PublicLegalPage path={window.location.pathname.replace(/\/$/, "")} />
+        : <App />}
     </AppErrorBoundary>
   </React.StrictMode>
 );

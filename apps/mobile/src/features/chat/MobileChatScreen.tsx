@@ -56,6 +56,7 @@ import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
+const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -1600,6 +1601,28 @@ export function MobileChatScreen() {
               <Ionicons name="trash-outline" size={22} color={theme.danger} />
               <Text style={[styles.settingsRowText, { color: theme.danger }]}>Delete account</Text>
             </Pressable>
+          </View>
+          <View style={styles.settingsSection}>
+            <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>About</Text>
+            {([
+              ["Privacy Policy", "shield-checkmark-outline", "/privacy"],
+              ["Terms of Use", "document-text-outline", "/terms"],
+              ["Delete account policy", "person-remove-outline", "/delete-account"],
+              ["Support", "help-circle-outline", "/support"]
+            ] as const).map(([label, icon, path]) => (
+              <Pressable
+                key={path}
+                accessibilityRole="link"
+                onPress={() => void Linking.openURL(`${PUBLIC_WEB_BASE_URL}${path}`).catch(() => {
+                  Alert.alert("Could not open page", "Check your internet connection and try again.");
+                })}
+                style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}
+              >
+                <Ionicons name={icon} size={22} color={theme.text} />
+                <Text style={[styles.settingsRowText, { color: theme.text }]}>{label}</Text>
+                <Ionicons name="open-outline" size={18} color={theme.muted} />
+              </Pressable>
+            ))}
           </View>
         </ScrollView>
       ) : null}
