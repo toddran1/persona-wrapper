@@ -38,6 +38,7 @@ type MobileAuthScreenProps = {
   onPasswordChange: (value: string) => void;
   onSubmit: () => void;
   onOAuth: (provider: OAuthProvider) => void;
+  onRetry: () => void;
 };
 
 export function MobileAuthScreen({
@@ -55,7 +56,8 @@ export function MobileAuthScreen({
   onDisplayNameChange,
   onPasswordChange,
   onSubmit,
-  onOAuth
+  onOAuth,
+  onRetry
 }: MobileAuthScreenProps) {
   const { height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -208,7 +210,12 @@ export function MobileAuthScreen({
               {error ? (
                 <View accessibilityRole="alert" style={[styles.error, { borderColor: theme.danger }]}>
                   <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
-                  <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
+                  <View style={styles.errorCopy}>
+                    <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
+                    <Pressable accessibilityRole="button" disabled={busy} onPress={onRetry} style={styles.retryButton}>
+                      <Text style={[styles.retryText, { color: theme.accent2 }]}>Try again</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ) : null}
 
@@ -293,9 +300,12 @@ const styles = StyleSheet.create({
     padding: 12
   },
   errorText: {
-    flex: 1,
     fontSize: 13,
     lineHeight: 18
+  },
+  errorCopy: {
+    flex: 1,
+    gap: 7
   },
   fieldGroup: {
     gap: 7
@@ -404,6 +414,15 @@ const styles = StyleSheet.create({
   primaryText: {
     color: "#170f21",
     fontSize: 16,
+    fontWeight: "900"
+  },
+  retryButton: {
+    alignSelf: "flex-start",
+    minHeight: 24,
+    justifyContent: "center"
+  },
+  retryText: {
+    fontSize: 13,
     fontWeight: "900"
   },
   screen: {

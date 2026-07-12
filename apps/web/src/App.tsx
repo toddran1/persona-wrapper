@@ -510,6 +510,18 @@ export function App() {
     }
   }
 
+  function retryAssistantTurn(turn: RenderedTurn): void {
+    void handleSubmit(turn.userMessage, turn.userFiles ?? [], {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: false,
+      appFunctions: true,
+      background: false,
+      vectorStoreIds: []
+    });
+  }
+
   function appendChatResult(message: string, result: ChatResponse, attachments: UploadedAsset[] = [], userFiles: File[] = []): void {
     const assistantTextBlock = result.outputs.find((output) => output.type === "text");
     const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
@@ -1110,6 +1122,7 @@ export function App() {
                 setComposerDraft(message);
                 setComposerDraftAttachments(files);
               }}
+              onRetryAssistantTurn={retryAssistantTurn}
               onOutputAction={async (action) => {
                 if (action.action !== "resume_background_job") return;
                 const jobId = typeof action.arguments?.jobId === "string" ? action.arguments.jobId : undefined;

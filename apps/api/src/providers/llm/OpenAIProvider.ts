@@ -358,7 +358,7 @@ function annotationsToSources(output: OpenAIItem[]): ContentBlock[] {
     if (item.type === "web_search_call") {
       for (const source of item.action?.sources ?? []) {
         const url = source.url;
-        if (typeof url !== "string" || seen.has(url)) continue;
+        if (typeof url !== "string" || !isSafeCitationUrl(url) || seen.has(url)) continue;
         seen.add(url);
         sources.push({
           title: source.title ?? url,
@@ -371,7 +371,7 @@ function annotationsToSources(output: OpenAIItem[]): ContentBlock[] {
     for (const part of item.content) {
       for (const annotation of part.annotations ?? []) {
         const url = annotation.url ?? annotation.url_citation?.url;
-        if (typeof url !== "string" || seen.has(url)) continue;
+        if (typeof url !== "string" || !isSafeCitationUrl(url) || seen.has(url)) continue;
         seen.add(url);
         sources.push({
           title: annotation.title ?? annotation.url_citation?.title ?? url,
@@ -399,6 +399,15 @@ function sourceBlocksFromMarkdownLinks(text: string): ContentBlock[] {
   }
 
   return sources.length > 0 ? [{ type: "source_list", sources }] : [];
+}
+
+function isSafeCitationUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 function fileExtension(fileName: string): string {
@@ -539,7 +548,7 @@ function dedupeSourceLists(blocks: ContentBlock[]): ContentBlock[] {
     }
 
     for (const source of block.sources) {
-      if (seen.has(source.url)) continue;
+      if (!isSafeCitationUrl(source.url) || seen.has(source.url)) continue;
       seen.add(source.url);
       sources.push(source);
     }

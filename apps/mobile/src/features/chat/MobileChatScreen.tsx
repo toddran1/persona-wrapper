@@ -136,6 +136,7 @@ export function MobileChatScreen() {
   const speechSubscriptionsRef = useRef<SpeechRecognitionSubscription[]>([]);
   const audioPlaybackRef = useRef<Audio.Sound | undefined>();
   const audioPlaybackUriRef = useRef<string | undefined>();
+  const exchangedOAuthCodesRef = useRef(new Set<string>());
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
@@ -306,7 +307,16 @@ export function MobileChatScreen() {
   async function retryLoadAppData(): Promise<void> {
     setLoading(true);
     setError(undefined);
+    setAuthError(undefined);
+    setAuthChecked(false);
     try {
+      const [user, providers] = await Promise.all([
+        api.getCurrentUser().then((payload) => payload.user).catch(() => undefined),
+        api.getOAuthProviders().catch(() => [])
+      ]);
+      setAuthUser(user);
+      setOAuthProviders(providers);
+
       const personaList = await api.getPersonas();
       setPersonas(personaList);
       const selected = persona ?? personaList[0];
@@ -315,20 +325,17 @@ export function MobileChatScreen() {
         setPersona(detail);
         setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
       }
-      const [providers, user] = await Promise.all([
-        api.getOAuthProviders().catch(() => []),
-        api.getCurrentUser().then((payload) => payload.user).catch(() => undefined)
-      ]);
-      setOAuthProviders(providers);
-      if (user) setAuthUser(user);
-      const nextConversations = await refreshConversations().catch(() => []);
-      const savedConversationId = await getSelectedConversationId();
-      if (!conversationId && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
-        await selectConversation(savedConversationId, { keepDrawerOpen: true });
+      if (user) {
+        const nextConversations = await refreshConversations().catch(() => []);
+        const savedConversationId = await getSelectedConversationId();
+        if (!conversationId && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
+          await selectConversation(savedConversationId, { keepDrawerOpen: true });
+        }
       }
     } catch (retryError) {
       setError(retryError instanceof Error ? retryError.message : "Could not load mobile app data.");
     } finally {
+      setAuthChecked(true);
       setLoading(false);
     }
   }
@@ -515,8 +522,20 @@ export function MobileChatScreen() {
   }
 
   function showReferences(references: Citation[]): void {
+    const validReferences = references.filter((reference) => {
+      try {
+        const parsed = new URL(reference.url);
+        return parsed.protocol === "https:" || parsed.protocol === "http:";
+      } catch {
+        return false;
+      }
+    });
     setAssistantActionTurn(undefined);
-    setReferenceSources(references);
+    if (validReferences.length === 0) {
+      Alert.alert("References unavailable", "This response did not include any web links that can be opened safely.");
+      return;
+    }
+    setReferenceSources(validReferences);
   }
 
   async function openReference(reference: Citation): Promise<void> {
@@ -787,7 +806,11 @@ export function MobileChatScreen() {
     setPassword("");
     setIdentifier("");
     setDisplayName("");
-    await refreshConversations();
+    try {
+      await refreshConversations();
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "Signed in, but could not load your chat history.");
+    }
   }
 
   async function handleOAuthCallback(url: string | null): Promise<void> {
@@ -809,6 +832,8 @@ export function MobileChatScreen() {
     }
     const code = parsed.searchParams.get("code");
     if (!code) return;
+    if (exchangedOAuthCodesRef.current.has(code)) return;
+    exchangedOAuthCodesRef.current.add(code);
     setAuthBusy(true);
     try {
       const auth = await api.exchangeOAuthCode({ code });
@@ -869,7 +894,9 @@ export function MobileChatScreen() {
   }, []);
 
   useEffect(() => {
-    void Linking.getInitialURL().then((url) => handleOAuthCallback(url));
+    void Linking.getInitialURL()
+      .then((url) => handleOAuthCallback(url))
+      .catch(() => setAuthError("Could not complete the sign-in callback. Please try again."));
     const subscription = Linking.addEventListener("url", (event) => {
       void handleOAuthCallback(event.url);
     });
@@ -1155,7 +1182,12 @@ export function MobileChatScreen() {
   }
 
   async function logout(): Promise<void> {
-    await api.logout();
+    let logoutError: string | undefined;
+    try {
+      await api.logout();
+    } catch (error) {
+      logoutError = error instanceof Error ? error.message : "Could not reach the server to revoke this session.";
+    }
     setAuthUser(undefined);
     setSettingsVisible(false);
     closeDrawer();
@@ -1164,7 +1196,7 @@ export function MobileChatScreen() {
     void clearSelectedConversationId();
     setTurns([]);
     setAuthMode("login");
-    setAuthError(undefined);
+    setAuthError(logoutError ? `You were signed out on this device. ${logoutError}` : undefined);
   }
 
   const suggestedPrompts = activePersona?.suggestedPrompts ?? [];
@@ -1201,6 +1233,7 @@ export function MobileChatScreen() {
         onPasswordChange={setPassword}
         onSubmit={() => void submitAuth()}
         onOAuth={(oauthProvider) => void startOAuth(oauthProvider)}
+        onRetry={() => void retryLoadAppData()}
       />
     );
   }

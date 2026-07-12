@@ -15,6 +15,27 @@ export type ToolContext = {
 
 const DATE_PATTERN = /\b(today|current date|what date|what day|current time|date of today|what time|time is it|right now)\b/i;
 const LOCATION_PATTERN = /\b(my location|where am i|where i am|near me|nearby|local to me|in my area)\b/i;
+const WEB_SEARCH_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(input: string | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, WEB_SEARCH_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(`Web search timed out after ${WEB_SEARCH_TIMEOUT_MS / 1000} seconds.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 function formatCurrentDate(clientContext?: ClientContext): string {
   const date = clientContext?.currentDateTime ? new Date(clientContext.currentDateTime) : new Date();
@@ -137,7 +158,7 @@ async function runDuckDuckGoInstantAnswer(query: string): Promise<string[]> {
   url.searchParams.set("no_html", "1");
   url.searchParams.set("skip_disambig", "1");
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       accept: "application/json"
     }
@@ -161,7 +182,7 @@ async function runDuckDuckGoHtmlSearch(query: string): Promise<string[]> {
     kl: "us-en"
   });
 
-  const response = await fetch("https://html.duckduckgo.com/html/", {
+  const response = await fetchWithTimeout("https://html.duckduckgo.com/html/", {
     method: "POST",
     headers: {
       accept: "text/html",
@@ -209,7 +230,7 @@ function wikipediaPageUrl(title: string): string {
 }
 
 async function runWikipediaSummary(title: string): Promise<string | undefined> {
-  const response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, {
+  const response = await fetchWithTimeout(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, {
     headers: {
       accept: "application/json",
       "user-agent": "for-the-baddiez/0.1"
@@ -241,7 +262,7 @@ async function runWikipediaSearch(query: string): Promise<string[]> {
   url.searchParams.set("format", "json");
   url.searchParams.set("origin", "*");
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       accept: "application/json",
       "user-agent": "for-the-baddiez/0.1"
@@ -286,55 +307,78 @@ async function runWebSearch(userMessage: string): Promise<ToolContextResult> {
   const summaryParts: string[] = [];
   const sources: string[] = [];
 
-  try {
-    for (const query of queries) {
-      if (summaryParts.length >= 5) {
-        break;
-      }
+  const failures: string[] = [];
 
-      const instantResults = await runDuckDuckGoInstantAnswer(query);
-      if (instantResults.length > 0) {
-        summaryParts.push(...instantResults);
-        sources.push("DuckDuckGo Instant Answer API");
-      } else {
-        const htmlResults = await runDuckDuckGoHtmlSearch(query);
-        if (htmlResults.length > 0) {
-          summaryParts.push(...htmlResults);
-          sources.push("DuckDuckGo HTML results");
-        } else {
-          const wikipediaResults = await runWikipediaSearch(query);
-          if (wikipediaResults.length > 0) {
-            summaryParts.push(...wikipediaResults);
-            sources.push("Wikipedia search and page summaries");
-          }
-        }
-      }
+  for (const query of queries) {
+    if (summaryParts.length >= 5) break;
 
-      if (summaryParts.length > 0) {
-        break;
-      }
+    let instantResults: string[] = [];
+    try {
+      instantResults = await runDuckDuckGoInstantAnswer(query);
+    } catch (error) {
+      failures.push(`DuckDuckGo Instant Answer: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (instantResults.length > 0) {
+      summaryParts.push(...instantResults);
+      sources.push("DuckDuckGo Instant Answer API");
+      break;
     }
 
+    let htmlResults: string[] = [];
+    try {
+      htmlResults = await runDuckDuckGoHtmlSearch(query);
+    } catch (error) {
+      failures.push(`DuckDuckGo HTML: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (htmlResults.length > 0) {
+      summaryParts.push(...htmlResults);
+      sources.push("DuckDuckGo HTML results");
+      break;
+    }
+
+    try {
+      const wikipediaResults = await runWikipediaSearch(query);
+      if (wikipediaResults.length > 0) {
+        summaryParts.push(...wikipediaResults);
+        sources.push("Wikipedia search and page summaries");
+        break;
+      }
+    } catch (error) {
+      failures.push(`Wikipedia: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (summaryParts.length > 0) {
     return {
       name: "web_search",
-      status: summaryParts.length > 0 ? "completed" : "skipped",
-      summary:
-        summaryParts.length > 0
-          ? `Web search results for "${primaryQuery}":\n- ${summaryParts.slice(0, 5).join("\n- ")}`
-          : `Web search ran for "${primaryQuery}", but returned no concise result. Answer cautiously and say if the result is unavailable.`,
+      status: "completed",
+      summary: `Web search results for "${primaryQuery}":\n- ${summaryParts.slice(0, 5).join("\n- ")}`,
       data: {
         query: primaryQuery,
         attemptedQueries: queries,
-        source: [...new Set(sources)].join(", ") || "DuckDuckGo and Wikipedia"
+        source: [...new Set(sources)].join(", ")
       }
     };
-  } catch (error) {
+  }
+
+  if (failures.length > 0) {
     return {
       name: "web_search",
       status: "failed",
-      summary: `Web search failed for query "${primaryQuery}": ${error instanceof Error ? error.message : String(error)}`
+      summary: `Web search could not reach a result source for "${primaryQuery}". Answer cautiously and do not invent current facts.`
     };
   }
+
+  return {
+    name: "web_search",
+    status: "skipped",
+    summary: `Web search ran for "${primaryQuery}", but returned no concise result. Answer cautiously and say if the result is unavailable.`,
+    data: {
+      query: primaryQuery,
+      attemptedQueries: queries,
+      source: "DuckDuckGo and Wikipedia"
+    }
+  };
 }
 
 export class ToolContextService {

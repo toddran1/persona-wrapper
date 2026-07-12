@@ -301,7 +301,8 @@ function AssistantActions({
   audioBlocks,
   personaId,
   autoPlayAudio = false,
-  onAudioPlaybackChange
+  onAudioPlaybackChange,
+  onRetry
 }: {
   text: string;
   sources: Extract<ContentBlock, { type: "source_list" }>[];
@@ -309,6 +310,7 @@ function AssistantActions({
   personaId: string;
   autoPlayAudio?: boolean;
   onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
+  onRetry?: (() => void) | undefined;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -319,7 +321,9 @@ function AssistantActions({
   const wrapRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const autoPlayedUrlRef = useRef<string | undefined>(undefined);
-  const flatSources = sources.flatMap((sourceList) => sourceList.sources);
+  const flatSources = sources
+    .flatMap((sourceList) => sourceList.sources)
+    .filter((source) => safeExternalUrl(source.url) !== undefined);
   const primaryAudio = audioBlocks[0];
   const resolvedAudioUrl = useProtectedMediaUrl(primaryAudio?.url ?? "");
 
@@ -445,10 +449,15 @@ function AssistantActions({
                 <span>References</span>
               </button>
             ) : null}
-            <button type="button" role="menuitem" onClick={() => setMenuOpen(false)}>
-              <Icon name="retry" />
-              <span>Retry</span>
-            </button>
+            {onRetry ? (
+              <button type="button" role="menuitem" onClick={() => {
+                setMenuOpen(false);
+                onRetry();
+              }}>
+                <Icon name="retry" />
+                <span>Retry</span>
+              </button>
+            ) : null}
           </div>
         ) : null}
         {sourcesOpen ? (
@@ -462,13 +471,12 @@ function AssistantActions({
                   {source.snippet ? <small>{source.snippet}</small> : null}
                 </>
               );
-              return safeUrl ? (
+              if (!safeUrl) return null;
+              return (
                 <a key={`${source.url}-${index}`} href={safeUrl} target="_blank" rel="noopener noreferrer" className="message-source-item">
                   {content}
                   <small className="message-source-url">{safeUrl}</small>
                 </a>
-              ) : (
-                <div key={`${source.url}-${index}`} className="message-source-item">{content}</div>
               );
             })}
           </div>
@@ -514,7 +522,8 @@ export function ConversationHistory({
   autoPlayAudioTurnIndex,
   onAudioPlaybackChange,
   onOutputAction,
-  onEditUserPrompt
+  onEditUserPrompt,
+  onRetryAssistantTurn
 }: {
   personaId?: string;
   personaShortName?: string;
@@ -528,6 +537,7 @@ export function ConversationHistory({
   onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
   onOutputAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
   onEditUserPrompt?: ((message: string, files: File[]) => void) | undefined;
+  onRetryAssistantTurn?: ((turn: RenderedTurn) => void) | undefined;
 }) {
   const messageCount = turns.length * 2 + (pendingPrompt ? 1 : 0) + (thinking ? 1 : 0);
   const historyRef = useRef<HTMLElement>(null);
@@ -629,6 +639,7 @@ export function ConversationHistory({
                     personaId={personaId}
                     autoPlayAudio={turnIndex === autoPlayAudioTurnIndex}
                     onAudioPlaybackChange={onAudioPlaybackChange}
+                    onRetry={onRetryAssistantTurn ? () => onRetryAssistantTurn(turn) : undefined}
                   />
                 </article>
               </div>

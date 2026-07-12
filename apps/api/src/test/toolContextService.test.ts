@@ -101,6 +101,25 @@ describe("ToolContextService", () => {
     expect(context?.message.content).toContain("2009 World Series");
   });
 
+  it("continues to the next search source when an earlier source fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Instant Answer unavailable"))
+      .mockResolvedValueOnce(
+        createHtmlResponse(`
+          <a class="result__a" href="https://example.com/weather">Dallas forecast</a>
+          <a class="result__snippet">A clear forecast is available for Dallas.</a>
+        `)
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const context = await new ToolContextService().buildContext("What is the weather in Dallas tomorrow?");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(context?.results[0]).toMatchObject({ name: "web_search", status: "completed" });
+    expect(context?.message.content).toContain("Dallas forecast");
+  });
+
   it("does not run web search for stable evergreen questions", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

@@ -121,6 +121,42 @@ describe("ConversationHistory pending state", () => {
     expect(referenceLink).toHaveAttribute("rel", "noopener noreferrer");
   });
 
+  it("retries the originating prompt from the response action menu", async () => {
+    const user = userEvent.setup();
+    const onRetryAssistantTurn = vi.fn();
+    const turn = {
+      userMessage: "Try this again.",
+      assistantText: "The first answer.",
+      outputs: [{ type: "text" as const, text: "The first answer." }]
+    };
+
+    render(<ConversationHistory turns={[turn]} onRetryAssistantTurn={onRetryAssistantTurn} />);
+
+    await user.click(screen.getByRole("button", { name: "More response actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Retry" }));
+
+    expect(onRetryAssistantTurn).toHaveBeenCalledWith(turn);
+  });
+
+  it("does not expose malformed reference URLs as actions", async () => {
+    const user = userEvent.setup();
+    render(
+      <ConversationHistory
+        turns={[{
+          userMessage: "Show me sources.",
+          assistantText: "Here is the answer.",
+          outputs: [{
+            type: "source_list",
+            sources: [{ title: "Unsafe", url: "javascript:alert(1)" }]
+          }]
+        }]}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "More response actions" }));
+    expect(screen.queryByRole("menuitem", { name: "References" })).not.toBeInTheDocument();
+  });
+
   it("preserves ordered markdown numbering when list items have paragraph details", () => {
     const { container } = render(
       <ConversationHistory
