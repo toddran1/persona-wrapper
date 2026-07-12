@@ -1,7 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { chatRequestSchema, chatResponseSchema, llmInputSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, chatRequestSchema, chatResponseSchema, deleteAccountRequestSchema, llmInputSchema, restoreAccountRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
+  it("validates account deletion and restoration contracts", () => {
+    expect(deleteAccountRequestSchema.parse({ confirmation: "DELETE", password: "password123" })).toEqual({
+      confirmation: "DELETE",
+      password: "password123"
+    });
+    expect(() => deleteAccountRequestSchema.parse({ confirmation: "delete" })).toThrow();
+    expect(restoreAccountRequestSchema.parse({
+      identifier: "user@example.com",
+      password: "password123",
+      clientType: "web"
+    }).clientType).toBe("web");
+    expect(accountDeletionResponseSchema.parse({
+      status: "pending_deletion",
+      deletionRequestedAt: "2026-07-11T12:00:00.000Z",
+      deletionScheduledFor: "2026-08-10T12:00:00.000Z"
+    }).status).toBe("pending_deletion");
+  });
   it("applies chat request defaults", () => {
     const parsed = chatRequestSchema.parse({
       personaId: "larae",

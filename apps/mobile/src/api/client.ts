@@ -2,6 +2,7 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 import type {
   AuthResponse,
+  AccountDeletionResponse,
   ChatJobResponse,
   ChatResponse,
   ClientContext,
@@ -17,6 +18,7 @@ import type {
   ProviderId,
   RefreshAuthRequest,
   RegisterRequest,
+  RestoreAccountRequest,
   ToolOptions,
   UploadedAsset
 } from "@persona/shared";
@@ -45,6 +47,7 @@ export type MobileUploadFile = {
 
 type MobileRegisterRequest = Omit<RegisterRequest, "clientType" | "deviceId">;
 type MobileLoginRequest = Omit<LoginRequest, "clientType" | "deviceId">;
+type MobileRestoreAccountRequest = Omit<RestoreAccountRequest, "clientType" | "deviceId">;
 type MobileOAuthExchangeRequest = Omit<OAuthExchangeRequest, "clientType" | "deviceId">;
 
 type ApiErrorPayload = {
@@ -205,6 +208,22 @@ export const api = {
       body: JSON.stringify({ ...payload, clientType: clientType(), deviceId: await getDeviceId() })
     });
     await setAuthTokens(response.tokens);
+    return response;
+  },
+  restoreAccount: async (payload: MobileRestoreAccountRequest): Promise<AuthResponse> => {
+    const response = await requestJson<AuthResponse>("/api/auth/restore", {
+      method: "POST",
+      body: JSON.stringify({ ...payload, clientType: clientType(), deviceId: await getDeviceId() })
+    }, { skipAuthRefresh: true });
+    await setAuthTokens(response.tokens);
+    return response;
+  },
+  deleteAccount: async (payload: { confirmation: "DELETE"; password?: string }): Promise<AccountDeletionResponse> => {
+    const response = await requestJson<AccountDeletionResponse>("/api/auth/account", {
+      method: "DELETE",
+      body: JSON.stringify(payload)
+    });
+    await clearAuthTokens();
     return response;
   },
   exchangeOAuthCode: async (payload: MobileOAuthExchangeRequest): Promise<AuthResponse> => {

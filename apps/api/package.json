@@ -10,6 +10,7 @@
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "tsx src/scripts/migrateDatabase.ts",
     "db:studio": "drizzle-kit studio --config drizzle.config.ts",
+    "accounts:purge-deleted": "tsx src/scripts/purgeDeletedAccounts.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "NODE_ENV=test DATABASE_URL= AUTH_REQUIRED=false AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false STYLE_TRANSFER_PROVIDER=stub vitest run",

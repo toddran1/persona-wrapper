@@ -137,6 +137,13 @@ export class BackgroundChatJobService {
     return this.get(id, ownerId);
   }
 
+  async cancelForOwner(ownerId: string, error = "Account deletion cancelled this request."): Promise<void> {
+    const ownedJobIds = [...this.jobs.values()]
+      .filter((job) => job.ownerId === ownerId && (job.status === "queued" || job.status === "running"))
+      .map((job) => job.id);
+    await Promise.all(ownedJobIds.map((id) => this.cancel(id, error, ownerId)));
+  }
+
   private async update(
     id: string,
     updates: Partial<Pick<BackgroundChatJob, "status" | "response" | "error" | "failureReason" | "providerResponseId" | "providerStatus">>

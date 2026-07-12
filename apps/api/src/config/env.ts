@@ -98,6 +98,7 @@ const envSchema = z.object({
   AUTH_ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(60),
   AUTH_REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   AUTH_PASSWORD_MIN_LENGTH: z.coerce.number().int().min(8).max(128).default(10),
+  AUTH_ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   AUTH_REQUIRE_OWNED_MEDIA_ACCESS: z.preprocess(stringToBoolean, z.boolean().default(false)),
   WEB_APP_URL: z.preprocess(optionalTrimmedString, z.string().url().default("http://localhost:5173")),
   IOS_OAUTH_REDIRECT_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),

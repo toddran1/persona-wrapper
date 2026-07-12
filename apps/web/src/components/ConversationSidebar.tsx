@@ -31,6 +31,8 @@ export function ConversationSidebar({
   loading = false,
   onLogin,
   onRegister,
+  onRestoreAccount,
+  onDeleteAccount,
   onLogout,
   onOAuthLogin,
   onNewConversation,
@@ -54,6 +56,8 @@ export function ConversationSidebar({
     username?: string;
     password: string;
   }) => Promise<void>;
+  onRestoreAccount: (identifier: string, password: string) => Promise<void>;
+  onDeleteAccount: (payload: { confirmation: "DELETE"; password?: string }) => Promise<void>;
   onLogout: () => Promise<void>;
   onOAuthLogin: (provider: OAuthProvider) => void;
   onNewConversation: () => void;
@@ -65,7 +69,7 @@ export function ConversationSidebar({
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | undefined>();
   const [draftTitle, setDraftTitle] = useState("");
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authMode, setAuthMode] = useState<"login" | "register" | "restore">("login");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
@@ -74,6 +78,9 @@ export function ConversationSidebar({
   const [authBusy, setAuthBusy] = useState(false);
   const [localAuthError, setLocalAuthError] = useState<string | undefined>();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
   const filteredConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -89,9 +96,11 @@ export function ConversationSidebar({
   const authStatusText =
     authMode === "login"
       ? "Pick up where your chats left off."
-      : "Sign up to save your chats and settings.";
+      : authMode === "restore"
+        ? "Cancel a scheduled deletion before the recovery deadline."
+        : "Sign up to save your chats and settings.";
   const primaryAuthText = "Log in | Create account";
-  const busyAuthText = authMode === "login" ? "Logging in..." : "Creating...";
+  const busyAuthText = authMode === "login" ? "Logging in..." : authMode === "restore" ? "Restoring..." : "Creating...";
   const accountName =
     authUser?.displayName ?? authUser?.username ?? authUser?.email ?? "Account";
   const accountDetail =
@@ -175,6 +184,47 @@ export function ConversationSidebar({
       setLocalAuthError(
         error instanceof Error ? error.message : "Registration failed.",
       );
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function submitRestore(): Promise<void> {
+    const nextIdentifier = identifier.trim();
+    if (!nextIdentifier || !password) {
+      setLocalAuthError("Enter your email or username and password.");
+      return;
+    }
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      await onRestoreAccount(nextIdentifier, password);
+      setPassword("");
+      setAuthPanelOpen(false);
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Account restoration failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function submitDeleteAccount(): Promise<void> {
+    if (deleteConfirmation !== "DELETE") {
+      setLocalAuthError("Type DELETE exactly to confirm.");
+      return;
+    }
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      await onDeleteAccount({ confirmation: "DELETE", ...(deletePassword ? { password: deletePassword } : {}) });
+      setDeleteAccountOpen(false);
+      setAccountMenuOpen(false);
+      setDeleteConfirmation("");
+      setDeletePassword("");
+      setAuthMode("restore");
+      setAuthPanelOpen(true);
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not schedule account deletion.");
     } finally {
       setAuthBusy(false);
     }
@@ -279,10 +329,10 @@ export function ConversationSidebar({
                   event.preventDefault();
                   void (authMode === "login"
                     ? submitLogin()
-                    : submitRegister());
+                    : authMode === "restore" ? submitRestore() : submitRegister());
                 }}
               >
-                {authMode === "login" ? (
+                {authMode !== "register" ? (
                   <>
                     <input
                       name="persona-login-identifier"
@@ -354,7 +404,7 @@ export function ConversationSidebar({
                     className="conversation-auth-submit"
                     disabled={authBusy || authLoading}
                   >
-                    {authBusy ? busyAuthText : authMode === "login" ? "Log in" : "Create account"}
+                    {authBusy ? busyAuthText : authMode === "login" ? "Log in" : authMode === "restore" ? "Restore account" : "Create account"}
                   </button>
                 </div>
               </form>
@@ -391,6 +441,17 @@ export function ConversationSidebar({
                 {authMode === "login"
                   ? "Need an account? Create one"
                   : "Have an account? Log in"}
+              </button>
+              <button
+                type="button"
+                className="conversation-auth-switch"
+                onClick={() => {
+                  setAuthMode(authMode === "restore" ? "login" : "restore");
+                  setLocalAuthError(undefined);
+                }}
+                disabled={authBusy}
+              >
+                {authMode === "restore" ? "Back to log in" : "Account scheduled for deletion? Restore it"}
               </button>
             </div>
           ) : null}
@@ -525,6 +586,21 @@ export function ConversationSidebar({
                 {accountDetail}
               </div>
               <div className="conversation-account-menu-divider" />
+              {deleteAccountOpen ? (
+                <div className="conversation-auth-form">
+                  <p className="conversation-auth-copy">You will be signed out now. All account data is permanently deleted after 30 days unless restored.</p>
+                  <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder="Type DELETE" aria-label="Type DELETE to confirm" disabled={authBusy} />
+                  <input value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} placeholder="Password (if applicable)" aria-label="Password" type="password" disabled={authBusy} />
+                  {localAuthError ? <div className="conversation-auth-error" role="alert">{localAuthError}</div> : null}
+                  <button type="button" className="conversation-account-menu-button" disabled={authBusy || deleteConfirmation !== "DELETE"} onClick={() => void submitDeleteAccount()}>
+                    {authBusy ? "Scheduling..." : "Confirm account deletion"}
+                  </button>
+                </div>
+              ) : (
+                <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => setDeleteAccountOpen(true)} disabled={authBusy}>
+                  Delete account
+                </button>
+              )}
               <button
                 type="button"
                 className="conversation-account-menu-button"

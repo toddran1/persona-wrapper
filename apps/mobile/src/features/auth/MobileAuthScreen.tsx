@@ -20,7 +20,7 @@ import type { MobileTheme } from "../../theme/personaTheme";
 
 const APP_LOGO = require("../../../assets/branding/For_the_Baddiez_logo_transparent.png");
 
-export type MobileAuthMode = "login" | "register";
+export type MobileAuthMode = "login" | "register" | "restore";
 
 type MobileAuthScreenProps = {
   checkingSession: boolean;
@@ -116,9 +116,9 @@ export function MobileAuthScreen({
               </View>
 
               <View style={styles.headingBlock}>
-                <Text style={[styles.title, { color: theme.text }]}>{mode === "login" ? "Welcome back" : "Join the conversation"}</Text>
+                <Text style={[styles.title, { color: theme.text }]}>{mode === "login" ? "Welcome back" : mode === "restore" ? "Restore your account" : "Join the conversation"}</Text>
                 <Text style={[styles.copy, { color: theme.muted }]}>
-                  {mode === "login" ? "Sign in to continue your chats." : "Create an account to start and save your chats."}
+                  {mode === "login" ? "Sign in to continue your chats." : mode === "restore" ? "Sign in before the recovery deadline to cancel deletion." : "Create an account to start and save your chats."}
                 </Text>
               </View>
 
@@ -187,7 +187,7 @@ export function MobileAuthScreen({
                   <View style={[styles.passwordShell, { borderColor: theme.border }]}>
                     <TextInput
                       autoCapitalize="none"
-                      autoComplete={mode === "login" ? "current-password" : "new-password"}
+                      autoComplete={mode === "register" ? "new-password" : "current-password"}
                       editable={!busy}
                       secureTextEntry={!passwordVisible}
                       value={password}
@@ -228,7 +228,17 @@ export function MobileAuthScreen({
                   { backgroundColor: theme.accent2, opacity: !canSubmit ? 0.48 : pressed ? 0.84 : 1 }
                 ]}
               >
-                {busy ? <ActivityIndicator color="#170f21" /> : <Text style={styles.primaryText}>{mode === "login" ? "Sign in" : "Create account"}</Text>}
+                {busy ? <ActivityIndicator color="#170f21" /> : <Text style={styles.primaryText}>{mode === "login" ? "Sign in" : mode === "restore" ? "Restore account" : "Create account"}</Text>}
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => onModeChange(mode === "restore" ? "login" : "restore")}
+                style={styles.recoveryLink}
+              >
+                <Text style={[styles.retryText, { color: theme.accent2 }]}>
+                  {mode === "restore" ? "Back to sign in" : "Account scheduled for deletion? Restore it"}
+                </Text>
               </Pressable>
             </View>
           )}
@@ -420,6 +430,10 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     minHeight: 24,
     justifyContent: "center"
+  },
+  recoveryLink: {
+    alignItems: "center",
+    paddingVertical: 4
   },
   retryText: {
     fontSize: 13,

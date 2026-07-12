@@ -8,6 +8,8 @@ export const users = pgTable("users", {
   displayName: text("display_name"),
   avatarUrl: text("avatar_url"),
   status: text("status").notNull().default("active"),
+  deletionRequestedAt: timestamp("deletion_requested_at", { withTimezone: true }),
+  deletionScheduledFor: timestamp("deletion_scheduled_for", { withTimezone: true }),
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -15,7 +17,8 @@ export const users = pgTable("users", {
 }, (table) => ({
   emailUnique: uniqueIndex("users_email_unique").on(table.email),
   usernameUnique: uniqueIndex("users_username_unique").on(table.username),
-  statusIdx: index("users_status_idx").on(table.status)
+  statusIdx: index("users_status_idx").on(table.status),
+  deletionScheduledForIdx: index("users_deletion_scheduled_for_idx").on(table.deletionScheduledFor)
 }));
 
 export const userPasswordCredentials = pgTable("user_password_credentials", {

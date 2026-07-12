@@ -123,6 +123,11 @@ export function MobileChatScreen() {
   const [identifier, setIdentifier] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | undefined>();
   const [authBusy, setAuthBusy] = useState(false);
   const [drawerInteractive, setDrawerInteractive] = useState(false);
   const drawerX = useSharedValue(-drawerWidth);
@@ -1151,7 +1156,9 @@ export function MobileChatScreen() {
       const trimmedIdentifier = identifier.trim();
       const auth = authMode === "login"
         ? await api.login({ identifier: trimmedIdentifier, password })
-        : await api.register({
+        : authMode === "restore"
+          ? await api.restoreAccount({ identifier: trimmedIdentifier, password })
+          : await api.register({
           password,
           ...(trimmedIdentifier.includes("@") ? { email: trimmedIdentifier } : { username: trimmedIdentifier }),
           ...(displayName.trim() ? { displayName: displayName.trim() } : {})
@@ -1197,6 +1204,37 @@ export function MobileChatScreen() {
     setTurns([]);
     setAuthMode("login");
     setAuthError(logoutError ? `You were signed out on this device. ${logoutError}` : undefined);
+  }
+
+  async function deleteAccount(): Promise<void> {
+    if (deleteConfirmation !== "DELETE") {
+      setDeleteAccountError("Type DELETE exactly to confirm.");
+      return;
+    }
+    setDeleteAccountBusy(true);
+    setDeleteAccountError(undefined);
+    try {
+      const result = await api.deleteAccount({
+        confirmation: "DELETE",
+        ...(deletePassword ? { password: deletePassword } : {})
+      });
+      const recoveryDate = new Date(result.deletionScheduledFor).toLocaleDateString();
+      setDeleteAccountVisible(false);
+      setSettingsVisible(false);
+      setAuthUser(undefined);
+      setConversations([]);
+      setConversationId(undefined);
+      setTurns([]);
+      setDeleteConfirmation("");
+      setDeletePassword("");
+      setAuthMode("restore");
+      setAuthError(`Account deletion is scheduled for ${recoveryDate}. Restore it before then to keep your data.`);
+      await clearSelectedConversationId();
+    } catch (error) {
+      setDeleteAccountError(error instanceof Error ? error.message : "Could not schedule account deletion.");
+    } finally {
+      setDeleteAccountBusy(false);
+    }
   }
 
   const suggestedPrompts = activePersona?.suggestedPrompts ?? [];
@@ -1551,9 +1589,57 @@ export function MobileChatScreen() {
               <Ionicons name="log-out-outline" size={22} color={theme.text} />
               <Text style={[styles.settingsRowText, { color: theme.text }]}>Log out</Text>
             </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setDeleteAccountError(undefined);
+                setDeleteAccountVisible(true);
+              }}
+              style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}
+            >
+              <Ionicons name="trash-outline" size={22} color={theme.danger} />
+              <Text style={[styles.settingsRowText, { color: theme.danger }]}>Delete account</Text>
+            </Pressable>
           </View>
         </ScrollView>
       ) : null}
+
+      <Modal visible={deleteAccountVisible} transparent animationType="fade" onRequestClose={() => setDeleteAccountVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setDeleteAccountVisible(false)} />
+          <View style={[styles.loginCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
+            <Text style={[styles.loginTitle, { color: theme.text }]}>Delete account?</Text>
+            <Text style={{ color: theme.muted, lineHeight: 20 }}>
+              You will be signed out immediately. Your account and all chats, uploads, images, and audio will be permanently deleted after 30 days unless you restore it.
+            </Text>
+            <TextInput
+              value={deleteConfirmation}
+              onChangeText={setDeleteConfirmation}
+              autoCapitalize="characters"
+              placeholder="Type DELETE"
+              placeholderTextColor={theme.muted}
+              style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
+            />
+            <TextInput
+              value={deletePassword}
+              onChangeText={setDeletePassword}
+              secureTextEntry
+              placeholder="Password (required for password accounts)"
+              placeholderTextColor={theme.muted}
+              style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
+            />
+            {deleteAccountError ? <Text style={{ color: theme.danger }}>{deleteAccountError}</Text> : null}
+            <View style={styles.renameActions}>
+              <Pressable disabled={deleteAccountBusy} onPress={() => setDeleteAccountVisible(false)} style={[styles.renameSecondaryButton, { borderColor: theme.border }]}>
+                <Text style={{ color: theme.text }}>Cancel</Text>
+              </Pressable>
+              <Pressable disabled={deleteAccountBusy || deleteConfirmation !== "DELETE"} onPress={() => void deleteAccount()} style={[styles.renamePrimaryButton, { backgroundColor: theme.danger, opacity: deleteConfirmation === "DELETE" ? 1 : 0.45 }]}>
+                <Text style={{ color: "#fff", fontWeight: "800" }}>{deleteAccountBusy ? "Scheduling..." : "Delete account"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {renameTarget ? (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>

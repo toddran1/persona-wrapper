@@ -14,6 +14,7 @@ function allowsAnonymousAuthRequest(request: Request): boolean {
   return [
     "/api/auth/login",
     "/api/auth/register",
+    "/api/auth/restore",
     "/api/auth/refresh",
     "/api/auth/oauth/exchange",
     "/api/auth/oauth/providers"

@@ -7,18 +7,22 @@ import {
   type AuthResponse,
   type AuthSession,
   type AuthUser,
+  type AccountDeletionResponse,
+  type DeleteAccountRequest,
   type LoginRequest,
   type OAuthExchangeRequest,
   oauthProviderSchema,
   type OAuthProvider,
   type OAuthProviderStatus,
   type RefreshAuthRequest,
-  type RegisterRequest
+  type RegisterRequest,
+  type RestoreAccountRequest
 } from "@persona/shared";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { authSessions, oauthExchangeCodes, oauthStates, userOAuthAccounts, userPasswordCredentials, users } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
+import { accountDeletionService } from "./accountDeletionService.js";
 
 const scrypt = promisify(scryptCallback);
 const PASSWORD_HASH_BYTES = 64;
@@ -284,14 +288,40 @@ async function findOrCreateOAuthUser(profile: OAuthProfile, provider: OAuthProvi
   });
   if (existingAccount) {
     const existingUser = await db.query.users.findFirst({ where: eq(users.id, existingAccount.userId) });
-    if (existingUser && existingUser.status === "active") return existingUser;
+    if (existingUser?.status === "active") return existingUser;
+    if (existingUser?.status === "pending_deletion") {
+      if (existingUser.deletionScheduledFor && existingUser.deletionScheduledFor.getTime() <= Date.now()) {
+        await accountDeletionService.purgeUser(existingUser.id);
+      } else {
+        const [restored] = await db.update(users).set({
+          status: "active",
+          deletionRequestedAt: null,
+          deletionScheduledFor: null,
+          updatedAt: new Date()
+        }).where(eq(users.id, existingUser.id)).returning();
+        if (restored) return restored;
+      }
+    }
   }
 
   const email = normalizeEmail(profile.email);
   const userByEmail = email && profile.emailVerified
     ? await db.query.users.findFirst({ where: eq(users.email, email) })
     : undefined;
-  if (userByEmail && userByEmail.status === "active") return userByEmail;
+  if (userByEmail?.status === "active") return userByEmail;
+  if (userByEmail?.status === "pending_deletion") {
+    if (userByEmail.deletionScheduledFor && userByEmail.deletionScheduledFor.getTime() <= Date.now()) {
+      await accountDeletionService.purgeUser(userByEmail.id);
+    } else {
+      const [restored] = await db.update(users).set({
+        status: "active",
+        deletionRequestedAt: null,
+        deletionScheduledFor: null,
+        updatedAt: new Date()
+      }).where(eq(users.id, userByEmail.id)).returning();
+      if (restored) return restored;
+    }
+  }
 
   const createUserValues: typeof users.$inferInsert = {
     id: `user_${randomUUID()}`,
@@ -315,6 +345,8 @@ function toUserPayload(row: typeof users.$inferSelect): AuthUser {
     displayName: row.displayName,
     avatarUrl: row.avatarUrl,
     status: row.status,
+    deletionRequestedAt: row.deletionRequestedAt?.toISOString() ?? null,
+    deletionScheduledFor: row.deletionScheduledFor?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
   };
@@ -463,7 +495,7 @@ export class AuthService {
       .from(users)
       .where(or(eq(users.email, identifier), eq(users.username, identifier)))
       .limit(1);
-    if (!user || user.status !== "active") throw new HttpError("Invalid username/email or password.", 401);
+    if (!user) throw new HttpError("Invalid username/email or password.", 401);
 
     const [credential] = await db.select()
       .from(userPasswordCredentials)
@@ -472,6 +504,16 @@ export class AuthService {
     if (!credential || !(await verifyPassword(payload.password, credential.passwordHash))) {
       throw new HttpError("Invalid username/email or password.", 401);
     }
+
+    if (user.status === "pending_deletion") {
+      const deadline = user.deletionScheduledFor;
+      if (deadline && deadline.getTime() <= Date.now()) {
+        await accountDeletionService.purgeUser(user.id);
+        throw new HttpError("This account has been permanently deleted.", 410);
+      }
+      throw new HttpError(`This account is scheduled for deletion${deadline ? ` on ${deadline.toLocaleDateString()}` : ""}. Use Restore account to reactivate it.`, 409);
+    }
+    if (user.status !== "active") throw new HttpError("Invalid username/email or password.", 401);
 
     const session = await createSession(user.id, payload.clientType, payload.deviceId, metadata);
     return buildAuthResponse(user, session);
@@ -667,6 +709,69 @@ export class AuthService {
     await db.update(authSessions)
       .set({ revokedAt: now, updatedAt: now })
       .where(where);
+  }
+
+  async scheduleAccountDeletion(
+    userId: string,
+    payload: DeleteAccountRequest
+  ): Promise<AccountDeletionResponse> {
+    const db = requireDatabase();
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!user || user.status !== "active") throw new HttpError("Account is unavailable.", 404);
+
+    const [credential] = await db.select().from(userPasswordCredentials)
+      .where(eq(userPasswordCredentials.userId, userId)).limit(1);
+    if (credential && (!payload.password || !(await verifyPassword(payload.password, credential.passwordHash)))) {
+      throw new HttpError("Your password is required to delete this account.", 401);
+    }
+
+    const deletionRequestedAt = new Date();
+    const deletionScheduledFor = new Date(
+      deletionRequestedAt.getTime() + env.AUTH_ACCOUNT_DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000
+    );
+    await db.transaction(async (tx) => {
+      await tx.update(users).set({
+        status: "pending_deletion",
+        deletionRequestedAt,
+        deletionScheduledFor,
+        updatedAt: deletionRequestedAt
+      }).where(eq(users.id, userId));
+      await tx.update(authSessions).set({ revokedAt: deletionRequestedAt, updatedAt: deletionRequestedAt })
+        .where(eq(authSessions.userId, userId));
+    });
+    return {
+      status: "pending_deletion",
+      deletionRequestedAt: deletionRequestedAt.toISOString(),
+      deletionScheduledFor: deletionScheduledFor.toISOString()
+    };
+  }
+
+  async restoreAccount(payload: RestoreAccountRequest, metadata: AuthMetadata = {}): Promise<AuthResponse> {
+    const db = requireDatabase();
+    const identifier = payload.identifier.trim().toLowerCase();
+    const [user] = await db.select().from(users)
+      .where(or(eq(users.email, identifier), eq(users.username, identifier))).limit(1);
+    if (!user) throw new HttpError("Invalid username/email or password.", 401);
+    const [credential] = await db.select().from(userPasswordCredentials)
+      .where(eq(userPasswordCredentials.userId, user.id)).limit(1);
+    if (!credential || !(await verifyPassword(payload.password, credential.passwordHash))) {
+      throw new HttpError("Invalid username/email or password.", 401);
+    }
+    if (user.status === "active") throw new HttpError("This account is already active. Sign in instead.", 409);
+    if (user.status !== "pending_deletion") throw new HttpError("This account cannot be restored.", 409);
+    if (user.deletionScheduledFor && user.deletionScheduledFor.getTime() <= Date.now()) {
+      await accountDeletionService.purgeUser(user.id);
+      throw new HttpError("The account recovery period has ended and the account was permanently deleted.", 410);
+    }
+    const [restored] = await db.update(users).set({
+      status: "active",
+      deletionRequestedAt: null,
+      deletionScheduledFor: null,
+      updatedAt: new Date()
+    }).where(eq(users.id, user.id)).returning();
+    if (!restored) throw new HttpError("Could not restore this account.", 500);
+    const session = await createSession(restored.id, payload.clientType, payload.deviceId, metadata);
+    return buildAuthResponse(restored, session);
   }
 
   async authenticate(accessToken: string): Promise<{ user: AuthUser; session: AuthSession } | undefined> {

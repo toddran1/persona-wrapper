@@ -5,16 +5,18 @@ import {
   getOAuthCallback,
   getOAuthProviders,
   getOAuthStart,
+  deleteAccount,
   postLogin,
   postLogout,
   postOAuthExchange,
   postRefresh,
-  postRegister
+  postRegister,
+  postRestoreAccount
 } from "../controllers/auth.controller.js";
 
 export const authRouter = Router();
 
-authRouter.use(["/login", "/register", "/refresh", "/oauth/exchange", "/oauth/:provider/start"], authRateLimit);
+authRouter.use(["/login", "/register", "/restore", "/refresh", "/oauth/exchange", "/oauth/:provider/start", "/account"], authRateLimit);
 
 authRouter.post("/register", (request, response, next) => {
   postRegister(request, response).catch(next);
@@ -22,6 +24,14 @@ authRouter.post("/register", (request, response, next) => {
 
 authRouter.post("/login", (request, response, next) => {
   postLogin(request, response).catch(next);
+});
+
+authRouter.post("/restore", (request, response, next) => {
+  postRestoreAccount(request, response).catch(next);
+});
+
+authRouter.delete("/account", (request, response, next) => {
+  deleteAccount(request, response).catch(next);
 });
 
 authRouter.post("/refresh", (request, response, next) => {

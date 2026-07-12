@@ -971,6 +971,40 @@ export function App() {
     }
   }
 
+  async function handleRestoreAccount(identifier: string, password: string): Promise<void> {
+    setAuthLoading(true);
+    setAuthError(undefined);
+    try {
+      const auth = await api.restoreAccount({ identifier, password, clientType: "web" });
+      setAuthUser(auth.user);
+      resetConversation();
+      await refreshConversationList(undefined, true);
+    } catch (restoreError) {
+      setAuthError(restoreError instanceof Error ? restoreError.message : "Account restoration failed.");
+      throw restoreError;
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleDeleteAccount(payload: { confirmation: "DELETE"; password?: string }): Promise<void> {
+    setAuthLoading(true);
+    setAuthError(undefined);
+    try {
+      const result = await api.deleteAccount(payload);
+      clearAuthTokens();
+      setAuthUser(undefined);
+      resetConversation();
+      await refreshConversationList(undefined, true);
+      setAuthError(`Account deletion is scheduled for ${new Date(result.deletionScheduledFor).toLocaleDateString()}. Restore it before then to keep your data.`);
+    } catch (deleteError) {
+      setAuthError(deleteError instanceof Error ? deleteError.message : "Could not schedule account deletion.");
+      throw deleteError;
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
   async function handleLogout(): Promise<void> {
     setAuthLoading(true);
     setAuthError(undefined);
@@ -1077,6 +1111,8 @@ export function App() {
           loading={conversationListLoading}
           onLogin={handleLogin}
           onRegister={handleRegister}
+          onRestoreAccount={handleRestoreAccount}
+          onDeleteAccount={handleDeleteAccount}
           onLogout={handleLogout}
           onOAuthLogin={handleOAuthLogin}
           onNewConversation={() => {

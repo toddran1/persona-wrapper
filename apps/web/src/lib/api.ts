@@ -1,5 +1,6 @@
 import type {
   AuthResponse,
+  AccountDeletionResponse,
   AuthTokens,
   ChatResponse,
   ChatJobResponse,
@@ -15,6 +16,7 @@ import type {
   ProviderId,
   RefreshAuthRequest,
   RegisterRequest,
+  RestoreAccountRequest,
   ToolOptions,
   UploadedAsset
 } from "@persona/shared";
@@ -311,6 +313,22 @@ export const api = {
       body: JSON.stringify(payload)
     });
     setAuthTokens(response.tokens);
+    return response;
+  },
+  restoreAccount: async (payload: RestoreAccountRequest): Promise<AuthResponse> => {
+    const response = await requestJson<AuthResponse>("/api/auth/restore", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    setAuthTokens(response.tokens);
+    return response;
+  },
+  deleteAccount: async (payload: { confirmation: "DELETE"; password?: string }): Promise<AccountDeletionResponse> => {
+    const response = await requestJson<AccountDeletionResponse>("/api/auth/account", {
+      method: "DELETE",
+      body: JSON.stringify(payload)
+    });
+    clearAuthTokens();
     return response;
   },
   refreshAuth: async (payload?: Partial<RefreshAuthRequest>): Promise<AuthResponse> => {

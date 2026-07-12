@@ -1,10 +1,12 @@
 import type { Request, Response } from "express";
 import {
+  deleteAccountRequestSchema,
   loginRequestSchema,
   oauthExchangeRequestSchema,
   oauthProviderSchema,
   refreshAuthRequestSchema,
   registerRequestSchema,
+  restoreAccountRequestSchema,
   type AuthClientType,
   type OAuthProvider
 } from "@persona/shared";
@@ -96,6 +98,22 @@ export async function postLogin(request: Request, response: Response): Promise<v
   });
   const auth = await authService.login(payload, requestMetadata(request));
   response.status(200).json(auth);
+}
+
+export async function postRestoreAccount(request: Request, response: Response): Promise<void> {
+  const payload = restoreAccountRequestSchema.parse({
+    clientType: clientTypeFromHeader(request),
+    ...request.body
+  });
+  const auth = await authService.restoreAccount(payload, requestMetadata(request));
+  response.status(200).json(auth);
+}
+
+export async function deleteAccount(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  const payload = deleteAccountRequestSchema.parse(request.body);
+  const deletion = await authService.scheduleAccountDeletion(request.auth.userId, payload);
+  response.status(202).json(deletion);
 }
 
 export async function postRefresh(request: Request, response: Response): Promise<void> {

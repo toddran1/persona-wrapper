@@ -4,6 +4,7 @@ import { generatedAudioService } from "./generatedAudioService.js";
 import { generatedMediaService } from "./generatedMediaService.js";
 import { openAIArtifactService } from "./openAIArtifactService.js";
 import { uploadService } from "./uploadService.js";
+import { accountDeletionService } from "./accountDeletionService.js";
 
 export class BackgroundCleanupService {
   private interval: NodeJS.Timeout | undefined;
@@ -33,7 +34,8 @@ export class BackgroundCleanupService {
         uploadService.cleanupExpiredNow(),
         generatedMediaService.cleanupExpiredNow(),
         generatedAudioService.cleanupExpiredNow(),
-        openAIArtifactService.cleanupExpiredNow()
+        openAIArtifactService.cleanupExpiredNow(),
+        accountDeletionService.purgeDueAccounts()
       ]);
     } catch (error) {
       logger.warn("Storage cleanup job failed", {

@@ -233,6 +233,8 @@ export const authUserSchema = z.object({
   displayName: z.string().nullable().optional(),
   avatarUrl: z.string().nullable().optional(),
   status: z.string(),
+  deletionRequestedAt: z.string().nullable().optional(),
+  deletionScheduledFor: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string()
 });
@@ -276,6 +278,22 @@ export const loginRequestSchema = z.object({
   deviceId: z.string().max(200).optional()
 });
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
+
+export const restoreAccountRequestSchema = loginRequestSchema;
+export type RestoreAccountRequest = z.infer<typeof restoreAccountRequestSchema>;
+
+export const deleteAccountRequestSchema = z.object({
+  confirmation: z.literal("DELETE"),
+  password: z.string().min(1).max(256).optional()
+});
+export type DeleteAccountRequest = z.infer<typeof deleteAccountRequestSchema>;
+
+export const accountDeletionResponseSchema = z.object({
+  status: z.literal("pending_deletion"),
+  deletionRequestedAt: z.string(),
+  deletionScheduledFor: z.string()
+});
+export type AccountDeletionResponse = z.infer<typeof accountDeletionResponseSchema>;
 
 export const refreshAuthRequestSchema = z.object({
   refreshToken: z.string().min(1),

@@ -49,4 +49,16 @@ describe("BackgroundChatJobService", () => {
     const cancelled = await service.cancel(job.id, "Owner cancelled.", "owner-a");
     expect(cancelled?.status).toBe("cancelled");
   });
+
+  it("cancels every running job owned by an account before deletion", async () => {
+    const service = new BackgroundChatJobService();
+    const owned = await service.start({ ownerId: "owner-delete" }, async (runningJob) => waitForAbort(runningJob.abortController.signal));
+    const other = await service.start({ ownerId: "owner-keep" }, async (runningJob) => waitForAbort(runningJob.abortController.signal));
+
+    await service.cancelForOwner("owner-delete");
+
+    expect((await service.get(owned.id, "owner-delete"))?.status).toBe("cancelled");
+    expect((await service.get(other.id, "owner-keep"))?.status).toBe("running");
+    await service.cancel(other.id, "Test cleanup.", "owner-keep");
+  });
 });
