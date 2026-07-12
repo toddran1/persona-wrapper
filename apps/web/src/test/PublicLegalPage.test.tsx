@@ -24,4 +24,10 @@ describe("PublicLegalPage", () => {
   it("registers every required public route", () => {
     expect([...PUBLIC_PAGE_PATHS]).toEqual(["/privacy", "/terms", "/delete-account", "/support"]);
   });
+
+  it("states that users must be at least 16 years old", () => {
+    render(<PublicLegalPage path="/terms" />);
+    expect(screen.getByText("You must be 16 years of age or older to create an account or use the Service.", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("If you are 16 or 17, you may use the Service only with permission from a parent or legal guardian.", { exact: false })).toBeInTheDocument();
+  });
 });
