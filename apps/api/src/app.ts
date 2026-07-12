@@ -50,6 +50,14 @@ export function notFoundHandler(_request: Request, response: Response): void {
   });
 }
 
+function requireAuthenticatedRequest(request: Request, _response: Response, next: NextFunction): void {
+  if (request.auth) {
+    next();
+    return;
+  }
+  next(new HttpError("Authentication required.", 401));
+}
+
 export function apiErrorHandler(error: unknown, request: Request, response: Response, next: NextFunction): void {
   if (response.headersSent) {
     next(error);
@@ -74,6 +82,10 @@ export function apiErrorHandler(error: unknown, request: Request, response: Resp
     : undefined;
   if (errorStatus === 400) {
     response.status(400).json({ error: "Malformed request body.", code: "BAD_REQUEST", requestId });
+    return;
+  }
+  if (errorStatus === 413) {
+    response.status(413).json({ error: "Request body is too large.", code: "PAYLOAD_TOO_LARGE", requestId });
     return;
   }
   if (error instanceof Error && error.message.startsWith("CORS origin not allowed:")) {
@@ -138,7 +150,8 @@ export function createApp() {
   });
   app.use(cors(corsOptions));
   app.options("*", cors(corsOptions));
-  app.use(express.json({ limit: env.DATA_TRANSFER_MAX_BYTES }));
+  app.use("/api/data", authenticateRequest, requireAuthenticatedRequest, express.json({ limit: env.DATA_TRANSFER_MAX_BYTES }), dataTransferRouter);
+  app.use(express.json({ limit: env.API_JSON_MAX_BYTES }));
   app.use(authenticateRequest);
 
   app.get("/health", (_request, response) => {
@@ -163,7 +176,6 @@ export function createApp() {
   app.use("/api/chat", chatRouter);
   app.use("/api/personas", personaRouter);
   app.use("/api/uploads", uploadRouter);
-  app.use("/api/data", dataTransferRouter);
   app.get("/api/generated-audio/:token", (request, response, next) => {
     getGeneratedAudio(request, response).catch(next);
   });

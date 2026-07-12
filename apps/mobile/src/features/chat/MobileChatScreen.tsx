@@ -41,7 +41,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
 import { IconButton } from "../../components/IconButton";
-import { clearSelectedConversationId, getSelectedConversationId, setSelectedConversationId } from "../../storage/secureTokens";
+import { clearSelectedConversationId, getAuthTokens, getSelectedConversationId, setSelectedConversationId } from "../../storage/secureTokens";
 import { defaultPersonaTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
@@ -58,6 +58,7 @@ import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
+const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 
 WebBrowser.maybeCompleteAuthSession();
@@ -66,6 +67,21 @@ async function openPublicWebPage(path: string): Promise<void> {
   const pageUrl = new URL(`${PUBLIC_WEB_BASE_URL}${path}`);
   pageUrl.searchParams.set("returnTo", ExpoLinking.createURL("/"));
   await WebBrowser.openBrowserAsync(pageUrl.toString());
+}
+
+function assertSupportedImportSize(size: number | undefined): void {
+  if (size !== undefined && size > MAX_IMPORT_FILE_BYTES) {
+    throw new Error("Import files must be 25 MB or smaller.");
+  }
+}
+
+async function loadAuthenticatedUser(): Promise<AuthUser | undefined> {
+  try {
+    return (await api.getCurrentUser()).user;
+  } catch (error) {
+    if (await getAuthTokens()) throw error;
+    return undefined;
+  }
 }
 
 type GestureContext = {
@@ -325,7 +341,7 @@ export function MobileChatScreen() {
     setAuthChecked(false);
     try {
       const [user, providers] = await Promise.all([
-        api.getCurrentUser().then((payload) => payload.user).catch(() => undefined),
+        loadAuthenticatedUser(),
         api.getOAuthProviders().catch(() => [])
       ]);
       setAuthUser(user);
@@ -340,7 +356,7 @@ export function MobileChatScreen() {
         setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
       }
       if (user) {
-        const nextConversations = await refreshConversations().catch(() => []);
+        const nextConversations = await refreshConversations();
         const savedConversationId = await getSelectedConversationId();
         if (!conversationId && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
           await selectConversation(savedConversationId, { keepDrawerOpen: true });
@@ -867,7 +883,7 @@ export function MobileChatScreen() {
       setError(undefined);
       setAuthError(undefined);
       try {
-        const user = await api.getCurrentUser().then((payload) => payload.user).catch(() => undefined);
+        const user = await loadAuthenticatedUser();
         if (!mounted) return;
         setAuthUser(user);
         setAuthChecked(true);
@@ -886,7 +902,7 @@ export function MobileChatScreen() {
           if (mounted) setPersona(detail);
         }
         if (user && mounted) {
-          const nextConversations = await refreshConversations().catch(() => []);
+          const nextConversations = await refreshConversations();
           const savedConversationId = await getSelectedConversationId();
           if (savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
             await selectConversation(savedConversationId, { keepDrawerOpen: true });
@@ -1247,6 +1263,7 @@ export function MobileChatScreen() {
       const result = await DocumentPicker.getDocumentAsync({ type: ["application/json", "application/zip", "text/plain"], copyToCacheDirectory: true, multiple: false });
       if (result.canceled || !result.assets[0]) return;
       const asset = result.assets[0];
+      assertSupportedImportSize(asset.size);
       const fileName = asset.name.toLowerCase();
       let text: string;
       if (fileName.endsWith(".zip")) {
@@ -1254,10 +1271,12 @@ export function MobileChatScreen() {
         const zip = await JSZip.loadAsync(base64, { base64: true });
         const entry = zip.file("conversations.json") ?? Object.values(zip.files).find((candidate) => candidate.name.toLowerCase().endsWith(".json"));
         if (!entry || entry.dir) throw new Error("The ZIP file does not contain a supported JSON conversation export.");
+        assertSupportedImportSize((entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize);
         text = await entry.async("text");
       } else {
         text = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
       }
+      assertSupportedImportSize(text.length);
       const archive = fileName.endsWith(".jsonl")
         ? { conversations: text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)) }
         : JSON.parse(text);
@@ -1335,6 +1354,9 @@ export function MobileChatScreen() {
         onSubmit={() => void submitAuth()}
         onOAuth={(oauthProvider) => void startOAuth(oauthProvider)}
         onRetry={() => void retryLoadAppData()}
+        onOpenPublicPage={(path) => void openPublicWebPage(path).catch(() => {
+          setAuthError("Could not open this page. Check your internet connection and try again.");
+        })}
       />
     );
   }

@@ -634,7 +634,7 @@ export const forTheBaddiezArchiveSchema = z.object({
     fileName: z.string().max(500),
     mimeType: z.string().max(200).optional(),
     createdAt: z.string().datetime().optional()
-  })).max(1000).optional()
+  })).optional()
 });
 export type ForTheBaddiezArchive = z.infer<typeof forTheBaddiezArchiveSchema>;
 

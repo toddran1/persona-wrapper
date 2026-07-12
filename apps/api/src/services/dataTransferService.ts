@@ -11,9 +11,11 @@ import { eq } from "drizzle-orm";
 import { getDatabase } from "../db/client.js";
 import { generatedAudio, generatedMedia, openAIArtifacts, uploads, users } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
+import { logger } from "../utils/logger.js";
 import { ConversationStore } from "./conversationStore.js";
 
 const MAX_IMPORT_CONVERSATIONS = 100;
+const EXPORT_READ_CONCURRENCY = 10;
 
 type ExternalParseResult = {
   source: DataImportResult["source"];
@@ -26,8 +28,14 @@ function stringValue(value: unknown, max = 200_000): string | undefined {
 }
 
 function iso(value: unknown): string | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return new Date(value * 1000).toISOString();
-  if (typeof value === "string" && !Number.isNaN(Date.parse(value))) return new Date(value).toISOString();
+  const date = typeof value === "number" && Number.isFinite(value)
+    ? new Date(value * 1000)
+    : typeof value === "string"
+      ? new Date(value)
+      : undefined;
+  if (date && !Number.isNaN(date.getTime())) {
+    try { return date.toISOString(); } catch { return undefined; }
+  }
   return undefined;
 }
 
@@ -55,17 +63,39 @@ function portableFromMessages(title: string, rawMessages: unknown[], options: Pa
   return portableConversationSchema.parse({ title: title.slice(0, 500) || "Imported conversation", messages, ...options });
 }
 
+function chatGptBranchMessages(conversation: Record<string, unknown>, mapping: Record<string, unknown>): unknown[] {
+  const currentNode = stringValue(conversation.current_node, 200);
+  if (!currentNode) {
+    return Object.values(mapping)
+      .filter((node): node is Record<string, unknown> => Boolean(node && typeof node === "object"))
+      .map((node) => node.message);
+  }
+
+  const branch: unknown[] = [];
+  const visited = new Set<string>();
+  let nodeId: string | undefined = currentNode;
+  while (nodeId && !visited.has(nodeId)) {
+    visited.add(nodeId);
+    const rawNode = mapping[nodeId];
+    if (!rawNode || typeof rawNode !== "object") break;
+    const node = rawNode as Record<string, unknown>;
+    if (node.message) branch.unshift(node.message);
+    nodeId = stringValue(node.parent, 200);
+  }
+  return branch.length > 0 ? branch : Object.values(mapping)
+    .filter((node): node is Record<string, unknown> => Boolean(node && typeof node === "object"))
+    .map((node) => node.message);
+}
+
 function parseChatGptExport(value: unknown): ExternalParseResult | undefined {
   if (!Array.isArray(value) || !value.some((item) => item && typeof item === "object" && "mapping" in item)) return undefined;
   const conversations: PortableConversation[] = [];
-  let skipped = 0;
+  let skipped = Math.max(0, value.length - MAX_IMPORT_CONVERSATIONS);
   for (const rawConversation of value.slice(0, MAX_IMPORT_CONVERSATIONS)) {
     const conversation = rawConversation as Record<string, unknown>;
     const mapping = conversation.mapping;
     if (!mapping || typeof mapping !== "object") { skipped += 1; continue; }
-    const nodes = Object.values(mapping as Record<string, unknown>)
-      .filter((node): node is Record<string, unknown> => Boolean(node && typeof node === "object"));
-    const parsed = portableFromMessages(stringValue(conversation.title, 500) ?? "Imported ChatGPT conversation", nodes.map((node) => node.message), {
+    const parsed = portableFromMessages(stringValue(conversation.title, 500) ?? "Imported ChatGPT conversation", chatGptBranchMessages(conversation, mapping as Record<string, unknown>), {
       createdAt: iso(conversation.create_time),
       updatedAt: iso(conversation.update_time)
     });
@@ -82,7 +112,7 @@ function parseClaudeExport(value: unknown): ExternalParseResult | undefined {
       : undefined;
   if (!candidates || !candidates.some((item) => item && typeof item === "object" && ("chat_messages" in item || "messages" in item))) return undefined;
   const conversations: PortableConversation[] = [];
-  let skipped = 0;
+  let skipped = Math.max(0, candidates.length - MAX_IMPORT_CONVERSATIONS);
   for (const rawConversation of candidates.slice(0, MAX_IMPORT_CONVERSATIONS)) {
     const conversation = rawConversation as Record<string, unknown>;
     const messages = Array.isArray(conversation.chat_messages) ? conversation.chat_messages : Array.isArray(conversation.messages) ? conversation.messages : [];
@@ -119,14 +149,27 @@ function portableFromDetail(detail: ConversationDetail): PortableConversation {
   });
 }
 
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 export class DataTransferService {
   constructor(private readonly conversationStore: ConversationStore) {}
 
   async exportConversations(userId: string, conversationIds?: string[]): Promise<ForTheBaddiezArchive> {
     const requestedIds = conversationIds?.length ? [...new Set(conversationIds)] : undefined;
-    const details = requestedIds
-      ? await Promise.all(requestedIds.map((id) => this.conversationStore.get(id, userId)))
-      : await Promise.all((await this.conversationStore.list(userId, 10000)).map((summary) => this.conversationStore.get(summary.id, userId)));
+    const ids = requestedIds ?? (await this.conversationStore.list(userId, 10000)).map((summary) => summary.id);
+    const details = await mapWithConcurrency(ids, EXPORT_READ_CONCURRENCY, (id) => this.conversationStore.get(id, userId));
     if (requestedIds && details.some((detail) => !detail)) throw new HttpError("One or more selected conversations were not found.", 404);
     return {
       format: "for-the-baddiez-export",
@@ -165,9 +208,21 @@ export class DataTransferService {
     const parsed = parseImportArchive(value);
     const imported: ConversationSummary[] = [];
     let skipped = parsed.skipped + Math.max(0, parsed.conversations.length - MAX_IMPORT_CONVERSATIONS);
+    let firstImportError: unknown;
     for (const conversation of parsed.conversations.slice(0, MAX_IMPORT_CONVERSATIONS)) {
       try { imported.push(await this.conversationStore.importPortable(conversation, userId)); }
-      catch { skipped += 1; }
+      catch (error) {
+        firstImportError ??= error;
+        skipped += 1;
+        logger.warn("Conversation import failed", {
+          userId,
+          title: conversation.title,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    if (imported.length === 0 && firstImportError) {
+      throw new HttpError("The export was valid, but its conversations could not be saved. Please try again.", 500);
     }
     if (imported.length === 0) throw new HttpError("No supported conversation messages were found in this export.", 400);
     return { source: parsed.source, importedConversations: imported.length, skippedConversations: skipped, conversations: imported };

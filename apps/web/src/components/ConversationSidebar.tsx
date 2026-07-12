@@ -8,6 +8,13 @@ import { useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 
 const REGISTER_PASSWORD_MIN_LENGTH = 10;
+const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
+
+function assertSupportedImportSize(size: number | undefined): void {
+  if (size !== undefined && size > MAX_IMPORT_FILE_BYTES) {
+    throw new Error("Import files must be 25 MB or smaller.");
+  }
+}
 
 function formatConversationTime(value: string): string {
   const date = new Date(value);
@@ -85,6 +92,7 @@ export function ConversationSidebar({
   const [authBusy, setAuthBusy] = useState(false);
   const [localAuthError, setLocalAuthError] = useState<string | undefined>();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [publicAboutOpen, setPublicAboutOpen] = useState(false);
   const [conversationActionMenuId, setConversationActionMenuId] = useState<string | undefined>();
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -248,16 +256,19 @@ export function ConversationSidebar({
     setAuthBusy(true);
     setLocalAuthError(undefined);
     try {
+      assertSupportedImportSize(file.size);
       const fileName = file.name.toLowerCase();
       let text: string;
       if (fileName.endsWith(".zip")) {
         const zip = await JSZip.loadAsync(await file.arrayBuffer());
         const entry = zip.file("conversations.json") ?? Object.values(zip.files).find((candidate) => candidate.name.toLowerCase().endsWith(".json"));
         if (!entry || entry.dir) throw new Error("The ZIP file does not contain a supported JSON conversation export.");
+        assertSupportedImportSize((entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize);
         text = await entry.async("text");
       } else {
         text = await file.text();
       }
+      assertSupportedImportSize(text.length);
       const archive = fileName.endsWith(".jsonl")
         ? { conversations: text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)) }
         : JSON.parse(text);
@@ -499,6 +510,34 @@ export function ConversationSidebar({
         </section>
       ) : null}
 
+      {!authUser ? (
+        <section className="conversation-public-about" aria-label="About For the Baddiez">
+          <button
+            type="button"
+            className="conversation-auth-toggle"
+            onClick={() => setPublicAboutOpen((open) => !open)}
+            aria-expanded={publicAboutOpen}
+            aria-controls="conversation-public-about-panel"
+          >
+            <span className="conversation-auth-toggle-copy">
+              <span className="conversation-auth-label">About</span>
+              <span className="conversation-auth-title">Help and policies</span>
+            </span>
+            <span className="conversation-auth-toggle-meta">
+              <span className="conversation-auth-chevron" aria-hidden="true">{publicAboutOpen ? "-" : "+"}</span>
+            </span>
+          </button>
+          {publicAboutOpen ? (
+            <nav id="conversation-public-about-panel" className="conversation-public-about-links" aria-label="Public information">
+              <a href="/privacy">Privacy Policy</a>
+              <a href="/terms">Terms of Use</a>
+              <a href="/delete-account">Delete account policy</a>
+              <a href="/support">Support</a>
+            </nav>
+          ) : null}
+        </section>
+      ) : null}
+
       <button
         type="button"
         className="conversation-new-chat"
@@ -626,6 +665,7 @@ export function ConversationSidebar({
               <div className="conversation-account-menu-detail">
                 {accountDetail}
               </div>
+              {localAuthError ? <div className="conversation-auth-error" role="alert">{localAuthError}</div> : null}
               <div className="conversation-account-menu-divider" />
               <div className="conversation-account-menu-label">Your data</div>
               <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => void onExportAccount()} disabled={authBusy}>Export account data</button>

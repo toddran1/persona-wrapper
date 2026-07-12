@@ -50,4 +50,18 @@ describe("API error boundary", () => {
     apiErrorHandler(error, {} as Request, response, next as unknown as NextFunction);
     expect(next).toHaveBeenCalledWith(error);
   });
+
+  it("returns a clear 413 response for oversized JSON bodies", () => {
+    const { response, state } = mockResponse();
+    const tooLargeError = Object.assign(new Error("request entity too large"), { status: 413 });
+    apiErrorHandler(
+      tooLargeError,
+      { method: "POST", path: "/api/data/import" } as Request,
+      response,
+      vi.fn() as unknown as NextFunction
+    );
+
+    expect(state.status).toBe(413);
+    expect(state.body).toEqual({ error: "Request body is too large.", code: "PAYLOAD_TOO_LARGE", requestId: "request-test" });
+  });
 });

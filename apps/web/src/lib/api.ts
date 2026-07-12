@@ -28,36 +28,47 @@ const configuredApiBaseUrl = typeof import.meta.env.VITE_API_URL === "string" ? 
 export const API_BASE_URL = configuredApiBaseUrl || DEFAULT_API_BASE_URL;
 const OWNER_ID_KEY = "persona-wrapper-owner-id";
 const AUTH_TOKENS_KEY = "persona-wrapper-auth-tokens";
+let fallbackOwnerId: string | undefined;
+let authRefreshInFlight: Promise<boolean> | undefined;
 
 export function resolveApiUrl(pathOrUrl: string): string {
   return pathOrUrl.startsWith("/") ? `${API_BASE_URL}${pathOrUrl}` : pathOrUrl;
 }
 
 export function ownerId(): string {
-  const existing = localStorage.getItem(OWNER_ID_KEY);
-  if (existing) return existing;
-  const created = crypto.randomUUID();
-  localStorage.setItem(OWNER_ID_KEY, created);
-  return created;
+  try {
+    const existing = localStorage.getItem(OWNER_ID_KEY);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    localStorage.setItem(OWNER_ID_KEY, created);
+    return created;
+  } catch {
+    fallbackOwnerId ??= crypto.randomUUID();
+    return fallbackOwnerId;
+  }
 }
 
 export function authTokens(): AuthTokens | undefined {
-  const value = localStorage.getItem(AUTH_TOKENS_KEY);
-  if (!value) return undefined;
   try {
+    const value = localStorage.getItem(AUTH_TOKENS_KEY);
+    if (!value) return undefined;
     return JSON.parse(value) as AuthTokens;
   } catch {
-    localStorage.removeItem(AUTH_TOKENS_KEY);
+    try { localStorage.removeItem(AUTH_TOKENS_KEY); } catch { /* Storage is unavailable. */ }
     return undefined;
   }
 }
 
 export function setAuthTokens(tokens: AuthTokens): void {
-  localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(tokens));
+  try {
+    localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(tokens));
+  } catch {
+    throw new Error("Your browser could not securely save the sign-in session. Check storage permissions and try again.");
+  }
 }
 
 export function clearAuthTokens(): void {
-  localStorage.removeItem(AUTH_TOKENS_KEY);
+  try { localStorage.removeItem(AUTH_TOKENS_KEY); } catch { /* Storage is unavailable. */ }
 }
 
 export type OAuthCallbackResult = {
@@ -177,7 +188,7 @@ async function parseApiError(response: Response): Promise<string> {
     detail = "";
   }
 
-  if (response.status === 401) return "Invalid email/username or password.";
+  if (response.status === 401) return detail || "Your session is no longer valid. Please sign in again.";
   if (response.status === 409) return "An account with that email or username already exists.";
   if (response.status === 429) return detail || "Too many requests. Please wait and try again.";
   if (response.status === 413) return detail || "That file is too large.";
@@ -212,7 +223,40 @@ function requestHeaders(includeJson: boolean, headers?: HeadersInit): HeadersIni
   return { ...next, ...(headers ?? {}) };
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function performStoredAuthRefresh(): Promise<boolean> {
+  const refreshToken = authTokens()?.refreshToken;
+  if (!refreshToken) return false;
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-client-type": "web" },
+      body: JSON.stringify({ refreshToken, clientType: "web" })
+    });
+  } catch {
+    return false;
+  }
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) clearAuthTokens();
+    return false;
+  }
+  try {
+    const auth = await response.json() as AuthResponse;
+    setAuthTokens(auth.tokens);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshStoredAuth(): Promise<boolean> {
+  authRefreshInFlight ??= performStoredAuthRefresh().finally(() => {
+    authRefreshInFlight = undefined;
+  });
+  return authRefreshInFlight;
+}
+
+async function requestJson<T>(path: string, init?: RequestInit, options?: { skipAuthRefresh?: boolean }): Promise<T> {
   const { headers, ...rest } = init ?? {};
   let response: Response;
   try {
@@ -224,6 +268,9 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error("Could not connect to the app server. Make sure the API is running.");
   }
 
+  if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
+    return requestJson<T>(path, init, { skipAuthRefresh: true });
+  }
   if (!response.ok) {
     throw new Error(await parseApiError(response));
   }
@@ -235,7 +282,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
-async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
+async function requestNoContent(path: string, init?: RequestInit, options?: { skipAuthRefresh?: boolean }): Promise<void> {
   const { headers, ...rest } = init ?? {};
   let response: Response;
   try {
@@ -246,47 +293,57 @@ async function requestNoContent(path: string, init?: RequestInit): Promise<void>
   } catch (error) {
     throw new Error("Could not connect to the app server. Make sure the API is running.");
   }
+  if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
+    return requestNoContent(path, init, { skipAuthRefresh: true });
+  }
   if (!response.ok) throw new Error(await parseApiError(response));
 }
 
 export const api = {
   fetchUploadBlob: async (url: string, signal?: AbortSignal): Promise<Blob> => {
     const resolvedUrl = resolveApiUrl(url);
-    let response: Response;
-    try {
-      response = await fetch(resolvedUrl, {
-        headers: requestHeaders(false),
-        ...(signal ? { signal } : {})
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") throw error;
-      throw new Error("Could not download this file from the app server.");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let response: Response;
+      try {
+        response = await fetch(resolvedUrl, {
+          headers: requestHeaders(false),
+          ...(signal ? { signal } : {})
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") throw error;
+        throw new Error("Could not download this file from the app server.");
+      }
+      if (response.status === 401 && attempt === 0 && await refreshStoredAuth()) continue;
+      if (!response.ok) throw new Error(await parseApiError(response));
+      return response.blob();
     }
-    if (!response.ok) throw new Error(`Upload fetch failed with status ${response.status}`);
-    return response.blob();
+    throw new Error("Could not download this file from the app server.");
   },
   uploadFiles: async (files: File[]): Promise<UploadedAsset[]> => {
-    const body = new FormData();
-    files.forEach((file) => body.append("files", file));
-    let response: Response;
-    try {
-      response = await fetch(`${API_BASE_URL}/api/uploads`, {
-        method: "POST",
-        headers: requestHeaders(false),
-        body
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Could not reach API at ${API_BASE_URL}/api/uploads: ${message}`);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const body = new FormData();
+      files.forEach((file) => body.append("files", file));
+      let response: Response;
+      try {
+        response = await fetch(`${API_BASE_URL}/api/uploads`, {
+          method: "POST",
+          headers: requestHeaders(false),
+          body
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Could not reach API at ${API_BASE_URL}/api/uploads: ${message}`);
+      }
+      if (response.status === 401 && attempt === 0 && await refreshStoredAuth()) continue;
+      if (!response.ok) throw new Error(await parseApiError(response));
+      try {
+        const payload = await response.json() as { assets: UploadedAsset[] };
+        return payload.assets;
+      } catch {
+        throw new Error("The app server returned an invalid upload response.");
+      }
     }
-    if (!response.ok) throw new Error(`Upload failed with status ${response.status}`);
-    let payload: { assets: UploadedAsset[] };
-    try {
-      payload = await response.json() as { assets: UploadedAsset[] };
-    } catch {
-      throw new Error("The app server returned an invalid upload response.");
-    }
-    return payload.assets;
+    throw new Error("Could not upload files to the app server.");
   },
   createVectorStore: async (assetIds: string[], name?: string): Promise<{ id: string; expiresAt: string }> => {
     const payload = await requestJson<{ vectorStore: { id: string; expiresAt: string } }>("/api/uploads/vector-stores", {
@@ -339,7 +396,7 @@ export const api = {
     const response = await requestJson<AuthResponse>("/api/auth/refresh", {
       method: "POST",
       body: JSON.stringify({ ...payload, refreshToken })
-    });
+    }, { skipAuthRefresh: true });
     setAuthTokens(response.tokens);
     return response;
   },

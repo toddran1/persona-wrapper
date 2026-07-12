@@ -93,6 +93,7 @@ const envSchema = z.object({
   CHAT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   AUTH_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(20),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  API_JSON_MAX_BYTES: z.coerce.number().int().min(64 * 1024).max(2 * 1024 * 1024).default(1024 * 1024),
   DATA_TRANSFER_MAX_BYTES: z.coerce.number().int().min(1024 * 1024).max(25 * 1024 * 1024).default(25 * 1024 * 1024),
   DATABASE_URL: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   AUTH_REQUIRED: z.preprocess(stringToBoolean, z.boolean().default(false)),

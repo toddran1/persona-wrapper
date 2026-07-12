@@ -1051,17 +1051,27 @@ export function App() {
   }
 
   async function handleExportAccount(): Promise<void> {
-    const archive = await api.exportAccountData();
-    const date = new Date().toISOString().slice(0, 10);
-    downloadExport(JSON.stringify(archive, null, 2), `for-the-baddiez-account-${date}.json`, "application/json");
+    setError(undefined);
+    try {
+      const archive = await api.exportAccountData();
+      const date = new Date().toISOString().slice(0, 10);
+      downloadExport(JSON.stringify(archive, null, 2), `for-the-baddiez-account-${date}.json`, "application/json");
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Could not export your account data.");
+    }
   }
 
   async function handleExportConversation(conversationId: string): Promise<void> {
-    const archive = await api.exportConversations([conversationId]);
-    const date = new Date().toISOString().slice(0, 10);
-    downloadExport(JSON.stringify(archive, null, 2), `for-the-baddiez-conversation-${date}.json`, "application/json");
-    downloadExport(archiveToMarkdown(archive), `for-the-baddiez-conversation-${date}.md`, "text/markdown");
-    downloadExport(archiveToMarkdown(archive), `for-the-baddiez-conversation-${date}.txt`, "text/plain");
+    setError(undefined);
+    try {
+      const archive = await api.exportConversations([conversationId]);
+      const date = new Date().toISOString().slice(0, 10);
+      downloadExport(JSON.stringify(archive, null, 2), `for-the-baddiez-conversation-${date}.json`, "application/json");
+      downloadExport(archiveToMarkdown(archive), `for-the-baddiez-conversation-${date}.md`, "text/markdown");
+      downloadExport(archiveToMarkdown(archive), `for-the-baddiez-conversation-${date}.txt`, "text/plain");
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Could not export this conversation.");
+    }
   }
 
   async function handleImportConversations(archive: unknown): Promise<void> {

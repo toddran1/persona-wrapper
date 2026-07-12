@@ -39,6 +39,7 @@ type MobileAuthScreenProps = {
   onSubmit: () => void;
   onOAuth: (provider: OAuthProvider) => void;
   onRetry: () => void;
+  onOpenPublicPage: (path: "/privacy" | "/terms" | "/delete-account" | "/support") => void;
 };
 
 export function MobileAuthScreen({
@@ -57,7 +58,8 @@ export function MobileAuthScreen({
   onPasswordChange,
   onSubmit,
   onOAuth,
-  onRetry
+  onRetry,
+  onOpenPublicPage
 }: MobileAuthScreenProps) {
   const { height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -240,6 +242,26 @@ export function MobileAuthScreen({
                   {mode === "restore" ? "Back to sign in" : "Account scheduled for deletion? Restore it"}
                 </Text>
               </Pressable>
+              <View style={[styles.aboutMenu, { borderTopColor: theme.border }]}>
+                <Text style={[styles.aboutMenuLabel, { color: theme.muted }]}>About</Text>
+                {([
+                  ["Privacy Policy", "shield-checkmark-outline", "/privacy"],
+                  ["Terms of Use", "document-text-outline", "/terms"],
+                  ["Delete account policy", "person-remove-outline", "/delete-account"],
+                  ["Support", "help-circle-outline", "/support"]
+                ] as const).map(([label, icon, path]) => (
+                  <Pressable
+                    key={path}
+                    accessibilityRole="link"
+                    onPress={() => onOpenPublicPage(path)}
+                    style={({ pressed }) => [styles.aboutMenuRow, { backgroundColor: pressed ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.055)" }]}
+                  >
+                    <Ionicons name={icon} size={18} color={theme.text} />
+                    <Text style={[styles.aboutMenuText, { color: theme.text }]}>{label}</Text>
+                    <Ionicons name="open-outline" size={16} color={theme.muted} />
+                  </Pressable>
+                ))}
+              </View>
             </View>
           )}
         </ScrollView>
@@ -258,6 +280,32 @@ const styles = StyleSheet.create({
     marginTop: 7,
     maxWidth: 330,
     textAlign: "center"
+  },
+  aboutMenu: {
+    gap: 6,
+    marginTop: 18,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth
+  },
+  aboutMenuLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+    marginBottom: 2,
+    textTransform: "uppercase"
+  },
+  aboutMenuRow: {
+    alignItems: "center",
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 44,
+    paddingHorizontal: 12
+  },
+  aboutMenuText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700"
   },
   brandName: {
     fontSize: 28,
