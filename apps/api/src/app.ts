@@ -11,6 +11,7 @@ import { authRouter } from "./routes/auth.routes.js";
 import { chatRouter } from "./routes/chat.routes.js";
 import { personaRouter } from "./routes/persona.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
+import { dataTransferRouter } from "./routes/dataTransfer.routes.js";
 import { getGeneratedAudio } from "./controllers/generatedAudio.controller.js";
 import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
@@ -137,7 +138,7 @@ export function createApp() {
   });
   app.use(cors(corsOptions));
   app.options("*", cors(corsOptions));
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: env.DATA_TRANSFER_MAX_BYTES }));
   app.use(authenticateRequest);
 
   app.get("/health", (_request, response) => {
@@ -162,6 +163,7 @@ export function createApp() {
   app.use("/api/chat", chatRouter);
   app.use("/api/personas", personaRouter);
   app.use("/api/uploads", uploadRouter);
+  app.use("/api/data", dataTransferRouter);
   app.get("/api/generated-audio/:token", (request, response, next) => {
     getGeneratedAudio(request, response).catch(next);
   });

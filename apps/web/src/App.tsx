@@ -1,4 +1,4 @@
-import type { AuthUser, ChatJobResponse, ChatMessage, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
+import type { AuthUser, ChatJobResponse, ChatMessage, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRef } from "react";
@@ -104,6 +104,23 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+function downloadExport(content: string, fileName: string, mimeType: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function archiveToMarkdown(archive: ForTheBaddiezArchive): string {
+  return archive.conversations.map((conversation) => [
+    `# ${conversation.title}`,
+    "",
+    ...conversation.messages.map((message) => `## ${message.role === "assistant" ? "Assistant" : message.role === "user" ? "You" : message.role}\n\n${message.content}`)
+  ].join("\n\n")).join("\n\n---\n\n");
+}
+
 function isTransientApiBootError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
@@ -177,6 +194,17 @@ class BackgroundJobStateError extends Error {
   }
 }
 
+const WEB_SELECTED_CONVERSATION_KEY = "for-the-baddiez:selected-conversation";
+
+function storedConversationId(): string | undefined {
+  try {
+    const value = window.sessionStorage.getItem(WEB_SELECTED_CONVERSATION_KEY)?.trim();
+    return value || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function App() {
   const testModeEnabled = import.meta.env.VITE_TEST_MODE === "true";
   const reviewPageEnabled = testModeEnabled && window.location.pathname.replace(/\/$/, "") === "/review";
@@ -193,7 +221,7 @@ export function App() {
   const [personaAudioPlaying, setPersonaAudioPlaying] = useState(false);
   const [nonAudioVisualState, setNonAudioVisualState] = useState<PersonaVisualState>("idle");
   const [error, setError] = useState<string | undefined>();
-  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [conversationId, setConversationId] = useState<string | undefined>(() => storedConversationId());
   const [conversationList, setConversationList] = useState<ConversationSummary[]>([]);
   const [conversationListLoading, setConversationListLoading] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | undefined>();
@@ -225,6 +253,18 @@ export function App() {
     desktopQuery.addEventListener("change", closeMobileSidebar);
     return () => desktopQuery.removeEventListener("change", closeMobileSidebar);
   }, []);
+
+  useEffect(() => {
+    try {
+      if (conversationId) {
+        window.sessionStorage.setItem(WEB_SELECTED_CONVERSATION_KEY, conversationId);
+      } else {
+        window.sessionStorage.removeItem(WEB_SELECTED_CONVERSATION_KEY);
+      }
+    } catch {
+      // Session storage can be unavailable in hardened browser modes.
+    }
+  }, [conversationId]);
 
   function clearNonAudioVisualTimer(): void {
     if (nonAudioVisualTimeoutRef.current === undefined) return;
@@ -354,7 +394,12 @@ export function App() {
       } finally {
         if (!cancelled) {
           setAuthLoading(false);
-          void refreshConversationList(undefined, true);
+          const selectedConversationId = authTokens() ? storedConversationId() : undefined;
+          if (!selectedConversationId) setConversationId(undefined);
+          void (async () => {
+            await refreshConversationList(selectedConversationId, true);
+            if (selectedConversationId) await loadConversation(selectedConversationId);
+          })();
         }
       }
     })();
@@ -1005,6 +1050,26 @@ export function App() {
     }
   }
 
+  async function handleExportAccount(): Promise<void> {
+    const archive = await api.exportAccountData();
+    const date = new Date().toISOString().slice(0, 10);
+    downloadExport(JSON.stringify(archive, null, 2), `for-the-baddiez-account-${date}.json`, "application/json");
+  }
+
+  async function handleExportConversation(conversationId: string): Promise<void> {
+    const archive = await api.exportConversations([conversationId]);
+    const date = new Date().toISOString().slice(0, 10);
+    downloadExport(JSON.stringify(archive, null, 2), `for-the-baddiez-conversation-${date}.json`, "application/json");
+    downloadExport(archiveToMarkdown(archive), `for-the-baddiez-conversation-${date}.md`, "text/markdown");
+    downloadExport(archiveToMarkdown(archive), `for-the-baddiez-conversation-${date}.txt`, "text/plain");
+  }
+
+  async function handleImportConversations(archive: unknown): Promise<void> {
+    const result = await api.importConversationData(archive);
+    await refreshConversationList(undefined, true);
+    setAuthError(`Imported ${result.importedConversations} conversation${result.importedConversations === 1 ? "" : "s"} from ${result.source}.`);
+  }
+
   async function handleLogout(): Promise<void> {
     setAuthLoading(true);
     setAuthError(undefined);
@@ -1113,6 +1178,9 @@ export function App() {
           onRegister={handleRegister}
           onRestoreAccount={handleRestoreAccount}
           onDeleteAccount={handleDeleteAccount}
+          onExportAccount={handleExportAccount}
+          onExportConversation={handleExportConversation}
+          onImportConversations={handleImportConversations}
           onLogout={handleLogout}
           onOAuthLogin={handleOAuthLogin}
           onNewConversation={() => {

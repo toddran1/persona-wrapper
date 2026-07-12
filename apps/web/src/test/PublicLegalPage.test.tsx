@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { PublicLegalPage, PUBLIC_PAGE_PATHS } from "../components/PublicLegalPage.js";
+import { legalMobileReturnHref, PublicLegalPage, PUBLIC_PAGE_PATHS } from "../components/PublicLegalPage.js";
 
 describe("PublicLegalPage", () => {
   it.each([
@@ -12,6 +12,7 @@ describe("PublicLegalPage", () => {
     render(<PublicLegalPage path={path} />);
     expect(screen.getByRole("heading", { level: 1, name: heading })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Legal and support" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to For the Baddiez" })).toHaveAttribute("href", "/");
   });
 
   it("provides an external account-deletion request flow", () => {
@@ -23,6 +24,13 @@ describe("PublicLegalPage", () => {
 
   it("registers every required public route", () => {
     expect([...PUBLIC_PAGE_PATHS]).toEqual(["/privacy", "/terms", "/delete-account", "/support"]);
+  });
+
+  it("accepts only app deep links as mobile return targets", () => {
+    expect(legalMobileReturnHref("?returnTo=personawrapper%3A%2F%2F%2F")).toBe("personawrapper:///");
+    expect(legalMobileReturnHref("?returnTo=exp%3A%2F%2F127.0.0.1%3A8081%2F--%2F")).toBe("exp://127.0.0.1:8081/--/");
+    expect(legalMobileReturnHref("?returnTo=https%3A%2F%2Fevil.example")).toBeUndefined();
+    expect(legalMobileReturnHref("?returnTo=javascript%3Aalert(1)")).toBeUndefined();
   });
 
   it("states that users must be at least 16 years old", () => {

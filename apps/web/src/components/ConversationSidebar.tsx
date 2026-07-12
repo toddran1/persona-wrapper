@@ -4,7 +4,8 @@ import type {
   OAuthProvider,
   OAuthProviderStatus,
 } from "@persona/shared";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import JSZip from "jszip";
 
 const REGISTER_PASSWORD_MIN_LENGTH = 10;
 
@@ -33,6 +34,9 @@ export function ConversationSidebar({
   onRegister,
   onRestoreAccount,
   onDeleteAccount,
+  onExportAccount,
+  onExportConversation,
+  onImportConversations,
   onLogout,
   onOAuthLogin,
   onNewConversation,
@@ -58,6 +62,9 @@ export function ConversationSidebar({
   }) => Promise<void>;
   onRestoreAccount: (identifier: string, password: string) => Promise<void>;
   onDeleteAccount: (payload: { confirmation: "DELETE"; password?: string }) => Promise<void>;
+  onExportAccount: () => Promise<void>;
+  onExportConversation: (conversationId: string) => Promise<void>;
+  onImportConversations: (archive: unknown) => Promise<void>;
   onLogout: () => Promise<void>;
   onOAuthLogin: (provider: OAuthProvider) => void;
   onNewConversation: () => void;
@@ -78,10 +85,12 @@ export function ConversationSidebar({
   const [authBusy, setAuthBusy] = useState(false);
   const [localAuthError, setLocalAuthError] = useState<string | undefined>();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [conversationActionMenuId, setConversationActionMenuId] = useState<string | undefined>();
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const filteredConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return conversations;
@@ -126,6 +135,10 @@ export function ConversationSidebar({
     }
     onRenameConversation(conversationId, nextTitle);
     cancelRename();
+  }
+
+  function closeConversationActionMenu(): void {
+    setConversationActionMenuId(undefined);
   }
 
   async function submitLogin(): Promise<void> {
@@ -227,6 +240,34 @@ export function ConversationSidebar({
       setLocalAuthError(error instanceof Error ? error.message : "Could not schedule account deletion.");
     } finally {
       setAuthBusy(false);
+    }
+  }
+
+  async function importFile(file: File | undefined): Promise<void> {
+    if (!file) return;
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      const fileName = file.name.toLowerCase();
+      let text: string;
+      if (fileName.endsWith(".zip")) {
+        const zip = await JSZip.loadAsync(await file.arrayBuffer());
+        const entry = zip.file("conversations.json") ?? Object.values(zip.files).find((candidate) => candidate.name.toLowerCase().endsWith(".json"));
+        if (!entry || entry.dir) throw new Error("The ZIP file does not contain a supported JSON conversation export.");
+        text = await entry.async("text");
+      } else {
+        text = await file.text();
+      }
+      const archive = fileName.endsWith(".jsonl")
+        ? { conversations: text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)) }
+        : JSON.parse(text);
+      await onImportConversations(archive);
+      setAccountMenuOpen(false);
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not import this file.");
+    } finally {
+      setAuthBusy(false);
+      if (importInputRef.current) importInputRef.current.value = "";
     }
   }
 
@@ -518,6 +559,7 @@ export function ConversationSidebar({
                     className="conversation-list-main"
                     onClick={() => {
                       setAccountMenuOpen(false);
+                      closeConversationActionMenu();
                       onSelectConversation(conversation.id);
                     }}
                     title={conversation.title}
@@ -532,35 +574,34 @@ export function ConversationSidebar({
                         : ""}
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    className="conversation-list-rename"
-                    onClick={() => startRename(conversation)}
-                    title="Rename chat"
-                    aria-label={`Rename ${conversation.title}`}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className={`conversation-list-pin${conversation.pinned ? " conversation-list-pin-active" : ""}`}
-                    onClick={() =>
-                      onPinConversation(conversation.id, !conversation.pinned)
-                    }
-                    title={conversation.pinned ? "Unpin chat" : "Pin chat"}
-                    aria-label={`${conversation.pinned ? "Unpin" : "Pin"} ${conversation.title}`}
-                  >
-                    ★
-                  </button>
-                  <button
-                    type="button"
-                    className="conversation-list-delete"
-                    onClick={() => onDeleteConversation(conversation.id)}
-                    title="Delete chat"
-                    aria-label={`Delete ${conversation.title}`}
-                  >
-                    ×
-                  </button>
+                  <div className="conversation-list-actions">
+                    <button
+                      type="button"
+                      className={`conversation-list-more${conversationActionMenuId === conversation.id ? " conversation-list-more-open" : ""}`}
+                      onClick={() => setConversationActionMenuId((current) => current === conversation.id ? undefined : conversation.id)}
+                      aria-label={`Chat actions for ${conversation.title}`}
+                      aria-haspopup="menu"
+                      aria-expanded={conversationActionMenuId === conversation.id}
+                    >
+                      <span aria-hidden="true">•••</span>
+                    </button>
+                    {conversationActionMenuId === conversation.id ? (
+                      <div className="conversation-list-action-menu" role="menu" aria-label={`Actions for ${conversation.title}`}>
+                        <button type="button" role="menuitem" onClick={() => { startRename(conversation); closeConversationActionMenu(); }}>
+                          Rename
+                        </button>
+                        <button type="button" role="menuitem" onClick={() => { void onExportConversation(conversation.id); closeConversationActionMenu(); }}>
+                          Export
+                        </button>
+                        <button type="button" role="menuitem" onClick={() => { onPinConversation(conversation.id, !conversation.pinned); closeConversationActionMenu(); }}>
+                          {conversation.pinned ? "Unpin" : "Pin"}
+                        </button>
+                        <button type="button" role="menuitem" className="conversation-list-action-menu-delete" onClick={() => { onDeleteConversation(conversation.id); closeConversationActionMenu(); }}>
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </>
               )}
             </div>
@@ -585,6 +626,11 @@ export function ConversationSidebar({
               <div className="conversation-account-menu-detail">
                 {accountDetail}
               </div>
+              <div className="conversation-account-menu-divider" />
+              <div className="conversation-account-menu-label">Your data</div>
+              <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => void onExportAccount()} disabled={authBusy}>Export account data</button>
+              <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => importInputRef.current?.click()} disabled={authBusy}>Import conversations</button>
+              <input ref={importInputRef} type="file" accept="application/json,application/zip,.json,.jsonl,.zip" hidden onChange={(event) => void importFile(event.target.files?.[0])} />
               <div className="conversation-account-menu-divider" />
               <div className="conversation-account-menu-label">About</div>
               <a className="conversation-account-menu-button" role="menuitem" href="/privacy">Privacy Policy</a>

@@ -7,7 +7,8 @@ import {
   type ChatMessage,
   type ConversationDetail,
   type ConversationSummary,
-  type ConversationTurn
+  type ConversationTurn,
+  type PortableConversation
 } from "@persona/shared";
 import { z } from "zod";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
@@ -199,7 +200,8 @@ export class ConversationStore {
     this.conversations.delete(conversationId);
   }
 
-  async list(userId?: string): Promise<ConversationSummary[]> {
+  async list(userId?: string, limit = 100): Promise<ConversationSummary[]> {
+    const boundedLimit = Math.max(1, Math.min(limit, 10000));
     const db = getDatabase();
     if (db) {
       const rows = await db.query.conversations.findMany({
@@ -212,7 +214,7 @@ export class ConversationStore {
           }
         },
         orderBy: desc(conversations.updatedAt),
-        limit: 250
+        limit: boundedLimit
       });
 
       return rows.map((row) => ({
@@ -223,7 +225,7 @@ export class ConversationStore {
         messageCount: row.messages.length,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString()
-      })).sort(sortConversationSummaries).slice(0, 100);
+      })).sort(sortConversationSummaries).slice(0, boundedLimit);
     }
 
     return [...this.conversations.values()]
@@ -233,7 +235,7 @@ export class ConversationStore {
         if (pinnedDelta !== 0) return pinnedDelta;
         return (right.updatedAt?.getTime() ?? 0) - (left.updatedAt?.getTime() ?? 0);
       })
-      .slice(0, 100)
+      .slice(0, boundedLimit)
       .map((conversation) => ({
         id: conversation.id,
         ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
@@ -427,6 +429,68 @@ export class ConversationStore {
     };
   }
 
+  async importPortable(conversation: PortableConversation, userId: string): Promise<ConversationSummary> {
+    const id = `conv_${randomUUID()}`;
+    const createdAt = parseImportedDate(conversation.createdAt);
+    const updatedAt = parseImportedDate(conversation.updatedAt) ?? createdAt;
+    const title = normalizeTitle(conversation.title);
+    const importedMessages: ConversationAppendMessage[] = conversation.messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      ...(message.name ? { name: message.name } : {}),
+      ...(message.outputs?.length ? { metadata: { outputs: message.outputs } } : {})
+    }));
+    const metadata = {
+      ...(conversation.pinned ? { pinned: true } : {}),
+      imported: true,
+      importedAt: new Date().toISOString()
+    };
+    const db = getDatabase();
+    if (db) {
+      await db.transaction(async (tx) => {
+        await tx.insert(conversations).values({
+          id,
+          userId,
+          ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
+          title,
+          metadata,
+          ...(createdAt ? { createdAt } : {}),
+          ...(updatedAt ? { updatedAt } : {})
+        });
+        await tx.insert(dbMessages).values(importedMessages.map((message, index) => ({
+          id: `msg_${randomUUID()}`,
+          conversationId: id,
+          role: message.role,
+          content: message.content,
+          name: message.name,
+          sequence: index,
+          metadata: sanitizeMessageMetadata(message.metadata) ?? {}
+        })));
+      });
+    } else {
+      this.conversations.set(id, {
+        id,
+        userId,
+        ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
+        title,
+        metadata,
+        createdAt: createdAt ?? new Date(),
+        updatedAt: updatedAt ?? new Date(),
+        messages: importedMessages.map(stripMessageMetadata),
+        turns: buildConversationTurns(importedMessages.map(stripMessageMetadata), importedMessages.map((message) => message.metadata))
+      });
+    }
+    return {
+      id,
+      ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
+      title,
+      pinned: conversation.pinned,
+      messageCount: conversation.messages.length,
+      createdAt: (createdAt ?? new Date()).toISOString(),
+      updatedAt: (updatedAt ?? new Date()).toISOString()
+    };
+  }
+
   private async getOrCreateFromDatabase(conversationId?: string, seedHistory: ChatMessage[] = [], options: ConversationOptions = {}): Promise<ConversationRecord> {
     const db = getDatabase();
     if (!db) throw new Error("Database is not configured.");
@@ -494,6 +558,12 @@ export class ConversationStore {
       turns: buildConversationTurns(seedHistory)
     };
   }
+}
+
+function parseImportedDate(value: string | undefined): Date | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 function getMemorySummary(metadata: Record<string, unknown> | null | undefined): string | undefined {

@@ -598,3 +598,55 @@ export const conversationDetailSchema = conversationSummarySchema.extend({
   turns: z.array(conversationTurnSchema).default([])
 });
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
+
+export const portableConversationMessageSchema = chatMessageSchema.extend({
+  outputs: z.array(contentBlockSchema).max(100).optional(),
+  createdAt: z.string().datetime().optional()
+});
+export type PortableConversationMessage = z.infer<typeof portableConversationMessageSchema>;
+
+export const portableConversationSchema = z.object({
+  id: z.string().min(1).max(200).optional(),
+  title: z.string().min(1).max(500),
+  personaId: z.string().min(1).max(120).optional(),
+  pinned: z.boolean().default(false),
+  createdAt: z.string().datetime().optional(),
+  updatedAt: z.string().datetime().optional(),
+  messages: z.array(portableConversationMessageSchema).min(1).max(10000)
+});
+export type PortableConversation = z.infer<typeof portableConversationSchema>;
+
+export const forTheBaddiezArchiveSchema = z.object({
+  format: z.literal("for-the-baddiez-export"),
+  version: z.literal(1),
+  exportedAt: z.string().datetime(),
+  scope: z.enum(["account", "conversations"]),
+  account: z.object({
+    email: z.string().email().nullable().optional(),
+    username: z.string().nullable().optional(),
+    displayName: z.string().nullable().optional(),
+    avatarUrl: z.string().nullable().optional(),
+    createdAt: z.string().datetime().optional()
+  }).optional(),
+  conversations: z.array(portableConversationSchema).max(10000),
+  media: z.array(z.object({
+    kind: z.enum(["upload", "generated_media", "generated_audio", "openai_artifact"]),
+    fileName: z.string().max(500),
+    mimeType: z.string().max(200).optional(),
+    createdAt: z.string().datetime().optional()
+  })).max(1000).optional()
+});
+export type ForTheBaddiezArchive = z.infer<typeof forTheBaddiezArchiveSchema>;
+
+export const dataImportRequestSchema = z.object({
+  archive: z.unknown()
+});
+export type DataImportRequest = z.infer<typeof dataImportRequestSchema>;
+
+export const dataImportResultSchema = z.object({
+  source: z.enum(["for-the-baddiez", "chatgpt", "claude"]),
+  importedConversations: z.number().int().nonnegative(),
+  skippedConversations: z.number().int().nonnegative(),
+  conversations: z.array(conversationSummarySchema)
+});
+export type DataImportResult = z.infer<typeof dataImportResultSchema>;

@@ -19,6 +19,8 @@ import { LinearGradient, type LinearGradientProps } from "expo-linear-gradient";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
+import * as Sharing from "expo-sharing";
+import JSZip from "jszip";
 import * as ImagePicker from "expo-image-picker";
 import * as ExpoLinking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
@@ -59,6 +61,12 @@ const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 
 WebBrowser.maybeCompleteAuthSession();
+
+async function openPublicWebPage(path: string): Promise<void> {
+  const pageUrl = new URL(`${PUBLIC_WEB_BASE_URL}${path}`);
+  pageUrl.searchParams.set("returnTo", ExpoLinking.createURL("/"));
+  await WebBrowser.openBrowserAsync(pageUrl.toString());
+}
 
 type GestureContext = {
   startX: number;
@@ -978,6 +986,10 @@ export function MobileChatScreen() {
         onPress: () => void pinConversation(conversation)
       },
       {
+        text: "Export",
+        onPress: () => void shareDataArchive("conversation", conversation.id)
+      },
+      {
         text: "Delete",
         style: "destructive",
         onPress: () => confirmDeleteConversation(conversation)
@@ -1205,6 +1217,56 @@ export function MobileChatScreen() {
     setTurns([]);
     setAuthMode("login");
     setAuthError(logoutError ? `You were signed out on this device. ${logoutError}` : undefined);
+  }
+
+  async function shareDataArchive(scope: "account" | "conversation", selectedConversationId?: string): Promise<void> {
+    try {
+      const targetConversationId = selectedConversationId ?? conversationId;
+      const archive = scope === "account"
+        ? await api.exportAccountData()
+        : targetConversationId
+          ? await api.exportConversations([targetConversationId])
+          : undefined;
+      if (!archive) throw new Error("Open a conversation before exporting it.");
+      if (!FileSystem.documentDirectory) throw new Error("This device cannot create an export file.");
+      const fileName = `for-the-baddiez-${scope}-${new Date().toISOString().slice(0, 10)}.json`;
+      const uri = `${FileSystem.documentDirectory}${fileName}`;
+      await FileSystem.writeAsStringAsync(uri, JSON.stringify(archive, null, 2), { encoding: FileSystem.EncodingType.UTF8 });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { mimeType: "application/json", dialogTitle: "Export For the Baddiez data" });
+      } else {
+        Alert.alert("Export saved", `Saved ${fileName} to the app documents folder.`);
+      }
+    } catch (exportError) {
+      Alert.alert("Export failed", exportError instanceof Error ? exportError.message : "Could not export your data.");
+    }
+  }
+
+  async function importConversationArchive(): Promise<void> {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: ["application/json", "application/zip", "text/plain"], copyToCacheDirectory: true, multiple: false });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const fileName = asset.name.toLowerCase();
+      let text: string;
+      if (fileName.endsWith(".zip")) {
+        const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+        const zip = await JSZip.loadAsync(base64, { base64: true });
+        const entry = zip.file("conversations.json") ?? Object.values(zip.files).find((candidate) => candidate.name.toLowerCase().endsWith(".json"));
+        if (!entry || entry.dir) throw new Error("The ZIP file does not contain a supported JSON conversation export.");
+        text = await entry.async("text");
+      } else {
+        text = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      }
+      const archive = fileName.endsWith(".jsonl")
+        ? { conversations: text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)) }
+        : JSON.parse(text);
+      const imported = await api.importConversationData(archive);
+      await refreshConversationsFromDrawer();
+      Alert.alert("Import complete", `Imported ${imported.importedConversations} conversation${imported.importedConversations === 1 ? "" : "s"} from ${imported.source}.`);
+    } catch (importError) {
+      Alert.alert("Import failed", importError instanceof Error ? importError.message : "Could not import this file.");
+    }
   }
 
   async function deleteAccount(): Promise<void> {
@@ -1613,7 +1675,7 @@ export function MobileChatScreen() {
               <Pressable
                 key={path}
                 accessibilityRole="link"
-                onPress={() => void Linking.openURL(`${PUBLIC_WEB_BASE_URL}${path}`).catch(() => {
+                onPress={() => void openPublicWebPage(path).catch(() => {
                   Alert.alert("Could not open page", "Check your internet connection and try again.");
                 })}
                 style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}
@@ -1623,6 +1685,21 @@ export function MobileChatScreen() {
                 <Ionicons name="open-outline" size={18} color={theme.muted} />
               </Pressable>
             ))}
+          </View>
+          <View style={styles.settingsSection}>
+            <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Your data</Text>
+            <Pressable accessibilityRole="button" onPress={() => void shareDataArchive("account")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+              <Ionicons name="download-outline" size={22} color={theme.text} />
+              <Text style={[styles.settingsRowText, { color: theme.text }]}>Export account data</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" disabled={!conversationId} onPress={() => void shareDataArchive("conversation")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: conversationId ? 1 : 0.45 }]}>
+              <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.text} />
+              <Text style={[styles.settingsRowText, { color: theme.text }]}>Export current chat</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => void importConversationArchive()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+              <Ionicons name="cloud-upload-outline" size={22} color={theme.text} />
+              <Text style={[styles.settingsRowText, { color: theme.text }]}>Import conversations</Text>
+            </Pressable>
           </View>
         </ScrollView>
       ) : null}

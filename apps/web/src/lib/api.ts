@@ -7,6 +7,8 @@ import type {
   ClientContext,
   ConversationDetail,
   ConversationSummary,
+  DataImportResult,
+  ForTheBaddiezArchive,
   LoginRequest,
   OAuthProvider,
   MeResponse,
@@ -404,6 +406,15 @@ export const api = {
   deleteConversation: async (conversationId: string): Promise<void> => {
     await requestNoContent(`/api/chat/conversations/${conversationId}`, { method: "DELETE" });
   },
+  exportAccountData: (): Promise<ForTheBaddiezArchive> => requestJson<ForTheBaddiezArchive>("/api/data/export/account"),
+  exportConversations: (conversationIds: string[]): Promise<ForTheBaddiezArchive> => requestJson<ForTheBaddiezArchive>("/api/data/export/conversations", {
+    method: "POST",
+    body: JSON.stringify({ conversationIds })
+  }),
+  importConversationData: (archive: unknown): Promise<DataImportResult> => requestJson<DataImportResult>("/api/data/import", {
+    method: "POST",
+    body: JSON.stringify({ archive })
+  }),
   cancelChatJob: async (jobId: string): Promise<ChatJobResponse> =>
     requestJson<ChatJobResponse>(`/api/chat/jobs/${jobId}/cancel`, {
       method: "POST"

@@ -6,6 +6,19 @@ const SUPPORT_EMAIL = (import.meta.env.VITE_SUPPORT_EMAIL as string | undefined)
 
 type LegalSection = { title: string; content: ReactNode };
 
+const MOBILE_RETURN_PROTOCOLS = new Set(["personawrapper:", "exp:", "exps:"]);
+
+export function legalMobileReturnHref(search: string): string | undefined {
+  const returnTo = new URLSearchParams(search).get("returnTo");
+  if (!returnTo) return undefined;
+  try {
+    const parsed = new URL(returnTo);
+    return MOBILE_RETURN_PROTOCOLS.has(parsed.protocol) ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const privacySections: LegalSection[] = [
   { title: "1. Scope", content: <p>This Privacy Policy explains how For the Baddiez collects, uses, discloses, retains, and protects information when you use our websites, mobile applications, APIs, persona-based chat experiences, and related support services (collectively, the “Service”). It applies to registered users, visitors, and people who contact support.</p> },
   { title: "2. Information you provide", content: <><p>We collect information you choose to provide, including:</p><ul><li>Account details such as email address, username, display name, profile image, password credential, and connected Google or Facebook account identifiers.</li><li>Conversation content, prompts, message history, feedback, persona selections, and feature preferences.</li><li>Files, images, documents, audio, microphone input converted to text, and other content you upload or generate.</li><li>Support communications, deletion requests, reports, and information needed to verify account ownership.</li></ul><p>Passwords are stored as one-way password hashes. OAuth provider access tokens are not exposed to other users.</p></> },
@@ -50,10 +63,30 @@ const deletionSections: LegalSection[] = [
 ];
 
 function PageFrame({ title, eyebrow, intro, sections, children }: { title: string; eyebrow: string; intro: string; sections: LegalSection[]; children?: ReactNode }) {
+  const mobileReturnHref = legalMobileReturnHref(window.location.search);
+  const mobileReturnQuery = mobileReturnHref ? `?returnTo=${encodeURIComponent(mobileReturnHref)}` : "";
+  const publicPageHref = (path: string) => `${path}${mobileReturnQuery}`;
+
+  function handleBack(event: React.MouseEvent<HTMLAnchorElement>): void {
+    if (mobileReturnHref) return;
+    let cameFromThisApp = false;
+    try {
+      cameFromThisApp = Boolean(document.referrer) && new URL(document.referrer).origin === window.location.origin;
+    } catch {
+      cameFromThisApp = false;
+    }
+    if (!cameFromThisApp || window.history.length <= 1) return;
+    event.preventDefault();
+    window.history.back();
+  }
+
   return <main className="legal-shell">
     <header className="legal-header">
-      <a className="legal-brand" href="/" aria-label="For the Baddiez home"><img src="/FTB_logo/For_the_Baddiez_logo_transparent.png" alt="" /><span>For the Baddiez</span></a>
-      <nav aria-label="Legal and support"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/delete-account">Delete account</a><a href="/support">Support</a></nav>
+      <div className="legal-header-brand-group">
+        <a className="legal-back-link" href={mobileReturnHref ?? "/"} onClick={handleBack} aria-label="Back to For the Baddiez">← Back</a>
+        <a className="legal-brand" href={mobileReturnHref ?? "/"} aria-label="For the Baddiez home"><img src="/FTB_logo/For_the_Baddiez_logo_transparent.png" alt="" /><span>For the Baddiez</span></a>
+      </div>
+      <nav aria-label="Legal and support"><a href={publicPageHref("/privacy")}>Privacy</a><a href={publicPageHref("/terms")}>Terms</a><a href={publicPageHref("/delete-account")}>Delete account</a><a href={publicPageHref("/support")}>Support</a></nav>
     </header>
     <article className="legal-document">
       <div className="legal-hero"><p className="legal-eyebrow">{eyebrow}</p><h1>{title}</h1><p>{intro}</p><span>Effective {EFFECTIVE_DATE}</span></div>

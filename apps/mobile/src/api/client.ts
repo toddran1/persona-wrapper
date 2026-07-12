@@ -8,6 +8,8 @@ import type {
   ClientContext,
   ConversationDetail,
   ConversationSummary,
+  DataImportResult,
+  ForTheBaddiezArchive,
   LoginRequest,
   MeResponse,
   OAuthExchangeRequest,
@@ -312,5 +314,14 @@ export const api = {
     return payload.conversation;
   },
   deleteConversation: (conversationId: string): Promise<void> =>
-    requestNoContent(`/api/chat/conversations/${conversationId}`, { method: "DELETE" })
+    requestNoContent(`/api/chat/conversations/${conversationId}`, { method: "DELETE" }),
+  exportAccountData: (): Promise<ForTheBaddiezArchive> => requestJson<ForTheBaddiezArchive>("/api/data/export/account"),
+  exportConversations: (conversationIds: string[]): Promise<ForTheBaddiezArchive> => requestJson<ForTheBaddiezArchive>("/api/data/export/conversations", {
+    method: "POST",
+    body: JSON.stringify({ conversationIds })
+  }),
+  importConversationData: (archive: unknown): Promise<DataImportResult> => requestJson<DataImportResult>("/api/data/import", {
+    method: "POST",
+    body: JSON.stringify({ archive })
+  })
 };

@@ -204,9 +204,7 @@ textarea {
 
 .conversation-sidebar-icon-button,
 .conversation-new-chat,
-.conversation-list-rename,
-.conversation-list-pin,
-.conversation-list-delete {
+.conversation-list-more {
   border: 1px solid rgba(214, 181, 94, 0.16);
   color: var(--theme-text);
   background: rgba(255, 255, 255, 0.055);
@@ -238,9 +236,7 @@ textarea {
 
 .conversation-new-chat:hover,
 .conversation-sidebar-icon-button:hover,
-.conversation-list-rename:hover,
-.conversation-list-pin:hover,
-.conversation-list-delete:hover,
+.conversation-list-more:hover,
 .conversation-auth-submit:hover,
 .conversation-auth-secondary:hover,
 .conversation-oauth-button:hover {
@@ -709,14 +705,21 @@ textarea {
 }
 
 .conversation-account-menu-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: 32px;
+  padding: 6px 12px;
   border: 1px solid rgba(255, 180, 192, 0.18);
   border-radius: 999px;
   color: #ffd4db;
   background: rgba(127, 31, 58, 0.16);
   cursor: pointer;
+  font-family: inherit;
   font-size: 0.72rem;
   font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .conversation-account-menu-button:hover,
@@ -732,7 +735,6 @@ textarea {
 }
 
 .conversation-account-menu a.conversation-account-menu-button {
-  display: block;
   text-decoration: none;
 }
 
@@ -758,6 +760,27 @@ textarea {
 .legal-header {
   min-height: 82px;
   border-bottom: 1px solid rgba(221, 191, 236, 0.15);
+}
+
+.legal-header-brand-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.legal-back-link {
+  color: #d9c9e3;
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.legal-back-link:hover,
+.legal-back-link:focus-visible {
+  color: #e5bd56;
+  text-decoration: underline;
 }
 
 .legal-brand {
@@ -938,7 +961,7 @@ textarea {
 
 .conversation-list-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 4px;
   border-radius: 12px;
@@ -977,52 +1000,81 @@ textarea {
   font-size: 0.7rem;
 }
 
-.conversation-list-delete {
+.conversation-list-actions {
+  position: relative;
+  display: grid;
+  align-items: center;
+}
+
+.conversation-list-more {
   display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
-  padding: 0;margin-right: 4px;
-  border-radius: 999px;
-  opacity: 0;
-  transition: opacity 140ms ease;
-}
-
-.conversation-list-rename,
-.conversation-list-pin {
-  min-height: 28px;
-  padding: 0 8px;
+  margin-right: 4px;
+  padding: 0;
   border-radius: 999px;
   color: var(--muted);
-  font-size: 0.62rem;
+  font-size: 0.64rem;
   font-weight: 800;
-  text-transform: uppercase;
   opacity: 0;
   transition: opacity 140ms ease;
 }
 
-.conversation-list-pin {
+.conversation-list-more-open,
+.conversation-list-item:hover .conversation-list-more,
+.conversation-list-item:focus-within .conversation-list-more {
+  opacity: 1;
+}
+
+.conversation-list-action-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 2px;
+  z-index: 35;
   display: grid;
-  place-items: center;
-  width: 28px;
-  padding: 0;
-  color: rgba(214, 181, 94, 0.7);
+  min-width: 136px;
+  overflow: hidden;
+  border: 1px solid rgba(214, 181, 94, 0.28);
+  border-radius: 10px;
+  padding: 4px;
+  background: rgba(15, 10, 23, 0.98);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.38);
 }
 
-.conversation-list-pin-active {
-  opacity: 1;
-  color: #f6d56f;
-  border-color: rgba(246, 213, 111, 0.58);
-  background: rgba(246, 213, 111, 0.16);
+.conversation-list-action-menu button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: var(--theme-text);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: left;
 }
 
-.conversation-list-item:hover .conversation-list-delete,
-.conversation-list-item:focus-within .conversation-list-delete,
-.conversation-list-item:hover .conversation-list-rename,
-.conversation-list-item:focus-within .conversation-list-rename,
-.conversation-list-item:hover .conversation-list-pin,
-.conversation-list-item:focus-within .conversation-list-pin {
-  opacity: 1;
+.conversation-list-action-menu button:hover,
+.conversation-list-action-menu button:focus-visible {
+  background: rgba(188, 135, 255, 0.15);
+  outline: none;
+}
+
+.conversation-list-action-menu .conversation-list-action-menu-delete {
+  color: #ffd4db;
+}
+
+.conversation-list-action-menu .conversation-list-action-menu-delete:hover,
+.conversation-list-action-menu .conversation-list-action-menu-delete:focus-visible {
+  background: rgba(169, 47, 79, 0.2);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .conversation-list-more {
+    opacity: 1;
+  }
 }
 
 .conversation-list-edit {
