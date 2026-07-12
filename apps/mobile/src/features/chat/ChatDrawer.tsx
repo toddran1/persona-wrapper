@@ -1,8 +1,10 @@
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ImageStyle, type TextStyle, type ViewStyle } from "react-native";
 import type { AuthUser, ConversationSummary, PersonaSummary } from "@persona/shared";
 import { Ionicons } from "@expo/vector-icons";
 import type { MobileTheme } from "../../theme/personaTheme";
 import { formatConversationTime } from "./mobileChatUtils";
+
+const APP_LOGO = require("../../../assets/branding/For_the_Baddiez_logo_transparent.png");
 
 type ChatDrawerProps = {
   authUser?: AuthUser | undefined;
@@ -61,7 +63,10 @@ export function ChatDrawer({
     >
       <View style={[styles.rail, { backgroundColor: theme.rail }]} />
       <View style={styles.header}>
-        <Text style={[styles.brand, { color: theme.text }]} numberOfLines={1}>Persona</Text>
+        <View style={styles.brandLockup}>
+          <Image accessibilityIgnoresInvertColors source={APP_LOGO} style={styles.brandLogo} resizeMode="contain" />
+          <Text style={[styles.brand, { color: theme.text }]} numberOfLines={1}>For the Baddiez</Text>
+        </View>
         <View style={authUser ? [styles.accountPill, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.075)" }] : undefined}>
           <Pressable accessibilityRole="button" accessibilityLabel="Search chats" style={styles.pillIconButton}>
             <Ionicons name="search" size={21} color={theme.text} />
@@ -185,6 +190,8 @@ type DrawerStyles = {
   authCallToAction: ViewStyle;
   authCallToActionText: TextStyle;
   brand: TextStyle;
+  brandLockup: ViewStyle;
+  brandLogo: ImageStyle;
   conversationCopy: ViewStyle;
   conversationAction: ViewStyle;
   conversationList: ViewStyle;
@@ -248,9 +255,21 @@ const styles = StyleSheet.create<DrawerStyles>({
   },
   brand: {
     flexShrink: 1,
-    fontSize: 36,
+    fontSize: 24,
     fontWeight: "900",
     letterSpacing: 0
+  },
+  brandLockup: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 10,
+    minWidth: 0
+  },
+  brandLogo: {
+    borderRadius: 8,
+    height: 44,
+    width: 44
   },
   conversationCopy: {
     flex: 1,

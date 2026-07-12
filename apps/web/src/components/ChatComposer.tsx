@@ -6,6 +6,7 @@ type ChatComposerProps = {
   provider: ProviderId;
   audioEnabled: boolean;
   loading: boolean;
+  disabled?: boolean;
   personaCardHidden?: boolean;
   draftMessage?: string;
   draftAttachments?: File[];
@@ -107,6 +108,7 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   async function submitCurrentMessage(): Promise<void> {
+    if (props.disabled) return;
     const submittedMessage = message;
     const submittedAttachments = attachments;
     if (!submittedMessage.trim()) {
@@ -132,6 +134,7 @@ export function ChatComposer(props: ChatComposerProps) {
   function handlePromptKeyDown(
     event: KeyboardEvent<HTMLTextAreaElement>,
   ): void {
+    if (props.disabled) return;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void submitCurrentMessage();
@@ -184,7 +187,7 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   return (
-    <form className="composer-card" onSubmit={handleSubmit}>
+    <form className={`composer-card${props.disabled ? " composer-card-disabled" : ""}`} onSubmit={handleSubmit} aria-disabled={props.disabled}>
       <div className="composer-header">
         <div className="composer-header-left">
           <div className="eyebrow">Composer</div>
@@ -218,6 +221,7 @@ export function ChatComposer(props: ChatComposerProps) {
                         <input
                           type="checkbox"
                           checked={props.audioEnabled}
+                          disabled={props.disabled}
                           onChange={(event) =>
                             props.onAudioChange(event.target.checked)
                           }
@@ -242,6 +246,7 @@ export function ChatComposer(props: ChatComposerProps) {
                           <input
                             type="checkbox"
                             checked={toolOptions[key]}
+                            disabled={props.disabled}
                             onChange={(event) =>
                               setToolOptions((current) => ({
                                 ...current,
@@ -266,7 +271,7 @@ export function ChatComposer(props: ChatComposerProps) {
                       key={prompt}
                       type="button"
                       className="sample-prompt"
-                      disabled={props.loading}
+                      disabled={props.loading || props.disabled}
                       onClick={() => setMessage(prompt)}
                     >
                       {prompt}
@@ -295,6 +300,7 @@ export function ChatComposer(props: ChatComposerProps) {
           ref={textareaRef}
           rows={2}
           value={message}
+          disabled={props.disabled}
           onChange={(event) => {
             setMessage(event.target.value);
             setHistoryIndex(undefined);
@@ -330,12 +336,14 @@ export function ChatComposer(props: ChatComposerProps) {
               className="hidden-file-input"
               type="file"
               multiple
+              disabled={props.disabled}
               onChange={handleAttachmentChange}
             />
             <label
               htmlFor={fileInputId}
-              className="icon-button"
+              className={`icon-button${props.disabled ? " icon-button-disabled" : ""}`}
               aria-label="Upload files"
+              aria-disabled={props.disabled}
             >
               +
             </label>
@@ -356,6 +364,7 @@ export function ChatComposer(props: ChatComposerProps) {
               className="send-button"
               aria-label="Send message"
               title="Send"
+              disabled={props.disabled}
             >
               <ComposerIcon name="send" />
             </button>

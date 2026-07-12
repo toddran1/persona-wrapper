@@ -45,6 +45,7 @@ import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
 import { OutputBlocks } from "./OutputBlocks";
 import { PersonaVisualStage, type PersonaVisualState } from "./PersonaVisualStage";
+import { MobileAuthScreen, type MobileAuthMode } from "../auth/MobileAuthScreen";
 import {
   getClientContext,
   sortConversationSummaries,
@@ -62,7 +63,6 @@ type GestureContext = {
   startX: number;
 };
 
-type AuthMode = "login" | "register";
 type SpeechRecognitionRuntime = typeof import("expo-speech-recognition");
 type SpeechRecognitionSubscription = { remove: () => void };
 declare const require: (moduleName: string) => unknown;
@@ -99,15 +99,16 @@ export function MobileChatScreen() {
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [conversationsRefreshing, setConversationsRefreshing] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | undefined>();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState<string | undefined>();
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [resumingJobId, setResumingJobId] = useState<string | undefined>();
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [loginVisible, setLoginVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [authMode, setAuthMode] = useState<MobileAuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [assistantActionTurn, setAssistantActionTurn] = useState<RenderedTurn | undefined>();
   const [referenceSources, setReferenceSources] = useState<Citation[]>([]);
@@ -781,7 +782,8 @@ export function MobileChatScreen() {
 
   async function finishAuth(user: AuthUser): Promise<void> {
     setAuthUser(user);
-    setLoginVisible(false);
+    setAuthChecked(true);
+    setAuthError(undefined);
     setPassword("");
     setIdentifier("");
     setDisplayName("");
@@ -802,7 +804,7 @@ export function MobileChatScreen() {
     if (!isOAuthCallback) return;
     const errorMessage = parsed.searchParams.get("error");
     if (errorMessage) {
-      Alert.alert("Sign in failed", errorMessage);
+      setAuthError(errorMessage);
       return;
     }
     const code = parsed.searchParams.get("code");
@@ -813,7 +815,7 @@ export function MobileChatScreen() {
       await finishAuth(auth.user);
       closeDrawer();
     } catch (exchangeError) {
-      Alert.alert("Sign in failed", exchangeError instanceof Error ? exchangeError.message : "Could not finish sign in.");
+      setAuthError(exchangeError instanceof Error ? exchangeError.message : "Could not finish sign in.");
     } finally {
       setAuthBusy(false);
     }
@@ -824,11 +826,18 @@ export function MobileChatScreen() {
     async function loadInitial(): Promise<void> {
       setLoading(true);
       setError(undefined);
+      setAuthError(undefined);
       try {
-        const [personaList, user] = await Promise.all([
-          api.getPersonas(),
-          api.getCurrentUser().then((payload) => payload.user).catch(() => undefined)
-        ]);
+        const user = await api.getCurrentUser().then((payload) => payload.user).catch(() => undefined);
+        if (!mounted) return;
+        setAuthUser(user);
+        setAuthChecked(true);
+
+        const providers = await api.getOAuthProviders().catch(() => []);
+        if (!mounted) return;
+        setOAuthProviders(providers);
+
+        const personaList = await api.getPersonas();
         if (!mounted) return;
         setPersonas(personaList);
         const selected = personaList[0];
@@ -837,21 +846,20 @@ export function MobileChatScreen() {
           const detail = await api.getPersona(selected.id);
           if (mounted) setPersona(detail);
         }
-        if (user && mounted) setAuthUser(user);
-        api.getOAuthProviders().then((providers) => {
-          if (mounted) setOAuthProviders(providers);
-        }).catch(() => {
-          if (mounted) setOAuthProviders([]);
-        });
-        const nextConversations = mounted ? await refreshConversations().catch(() => []) : [];
-        const savedConversationId = await getSelectedConversationId();
-        if (mounted && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
-          await selectConversation(savedConversationId, { keepDrawerOpen: true });
+        if (user && mounted) {
+          const nextConversations = await refreshConversations().catch(() => []);
+          const savedConversationId = await getSelectedConversationId();
+          if (savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
+            await selectConversation(savedConversationId, { keepDrawerOpen: true });
+          }
         }
       } catch (loadError) {
         if (mounted) setError(loadError instanceof Error ? loadError.message : "Could not load mobile app data.");
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setAuthChecked(true);
+          setLoading(false);
+        }
       }
     }
     void loadInitial();
@@ -1102,8 +1110,16 @@ export function MobileChatScreen() {
   }
 
   async function submitAuth(): Promise<void> {
-    if (!identifier.trim() || !password) return;
+    if (!identifier.trim() || !password) {
+      setAuthError("Enter your email or username and password.");
+      return;
+    }
+    if (authMode === "register" && password.length < 10) {
+      setAuthError("Password must be at least 10 characters.");
+      return;
+    }
     setAuthBusy(true);
+    setAuthError(undefined);
     try {
       const trimmedIdentifier = identifier.trim();
       const auth = authMode === "login"
@@ -1115,7 +1131,7 @@ export function MobileChatScreen() {
         });
       await finishAuth(auth.user);
     } catch (authError) {
-      Alert.alert(authMode === "login" ? "Sign in failed" : "Could not create account", authError instanceof Error ? authError.message : "Authentication failed.");
+      setAuthError(authError instanceof Error ? authError.message : "Authentication failed.");
     } finally {
       setAuthBusy(false);
     }
@@ -1123,6 +1139,7 @@ export function MobileChatScreen() {
 
   async function startOAuth(provider: OAuthProvider): Promise<void> {
     setAuthBusy(true);
+    setAuthError(undefined);
     try {
       const returnUrl = ExpoLinking.createURL("auth/callback");
       const url = await api.oauthStartUrl(provider, returnUrl);
@@ -1131,7 +1148,7 @@ export function MobileChatScreen() {
         await handleOAuthCallback(result.url);
       }
     } catch (oauthError) {
-      Alert.alert("Sign in failed", oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
+      setAuthError(oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
     } finally {
       setAuthBusy(false);
     }
@@ -1146,6 +1163,8 @@ export function MobileChatScreen() {
     setConversationId(undefined);
     void clearSelectedConversationId();
     setTurns([]);
+    setAuthMode("login");
+    setAuthError(undefined);
   }
 
   const suggestedPrompts = activePersona?.suggestedPrompts ?? [];
@@ -1161,6 +1180,31 @@ export function MobileChatScreen() {
     if (expanded) setPersonaCardHidden(false);
   };
 
+  if (!authUser) {
+    return (
+      <MobileAuthScreen
+        checkingSession={!authChecked}
+        mode={authMode}
+        identifier={identifier}
+        displayName={displayName}
+        password={password}
+        busy={authBusy}
+        error={authError ?? error}
+        oauthProviders={oauthProviders}
+        theme={theme}
+        onModeChange={(mode) => {
+          setAuthMode(mode);
+          setAuthError(undefined);
+        }}
+        onIdentifierChange={setIdentifier}
+        onDisplayNameChange={setDisplayName}
+        onPasswordChange={setPassword}
+        onSubmit={() => void submitAuth()}
+        onOAuth={(oauthProvider) => void startOAuth(oauthProvider)}
+      />
+    );
+  }
+
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <BackgroundGradient
@@ -1169,7 +1213,7 @@ export function MobileChatScreen() {
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFillObject}
       />
-      <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={30} failOffsetY={[-14, 14]} enabled={!drawerInteractive && !loginVisible && !settingsVisible}>
+      <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={30} failOffsetY={[-14, 14]} enabled={!drawerInteractive && !settingsVisible}>
         <Animated.View style={[styles.chatPlane, chatShiftStyle]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -1185,7 +1229,7 @@ export function MobileChatScreen() {
             <IconButton name="menu" label="Open chats" theme={theme} onPress={openDrawer} />
             <View style={styles.titleBlock}>
               <Text style={[styles.personaName, { color: theme.text }]} numberOfLines={1}>
-                {activePersona?.name ?? "Persona Wrapper"}
+                {activePersona?.name ?? "For the Baddiez"}
               </Text>
               <Text style={[styles.themeName, { color: theme.muted }]} numberOfLines={1}>
                 {theme.name}
@@ -1275,7 +1319,7 @@ export function MobileChatScreen() {
                     </Text>
                   )}
                 </View>
-                <Text style={[styles.emptyTitle, compactLayout ? styles.emptyTitleCompact : null, { color: theme.text }]}>{activePersona?.documentTitle ?? "Persona Wrapper"}</Text>
+                <Text style={[styles.emptyTitle, compactLayout ? styles.emptyTitleCompact : null, { color: theme.text }]}>{activePersona?.documentTitle ?? "For the Baddiez"}</Text>
                 <Text style={[styles.emptyCopy, { color: theme.muted }]}>
                   {activePersona?.tagline ?? "Choose a persona and start a chat."}
                 </Text>
@@ -1426,7 +1470,7 @@ export function MobileChatScreen() {
             onShowConversationActions={showConversationActions}
             onRefreshConversations={() => void refreshConversationsFromDrawer()}
             onSelectPersona={(id) => void selectPersona(id)}
-            onShowLogin={() => setLoginVisible(true)}
+            onShowLogin={() => undefined}
             onShowSettings={() => setSettingsVisible(true)}
           />
         </Animated.View>
@@ -1478,90 +1522,6 @@ export function MobileChatScreen() {
         </ScrollView>
       ) : null}
 
-      {loginVisible ? (
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setLoginVisible(false)} />
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            style={[styles.loginCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}
-            contentContainerStyle={styles.loginCardContent}
-          >
-            <View style={styles.authModeRow}>
-              <Pressable
-                onPress={() => setAuthMode("login")}
-                style={[styles.authModeButton, { backgroundColor: authMode === "login" ? theme.text : "rgba(255,255,255,0.06)" }]}
-              >
-                <Text style={[styles.authModeText, { color: authMode === "login" ? theme.background : theme.text }]}>Sign in</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setAuthMode("register")}
-                style={[styles.authModeButton, { backgroundColor: authMode === "register" ? theme.text : "rgba(255,255,255,0.06)" }]}
-              >
-                <Text style={[styles.authModeText, { color: authMode === "register" ? theme.background : theme.text }]}>Create</Text>
-              </Pressable>
-            </View>
-            <Text style={[styles.loginTitle, { color: theme.text }]}>
-              {authMode === "login" ? "Sign in" : "Create account"}
-            </Text>
-            <Text style={[styles.loginCopy, { color: theme.muted }]}>
-              {authMode === "login" ? "Use the same account as the web app." : "Save chats and pick them up on any device."}
-            </Text>
-            <TextInput
-              autoCapitalize="none"
-              value={identifier}
-              onChangeText={setIdentifier}
-              placeholder={authMode === "login" ? "Email or username" : "Email or username"}
-              placeholderTextColor={theme.muted}
-              style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
-            />
-            {authMode === "register" ? (
-              <TextInput
-                value={displayName}
-                onChangeText={setDisplayName}
-                placeholder="Display name"
-                placeholderTextColor={theme.muted}
-                style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
-              />
-            ) : null}
-            <TextInput
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Password"
-              placeholderTextColor={theme.muted}
-              style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
-            />
-            <Pressable
-              disabled={authBusy}
-              onPress={() => void submitAuth()}
-              style={[styles.loginButton, { backgroundColor: theme.text, opacity: authBusy ? 0.65 : 1 }]}
-            >
-              <Text style={[styles.loginButtonText, { color: theme.background }]}>
-                {authBusy ? "Working..." : authMode === "login" ? "Sign in" : "Create account"}
-              </Text>
-            </Pressable>
-            {oauthProviders.some((providerStatus) => providerStatus.enabled) ? (
-              <View style={styles.oauthStack}>
-                <Text style={[styles.oauthLabel, { color: theme.muted }]}>Or continue with</Text>
-                {oauthProviders.filter((providerStatus) => providerStatus.enabled).map((providerStatus) => (
-                  <Pressable
-                    key={providerStatus.provider}
-                    disabled={authBusy}
-                    onPress={() => void startOAuth(providerStatus.provider)}
-                    style={[styles.oauthButton, { borderColor: theme.border }]}
-                  >
-                    <Ionicons name={providerStatus.provider === "google" ? "logo-google" : "logo-facebook"} size={18} color={theme.text} />
-                    <Text style={[styles.oauthButtonText, { color: theme.text }]}>
-                      {providerStatus.provider === "google" ? "Google" : "Facebook"}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-          </ScrollView>
-        </KeyboardAvoidingView>
-      ) : null}
       {renameTarget ? (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setRenameTarget(undefined)} />
@@ -1761,24 +1721,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     paddingHorizontal: 8
   },
-  authModeButton: {
-    alignItems: "center",
-    borderRadius: 14,
-    flex: 1,
-    justifyContent: "center",
-    minHeight: 38
-  },
-  authModeRow: {
-    backgroundColor: "rgba(0,0,0,0.18)",
-    borderRadius: 18,
-    flexDirection: "row",
-    gap: 6,
-    padding: 4
-  },
-  authModeText: {
-    fontSize: 14,
-    fontWeight: "900"
-  },
   assistantContent: {
     flex: 1,
     gap: 8,
@@ -1961,30 +1903,12 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 14
   },
-  loginButton: {
-    alignItems: "center",
-    borderRadius: 16,
-    minHeight: 48,
-    justifyContent: "center"
-  },
-  loginButtonText: {
-    fontSize: 15,
-    fontWeight: "900"
-  },
   loginCard: {
     borderRadius: 26,
     borderWidth: 1,
     maxHeight: "88%",
     maxWidth: 440,
     width: "88%"
-  },
-  loginCardContent: {
-    gap: 12,
-    padding: 18
-  },
-  loginCopy: {
-    fontSize: 14,
-    lineHeight: 20
   },
   loginInput: {
     borderRadius: 16,
@@ -2027,29 +1951,6 @@ const styles = StyleSheet.create({
   messageActionsRight: {
     alignSelf: "flex-end",
     marginRight: 8
-  },
-  oauthButton: {
-    alignItems: "center",
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "center",
-    minHeight: 44
-  },
-  oauthButtonText: {
-    fontSize: 14,
-    fontWeight: "800",
-    textTransform: "capitalize"
-  },
-  oauthLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    textAlign: "center"
-  },
-  oauthStack: {
-    gap: 9,
-    paddingTop: 4
   },
   overlay: {
     backgroundColor: "#000",

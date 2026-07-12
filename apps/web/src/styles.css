@@ -161,6 +161,25 @@ textarea {
   gap: 12px;
 }
 
+.conversation-sidebar-brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.conversation-sidebar-brand-logo {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.conversation-sidebar-brand-copy {
+  min-width: 0;
+}
+
 .conversation-sidebar-brand,
 .conversation-sidebar-section-title {
   color: var(--theme-text);
@@ -168,6 +187,12 @@ textarea {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.conversation-sidebar-brand {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .conversation-sidebar-subtitle,
@@ -1447,6 +1472,37 @@ button:disabled {
 .prompt-shell textarea:focus,
 .prompt-shell textarea:focus-visible {
   outline: none;
+}
+
+.composer-card-disabled .prompt-shell {
+  border-color: rgba(214, 181, 94, 0.12);
+  background: rgba(15, 11, 25, 0.78);
+  box-shadow: none;
+  transform: none;
+}
+
+.composer-card-disabled .prompt-shell:hover,
+.composer-card-disabled .prompt-shell:focus-within {
+  border-color: rgba(214, 181, 94, 0.12);
+  background: rgba(15, 11, 25, 0.78);
+  box-shadow: none;
+  transform: none;
+}
+
+.composer-card-disabled .prompt-shell textarea,
+.composer-card-disabled .composer-panel-row {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+.composer-card-disabled .composer-panel-row {
+  pointer-events: none;
+}
+
+.icon-button-disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .attachment-row {

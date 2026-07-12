@@ -166,7 +166,7 @@ async function runDuckDuckGoHtmlSearch(query: string): Promise<string[]> {
     headers: {
       accept: "text/html",
       "content-type": "application/x-www-form-urlencoded",
-      "user-agent": "persona-wrapper-app/0.1"
+      "user-agent": "for-the-baddiez/0.1"
     },
     body
   });
@@ -212,7 +212,7 @@ async function runWikipediaSummary(title: string): Promise<string | undefined> {
   const response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, {
     headers: {
       accept: "application/json",
-      "user-agent": "persona-wrapper-app/0.1"
+      "user-agent": "for-the-baddiez/0.1"
     }
   });
 
@@ -244,7 +244,7 @@ async function runWikipediaSearch(query: string): Promise<string[]> {
   const response = await fetch(url, {
     headers: {
       accept: "application/json",
-      "user-agent": "persona-wrapper-app/0.1"
+      "user-agent": "for-the-baddiez/0.1"
     }
   });
 

@@ -198,8 +198,17 @@ export function ConversationSidebar({
   return (
     <aside className={`conversation-sidebar${mobileOpen ? " conversation-sidebar-mobile-open" : ""}`} aria-label="Chat history">
       <div className="conversation-sidebar-top">
-        <div>
-          <div className="conversation-sidebar-brand">{personaName}</div>
+        <div className="conversation-sidebar-brand-lockup">
+          <img
+            className="conversation-sidebar-brand-logo"
+            src="/FTB_logo/For_the_Baddiez_logo_transparent.png"
+            alt=""
+            aria-hidden="true"
+          />
+          <div className="conversation-sidebar-brand-copy">
+            <div className="conversation-sidebar-brand">For the Baddiez</div>
+            <div className="conversation-sidebar-subtitle">{personaName}</div>
+          </div>
         </div>
       </div>
 

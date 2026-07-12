@@ -20,6 +20,20 @@ const defaultProps = {
 };
 
 describe("ChatComposer", () => {
+  it("disables chat input until the user signs in", () => {
+    render(
+      <ChatComposer
+        {...defaultProps}
+        disabled
+        promptPlaceholder="Please sign in or create an account to start chatting."
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.getByPlaceholderText("Please sign in or create an account to start chatting.")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+
   it("submits the current message", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);

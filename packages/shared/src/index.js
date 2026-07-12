@@ -112,7 +112,7 @@ export const personaSummarySchema = z.object({
     avatarUrl: z.string().optional(),
     visualStage: personaVisualStageSchema.optional(),
     theme: personaThemeSchema,
-    documentTitle: z.string().default("Persona Wrapper"),
+    documentTitle: z.string().default("For the Baddiez"),
     promptPlaceholder: z.string().default("Ask anything"),
     suggestedPrompts: z.array(z.string()).default([]),
     supportedProviders: z.array(providerSchema)

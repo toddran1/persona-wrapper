@@ -366,7 +366,7 @@ export function App() {
 
   useEffect(() => {
     const nextTitle = personaDetail?.documentTitle ?? personas[0]?.documentTitle;
-    document.title = nextTitle ?? "Persona Wrapper";
+    document.title = nextTitle ? `${nextTitle} | For the Baddiez` : "For the Baddiez";
   }, [personaDetail?.documentTitle, personas]);
 
   useEffect(() => {
@@ -425,7 +425,7 @@ export function App() {
   }, [audioEnabled, loading, pendingPrompt, renderedTurns.length]);
 
   async function handleSubmit(message: string, files: File[], toolOptions: ToolOptions): Promise<void> {
-    if (!personaDetail) {
+    if (!personaDetail || !authUser) {
       return;
     }
 
@@ -1136,7 +1136,10 @@ export function App() {
               audioEnabled={audioEnabled}
               personaCardHidden={!personaCardVisible}
               loading={loading}
-              promptPlaceholder={personaDetail?.promptPlaceholder ?? personas[0]?.promptPlaceholder ?? "Ask anything"}
+              disabled={!authUser || authLoading}
+              promptPlaceholder={!authUser
+                ? "Please sign in or create an account to start chatting."
+                : personaDetail?.promptPlaceholder ?? personas[0]?.promptPlaceholder ?? "Ask anything"}
               suggestedPrompts={personaDetail?.suggestedPrompts ?? personas[0]?.suggestedPrompts ?? []}
               {...(composerDraft !== undefined ? { draftMessage: composerDraft } : {})}
               {...(composerDraftAttachments !== undefined ? { draftAttachments: composerDraftAttachments } : {})}

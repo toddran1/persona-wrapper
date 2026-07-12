@@ -1,6 +1,6 @@
-# Persona Wrapper App
+# For the Baddiez
 
-Production-ready starter monorepo for a fictional AI persona platform. The first built-in persona is **LaRae the Baddest**, a loud, stylish, high-drama entertainment character designed for conversational, multimodal outputs.
+For the Baddiez is an AI persona platform for conversational, multimodal experiences. The first built-in persona is **LaRae the Baddest**, a loud, stylish, high-drama entertainment character.
 
 ## Stack
 
