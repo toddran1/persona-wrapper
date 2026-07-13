@@ -252,6 +252,13 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
       if (shouldHide) runOnJS(onHiddenChange)(true);
     });
 
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .maxDelay(340)
+    .onEnd((_event, success) => {
+      if (success) runOnJS(onExpandedChange)(true);
+    });
+
   const stageStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }]
   }));
@@ -333,7 +340,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
   }
 
   return (
-    <GestureDetector gesture={panGesture}>
+    <GestureDetector gesture={Gesture.Simultaneous(panGesture, doubleTapGesture)}>
       <Animated.View
         accessibilityLabel={`${personaName} visual state: ${stateLabels[state]}`}
         style={[

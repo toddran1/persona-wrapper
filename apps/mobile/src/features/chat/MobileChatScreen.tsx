@@ -35,7 +35,7 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withSpring
+  withTiming
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
@@ -170,6 +170,7 @@ export function MobileChatScreen() {
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState<string | undefined>();
+  const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [drawerInteractive, setDrawerInteractive] = useState(false);
   const drawerX = useSharedValue(-drawerWidth);
@@ -285,12 +286,12 @@ export function MobileChatScreen() {
 
   const openDrawer = useCallback(() => {
     setDrawerInteractive(true);
-    drawerX.value = withSpring(0, { damping: 22, stiffness: 180 });
+    drawerX.value = withTiming(0, { duration: 210 });
   }, [drawerX]);
 
   const closeDrawer = useCallback(() => {
     setDrawerInteractive(false);
-    drawerX.value = withSpring(-drawerWidth, { damping: 22, stiffness: 180 });
+    drawerX.value = withTiming(-drawerWidth, { duration: 190 });
   }, [drawerWidth, drawerX]);
 
   const returnToDrawer = useCallback(() => {
@@ -342,7 +343,7 @@ export function MobileChatScreen() {
     })
     .onEnd((event) => {
       const shouldOpen = drawerX.value > -drawerWidth / 2 || event.velocityX > 450;
-      drawerX.value = withSpring(shouldOpen ? 0 : -drawerWidth, { damping: 22, stiffness: 180 });
+      drawerX.value = withTiming(shouldOpen ? 0 : -drawerWidth, { duration: 190 });
       runOnJS(setDrawerInteractive)(shouldOpen);
     });
 
@@ -357,11 +358,11 @@ export function MobileChatScreen() {
     })
     .onEnd((event) => {
       if (drawerX.value > -drawerWidth + 40 || event.velocityX > 350) {
-        drawerX.value = withSpring(0, { damping: 22, stiffness: 180 });
+        drawerX.value = withTiming(0, { duration: 190 });
         runOnJS(setDrawerInteractive)(true);
         return;
       }
-      drawerX.value = withSpring(-drawerWidth, { damping: 22, stiffness: 180 });
+      drawerX.value = withTiming(-drawerWidth, { duration: 190 });
       runOnJS(setDrawerInteractive)(false);
     });
 
@@ -494,11 +495,16 @@ export function MobileChatScreen() {
   }
 
   function openAttachmentPicker(): void {
-    Alert.alert("Attach", "Choose what to add to this message.", [
-      { text: "Photo", onPress: () => void pickImage() },
-      { text: "File", onPress: () => void pickDocument() },
-      { text: "Cancel", style: "cancel" }
-    ]);
+    setAttachmentMenuVisible(true);
+  }
+
+  function chooseAttachment(kind: "photo" | "file"): void {
+    setAttachmentMenuVisible(false);
+    if (kind === "photo") {
+      void pickImage();
+      return;
+    }
+    void pickDocument();
   }
 
   function mapUploadedAssetsToUserAssets(assets: UploadedAsset[]): NonNullable<RenderedTurn["userAssets"]> {
@@ -1910,6 +1916,43 @@ export function MobileChatScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      <Modal
+        visible={attachmentMenuVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAttachmentMenuVisible(false)}
+      >
+        <View style={styles.actionSheetScrim}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setAttachmentMenuVisible(false)} />
+          <View style={[styles.attachmentSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View style={[styles.attachmentSheetHandle, { backgroundColor: theme.border }]} />
+            <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Add to message</Text>
+            <Text style={[styles.attachmentSheetCopy, { color: theme.muted }]}>Choose something to share with {activePersona?.shortName ?? activePersona?.name ?? "your persona"}.</Text>
+            <Pressable accessibilityRole="button" style={styles.attachmentSheetRow} onPress={() => chooseAttachment("photo")}>
+              <View style={[styles.attachmentSheetIcon, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                <Ionicons name="images-outline" size={22} color={theme.accent2} />
+              </View>
+              <View style={styles.attachmentSheetRowCopy}>
+                <Text style={[styles.actionSheetText, { color: theme.text }]}>Photos</Text>
+                <Text style={[styles.attachmentSheetHint, { color: theme.muted }]}>Choose one or more images</Text>
+              </View>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={styles.attachmentSheetRow} onPress={() => chooseAttachment("file")}>
+              <View style={[styles.attachmentSheetIcon, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                <Ionicons name="document-attach-outline" size={22} color={theme.accent2} />
+              </View>
+              <View style={styles.attachmentSheetRowCopy}>
+                <Text style={[styles.actionSheetText, { color: theme.text }]}>Files</Text>
+                <Text style={[styles.attachmentSheetHint, { color: theme.muted }]}>Documents, PDFs, and more</Text>
+              </View>
+            </Pressable>
+            <Pressable style={styles.actionSheetCancel} onPress={() => setAttachmentMenuVisible(false)}>
+              <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {renameTarget ? (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setRenameTarget(undefined)} />
@@ -2080,6 +2123,51 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
     width: "100%"
+  },
+  attachmentSheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    gap: 4,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    width: "100%"
+  },
+  attachmentSheetCopy: {
+    fontSize: 13,
+    lineHeight: 18,
+    paddingBottom: 12,
+    paddingHorizontal: 8
+  },
+  attachmentSheetHandle: {
+    alignSelf: "center",
+    borderRadius: 999,
+    height: 4,
+    marginBottom: 7,
+    width: 42
+  },
+  attachmentSheetHint: {
+    fontSize: 12,
+    lineHeight: 17
+  },
+  attachmentSheetIcon: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 48,
+    justifyContent: "center",
+    width: 48
+  },
+  attachmentSheetRow: {
+    alignItems: "center",
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: 13,
+    minHeight: 66,
+    paddingHorizontal: 8
+  },
+  attachmentSheetRowCopy: {
+    flex: 1,
+    gap: 2
   },
   actionSheetCancel: {
     alignItems: "center",
