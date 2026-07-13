@@ -18,22 +18,21 @@ import {
 import { LinearGradient, type LinearGradientProps } from "expo-linear-gradient";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import JSZip from "jszip";
 import * as ImagePicker from "expo-image-picker";
 import * as ExpoLinking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
-import { Audio } from "expo-av";
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
 import type { AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
-import { PanGestureHandler, type PanGestureHandlerGestureEvent } from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
   interpolate,
   runOnJS,
-  useAnimatedGestureHandler,
   useAnimatedStyle,
   useSharedValue,
   withSpring
@@ -84,10 +83,6 @@ async function loadAuthenticatedUser(): Promise<AuthUser | undefined> {
   }
 }
 
-type GestureContext = {
-  startX: number;
-};
-
 type SpeechRecognitionRuntime = typeof import("expo-speech-recognition");
 type SpeechRecognitionSubscription = { remove: () => void };
 declare const require: (moduleName: string) => unknown;
@@ -121,6 +116,9 @@ export function MobileChatScreen() {
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [turns, setTurns] = useState<RenderedTurn[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversationsCursor, setConversationsCursor] = useState<string | null>(null);
+  const [turnsCursor, setTurnsCursor] = useState<string | null>(null);
+  const [loadingEarlierTurns, setLoadingEarlierTurns] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [conversationsRefreshing, setConversationsRefreshing] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | undefined>();
@@ -157,15 +155,15 @@ export function MobileChatScreen() {
   const [drawerInteractive, setDrawerInteractive] = useState(false);
   const drawerX = useSharedValue(-drawerWidth);
   const scrollRef = useRef<ScrollView>(null);
-  const visualStateTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
-  const scrollButtonTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
+  const visualStateTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const scrollButtonTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const nearConversationBottomRef = useRef(true);
   const currentComposerDraftRef = useRef("");
   const speechBaseDraftRef = useRef("");
-  const speechRuntimeRef = useRef<SpeechRecognitionRuntime | undefined>();
+  const speechRuntimeRef = useRef<SpeechRecognitionRuntime | undefined>(undefined);
   const speechSubscriptionsRef = useRef<SpeechRecognitionSubscription[]>([]);
-  const audioPlaybackRef = useRef<Audio.Sound | undefined>();
-  const audioPlaybackUriRef = useRef<string | undefined>();
+  const audioPlaybackRef = useRef<AudioPlayer | undefined>(undefined);
+  const audioPlaybackUriRef = useRef<string | undefined>(undefined);
   const exchangedOAuthCodesRef = useRef(new Set<string>());
 
   const activePersona = persona ?? personas[0];
@@ -284,28 +282,30 @@ export function MobileChatScreen() {
     transform: [{ translateX: interpolate(drawerX.value, [-drawerWidth, 0], [0, 0], Extrapolation.CLAMP) }]
   }));
 
-  const gesture = useAnimatedGestureHandler<PanGestureHandlerGestureEvent, GestureContext>({
-    onStart: (_, context) => {
-      context.startX = drawerX.value;
-    },
-    onActive: (event, context) => {
-      drawerX.value = Math.max(-drawerWidth, Math.min(0, context.startX + event.translationX));
-    },
-    onEnd: (event) => {
+  const drawerStartX = useSharedValue(-drawerWidth);
+  const gesture = Gesture.Pan().activeOffsetX([-12, 12])
+    .onBegin(() => {
+      drawerStartX.value = drawerX.value;
+    })
+    .onUpdate((event) => {
+      drawerX.value = Math.max(-drawerWidth, Math.min(0, drawerStartX.value + event.translationX));
+    })
+    .onEnd((event) => {
       const shouldOpen = drawerX.value > -drawerWidth / 2 || event.velocityX > 450;
       drawerX.value = withSpring(shouldOpen ? 0 : -drawerWidth, { damping: 22, stiffness: 180 });
       runOnJS(setDrawerInteractive)(shouldOpen);
-    }
-  });
+    });
 
-  const edgeGesture = useAnimatedGestureHandler<PanGestureHandlerGestureEvent, GestureContext>({
-    onStart: (_, context) => {
-      context.startX = drawerX.value;
-    },
-    onActive: (event, context) => {
-      drawerX.value = Math.max(-drawerWidth, Math.min(0, context.startX + event.translationX));
-    },
-    onEnd: (event) => {
+  const edgeStartX = useSharedValue(-drawerWidth);
+  const edgeGesture = Gesture.Pan().activeOffsetX(30).failOffsetY([-14, 14])
+    .enabled(!drawerInteractive && !settingsVisible)
+    .onBegin(() => {
+      edgeStartX.value = drawerX.value;
+    })
+    .onUpdate((event) => {
+      drawerX.value = Math.max(-drawerWidth, Math.min(0, edgeStartX.value + event.translationX));
+    })
+    .onEnd((event) => {
       if (drawerX.value > -drawerWidth + 40 || event.velocityX > 350) {
         drawerX.value = withSpring(0, { damping: 22, stiffness: 180 });
         runOnJS(setDrawerInteractive)(true);
@@ -313,14 +313,26 @@ export function MobileChatScreen() {
       }
       drawerX.value = withSpring(-drawerWidth, { damping: 22, stiffness: 180 });
       runOnJS(setDrawerInteractive)(false);
-    }
-  });
+    });
 
   async function refreshConversations(): Promise<ConversationSummary[]> {
-    const list = await api.listConversations();
-    const sorted = [...list].sort(sortConversationSummaries);
+    const page = await api.listConversationsPage();
+    const sorted = [...page.conversations].sort(sortConversationSummaries);
     setConversations(sorted);
+    setConversationsCursor(page.nextCursor);
     return sorted;
+  }
+
+  async function loadMoreConversations(): Promise<void> {
+    if (!conversationsCursor || conversationsRefreshing) return;
+    setConversationsRefreshing(true);
+    try {
+      const page = await api.listConversationsPage(conversationsCursor);
+      setConversations((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
+      setConversationsCursor(page.nextCursor);
+    } finally {
+      setConversationsRefreshing(false);
+    }
   }
 
   async function refreshConversationsFromDrawer(): Promise<void> {
@@ -477,11 +489,16 @@ export function MobileChatScreen() {
   }
 
   async function releaseCurrentAudioPlayback(): Promise<void> {
-    const sound = audioPlaybackRef.current;
+    const player = audioPlaybackRef.current;
     const uri = audioPlaybackUriRef.current;
     audioPlaybackRef.current = undefined;
     audioPlaybackUriRef.current = undefined;
-    await sound?.unloadAsync().catch(() => undefined);
+    try {
+      player?.pause();
+      player?.remove();
+    } catch {
+      // The native player may already have released itself after an interruption.
+    }
     if (uri?.startsWith(FileSystem.cacheDirectory ?? "")) {
       await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
     }
@@ -505,29 +522,18 @@ export function MobileChatScreen() {
   async function replayAudioOutput(output: Extract<RenderedTurn["outputs"][number], { type: "audio" }>): Promise<void> {
     try {
       await releaseCurrentAudioPlayback();
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        staysActiveInBackground: false,
-        playThroughEarpieceAndroid: false
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+        interruptionMode: "duckOthers",
+        shouldPlayInBackground: false,
+        shouldRouteThroughEarpiece: false
       });
       const audioUri = await prepareAudioUri(output);
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { shouldPlay: true }
-      );
-      audioPlaybackRef.current = sound;
+      const player = createAudioPlayer({ uri: audioUri });
+      audioPlaybackRef.current = player;
       audioPlaybackUriRef.current = audioUri;
-      sound.setOnPlaybackStatusUpdate((status) => {
-        if ("didJustFinish" in status && status.didJustFinish) {
-          if (audioPlaybackRef.current === sound) {
-            void releaseCurrentAudioPlayback();
-          } else {
-            void sound.unloadAsync().catch(() => undefined);
-          }
-        }
-      });
+      player.play();
     } catch (playbackError) {
       await releaseCurrentAudioPlayback();
       Alert.alert("Audio playback failed", playbackError instanceof Error ? playbackError.message : "Could not play this audio response.");
@@ -956,6 +962,7 @@ export function MobileChatScreen() {
       setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
       setConversationId(undefined);
       setTurns([]);
+      setTurnsCursor(null);
       closeDrawer();
     } catch (selectError) {
       setError(selectError instanceof Error ? selectError.message : "Could not switch persona.");
@@ -968,10 +975,11 @@ export function MobileChatScreen() {
     try {
       setLoading(true);
       setError(undefined);
-      const detail = await api.getConversation(nextConversationId);
-      setConversationId(detail.id);
-      await setSelectedConversationId(detail.id);
-      setTurns(turnsFromConversationTurns(detail.turns));
+      const page = await api.getConversationTurnsPage(nextConversationId);
+      setConversationId(page.conversation.id);
+      await setSelectedConversationId(page.conversation.id);
+      setTurns(turnsFromConversationTurns(page.turns));
+      setTurnsCursor(page.nextCursor);
       if (!options?.keepDrawerOpen) closeDrawer();
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load that chat.");
@@ -980,9 +988,24 @@ export function MobileChatScreen() {
     }
   }
 
+  async function loadEarlierTurns(): Promise<void> {
+    if (!conversationId || !turnsCursor || loadingEarlierTurns) return;
+    setLoadingEarlierTurns(true);
+    try {
+      const page = await api.getConversationTurnsPage(conversationId, turnsCursor);
+      setTurns((current) => [...turnsFromConversationTurns(page.turns), ...current]);
+      setTurnsCursor(page.nextCursor);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load earlier messages.");
+    } finally {
+      setLoadingEarlierTurns(false);
+    }
+  }
+
   function newChat(): void {
     setConversationId(undefined);
     setTurns([]);
+    setTurnsCursor(null);
     setSelectedFiles([]);
     void clearSelectedConversationId();
     closeDrawer();
@@ -1058,6 +1081,7 @@ export function MobileChatScreen() {
       if (conversationId === nextConversationId) {
         setConversationId(undefined);
         setTurns([]);
+        setTurnsCursor(null);
         await clearSelectedConversationId();
       }
     } catch (deleteError) {
@@ -1231,6 +1255,7 @@ export function MobileChatScreen() {
     setConversationId(undefined);
     void clearSelectedConversationId();
     setTurns([]);
+    setTurnsCursor(null);
     setAuthMode("login");
     setAuthError(logoutError ? `You were signed out on this device. ${logoutError}` : undefined);
   }
@@ -1307,6 +1332,7 @@ export function MobileChatScreen() {
       setConversations([]);
       setConversationId(undefined);
       setTurns([]);
+      setTurnsCursor(null);
       setDeleteConfirmation("");
       setDeletePassword("");
       setAuthMode("restore");
@@ -1367,9 +1393,9 @@ export function MobileChatScreen() {
         colors={[theme.background, theme.backgroundAlt, theme.background]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFillObject}
+        style={StyleSheet.absoluteFill}
       />
-      <PanGestureHandler onGestureEvent={edgeGesture} activeOffsetX={30} failOffsetY={[-14, 14]} enabled={!drawerInteractive && !settingsVisible}>
+      <GestureDetector gesture={edgeGesture}>
         <Animated.View style={[styles.chatPlane, chatShiftStyle]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -1492,7 +1518,13 @@ export function MobileChatScreen() {
                 </View>
               </View>
             ) : (
-              turns.map((turn) => (
+              <>
+              {turnsCursor ? (
+                <Pressable accessibilityRole="button" onPress={() => void loadEarlierTurns()} style={[styles.loadEarlierButton, { borderColor: theme.border }]}>
+                  {loadingEarlierTurns ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.loadEarlierText, { color: theme.text }]}>Load earlier messages</Text>}
+                </Pressable>
+              ) : null}
+              {turns.map((turn) => (
                 <View key={turn.id} style={styles.turn}>
                   <View
                     style={[
@@ -1561,7 +1593,8 @@ export function MobileChatScreen() {
                     </View>
                   </View>
                 </View>
-              ))
+              ))}
+              </>
             )}
           </ScrollView>
 
@@ -1599,7 +1632,7 @@ export function MobileChatScreen() {
           />
           </KeyboardAvoidingView>
         </Animated.View>
-      </PanGestureHandler>
+      </GestureDetector>
 
       {drawerInteractive ? (
         <Animated.View style={[styles.overlay, overlayStyle]}>
@@ -1607,7 +1640,7 @@ export function MobileChatScreen() {
         </Animated.View>
       ) : null}
 
-      <PanGestureHandler onGestureEvent={gesture} activeOffsetX={[-12, 12]}>
+      <GestureDetector gesture={gesture}>
         <Animated.View style={[styles.drawerWrap, { width: drawerWidth }, drawerStyle]}>
           <ChatDrawer
             authUser={authUser}
@@ -1625,12 +1658,14 @@ export function MobileChatScreen() {
             onSelectConversation={(id) => void selectConversation(id)}
             onShowConversationActions={showConversationActions}
             onRefreshConversations={() => void refreshConversationsFromDrawer()}
+            onLoadMoreConversations={() => void loadMoreConversations()}
+            hasMoreConversations={Boolean(conversationsCursor)}
             onSelectPersona={(id) => void selectPersona(id)}
             onShowLogin={() => undefined}
             onShowSettings={() => setSettingsVisible(true)}
           />
         </Animated.View>
-      </PanGestureHandler>
+      </GestureDetector>
 
       {settingsVisible ? (
         <ScrollView
@@ -2143,6 +2178,20 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14
+  },
+  loadEarlierButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    borderRadius: 18,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 38,
+    minWidth: 170,
+    paddingHorizontal: 16
+  },
+  loadEarlierText: {
+    fontSize: 13,
+    fontWeight: "800"
   },
   loginCard: {
     borderRadius: 26,

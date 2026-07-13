@@ -601,6 +601,19 @@ export const conversationDetailSchema = conversationSummarySchema.extend({
 });
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
 
+export const conversationListPageSchema = z.object({
+  conversations: z.array(conversationSummarySchema),
+  nextCursor: z.string().nullable()
+});
+export type ConversationListPage = z.infer<typeof conversationListPageSchema>;
+
+export const conversationTurnsPageSchema = z.object({
+  conversation: conversationSummarySchema,
+  turns: z.array(conversationTurnSchema),
+  nextCursor: z.string().nullable()
+});
+export type ConversationTurnsPage = z.infer<typeof conversationTurnsPageSchema>;
+
 export const portableConversationMessageSchema = chatMessageSchema.extend({
   outputs: z.array(contentBlockSchema).max(100).optional(),
   createdAt: z.string().datetime().optional()

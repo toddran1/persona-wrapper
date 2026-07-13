@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEventListener } from "expo";
 import { Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
-import { Video, ResizeMode } from "expo-av";
-import type { AVPlaybackStatus } from "expo-av";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { Ionicons } from "@expo/vector-icons";
-import { PanGestureHandler, type PanGestureHandlerGestureEvent } from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
-  useAnimatedGestureHandler,
   useAnimatedStyle,
   useSharedValue,
   withTiming
@@ -36,9 +35,42 @@ type PersonaVisualClip = {
   media: "video" | "image";
 };
 
-type GestureContext = {
-  startX: number;
-};
+function PersonaVideo({
+  source,
+  playing,
+  onEnd,
+  onError
+}: {
+  source: string;
+  playing: boolean;
+  onEnd: () => void;
+  onError: () => void;
+}) {
+  const player = useVideoPlayer({ uri: source, useCaching: true }, (instance) => {
+    instance.loop = false;
+    instance.muted = true;
+    if (playing) instance.play();
+  });
+
+  useEffect(() => {
+    if (playing) player.play();
+    else player.pause();
+  }, [player, playing]);
+
+  useEventListener(player, "playToEnd", onEnd);
+  useEventListener(player, "statusChange", ({ status }) => {
+    if (status === "error") onError();
+  });
+
+  return (
+    <VideoView
+      player={player}
+      contentFit="cover"
+      nativeControls={false}
+      style={styles.media}
+    />
+  );
+}
 
 const stateLabels: Record<PersonaVisualState, string> = {
   idle: "Idle",
@@ -168,19 +200,19 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
     showClip(pickStateClip(profile, currentClip.state, currentClip.src, failedSourcesRef.current));
   }
 
-  const panGesture = useAnimatedGestureHandler<PanGestureHandlerGestureEvent, GestureContext>({
-    onStart: (_, context) => {
-      context.startX = translateX.value;
-    },
-    onActive: (event, context) => {
-      translateX.value = Math.max(0, Math.min(hiddenTranslate + 4, context.startX + event.translationX));
-    },
-    onEnd: (event) => {
+  const gestureStartX = useSharedValue(0);
+  const panGesture = Gesture.Pan().activeOffsetX(12)
+    .onBegin(() => {
+      gestureStartX.value = translateX.value;
+    })
+    .onUpdate((event) => {
+      translateX.value = Math.max(0, Math.min(hiddenTranslate + 4, gestureStartX.value + event.translationX));
+    })
+    .onEnd((event) => {
       const shouldHide = translateX.value > 52 || event.velocityX > 360;
       translateX.value = withTiming(shouldHide ? hiddenTranslate : 0, { duration: 220 });
       if (shouldHide) runOnJS(onHiddenChange)(true);
-    }
-  });
+    });
 
   const stageStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }]
@@ -192,11 +224,6 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
       { scale: 0.72 + expandedProgress.value * 0.28 }
     ]
   }));
-
-  function handlePlaybackStatus(status: AVPlaybackStatus): void {
-    if (!status.isLoaded) return;
-    if (status.didJustFinish) finishClip();
-  }
 
   function handleStagePress(): void {
     const now = Date.now();
@@ -230,17 +257,12 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
     }
 
     return (
-      <Video
+      <PersonaVideo
         key={activeClip.src}
-        source={source}
-        resizeMode={ResizeMode.COVER}
-        shouldPlay={!hidden || expanded}
-        isLooping={false}
-        isMuted
-        useNativeControls={false}
-        style={styles.media}
+        source={source.uri}
+        playing={!hidden || expanded}
         onError={handleMediaError}
-        onPlaybackStatusUpdate={handlePlaybackStatus}
+        onEnd={finishClip}
       />
     );
   }
@@ -273,7 +295,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
   }
 
   return (
-    <PanGestureHandler onGestureEvent={panGesture} activeOffsetX={12}>
+    <GestureDetector gesture={panGesture}>
       <Animated.View
         accessibilityLabel={`${personaName} visual state: ${stateLabels[state]}`}
         style={[
@@ -286,7 +308,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
           {renderClip()}
         </Pressable>
       </Animated.View>
-    </PanGestureHandler>
+    </GestureDetector>
   );
 }
 

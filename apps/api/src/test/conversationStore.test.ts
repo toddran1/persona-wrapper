@@ -261,4 +261,37 @@ describe("ConversationStore prompt context", () => {
     expect(updated.turns?.[0]?.outputs).toEqual([{ type: "text", text: "Still readable." }]);
     expect(updated.turns?.[0]?.usage).toBeUndefined();
   });
+
+  it("paginates conversation summaries without returning duplicates", async () => {
+    const store = new ConversationStore();
+    for (let index = 0; index < 5; index += 1) {
+      await store.getOrCreate(`page-conversation-${index}`, [], { titleSeed: `Chat ${index}` });
+    }
+
+    const first = await store.listPage(undefined, 2);
+    const second = await store.listPage(undefined, 2, first.nextCursor ?? undefined);
+
+    expect(first.conversations).toHaveLength(2);
+    expect(second.conversations).toHaveLength(2);
+    expect(first.nextCursor).toBe("2");
+    expect(new Set([...first.conversations, ...second.conversations].map((item) => item.id)).size).toBe(4);
+  });
+
+  it("loads newest turns first and pages backward through long histories", async () => {
+    const store = new ConversationStore();
+    let conversation = await store.getOrCreate("turn-page-test");
+    for (let index = 0; index < 5; index += 1) {
+      conversation = await store.appendTurn(conversation, [
+        { role: "user", content: `Question ${index}` },
+        { role: "assistant", content: `Answer ${index}` }
+      ]);
+    }
+
+    const newest = await store.getTurnsPage("turn-page-test", undefined, 2);
+    const older = await store.getTurnsPage("turn-page-test", undefined, 2, newest?.nextCursor ?? undefined);
+
+    expect(newest?.turns.map((turn) => turn.userMessage)).toEqual(["Question 3", "Question 4"]);
+    expect(older?.turns.map((turn) => turn.userMessage)).toEqual(["Question 1", "Question 2"]);
+    expect(older?.nextCursor).toBe("1");
+  });
 });

@@ -8,10 +8,12 @@ import {
   type ConversationDetail,
   type ConversationSummary,
   type ConversationTurn,
+  type ConversationListPage,
+  type ConversationTurnsPage,
   type PortableConversation
 } from "@persona/shared";
 import { z } from "zod";
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { conversations, messages as dbMessages } from "../db/schema.js";
@@ -200,29 +202,29 @@ export class ConversationStore {
     this.conversations.delete(conversationId);
   }
 
-  async list(userId?: string, limit = 100): Promise<ConversationSummary[]> {
+  async list(userId?: string, limit = 100, offset = 0): Promise<ConversationSummary[]> {
     const boundedLimit = Math.max(1, Math.min(limit, 10000));
     const db = getDatabase();
     if (db) {
       const rows = await db.query.conversations.findMany({
         where: userId ? eq(conversations.userId, userId) : isNull(conversations.userId),
-        with: {
-          messages: {
-            columns: {
-              id: true
-            }
-          }
-        },
         orderBy: desc(conversations.updatedAt),
-        limit: boundedLimit
+        limit: boundedLimit,
+        offset: Math.max(0, offset)
       });
+      const counts = rows.length === 0 ? [] : await db
+        .select({ conversationId: dbMessages.conversationId, count: sql<number>`count(*)::int` })
+        .from(dbMessages)
+        .where(inArray(dbMessages.conversationId, rows.map((row) => row.id)))
+        .groupBy(dbMessages.conversationId);
+      const countsByConversation = new Map(counts.map((row) => [row.conversationId, Number(row.count)]));
 
       return rows.map((row) => ({
         id: row.id,
         ...(row.personaId ? { personaId: row.personaId } : {}),
         title: row.title || titleFromMessages([]) || "New conversation",
         pinned: isPinned(metadataRecord(row.metadata)),
-        messageCount: row.messages.length,
+        messageCount: countsByConversation.get(row.id) ?? 0,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString()
       })).sort(sortConversationSummaries).slice(0, boundedLimit);
@@ -235,7 +237,7 @@ export class ConversationStore {
         if (pinnedDelta !== 0) return pinnedDelta;
         return (right.updatedAt?.getTime() ?? 0) - (left.updatedAt?.getTime() ?? 0);
       })
-      .slice(0, boundedLimit)
+      .slice(Math.max(0, offset), Math.max(0, offset) + boundedLimit)
       .map((conversation) => ({
         id: conversation.id,
         ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
@@ -245,6 +247,93 @@ export class ConversationStore {
         createdAt: (conversation.createdAt ?? new Date()).toISOString(),
         updatedAt: (conversation.updatedAt ?? new Date()).toISOString()
       }));
+  }
+
+  async listPage(userId?: string, limit = 50, cursor?: string): Promise<ConversationListPage> {
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const offset = parseCursor(cursor);
+    const rows = await this.list(userId, boundedLimit + 1, offset);
+    const hasMore = rows.length > boundedLimit;
+    return {
+      conversations: rows.slice(0, boundedLimit),
+      nextCursor: hasMore ? String(offset + boundedLimit) : null
+    };
+  }
+
+  async getTurnsPage(conversationId: string, userId?: string, limit = 40, cursor?: string): Promise<ConversationTurnsPage | undefined> {
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const beforeSequence = cursor === undefined ? undefined : parseSequenceCursor(cursor);
+    const db = getDatabase();
+    if (db) {
+      const row = await db.query.conversations.findFirst({
+        where: and(
+          eq(conversations.id, conversationId),
+          userId ? eq(conversations.userId, userId) : isNull(conversations.userId)
+        )
+      });
+      if (!row) return undefined;
+      const userRows = await db
+        .select({ sequence: dbMessages.sequence })
+        .from(dbMessages)
+        .where(and(
+          eq(dbMessages.conversationId, conversationId),
+          eq(dbMessages.role, "user"),
+          ...(beforeSequence === undefined ? [] : [lt(dbMessages.sequence, beforeSequence)])
+        ))
+        .orderBy(desc(dbMessages.sequence))
+        .limit(boundedLimit + 1);
+      const selected = userRows.slice(0, boundedLimit);
+      const lowerSequence = selected.at(-1)?.sequence;
+      const messageCountRows = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(dbMessages)
+        .where(eq(dbMessages.conversationId, conversationId));
+      const summary: ConversationSummary = {
+        id: row.id,
+        ...(row.personaId ? { personaId: row.personaId } : {}),
+        title: row.title || "New conversation",
+        pinned: isPinned(metadataRecord(row.metadata)),
+        messageCount: Number(messageCountRows[0]?.count ?? 0),
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString()
+      };
+      if (lowerSequence === undefined) {
+        return { conversation: summary, turns: [], nextCursor: null };
+      }
+      const pageRows = await db.query.messages.findMany({
+        where: and(
+          eq(dbMessages.conversationId, conversationId),
+          gte(dbMessages.sequence, lowerSequence),
+          ...(beforeSequence === undefined ? [] : [lt(dbMessages.sequence, beforeSequence)])
+        ),
+        orderBy: asc(dbMessages.sequence)
+      });
+      const history = pageRows.map(rowToChatMessage);
+      return {
+        conversation: summary,
+        turns: buildConversationTurns(history, pageRows.map(rowToMessageMetadata)),
+        nextCursor: userRows.length > boundedLimit ? String(lowerSequence) : null
+      };
+    }
+
+    const record = this.conversations.get(conversationId);
+    if (!record || (userId && record.userId && record.userId !== userId)) return undefined;
+    const allTurns = record.turns ?? buildConversationTurns(record.messages);
+    const end = beforeSequence ?? allTurns.length;
+    const start = Math.max(0, end - boundedLimit);
+    return {
+      conversation: {
+        id: record.id,
+        ...(record.personaId ? { personaId: record.personaId } : {}),
+        title: record.title || "New conversation",
+        pinned: isPinned(record.metadata),
+        messageCount: record.messages.length,
+        createdAt: (record.createdAt ?? new Date()).toISOString(),
+        updatedAt: (record.updatedAt ?? new Date()).toISOString()
+      },
+      turns: allTurns.slice(start, end),
+      nextCursor: start > 0 ? String(start) : null
+    };
   }
 
   async get(conversationId: string, userId?: string): Promise<ConversationDetail | undefined> {
@@ -806,4 +895,18 @@ function normalizeTitle(title: string): string {
   const normalized = title.replace(/\s+/g, " ").trim();
   if (!normalized) return "New conversation";
   return normalized.length > 120 ? normalized.slice(0, 117).trim() + "..." : normalized;
+}
+
+function parseCursor(cursor: string | undefined): number {
+  if (!cursor) return 0;
+  const value = Number(cursor);
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function parseSequenceCursor(cursor: string): number {
+  const value = Number(cursor);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error("Invalid conversation cursor.");
+  }
+  return value;
 }

@@ -155,8 +155,31 @@ export async function postChatStream(request: Request, response: Response): Prom
 }
 
 export async function listConversations(request: Request, response: Response): Promise<void> {
-  const conversations = await conversationStore.list(requestIdentity(request));
-  response.status(200).json({ conversations });
+  const page = await conversationStore.listPage(
+    requestIdentity(request),
+    boundedPageLimit(request.query.limit),
+    typeof request.query.cursor === "string" ? request.query.cursor : undefined
+  );
+  response.status(200).json(page);
+}
+
+export async function getConversationTurns(request: Request, response: Response): Promise<void> {
+  const page = await conversationStore.getTurnsPage(
+    String(request.params.conversationId ?? ""),
+    requestIdentity(request),
+    boundedPageLimit(request.query.limit),
+    typeof request.query.cursor === "string" ? request.query.cursor : undefined
+  );
+  if (!page) throw new HttpError("Conversation not found", 404);
+  response.status(200).json(page);
+}
+
+function boundedPageLimit(raw: unknown): number {
+  const value = typeof raw === "string" ? Number(raw) : 50;
+  if (!Number.isInteger(value) || value < 1 || value > 100) {
+    throw new HttpError("Page limit must be an integer from 1 to 100.", 400);
+  }
+  return value;
 }
 
 export async function getConversation(request: Request, response: Response): Promise<void> {

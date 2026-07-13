@@ -6,7 +6,9 @@ import type {
   ChatJobResponse,
   ClientContext,
   ConversationDetail,
+  ConversationListPage,
   ConversationSummary,
+  ConversationTurnsPage,
   DataImportResult,
   ForTheBaddiezArchive,
   LoginRequest,
@@ -438,10 +440,12 @@ export const api = {
       method: "GET",
       ...(signal ? { signal } : {})
     }),
-  listConversations: async (): Promise<ConversationSummary[]> => {
-    const payload = await requestJson<{ conversations: ConversationSummary[] }>("/api/chat/conversations");
-    return payload.conversations;
-  },
+  listConversationsPage: (cursor?: string, limit = 50): Promise<ConversationListPage> =>
+    requestJson<ConversationListPage>(`/api/chat/conversations?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),
+  listConversations: async (): Promise<ConversationSummary[]> =>
+    (await api.listConversationsPage()).conversations,
+  getConversationTurnsPage: (conversationId: string, cursor?: string, limit = 40): Promise<ConversationTurnsPage> =>
+    requestJson<ConversationTurnsPage>(`/api/chat/conversations/${conversationId}/turns?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),
   getConversation: async (conversationId: string): Promise<ConversationDetail> => {
     const payload = await requestJson<{ conversation: ConversationDetail }>(`/api/chat/conversations/${conversationId}`);
     return payload.conversation;

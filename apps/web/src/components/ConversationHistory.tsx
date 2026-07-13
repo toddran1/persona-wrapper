@@ -523,7 +523,10 @@ export function ConversationHistory({
   onAudioPlaybackChange,
   onOutputAction,
   onEditUserPrompt,
-  onRetryAssistantTurn
+  onRetryAssistantTurn,
+  hasEarlierTurns = false,
+  loadingEarlierTurns = false,
+  onLoadEarlierTurns
 }: {
   personaId?: string;
   personaShortName?: string;
@@ -538,6 +541,9 @@ export function ConversationHistory({
   onOutputAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
   onEditUserPrompt?: ((message: string, files: File[]) => void) | undefined;
   onRetryAssistantTurn?: ((turn: RenderedTurn) => void) | undefined;
+  hasEarlierTurns?: boolean;
+  loadingEarlierTurns?: boolean;
+  onLoadEarlierTurns?: (() => void) | undefined;
 }) {
   const messageCount = turns.length * 2 + (pendingPrompt ? 1 : 0) + (thinking ? 1 : 0);
   const historyRef = useRef<HTMLElement>(null);
@@ -600,6 +606,11 @@ export function ConversationHistory({
         <p className="empty-state">No conversation state yet. Ask anything.</p>
       ) : (
         <div className="chat-thread">
+          {hasEarlierTurns ? (
+            <button type="button" className="conversation-load-earlier" onClick={onLoadEarlierTurns} disabled={loadingEarlierTurns}>
+              {loadingEarlierTurns ? "Loading..." : "Load earlier messages"}
+            </button>
+          ) : null}
           {turns.map((turn, turnIndex) => {
             const inlineOutputs = turn.outputs.filter(shouldRenderInlineOutput);
             const sources = turn.outputs.filter((output): output is Extract<ContentBlock, { type: "source_list" }> => output.type === "source_list");

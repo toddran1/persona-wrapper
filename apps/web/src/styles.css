@@ -2042,6 +2042,23 @@ button:disabled {
   gap: 16px;
 }
 
+.chat-turn {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
+}
+
+.conversation-load-earlier,
+.conversation-list-load-more {
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  cursor: pointer;
+  min-height: 36px;
+  padding: 0.55rem 0.9rem;
+}
+
 .chat-thread {
   align-content: start;
   padding-right: 6px;

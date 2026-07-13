@@ -4,6 +4,7 @@ import {
   deleteConversation,
   deleteStyleTransferReviewRecord,
   getConversation,
+  getConversationTurns,
   getChatJob,
   getStyleTransferReview,
   listConversations,
@@ -38,6 +39,7 @@ export function requireTestMode(request: Request, _response: Response, next: Nex
 chatRouter.post("/", asyncHandler(postChat));
 chatRouter.post("/stream", asyncHandler(postChatStream));
 chatRouter.get("/conversations", asyncHandler(listConversations));
+chatRouter.get("/conversations/:conversationId/turns", asyncHandler(getConversationTurns));
 chatRouter.get("/conversations/:conversationId", asyncHandler(getConversation));
 chatRouter.patch("/conversations/:conversationId", asyncHandler(patchConversation));
 chatRouter.delete("/conversations/:conversationId", asyncHandler(deleteConversation));

@@ -7,12 +7,6 @@ const config: ExpoConfig = {
   version: "0.1.0",
   orientation: "portrait",
   userInterfaceStyle: "dark",
-  newArchEnabled: true,
-  splash: {
-    image: "./assets/branding/For_the_Baddiez_logo_transparent.png",
-    resizeMode: "contain",
-    backgroundColor: "#09060f"
-  },
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.personawrapper.mobile"
@@ -25,7 +19,33 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    [
+      "expo-splash-screen",
+      {
+        image: "./assets/branding/For_the_Baddiez_logo_transparent.png",
+        resizeMode: "contain",
+        backgroundColor: "#09060f"
+      }
+    ],
     "expo-secure-store",
+    "expo-sharing",
+    "expo-status-bar",
+    "expo-web-browser",
+    [
+      "expo-audio",
+      {
+        microphonePermission: false,
+        enableBackgroundPlayback: false,
+        enableBackgroundRecording: false
+      }
+    ],
+    [
+      "expo-video",
+      {
+        supportsBackgroundPlayback: false,
+        supportsPictureInPicture: false
+      }
+    ],
     [
       "expo-media-library",
       {

@@ -22,6 +22,8 @@ type ChatDrawerProps = {
   onSelectConversation: (conversationId: string) => void;
   onShowConversationActions: (conversation: ConversationSummary) => void;
   onRefreshConversations: () => void;
+  onLoadMoreConversations: () => void;
+  hasMoreConversations: boolean;
   onSelectPersona: (personaId: string) => void;
   onShowLogin: () => void;
   onShowSettings: () => void;
@@ -43,6 +45,8 @@ export function ChatDrawer({
   onSelectConversation,
   onShowConversationActions,
   onRefreshConversations,
+  onLoadMoreConversations,
+  hasMoreConversations,
   onSelectPersona,
   onShowLogin,
   onShowSettings
@@ -178,6 +182,11 @@ export function ChatDrawer({
             </Pressable>
           );
         })}
+        {hasMoreConversations ? (
+          <Pressable onPress={onLoadMoreConversations} style={[styles.loadMore, { borderColor: theme.border }]}>
+            <Text style={[styles.subtle, { color: theme.text }]}>Load more chats</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -198,6 +207,7 @@ type DrawerStyles = {
   conversationRow: ViewStyle;
   conversationScroller: ViewStyle;
   conversationTitle: TextStyle;
+  loadMore: ViewStyle;
   drawer: ViewStyle;
   empty: TextStyle;
   header: ViewStyle;
@@ -302,6 +312,14 @@ const styles = StyleSheet.create<DrawerStyles>({
   conversationTitle: {
     fontSize: 14,
     fontWeight: "600"
+  },
+  loadMore: {
+    alignItems: "center",
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 42,
+    paddingHorizontal: 12
   },
   drawer: {
     borderRightWidth: 1,

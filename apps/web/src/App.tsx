@@ -223,6 +223,9 @@ export function App() {
   const [error, setError] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>(() => storedConversationId());
   const [conversationList, setConversationList] = useState<ConversationSummary[]>([]);
+  const [conversationListCursor, setConversationListCursor] = useState<string | null>(null);
+  const [turnsCursor, setTurnsCursor] = useState<string | null>(null);
+  const [loadingEarlierTurns, setLoadingEarlierTurns] = useState(false);
   const [conversationListLoading, setConversationListLoading] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | undefined>();
   const [authLoading, setAuthLoading] = useState(true);
@@ -237,13 +240,13 @@ export function App() {
   const [composerDraft, setComposerDraft] = useState<string | undefined>();
   const [composerDraftAttachments, setComposerDraftAttachments] = useState<File[] | undefined>();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const activeRequestRef = useRef<AbortController | undefined>();
-  const activeBackgroundJobIdRef = useRef<string | undefined>();
+  const activeRequestRef = useRef<AbortController | undefined>(undefined);
+  const activeBackgroundJobIdRef = useRef<string | undefined>(undefined);
   const completedTurnCountRef = useRef(0);
   const lastCompletedTurnWasImageOnlyRef = useRef(false);
   const suppressAudioVisualForCurrentTurnRef = useRef(false);
   const suppressPersonaVisualTransitionsRef = useRef(false);
-  const nonAudioVisualTimeoutRef = useRef<number | undefined>();
+  const nonAudioVisualTimeoutRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const desktopQuery = window.matchMedia("(min-width: 1180px)");
@@ -596,13 +599,14 @@ export function App() {
   async function refreshConversationList(preferConversationId?: string, retryOnStartup = false): Promise<void> {
     setConversationListLoading(true);
     try {
-      const conversations = retryOnStartup
+      const page = retryOnStartup
         ? await retryWithBackoff(
-            () => api.listConversations(),
+            () => api.listConversationsPage(),
             { shouldRetry: isTransientApiBootError }
           )
-        : await api.listConversations();
-      setConversationList(conversations);
+        : await api.listConversationsPage();
+      setConversationList(page.conversations);
+      setConversationListCursor(page.nextCursor);
       if (preferConversationId) {
         setConversationId(preferConversationId);
       }
@@ -623,11 +627,10 @@ export function App() {
     setPersonaAudioPlaying(false);
     setAutoPlayAudioTurnIndex(undefined);
     try {
-      const conversation = await api.getConversation(nextConversationId);
-      const nextTurns = conversation.turns.length > 0
-        ? renderTurnsFromConversationTurns(conversation.turns)
-        : renderTurnsFromHistory(conversation.history);
-      setConversationId(conversation.id);
+      const page = await api.getConversationTurnsPage(nextConversationId);
+      const nextTurns = renderTurnsFromConversationTurns(page.turns);
+      setConversationId(page.conversation.id);
+      setTurnsCursor(page.nextCursor);
       completedTurnCountRef.current = nextTurns.length;
       setRenderedTurns(nextTurns);
       setResponse(undefined);
@@ -639,6 +642,32 @@ export function App() {
     } finally {
       setLoading(false);
       releasePersonaVisualSuppressionSoon();
+    }
+  }
+
+  async function loadEarlierTurns(): Promise<void> {
+    if (!conversationId || !turnsCursor || loadingEarlierTurns) return;
+    setLoadingEarlierTurns(true);
+    try {
+      const page = await api.getConversationTurnsPage(conversationId, turnsCursor);
+      setRenderedTurns((current) => [...renderTurnsFromConversationTurns(page.turns), ...current]);
+      setTurnsCursor(page.nextCursor);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load earlier messages");
+    } finally {
+      setLoadingEarlierTurns(false);
+    }
+  }
+
+  async function loadMoreConversations(): Promise<void> {
+    if (!conversationListCursor || conversationListLoading) return;
+    setConversationListLoading(true);
+    try {
+      const page = await api.listConversationsPage(conversationListCursor);
+      setConversationList((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
+      setConversationListCursor(page.nextCursor);
+    } finally {
+      setConversationListLoading(false);
     }
   }
 
@@ -970,6 +999,7 @@ export function App() {
     setResponse(undefined);
     setLatestRequest(undefined);
     setRenderedTurns([]);
+    setTurnsCursor(null);
     setError(undefined);
     setEvalSavedMessage(undefined);
     setEvalError(undefined);
@@ -1184,6 +1214,8 @@ export function App() {
           conversations={conversationList}
           activeConversationId={conversationId}
           loading={conversationListLoading}
+          hasMoreConversations={Boolean(conversationListCursor)}
+          onLoadMoreConversations={() => void loadMoreConversations()}
           onLogin={handleLogin}
           onRegister={handleRegister}
           onRestoreAccount={handleRestoreAccount}
@@ -1222,6 +1254,9 @@ export function App() {
               personaId={activePersona?.id ?? "persona"}
               personaShortName={activePersona?.shortName ?? activePersona?.name ?? "Persona"}
               turns={renderedTurns}
+              hasEarlierTurns={Boolean(turnsCursor)}
+              loadingEarlierTurns={loadingEarlierTurns}
+              onLoadEarlierTurns={() => void loadEarlierTurns()}
               pendingPrompt={pendingPrompt}
               pendingAssets={pendingPromptAssets}
               pendingFiles={pendingPromptFiles}

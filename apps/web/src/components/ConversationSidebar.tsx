@@ -37,6 +37,8 @@ export function ConversationSidebar({
   conversations,
   activeConversationId,
   loading = false,
+  hasMoreConversations = false,
+  onLoadMoreConversations,
   onLogin,
   onRegister,
   onRestoreAccount,
@@ -61,6 +63,8 @@ export function ConversationSidebar({
   conversations: ConversationSummary[];
   activeConversationId?: string | undefined;
   loading?: boolean;
+  hasMoreConversations?: boolean;
+  onLoadMoreConversations?: (() => void) | undefined;
   onLogin: (identifier: string, password: string) => Promise<void>;
   onRegister: (payload: {
     email?: string;
@@ -646,6 +650,11 @@ export function ConversationSidebar({
             </div>
           ))
         )}
+        {hasMoreConversations && !query.trim() ? (
+          <button type="button" className="conversation-list-load-more" onClick={onLoadMoreConversations} disabled={loading}>
+            {loading ? "Loading..." : "Load more chats"}
+          </button>
+        ) : null}
       </div>
 
       {authUser ? (
