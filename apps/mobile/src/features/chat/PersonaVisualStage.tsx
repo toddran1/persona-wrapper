@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useEventListener } from "expo";
-import { Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { AppState, Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { Ionicons } from "@expo/vector-icons";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -25,6 +25,7 @@ type PersonaVisualStageProps = {
   theme: MobileTheme;
   onExpandedChange: (expanded: boolean) => void;
   onHiddenChange: (hidden: boolean) => void;
+  onAppForeground: () => void;
 };
 
 type PersonaVisualClip = {
@@ -38,14 +39,17 @@ type PersonaVisualClip = {
 function PersonaVideo({
   source,
   playing,
+  restartToken,
   onEnd,
   onError
 }: {
   source: string;
   playing: boolean;
+  restartToken: number;
   onEnd: () => void;
   onError: () => void;
 }) {
+  const lastRestartTokenRef = useRef(restartToken);
   const player = useVideoPlayer({ uri: source, useCaching: true }, (instance) => {
     instance.loop = false;
     instance.muted = true;
@@ -56,6 +60,17 @@ function PersonaVideo({
     if (playing) player.play();
     else player.pause();
   }, [player, playing]);
+
+  useEffect(() => {
+    if (restartToken === lastRestartTokenRef.current) return;
+    lastRestartTokenRef.current = restartToken;
+
+    try {
+      player.replay();
+    } catch {
+      onError();
+    }
+  }, [onError, player, restartToken]);
 
   useEventListener(player, "playToEnd", onEnd);
   useEventListener(player, "statusChange", ({ status }) => {
@@ -102,7 +117,7 @@ function pickStateClip(profile: PersonaVisualStageProfile, state: PersonaVisualS
   };
 }
 
-export function PersonaVisualStage({ expanded, hidden, personaName, profile, state, theme, onExpandedChange, onHiddenChange }: PersonaVisualStageProps) {
+export function PersonaVisualStage({ expanded, hidden, personaName, profile, state, theme, onExpandedChange, onHiddenChange, onAppForeground }: PersonaVisualStageProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const compactLayout = windowWidth < 360 || windowHeight < 700;
   const tabletLayout = windowWidth >= 768;
@@ -111,9 +126,11 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
   const hiddenTranslate = stageWidth + 24;
   const [activeClip, setActiveClip] = useState<PersonaVisualClip>(() => pickStateClip(profile, state));
   const [mediaUnavailable, setMediaUnavailable] = useState(false);
+  const [playbackGeneration, setPlaybackGeneration] = useState(0);
   const activeClipRef = useRef<PersonaVisualClip | null>(activeClip);
   const failedSourcesRef = useRef<Set<string>>(new Set());
   const lastPressAtRef = useRef(0);
+  const appStateRef = useRef(AppState.currentState);
   const settledStateRef = useRef<PersonaVisualState>(state);
   const targetStateRef = useRef<PersonaVisualState>(state);
   const expandedProgress = useSharedValue(expanded ? 1 : 0);
@@ -126,6 +143,22 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
   useEffect(() => {
     expandedProgress.value = withTiming(expanded ? 1 : 0, { duration: 280 });
   }, [expanded, expandedProgress]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      const wasBackgrounded = appStateRef.current === "background" || appStateRef.current === "inactive";
+      appStateRef.current = nextAppState;
+
+      if (wasBackgrounded && nextAppState === "active") {
+        // Native video surfaces may remain paused or frozen after returning from
+        // the background. Restart the existing player and return to idle.
+        setPlaybackGeneration((generation) => generation + 1);
+        onAppForeground();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [onAppForeground]);
 
   useEffect(() => {
     failedSourcesRef.current.clear();
@@ -258,9 +291,9 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
 
     return (
       <PersonaVideo
-        key={activeClip.src}
         source={source.uri}
         playing={!hidden || expanded}
+        restartToken={playbackGeneration}
         onError={handleMediaError}
         onEnd={finishClip}
       />

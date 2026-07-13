@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -276,6 +277,33 @@ export function MobileChatScreen() {
     setDrawerInteractive(false);
     drawerX.value = withSpring(-drawerWidth, { damping: 22, stiffness: 180 });
   }, [drawerWidth, drawerX]);
+
+  const returnToDrawer = useCallback(() => {
+    setSettingsVisible(false);
+    openDrawer();
+  }, [openDrawer]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android" || !authUser) return;
+
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (settingsVisible) {
+        returnToDrawer();
+        return true;
+      }
+
+      if (drawerInteractive) {
+        closeDrawer();
+        return true;
+      }
+
+      // The authenticated chat screen is the mobile app's root. Consume the
+      // Android back event here so it cannot exit the app unexpectedly.
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [authUser, closeDrawer, drawerInteractive, returnToDrawer, settingsVisible]);
 
   const drawerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: drawerX.value }]
@@ -1405,7 +1433,7 @@ export function MobileChatScreen() {
       <GestureDetector gesture={edgeGesture}>
         <Animated.View style={[styles.chatPlane, chatShiftStyle]}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
             keyboardVerticalOffset={0}
             style={[
               styles.keyboard,
@@ -1442,6 +1470,7 @@ export function MobileChatScreen() {
               theme={theme}
               onExpandedChange={handlePersonaExpandedChange}
               onHiddenChange={setPersonaCardHidden}
+              onAppForeground={markPersonaIdle}
             />
           ) : null}
 
@@ -1476,7 +1505,7 @@ export function MobileChatScreen() {
             ref={scrollRef}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={[styles.history, compactLayout ? styles.historyCompact : null]}
-            style={personaCardExpanded ? styles.layerAbovePersonaBackground : undefined}
+            style={[styles.conversationScroll, personaCardExpanded ? styles.layerAbovePersonaBackground : null]}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={80}
             onScroll={handleConversationScroll}
@@ -1687,7 +1716,7 @@ export function MobileChatScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Back to chats"
-              onPress={() => setSettingsVisible(false)}
+              onPress={returnToDrawer}
               style={[styles.settingsBackButton, { backgroundColor: "rgba(255,255,255,0.08)" }]}
             >
               <Ionicons name="arrow-back" size={25} color={theme.text} />
@@ -2066,6 +2095,10 @@ const styles = StyleSheet.create({
   checkStatusText: {
     fontSize: 13,
     fontWeight: "800"
+  },
+  conversationScroll: {
+    flex: 1,
+    minHeight: 0
   },
   drawerWrap: {
     bottom: 0,
