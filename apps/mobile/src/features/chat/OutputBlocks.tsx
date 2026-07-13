@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
@@ -66,6 +66,105 @@ function ThinkingDots({ theme }: { theme: MobileTheme }) {
   );
 }
 
+function renderInlineMarkdown(text: string, keyPrefix: string, theme: MobileTheme): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /(\*\*([^*]+)\*\*)|(\[([^\]]+)\]\((https?:\/\/[^)]+)\))/g;
+  let lastIndex = 0;
+  let index = 0;
+
+  for (const match of text.matchAll(pattern)) {
+    if (match.index === undefined) continue;
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+
+    if (match[2]) {
+      nodes.push(<Text key={`${keyPrefix}-bold-${index}`} style={styles.markdownBold}>{match[2]}</Text>);
+    } else if (match[4] && match[5]) {
+      const url = safeExternalUrl(match[5]);
+      nodes.push(
+        <Text
+          key={`${keyPrefix}-link-${index}`}
+          accessibilityRole={url ? "link" : undefined}
+          onPress={url ? () => void openExternalUrl(url).catch(() => undefined) : undefined}
+          style={[styles.markdownLink, { color: theme.accent2 }]}
+        >
+          {match[4]}
+        </Text>
+      );
+    }
+
+    lastIndex = match.index + match[0].length;
+    index += 1;
+  }
+
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes.length > 0 ? nodes : [text];
+}
+
+function MobileMarkdownText({ text, theme }: { text: string; theme: MobileTheme }) {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      blocks.push(
+        <Text key={`heading-${index}`} style={[styles.markdownHeading, { color: theme.text }]}>
+          {renderInlineMarkdown(heading[2] ?? "", `heading-${index}`, theme)}
+        </Text>
+      );
+      index += 1;
+      continue;
+    }
+
+    const listMatch = line.match(/^\s*((?:[-*])|(\d+)\.)\s+(.+)$/);
+    if (listMatch) {
+      const ordered = Boolean(listMatch[2]);
+      const items: Array<{ marker: string; text: string }> = [];
+      while (index < lines.length) {
+        const itemMatch = (lines[index] ?? "").match(/^\s*((?:[-*])|(\d+)\.)\s+(.+)$/);
+        if (!itemMatch || Boolean(itemMatch[2]) !== ordered) break;
+        items.push({ marker: ordered ? `${itemMatch[2]}.` : "•", text: itemMatch[3] ?? "" });
+        index += 1;
+      }
+      blocks.push(
+        <View key={`list-${index}`} style={styles.markdownList}>
+          {items.map((item, itemIndex) => (
+            <View key={`list-${index}-${itemIndex}`} style={styles.markdownListItem}>
+              <Text style={[styles.markdownMarker, { color: theme.text }]}>{item.marker}</Text>
+              <Text style={[styles.assistantText, styles.markdownListText, { color: theme.text }]}>
+                {renderInlineMarkdown(item.text, `list-${index}-${itemIndex}`, theme)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      );
+      continue;
+    }
+
+    const paragraph: string[] = [];
+    while (index < lines.length) {
+      const paragraphLine = lines[index] ?? "";
+      if (!paragraphLine.trim() || /^(#{1,3})\s+/.test(paragraphLine) || /^\s*(?:[-*]|\d+\.)\s+/.test(paragraphLine)) break;
+      paragraph.push(paragraphLine);
+      index += 1;
+    }
+    blocks.push(
+      <Text key={`paragraph-${index}`} style={[styles.assistantText, { color: theme.text }]}>
+        {renderInlineMarkdown(paragraph.join("\n"), `paragraph-${index}`, theme)}
+      </Text>
+    );
+  }
+
+  return <View style={styles.markdownStack}>{blocks}</View>;
+}
+
 function OutputBlock({
   output,
   theme,
@@ -76,7 +175,7 @@ function OutputBlock({
   onAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
 }) {
   if (output.type === "text") {
-    return <Text style={[styles.assistantText, { color: theme.text }]}>{output.text}</Text>;
+    return <MobileMarkdownText text={output.text} theme={theme} />;
   }
   if (output.type === "image") {
     return <ImageOutputBlock output={output} theme={theme} />;
@@ -425,6 +524,37 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 9,
     padding: 8
+  },
+  markdownBold: {
+    fontWeight: "800"
+  },
+  markdownHeading: {
+    fontSize: 18,
+    fontWeight: "800",
+    lineHeight: 25
+  },
+  markdownLink: {
+    textDecorationLine: "underline"
+  },
+  markdownList: {
+    gap: 5
+  },
+  markdownListItem: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 8
+  },
+  markdownListText: {
+    flex: 1
+  },
+  markdownMarker: {
+    fontSize: 16,
+    lineHeight: 23,
+    minWidth: 18,
+    textAlign: "right"
+  },
+  markdownStack: {
+    gap: 10
   },
   stack: {
     gap: 10

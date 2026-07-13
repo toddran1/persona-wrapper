@@ -50,6 +50,16 @@ export function notFoundHandler(_request: Request, response: Response): void {
   });
 }
 
+function isDatabaseUnavailable(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = "code" in error && typeof error.code === "string" ? error.code : undefined;
+  if (code && ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "CONNECTION_CLOSED"].includes(code)) {
+    return true;
+  }
+  const message = "message" in error && typeof error.message === "string" ? error.message : "";
+  return /database connection|connect (econnrefused|etimedout)|connection (closed|refused|terminated)/i.test(message);
+}
+
 function requireAuthenticatedRequest(request: Request, _response: Response, next: NextFunction): void {
   if (request.auth) {
     next();
@@ -90,6 +100,20 @@ export function apiErrorHandler(error: unknown, request: Request, response: Resp
   }
   if (error instanceof Error && error.message.startsWith("CORS origin not allowed:")) {
     response.status(403).json({ error: "Origin not allowed.", code: "CORS_ORIGIN_DENIED", requestId });
+    return;
+  }
+  if (isDatabaseUnavailable(error)) {
+    logger.error("Database connection unavailable", {
+      requestId,
+      method: request.method,
+      path: request.path,
+      error: error instanceof Error ? { name: error.name, message: error.message } : String(error)
+    });
+    response.status(503).json({
+      error: "The service is temporarily unavailable. Please try again shortly.",
+      code: "DATABASE_UNAVAILABLE",
+      requestId
+    });
     return;
   }
 

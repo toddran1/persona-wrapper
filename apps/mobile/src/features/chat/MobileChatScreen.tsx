@@ -22,7 +22,6 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import JSZip from "jszip";
 import * as ImagePicker from "expo-image-picker";
-import * as ExpoLinking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
@@ -59,12 +58,20 @@ const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGrad
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
+// Keep this aligned with `scheme` in app.config.ts. OAuth must not depend on
+// Expo Constants because the native manifest can be unavailable during startup.
+const MOBILE_APP_SCHEME = "personawrapper";
+
+function mobileAppUrl(path = ""): string {
+  const normalizedPath = path.replace(/^\/+/, "");
+  return normalizedPath ? `${MOBILE_APP_SCHEME}://${normalizedPath}` : `${MOBILE_APP_SCHEME}://`;
+}
 
 WebBrowser.maybeCompleteAuthSession();
 
 async function openPublicWebPage(path: string): Promise<void> {
   const pageUrl = new URL(`${PUBLIC_WEB_BASE_URL}${path}`);
-  pageUrl.searchParams.set("returnTo", ExpoLinking.createURL("/"));
+  pageUrl.searchParams.set("returnTo", mobileAppUrl());
   await WebBrowser.openBrowserAsync(pageUrl.toString());
 }
 
@@ -1228,7 +1235,7 @@ export function MobileChatScreen() {
     setAuthBusy(true);
     setAuthError(undefined);
     try {
-      const returnUrl = ExpoLinking.createURL("auth/callback");
+      const returnUrl = mobileAppUrl("auth/callback");
       const url = await api.oauthStartUrl(provider, returnUrl);
       const result = await WebBrowser.openAuthSessionAsync(url, returnUrl);
       if (result.type === "success") {

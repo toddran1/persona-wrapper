@@ -19,6 +19,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "./plugins/withQuotedExpoConstantsScript",
     [
       "expo-splash-screen",
       {

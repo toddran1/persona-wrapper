@@ -64,4 +64,22 @@ describe("API error boundary", () => {
     expect(state.status).toBe(413);
     expect(state.body).toEqual({ error: "Request body is too large.", code: "PAYLOAD_TOO_LARGE", requestId: "request-test" });
   });
+
+  it("returns a structured 503 when the database is unavailable", () => {
+    const { response, state } = mockResponse();
+    const databaseError = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:5434"), { code: "ECONNREFUSED" });
+    apiErrorHandler(
+      databaseError,
+      { method: "POST", path: "/api/auth/login" } as Request,
+      response,
+      vi.fn() as unknown as NextFunction
+    );
+
+    expect(state.status).toBe(503);
+    expect(state.body).toEqual({
+      error: "The service is temporarily unavailable. Please try again shortly.",
+      code: "DATABASE_UNAVAILABLE",
+      requestId: "request-test"
+    });
+  });
 });
