@@ -13,6 +13,8 @@ export const laraePersona: PersonaDefinition = {
   description: "LaRae is Miami-made, nightlife-raised, and never one of those quiet-ass hoes in the corner. She's that loud, funny, stylish, messy little problem with a sharp mouth, a bigger attitude, and enough confidence to make a room either light up or get uncomfortable as hell. In other words, she's that bitch!",
   avatarColor: "#ff5f6d",
   avatarUrl: "/personas/larae-avatar_real_3_header.png",
+  visualReference360FullbodyImage: "/apps/web/public/personas/larae/reference/larae_fullbody_360.png",
+  visualReference360FaceImage: "/apps/web/public/personas/larae/reference/larae_face_360.png",
   visualStage: {
     loops: {
       idle: [

@@ -109,16 +109,32 @@ function personaVisualBrief(persona: PersonaDefinition): string {
   ].join(" ");
 }
 
-export function buildImageGenerationPrompt(input: LLMInput): string {
+export function directPersonaVisualReferencePaths(input: LLMInput): string[] {
+  if (!isPersonaImageRequest(input.userMessage, input.persona)) return [];
+
+  return [
+    input.persona.visualReference360FullbodyImage,
+    input.persona.visualReference360FaceImage
+  ].filter((path): path is string => Boolean(path));
+}
+
+export function buildImageGenerationPrompt(
+  input: LLMInput,
+  options: { includePersonaVisualReferences?: boolean } = {}
+): string {
   const sanitizedRequest = sanitizeImageRequest(input.userMessage);
   const request = sanitizedRequest || "Create a stylish, non-explicit image based on the user's request.";
   const includePersonaVisuals = isPersonaImageRequest(input.userMessage, input.persona);
+  const includePersonaVisualReferences = includePersonaVisuals && options.includePersonaVisualReferences === true;
 
   return [
     "Image generation prompt for a safe visual tool request.",
     includePersonaVisuals
       ? personaVisualBrief(input.persona)
       : "This image request is not about the current persona. Do not include persona appearance, biography, body details, voice, slang, or character styling unless the user explicitly asks for it.",
+    includePersonaVisualReferences
+      ? "Two attached images are the persona's full-body and face visual references. Use them as the primary visual identity reference for the fictional persona, preserving her recognizable face and overall appearance while following the requested scene. Do not copy their pose, outfit, or background unless the user asks."
+      : "",
     `User visual request, cleaned for image generation: ${request}`,
     includePersonaVisuals
       ? "Keep the result non-explicit, clothed, polished, and aligned with the persona's requested visual identity."

@@ -1,11 +1,14 @@
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
+import { createReadStream } from "node:fs";
+import { basename } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Citation, ContentBlock, LLMInput, LLMOutput, ProviderId, ToolDefinition } from "@persona/shared";
 import { llmOutputSchema } from "@persona/shared";
 import { env } from "../../config/env.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
 import { openAIArtifactService } from "../../services/openAIArtifactService.js";
 import { buildLaraeStyleReference } from "../../services/laraeStyleReferenceBuilder.js";
-import { buildImageGenerationPrompt } from "../../services/imagePromptBuilder.js";
+import { buildImageGenerationPrompt, directPersonaVisualReferencePaths } from "../../services/imagePromptBuilder.js";
 import type { LLMProgressCallbacks, LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
 
@@ -202,14 +205,30 @@ export function shouldUseDirectImageApi(input: LLMInput): boolean {
 }
 
 export function buildDirectImageApiParams(input: LLMInput): OpenAIItem {
+  const hasPersonaVisualReferences = directPersonaVisualReferencePaths(input).length > 0;
+
   return compactObject({
     model: env.OPENAI_IMAGE_MODEL,
-    prompt: buildImageGenerationPrompt(input),
+    prompt: buildImageGenerationPrompt(input, { includePersonaVisualReferences: hasPersonaVisualReferences }),
     moderation: env.OPENAI_IMAGE_MODERATION,
     size: env.OPENAI_IMAGE_SIZE,
     quality: env.OPENAI_IMAGE_QUALITY,
     n: 1
   });
+}
+
+function localPersonaVisualReferencePath(referencePath: string): string {
+  const relativePath = referencePath.replace(/^\/+/, "");
+  return fileURLToPath(new URL(`../../../../../${relativePath}`, import.meta.url));
+}
+
+async function directPersonaVisualReferenceFiles(input: LLMInput) {
+  return Promise.all(
+    directPersonaVisualReferencePaths(input).map(async (referencePath) => {
+      const localPath = localPersonaVisualReferencePath(referencePath);
+      return toFile(createReadStream(localPath), basename(localPath), { type: "image/png" });
+    })
+  );
 }
 
 export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: OpenAIPromptMode): string {
@@ -988,7 +1007,11 @@ export class OpenAIProvider implements LLMProvider {
 
   private async generateDirectImageResponse(client: OpenAI, input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
     const params = buildDirectImageApiParams(input);
-    const response = await withRetry(() => client.images.generate(params as any, { signal }));
+    const personaReferenceFiles = await directPersonaVisualReferenceFiles(input);
+    const usesPersonaVisualReferences = personaReferenceFiles.length > 0;
+    const response = usesPersonaVisualReferences
+      ? await withRetry(() => client.images.edit({ ...params, image: personaReferenceFiles } as any, { signal }))
+      : await withRetry(() => client.images.generate(params as any, { signal }));
     const images = (response.data ?? []) as Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
     const content: ContentBlock[] = images.flatMap((image, index) => {
       const url = image.b64_json ? `data:image/png;base64,${image.b64_json}` : image.url;
@@ -1000,8 +1023,9 @@ export class OpenAIProvider implements LLMProvider {
         prompt: input.userMessage,
         mimeType: image.b64_json ? "image/png" : undefined,
         metadata: {
-          route: "images_api",
+          route: usesPersonaVisualReferences ? "images_api_edit_with_persona_references" : "images_api",
           imagePrompt: params.prompt,
+          ...(usesPersonaVisualReferences ? { personaVisualReferencePaths: directPersonaVisualReferencePaths(input) } : {}),
           ...(image.revised_prompt ? { revisedPrompt: image.revised_prompt } : {})
         }
       }];
@@ -1015,9 +1039,9 @@ export class OpenAIProvider implements LLMProvider {
         providerModel: env.OPENAI_IMAGE_MODEL,
         status: "completed",
         background: false,
-        openaiTools: ["images.generate"],
+        openaiTools: [usesPersonaVisualReferences ? "images.edit" : "images.generate"],
         promptMode: this.promptMode,
-        route: "images_api",
+        route: usesPersonaVisualReferences ? "images_api_edit_with_persona_references" : "images_api",
         imageModeration: env.OPENAI_IMAGE_MODERATION,
         imageSize: env.OPENAI_IMAGE_SIZE,
         imageQuality: env.OPENAI_IMAGE_QUALITY

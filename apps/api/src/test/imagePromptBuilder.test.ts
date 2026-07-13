@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { LLMInput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
 import { PersonaEngine } from "../services/personaEngine.js";
-import { buildImageGenerationPrompt } from "../services/imagePromptBuilder.js";
+import { buildImageGenerationPrompt, directPersonaVisualReferencePaths } from "../services/imagePromptBuilder.js";
 
 function imageInput(message: string): LLMInput {
   const persona = getPersonaById("larae");
@@ -78,6 +78,26 @@ describe("imagePromptBuilder", () => {
     expect(prompt).toContain("Fictional persona: LaRae the Baddest");
     expect(prompt).toContain("Use the persona profile only as visual identity guidance");
     expect(prompt).toContain("Miami");
+  });
+
+  it("returns LaRae's two visual references only for persona image requests", () => {
+    const personaRequest = imageInput("Generate an image of LaRae in Miami.");
+    const unrelatedRequest = imageInput("Generate an image of a puppy sleeping.");
+
+    expect(directPersonaVisualReferencePaths(personaRequest)).toEqual([
+      "/apps/web/public/personas/larae/reference/larae_fullbody_360.png",
+      "/apps/web/public/personas/larae/reference/larae_face_360.png"
+    ]);
+    expect(directPersonaVisualReferencePaths(unrelatedRequest)).toEqual([]);
+  });
+
+  it("adds the reference-image direction only when reference images are attached", () => {
+    const prompt = buildImageGenerationPrompt(
+      imageInput("Generate an image of LaRae in Miami."),
+      { includePersonaVisualReferences: true }
+    );
+
+    expect(prompt).toContain("Two attached images are the persona's full-body and face visual references");
   });
 
   it("includes persona profile details for avatar and character image requests", () => {

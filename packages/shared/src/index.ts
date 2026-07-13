@@ -391,6 +391,8 @@ export const personaSummarySchema = z.object({
   description: z.string(),
   avatarColor: z.string(),
   avatarUrl: z.string().optional(),
+  visualReference360FullbodyImage: z.string().optional(),
+  visualReference360FaceImage: z.string().optional(),
   visualStage: personaVisualStageSchema.optional(),
   theme: personaThemeSchema,
   documentTitle: z.string().default("For the Baddiez"),
