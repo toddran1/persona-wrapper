@@ -321,7 +321,7 @@ export const api = {
     }
     throw new Error("Could not download this file from the app server.");
   },
-  uploadFiles: async (files: File[]): Promise<UploadedAsset[]> => {
+  uploadFiles: async (files: File[], signal?: AbortSignal): Promise<UploadedAsset[]> => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const body = new FormData();
       files.forEach((file) => body.append("files", file));
@@ -330,16 +330,19 @@ export const api = {
         response = await fetch(`${API_BASE_URL}/api/uploads`, {
           method: "POST",
           headers: requestHeaders(false),
-          body
+          body,
+          ...(signal ? { signal } : {})
         });
       } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") throw error;
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Could not reach API at ${API_BASE_URL}/api/uploads: ${message}`);
       }
       if (response.status === 401 && attempt === 0 && await refreshStoredAuth()) continue;
       if (!response.ok) throw new Error(await parseApiError(response));
       try {
-        const payload = await response.json() as { assets: UploadedAsset[] };
+        const payload = await response.json() as { assets?: UploadedAsset[] };
+        if (!Array.isArray(payload.assets)) throw new Error("The app server returned an invalid upload response.");
         return payload.assets;
       } catch {
         throw new Error("The app server returned an invalid upload response.");
@@ -347,10 +350,11 @@ export const api = {
     }
     throw new Error("Could not upload files to the app server.");
   },
-  createVectorStore: async (assetIds: string[], name?: string): Promise<{ id: string; expiresAt: string }> => {
+  createVectorStore: async (assetIds: string[], name?: string, signal?: AbortSignal): Promise<{ id: string; expiresAt: string }> => {
     const payload = await requestJson<{ vectorStore: { id: string; expiresAt: string } }>("/api/uploads/vector-stores", {
       method: "POST",
-      body: JSON.stringify({ assetIds, name })
+      body: JSON.stringify({ assetIds, name }),
+      ...(signal ? { signal } : {})
     });
     return payload.vectorStore;
   },

@@ -242,6 +242,7 @@ export function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const activeRequestRef = useRef<AbortController | undefined>(undefined);
   const activeBackgroundJobIdRef = useRef<string | undefined>(undefined);
+  const selectionGenerationRef = useRef(0);
   const completedTurnCountRef = useRef(0);
   const lastCompletedTurnWasImageOnlyRef = useRef(false);
   const suppressAudioVisualForCurrentTurnRef = useRef(false);
@@ -473,7 +474,7 @@ export function App() {
   }, [audioEnabled, loading, pendingPrompt, renderedTurns.length]);
 
   async function handleSubmit(message: string, files: File[], toolOptions: ToolOptions): Promise<void> {
-    if (!personaDetail || !authUser) {
+    if (!personaDetail || !authUser || activeRequestRef.current) {
       return;
     }
 
@@ -492,11 +493,13 @@ export function App() {
     let keepBackgroundJob = false;
 
     try {
-      const attachments = files.length > 0 ? await api.uploadFiles(files) : [];
+      const attachments = files.length > 0 ? await api.uploadFiles(files, requestController.signal) : [];
       let resolvedToolOptions = toolOptions;
       if (toolOptions.fileSearch && attachments.some((attachment) => attachment.kind === "file")) {
         const vectorStore = await api.createVectorStore(
-          attachments.filter((attachment) => attachment.kind === "file").map((attachment) => attachment.id)
+          attachments.filter((attachment) => attachment.kind === "file").map((attachment) => attachment.id),
+          undefined,
+          requestController.signal
         );
         resolvedToolOptions = { ...toolOptions, vectorStoreIds: [vectorStore.id] };
       }
@@ -552,9 +555,11 @@ export function App() {
         appendChatError(message, messageText, localPendingAssets, files);
       }
     } finally {
-      if (activeRequestRef.current === requestController) activeRequestRef.current = undefined;
+      const isCurrentRequest = activeRequestRef.current === requestController;
+      if (isCurrentRequest) activeRequestRef.current = undefined;
       if (!keepBackgroundJob && !requestController.signal.aborted) activeBackgroundJobIdRef.current = undefined;
-      setLoading(false);
+      if (requestController.signal.aborted) releasePendingPromptAssets(localPendingAssets);
+      if (isCurrentRequest) setLoading(false);
     }
   }
 
@@ -618,6 +623,8 @@ export function App() {
   }
 
   async function loadConversation(nextConversationId: string): Promise<void> {
+    abandonActiveRequest();
+    const selectionGeneration = ++selectionGenerationRef.current;
     holdPersonaVisualIdleForCurrentMutation();
     setLoading(true);
     setError(undefined);
@@ -628,6 +635,7 @@ export function App() {
     setAutoPlayAudioTurnIndex(undefined);
     try {
       const page = await api.getConversationTurnsPage(nextConversationId);
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       const nextTurns = renderTurnsFromConversationTurns(page.turns);
       setConversationId(page.conversation.id);
       setTurnsCursor(page.nextCursor);
@@ -638,18 +646,23 @@ export function App() {
       setEvalSavedMessage(undefined);
       setEvalError(undefined);
     } catch (loadError) {
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Failed to load conversation");
     } finally {
-      setLoading(false);
-      releasePersonaVisualSuppressionSoon();
+      if (selectionGeneration === selectionGenerationRef.current) {
+        setLoading(false);
+        releasePersonaVisualSuppressionSoon();
+      }
     }
   }
 
   async function loadEarlierTurns(): Promise<void> {
     if (!conversationId || !turnsCursor || loadingEarlierTurns) return;
+    const selectionGeneration = selectionGenerationRef.current;
     setLoadingEarlierTurns(true);
     try {
       const page = await api.getConversationTurnsPage(conversationId, turnsCursor);
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       setRenderedTurns((current) => [...renderTurnsFromConversationTurns(page.turns), ...current]);
       setTurnsCursor(page.nextCursor);
     } catch (loadError) {
@@ -666,6 +679,8 @@ export function App() {
       const page = await api.listConversationsPage(conversationListCursor);
       setConversationList((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationListCursor(page.nextCursor);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load more conversations");
     } finally {
       setConversationListLoading(false);
     }
@@ -994,7 +1009,19 @@ export function App() {
     }
   }
 
+  function abandonActiveRequest(): void {
+    activeRequestRef.current?.abort();
+    activeRequestRef.current = undefined;
+    activeBackgroundJobIdRef.current = undefined;
+    setLoading(false);
+    setPendingPrompt(undefined);
+    setPendingPromptAssets([]);
+    setPendingPromptFiles([]);
+  }
+
   function resetConversation(): void {
+    abandonActiveRequest();
+    selectionGenerationRef.current += 1;
     setConversationId(undefined);
     setResponse(undefined);
     setLatestRequest(undefined);

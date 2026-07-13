@@ -18,19 +18,26 @@ export function useProtectedMediaUrl(url: string): string {
     }
 
     const controller = new AbortController();
+    let cancelled = false;
     let nextObjectUrl: string | undefined;
     setObjectUrl(undefined);
 
     void api.fetchUploadBlob(url, controller.signal)
       .then((blob) => {
-        nextObjectUrl = URL.createObjectURL(blob);
-        setObjectUrl(nextObjectUrl);
+        const createdObjectUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(createdObjectUrl);
+          return;
+        }
+        nextObjectUrl = createdObjectUrl;
+        setObjectUrl(createdObjectUrl);
       })
       .catch(() => {
         if (!controller.signal.aborted) setObjectUrl(undefined);
       });
 
     return () => {
+      cancelled = true;
       controller.abort();
       if (nextObjectUrl) URL.revokeObjectURL(nextObjectUrl);
     };
@@ -54,5 +61,5 @@ export async function downloadProtectedMedia(url: string, fileName: string): Pro
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(objectUrl);
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 }

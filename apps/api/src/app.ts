@@ -187,14 +187,17 @@ export function createApp() {
     maxAge: "1d"
   }));
 
-  app.get("/health/storage", (async (_request: Request, response: Response) => {
+  app.get("/health/storage", (_request: Request, response: Response, next: NextFunction) => {
     if (env.NODE_ENV === "production" && !_request.auth) {
       response.status(401).json({ error: "Authentication required." });
       return;
     }
-    const storage = await storageService.healthCheck();
-    response.status(storage.ok ? 200 : 503).json({ status: storage.ok ? "ok" : "error", storage });
-  }) as express.RequestHandler);
+    void storageService.healthCheck()
+      .then((storage) => {
+        response.status(storage.ok ? 200 : 503).json({ status: storage.ok ? "ok" : "error", storage });
+      })
+      .catch(next);
+  });
 
   app.use("/api/auth", authRouter);
   app.use("/api/chat", chatRouter);

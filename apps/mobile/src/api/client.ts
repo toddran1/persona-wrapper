@@ -66,6 +66,8 @@ class ApiResponseError extends Error {
   }
 }
 
+let authRefreshInFlight: Promise<boolean> | undefined;
+
 async function parseApiError(response: Response): Promise<ApiResponseError> {
   try {
     const payload = await response.json() as ApiErrorPayload;
@@ -95,7 +97,7 @@ async function requestHeaders(includeJson: boolean, headers?: HeadersInit): Prom
   return { ...next, ...(headers as Record<string, string> | undefined ?? {}) };
 }
 
-async function refreshStoredAuth(): Promise<boolean> {
+async function performStoredAuthRefresh(): Promise<boolean> {
   const refreshToken = (await getAuthTokens())?.refreshToken;
   if (!refreshToken) return false;
   try {
@@ -105,10 +107,24 @@ async function refreshStoredAuth(): Promise<boolean> {
     }, { skipAuthRefresh: true });
     await setAuthTokens(response.tokens);
     return true;
-  } catch {
-    await clearAuthTokens();
-    return false;
+  } catch (error) {
+    if (error instanceof ApiResponseError && (error.status === 401 || error.status === 403)) {
+      await clearAuthTokens();
+      return false;
+    }
+    throw error;
   }
+}
+
+async function refreshStoredAuth(): Promise<boolean> {
+  authRefreshInFlight ??= performStoredAuthRefresh().finally(() => {
+    authRefreshInFlight = undefined;
+  });
+  return authRefreshInFlight;
+}
+
+function rethrowAbort(error: unknown): void {
+  if (error instanceof Error && error.name === "AbortError") throw error;
 }
 
 async function requestJson<T>(
@@ -123,7 +139,8 @@ async function requestJson<T>(
       ...rest,
       headers: await requestHeaders(true, headers)
     });
-  } catch {
+  } catch (error) {
+    rethrowAbort(error);
     throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
   }
   if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
@@ -149,7 +166,8 @@ async function requestNoContent(
       ...rest,
       headers: await requestHeaders(false, headers)
     });
-  } catch {
+  } catch (error) {
+    rethrowAbort(error);
     throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
   }
   if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
@@ -164,7 +182,7 @@ export const api = {
   getDeviceId,
   uploadFiles: async (
     files: MobileUploadFile[],
-    options?: { skipAuthRefresh?: boolean }
+    options?: { skipAuthRefresh?: boolean; signal?: AbortSignal }
   ): Promise<UploadedAsset[]> => {
     const body = new FormData();
     for (const file of files) {
@@ -179,16 +197,26 @@ export const api = {
       response = await fetch(`${API_BASE_URL}/api/uploads`, {
         method: "POST",
         headers: await requestHeaders(false),
-        body
+        body,
+        ...(options?.signal ? { signal: options.signal } : {})
       });
-    } catch {
+    } catch (error) {
+      rethrowAbort(error);
       throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
     }
     if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
-      return api.uploadFiles(files, { skipAuthRefresh: true });
+      return api.uploadFiles(files, { skipAuthRefresh: true, ...(options?.signal ? { signal: options.signal } : {}) });
     }
     if (!response.ok) throw await parseApiError(response);
-    const payload = await response.json() as { assets: UploadedAsset[] };
+    let payload: { assets?: UploadedAsset[] };
+    try {
+      payload = await response.json() as { assets?: UploadedAsset[] };
+    } catch {
+      throw new Error("The app server returned an invalid upload response. Please try again.");
+    }
+    if (!Array.isArray(payload.assets)) {
+      throw new Error("The app server returned an invalid upload response. Please try again.");
+    }
     return payload.assets;
   },
   oauthStartUrl: async (provider: OAuthProvider, returnUrl?: string): Promise<string> => {
@@ -294,10 +322,11 @@ export const api = {
     const payload = await requestJson<{ conversation: ConversationDetail }>(`/api/chat/conversations/${conversationId}`);
     return payload.conversation;
   },
-  createVectorStore: async (assetIds: string[], name?: string): Promise<{ id: string; expiresAt: string }> => {
+  createVectorStore: async (assetIds: string[], name?: string, signal?: AbortSignal): Promise<{ id: string; expiresAt: string }> => {
     const payload = await requestJson<{ vectorStore: { id: string; expiresAt: string } }>("/api/uploads/vector-stores", {
       method: "POST",
-      body: JSON.stringify({ assetIds, name })
+      body: JSON.stringify({ assetIds, name }),
+      ...(signal ? { signal } : {})
     });
     return payload.vectorStore;
   },

@@ -22,27 +22,34 @@ function ActionBlock({
   onAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
 }) {
   const [running, setRunning] = useState(false);
+  const [actionError, setActionError] = useState<string | undefined>();
 
   async function handleClick(): Promise<void> {
     if (!onAction || running) return;
     setRunning(true);
+    setActionError(undefined);
     try {
       await onAction(output);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not complete this action.");
     } finally {
       setRunning(false);
     }
   }
 
   return (
-    <button
-      type="button"
-      className={`action-button action-button-${output.style ?? "secondary"}`}
-      disabled={running}
-      aria-busy={running}
-      onClick={() => void handleClick()}
-    >
-      {running ? "Checking..." : output.label}
-    </button>
+    <>
+      <button
+        type="button"
+        className={`action-button action-button-${output.style ?? "secondary"}`}
+        disabled={running}
+        aria-busy={running}
+        onClick={() => void handleClick()}
+      >
+        {running ? "Checking..." : output.label}
+      </button>
+      {actionError ? <span className="output-error" role="alert">{actionError}</span> : null}
+    </>
   );
 }
 

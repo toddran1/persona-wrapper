@@ -46,8 +46,8 @@ function PersonaVideo({
   source: string;
   playing: boolean;
   restartToken: number;
-  onEnd: () => void;
-  onError: () => void;
+  onEnd: (source: string) => void;
+  onError: (source: string) => void;
 }) {
   const lastRestartTokenRef = useRef(restartToken);
   const player = useVideoPlayer({ uri: source, useCaching: true }, (instance) => {
@@ -68,13 +68,13 @@ function PersonaVideo({
     try {
       player.replay();
     } catch {
-      onError();
+      onError(source);
     }
-  }, [onError, player, restartToken]);
+  }, [onError, player, restartToken, source]);
 
-  useEventListener(player, "playToEnd", onEnd);
+  useEventListener(player, "playToEnd", () => onEnd(source));
   useEventListener(player, "statusChange", ({ status }) => {
-    if (status === "error") onError();
+    if (status === "error") onError(source);
   });
 
   return (
@@ -131,6 +131,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
   const failedSourcesRef = useRef<Set<string>>(new Set());
   const lastPressAtRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
+  const onAppForegroundRef = useRef(onAppForeground);
   const settledStateRef = useRef<PersonaVisualState>(state);
   const targetStateRef = useRef<PersonaVisualState>(state);
   const expandedProgress = useSharedValue(expanded ? 1 : 0);
@@ -145,6 +146,10 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
   }, [expanded, expandedProgress]);
 
   useEffect(() => {
+    onAppForegroundRef.current = onAppForeground;
+  }, [onAppForeground]);
+
+  useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       const wasBackgrounded = appStateRef.current === "background" || appStateRef.current === "inactive";
       appStateRef.current = nextAppState;
@@ -153,12 +158,12 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
         // Native video surfaces may remain paused or frozen after returning from
         // the background. Restart the existing player and return to idle.
         setPlaybackGeneration((generation) => generation + 1);
-        onAppForeground();
+        onAppForegroundRef.current();
       }
     });
 
     return () => subscription.remove();
-  }, [onAppForeground]);
+  }, []);
 
   useEffect(() => {
     failedSourcesRef.current.clear();
@@ -197,9 +202,9 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
     setActiveClip(clip);
   }
 
-  function finishClip(): void {
+  function finishClip(source: string): void {
     const currentClip = activeClipRef.current;
-    if (!currentClip) return;
+    if (!currentClip || currentClip.src !== source) return;
 
     if (currentClip.kind === "transition") {
       const nextState = targetStateRef.current;
@@ -213,9 +218,9 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
     }
   }
 
-  function handleMediaError(): void {
+  function handleMediaError(source: string): void {
     const currentClip = activeClipRef.current;
-    if (!currentClip) return;
+    if (!currentClip || currentClip.src !== source) return;
     failedSourcesRef.current.add(currentClip.src);
 
     if (currentClip.media === "image") {
@@ -284,7 +289,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
           source={source}
           resizeMode="cover"
           style={styles.media}
-          onError={handleMediaError}
+          onError={() => handleMediaError(activeClip.src)}
         />
       );
     }

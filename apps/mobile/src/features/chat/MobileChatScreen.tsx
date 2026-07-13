@@ -112,6 +112,17 @@ class BackgroundJobStateError extends Error {
   }
 }
 
+class RequestCancelledError extends Error {
+  constructor() {
+    super("Request cancelled.");
+    this.name = "AbortError";
+  }
+}
+
+function isRequestCancellation(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 export function MobileChatScreen() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -173,6 +184,8 @@ export function MobileChatScreen() {
   const audioPlaybackRef = useRef<AudioPlayer | undefined>(undefined);
   const audioPlaybackUriRef = useRef<string | undefined>(undefined);
   const exchangedOAuthCodesRef = useRef(new Set<string>());
+  const activeChatAbortControllerRef = useRef<AbortController | undefined>(undefined);
+  const selectionGenerationRef = useRef(0);
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
@@ -190,6 +203,8 @@ export function MobileChatScreen() {
         // Native speech recognition may be unavailable in Expo Go or unsupported builds.
       }
       void releaseCurrentAudioPlayback();
+      activeChatAbortControllerRef.current?.abort();
+      activeChatAbortControllerRef.current = undefined;
       clearScrollButtonTimer();
       speechSubscriptionsRef.current.forEach((subscription) => subscription.remove());
       speechSubscriptionsRef.current = [];
@@ -365,6 +380,8 @@ export function MobileChatScreen() {
       const page = await api.listConversationsPage(conversationsCursor);
       setConversations((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationsCursor(page.nextCursor);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load more chats.");
     } finally {
       setConversationsRefreshing(false);
     }
@@ -431,41 +448,49 @@ export function MobileChatScreen() {
   }
 
   async function pickImage(): Promise<void> {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Photos unavailable", "Allow photo access to attach images.");
-      return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Photos unavailable", "Allow photo access to attach images.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.9,
+        allowsMultipleSelection: true
+      });
+      if (result.canceled) return;
+      appendPickedFiles(result.assets.map((asset, index) => ({
+        id: pickedId("image"),
+        uri: asset.uri,
+        name: asset.fileName ?? fileNameFromUri(asset.uri, `image-${index + 1}.jpg`),
+        mimeType: asset.mimeType ?? "image/jpeg",
+        kind: "image",
+        size: asset.fileSize
+      })));
+    } catch (pickerError) {
+      Alert.alert("Photo picker failed", pickerError instanceof Error ? pickerError.message : "Could not open your photo library.");
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
-      allowsMultipleSelection: true
-    });
-    if (result.canceled) return;
-    appendPickedFiles(result.assets.map((asset, index) => ({
-      id: pickedId("image"),
-      uri: asset.uri,
-      name: asset.fileName ?? fileNameFromUri(asset.uri, `image-${index + 1}.jpg`),
-      mimeType: asset.mimeType ?? "image/jpeg",
-      kind: "image",
-      size: asset.fileSize
-    })));
   }
 
   async function pickDocument(): Promise<void> {
-    const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-      multiple: true
-    });
-    if (result.canceled) return;
-    appendPickedFiles(result.assets.map((asset) => ({
-      id: pickedId("file"),
-      uri: asset.uri,
-      name: asset.name,
-      mimeType: asset.mimeType ?? "application/octet-stream",
-      kind: asset.mimeType?.startsWith("image/") ? "image" : "file",
-      size: asset.size
-    })));
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: true
+      });
+      if (result.canceled) return;
+      appendPickedFiles(result.assets.map((asset) => ({
+        id: pickedId("file"),
+        uri: asset.uri,
+        name: asset.name,
+        mimeType: asset.mimeType ?? "application/octet-stream",
+        kind: asset.mimeType?.startsWith("image/") ? "image" : "file",
+        size: asset.size
+      })));
+    } catch (pickerError) {
+      Alert.alert("File picker failed", pickerError instanceof Error ? pickerError.message : "Could not open the file picker.");
+    }
   }
 
   function openAttachmentPicker(): void {
@@ -755,10 +780,30 @@ export function MobileChatScreen() {
     if (turn) await resumeBackgroundJob(turn);
   }
 
-  function wait(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      setTimeout(resolve, ms);
+  function wait(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(new RequestCancelledError());
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", handleAbort);
+        resolve();
+      }, ms);
+      const handleAbort = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", handleAbort);
+        reject(new RequestCancelledError());
+      };
+      signal?.addEventListener("abort", handleAbort, { once: true });
     });
+  }
+
+  function cancelActiveChatRequest(): void {
+    const controller = activeChatAbortControllerRef.current;
+    activeChatAbortControllerRef.current = undefined;
+    controller?.abort();
+    setSending(false);
+    setUploadingAttachments(false);
+    setResumingJobId(undefined);
+    markPersonaIdle();
   }
 
   function backgroundStatusMessage(job: ChatJobResponse, checked: boolean): string {
@@ -801,14 +846,15 @@ export function MobileChatScreen() {
 
   async function pollChatJob(
     jobId: string,
-    onStatus?: (job: ChatJobResponse) => void
+    onStatus?: (job: ChatJobResponse) => void,
+    signal?: AbortSignal
   ): Promise<ChatResponse> {
     const startedAt = Date.now();
     let intervalMs = 1200;
     let latestJob: ChatJobResponse | undefined;
 
     while (Date.now() - startedAt < BACKGROUND_POLL_TIMEOUT_MS) {
-      const job = await api.getChatJob(jobId);
+      const job = await api.getChatJob(jobId, signal);
       latestJob = job;
       if (job.status === "completed" && job.response) {
         return job.response;
@@ -817,19 +863,21 @@ export function MobileChatScreen() {
         throw new BackgroundJobStateError(job);
       }
       onStatus?.(job);
-      await wait(intervalMs);
+      await wait(intervalMs, signal);
       intervalMs = Math.min(5000, Math.round(intervalMs * 1.35));
     }
 
-    throw new BackgroundPollingTimeoutError(latestJob ?? await api.getChatJob(jobId));
+    throw new BackgroundPollingTimeoutError(latestJob ?? await api.getChatJob(jobId, signal));
   }
 
   async function resumeBackgroundJob(turn: RenderedTurn): Promise<void> {
-    if (!turn.backgroundJobId || resumingJobId) return;
+    if (!turn.backgroundJobId || resumingJobId || sending || activeChatAbortControllerRef.current) return;
+    const controller = new AbortController();
+    activeChatAbortControllerRef.current = controller;
     setResumingJobId(turn.backgroundJobId);
     setError(undefined);
     try {
-      const firstJob = await api.getChatJob(turn.backgroundJobId);
+      const firstJob = await api.getChatJob(turn.backgroundJobId, controller.signal);
       if (firstJob.status === "completed" && firstJob.response) {
         replaceTurnWithResponse(turn.id, turn.userMessage, turn.userAssets, firstJob.response);
         await refreshConversations();
@@ -839,10 +887,11 @@ export function MobileChatScreen() {
         throw new BackgroundJobStateError(firstJob);
       }
       updateTurnOutputs(turn.id, [{ type: "status", status: "in_progress", message: "Thinking" }], firstJob.id);
-      const response = await pollChatJob(firstJob.id);
+      const response = await pollChatJob(firstJob.id, undefined, controller.signal);
       replaceTurnWithResponse(turn.id, turn.userMessage, turn.userAssets, response);
       await refreshConversations();
     } catch (resumeError) {
+      if (isRequestCancellation(resumeError)) return;
       if (resumeError instanceof BackgroundPollingTimeoutError) {
         markPersonaIdle();
         updateTurnOutputs(turn.id, [{
@@ -866,7 +915,10 @@ export function MobileChatScreen() {
       markPersonaIdle();
       setError(resumeError instanceof Error ? resumeError.message : "Could not check background job.");
     } finally {
-      setResumingJobId(undefined);
+      if (activeChatAbortControllerRef.current === controller) {
+        activeChatAbortControllerRef.current = undefined;
+        setResumingJobId(undefined);
+      }
     }
   }
 
@@ -990,9 +1042,12 @@ export function MobileChatScreen() {
   }, []);
 
   async function selectPersona(personaId: string): Promise<void> {
+    cancelActiveChatRequest();
+    const selectionGeneration = ++selectionGenerationRef.current;
     try {
       setLoading(true);
       const detail = await api.getPersona(personaId);
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       setPersona(detail);
       setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
       setConversationId(undefined);
@@ -1000,34 +1055,41 @@ export function MobileChatScreen() {
       setTurnsCursor(null);
       closeDrawer();
     } catch (selectError) {
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       setError(selectError instanceof Error ? selectError.message : "Could not switch persona.");
     } finally {
-      setLoading(false);
+      if (selectionGeneration === selectionGenerationRef.current) setLoading(false);
     }
   }
 
   async function selectConversation(nextConversationId: string, options?: { keepDrawerOpen?: boolean }): Promise<void> {
+    cancelActiveChatRequest();
+    const selectionGeneration = ++selectionGenerationRef.current;
     try {
       setLoading(true);
       setError(undefined);
       const page = await api.getConversationTurnsPage(nextConversationId);
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       setConversationId(page.conversation.id);
       await setSelectedConversationId(page.conversation.id);
       setTurns(turnsFromConversationTurns(page.turns));
       setTurnsCursor(page.nextCursor);
       if (!options?.keepDrawerOpen) closeDrawer();
     } catch (loadError) {
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Could not load that chat.");
     } finally {
-      setLoading(false);
+      if (selectionGeneration === selectionGenerationRef.current) setLoading(false);
     }
   }
 
   async function loadEarlierTurns(): Promise<void> {
     if (!conversationId || !turnsCursor || loadingEarlierTurns) return;
+    const selectionGeneration = selectionGenerationRef.current;
     setLoadingEarlierTurns(true);
     try {
       const page = await api.getConversationTurnsPage(conversationId, turnsCursor);
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       setTurns((current) => [...turnsFromConversationTurns(page.turns), ...current]);
       setTurnsCursor(page.nextCursor);
     } catch (loadError) {
@@ -1038,6 +1100,8 @@ export function MobileChatScreen() {
   }
 
   function newChat(): void {
+    cancelActiveChatRequest();
+    selectionGenerationRef.current += 1;
     setConversationId(undefined);
     setTurns([]);
     setTurnsCursor(null);
@@ -1110,10 +1174,12 @@ export function MobileChatScreen() {
   }
 
   async function deleteConversation(nextConversationId: string): Promise<void> {
+    if (conversationId === nextConversationId) cancelActiveChatRequest();
     try {
       await api.deleteConversation(nextConversationId);
       setConversations((current) => current.filter((conversation) => conversation.id !== nextConversationId));
       if (conversationId === nextConversationId) {
+        selectionGenerationRef.current += 1;
         setConversationId(undefined);
         setTurns([]);
         setTurnsCursor(null);
@@ -1125,7 +1191,9 @@ export function MobileChatScreen() {
   }
 
   async function submit(message: string, options?: { files?: MobilePickedFile[] }): Promise<void> {
-    if (!activePersona || sending) return;
+    if (!activePersona || sending || activeChatAbortControllerRef.current) return;
+    const controller = new AbortController();
+    activeChatAbortControllerRef.current = controller;
     setSending(true);
     clearVisualStateTimer();
     setPersonaVisualState("thinking");
@@ -1142,13 +1210,13 @@ export function MobileChatScreen() {
           uri: file.uri,
           name: file.name,
           mimeType: file.mimeType
-        })))
+        })), { signal: controller.signal })
         : [];
       const fileAttachmentIds = attachments
         .filter((attachment) => attachment.kind === "file")
         .map((attachment) => attachment.id);
       const vectorStore = fileAttachmentIds.length > 0
-        ? await api.createVectorStore(fileAttachmentIds, `mobile-${Date.now()}`)
+        ? await api.createVectorStore(fileAttachmentIds, `mobile-${Date.now()}`, controller.signal)
         : undefined;
       const imageGeneration = shouldEnableImageGeneration(message, submittedFiles);
       const resolvedToolOptions = {
@@ -1178,9 +1246,9 @@ export function MobileChatScreen() {
         toolOptions: resolvedToolOptions,
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(conversationId ? { conversationId } : {})
-      });
+      }, controller.signal);
       const backgroundJob = response.diagnostics.backgroundJob;
-      const finalResponse = backgroundJob ? await pollChatJob(backgroundJob.id) : response;
+      const finalResponse = backgroundJob ? await pollChatJob(backgroundJob.id, undefined, controller.signal) : response;
       setConversationId(finalResponse.conversationId);
       await setSelectedConversationId(finalResponse.conversationId);
       const completedTurn: RenderedTurn = {
@@ -1193,6 +1261,7 @@ export function MobileChatScreen() {
       )));
       await refreshConversations();
     } catch (sendError) {
+      if (isRequestCancellation(sendError)) return;
       const messageText = sendError instanceof Error ? sendError.message : "Message failed.";
       if (optimistic) {
         if (sendError instanceof BackgroundPollingTimeoutError) {
@@ -1224,8 +1293,11 @@ export function MobileChatScreen() {
         setSelectedFiles(submittedFiles);
       }
     } finally {
-      setUploadingAttachments(false);
-      setSending(false);
+      if (activeChatAbortControllerRef.current === controller) {
+        activeChatAbortControllerRef.current = undefined;
+        setUploadingAttachments(false);
+        setSending(false);
+      }
     }
   }
 
@@ -1277,6 +1349,8 @@ export function MobileChatScreen() {
   }
 
   async function logout(): Promise<void> {
+    cancelActiveChatRequest();
+    selectionGenerationRef.current += 1;
     let logoutError: string | undefined;
     try {
       await api.logout();
@@ -1355,6 +1429,8 @@ export function MobileChatScreen() {
     }
     setDeleteAccountBusy(true);
     setDeleteAccountError(undefined);
+    cancelActiveChatRequest();
+    selectionGenerationRef.current += 1;
     try {
       const result = await api.deleteAccount({
         confirmation: "DELETE",

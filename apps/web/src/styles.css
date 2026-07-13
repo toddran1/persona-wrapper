@@ -2042,6 +2042,12 @@ button:disabled {
   gap: 16px;
 }
 
+.output-error {
+  color: var(--danger, #e06a78);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .chat-turn {
   content-visibility: auto;
   contain-intrinsic-size: auto 420px;

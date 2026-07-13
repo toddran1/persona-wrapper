@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
@@ -30,6 +30,10 @@ async function openExternalUrl(value: string): Promise<void> {
   const canOpen = await Linking.canOpenURL(safeUrl);
   if (!canOpen) throw new Error("This link cannot be opened on this device.");
   await Linking.openURL(safeUrl);
+}
+
+function showOpenError(error: unknown): void {
+  Alert.alert("Open failed", error instanceof Error ? error.message : "Could not open this link.");
 }
 
 export function OutputBlocks({ outputs, theme, onAction }: OutputBlocksProps) {
@@ -84,7 +88,7 @@ function renderInlineMarkdown(text: string, keyPrefix: string, theme: MobileThem
         <Text
           key={`${keyPrefix}-link-${index}`}
           accessibilityRole={url ? "link" : undefined}
-          onPress={url ? () => void openExternalUrl(url).catch(() => undefined) : undefined}
+          onPress={url ? () => void openExternalUrl(url).catch(showOpenError) : undefined}
           style={[styles.markdownLink, { color: theme.accent2 }]}
         >
           {match[4]}
@@ -213,7 +217,11 @@ function OutputBlock({
     return (
       <Pressable
         accessibilityRole="button"
-        onPress={() => void onAction?.(output)}
+        onPress={() => {
+          void Promise.resolve(onAction?.(output)).catch((actionError) => {
+            Alert.alert("Action failed", actionError instanceof Error ? actionError.message : "Could not complete this action.");
+          });
+        }}
         style={[styles.actionButton, { borderColor: theme.border, backgroundColor: output.style === "primary" ? "rgba(214,181,94,0.12)" : "rgba(255,255,255,0.045)" }]}
       >
         <Text style={[styles.actionText, { color: theme.text }]}>{output.label}</Text>
@@ -248,6 +256,7 @@ function ImageOutputBlock({
   const [viewerOpen, setViewerOpen] = useState(false);
   const [localImageUri, setLocalImageUri] = useState<string | undefined>();
   const [imageError, setImageError] = useState<string | undefined>();
+  const cacheKeyRef = useRef(`persona-image-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`);
   const imageUrl = api.resolveUrl(output.url);
   const promptText = output.prompt ?? output.alt;
   const usesProtectedFetch = shouldFetchWithAuth(output.url);
@@ -263,7 +272,7 @@ function ImageOutputBlock({
       if (!usesProtectedFetch || !FileSystem.cacheDirectory) return;
 
       try {
-        const destination = `${FileSystem.cacheDirectory}${fileNameFromUrl(imageUrl, output.mimeType)}`;
+        const destination = `${FileSystem.cacheDirectory}${cacheKeyRef.current}-${fileNameFromUrl(imageUrl, output.mimeType)}`;
         const result = await FileSystem.downloadAsync(imageUrl, destination, {
           headers: await api.mediaHeaders()
         });
@@ -322,10 +331,11 @@ function ImageOutputBlock({
   }
 
   async function downloadImage(): Promise<void> {
-    if (!FileSystem.documentDirectory) {
-      Alert.alert("Download unavailable", "The app document directory is not available on this device.");
+    if (!FileSystem.cacheDirectory) {
+      Alert.alert("Download unavailable", "Temporary storage is not available on this device.");
       return;
     }
+    let temporaryUri: string | undefined;
     try {
       const permission = await MediaLibrary.requestPermissionsAsync(false);
       if (!permission.granted) {
@@ -333,18 +343,21 @@ function ImageOutputBlock({
         return;
       }
       if (localImageUri) {
-        const destination = `${FileSystem.documentDirectory}${fileNameFromUrl(imageUrl, output.mimeType)}`;
-        await FileSystem.copyAsync({ from: localImageUri, to: destination });
-        await MediaLibrary.saveToLibraryAsync(destination);
+        await MediaLibrary.saveToLibraryAsync(localImageUri);
       } else {
-        const destination = `${FileSystem.documentDirectory}${fileNameFromUrl(imageUrl, output.mimeType)}`;
+        const destination = `${FileSystem.cacheDirectory}download-${Date.now().toString(36)}-${fileNameFromUrl(imageUrl, output.mimeType)}`;
         const downloadOptions = shouldFetchWithAuth(output.url) ? { headers: await api.mediaHeaders() } : undefined;
         const result = await FileSystem.downloadAsync(imageUrl, destination, downloadOptions);
+        temporaryUri = result.uri;
         await MediaLibrary.saveToLibraryAsync(result.uri);
       }
       Alert.alert("Downloaded", "Saved image to your photo library.");
     } catch (downloadError) {
       Alert.alert("Download failed", downloadError instanceof Error ? downloadError.message : "Could not download the image.");
+    } finally {
+      if (temporaryUri) {
+        await FileSystem.deleteAsync(temporaryUri, { idempotent: true }).catch(() => undefined);
+      }
     }
   }
 
