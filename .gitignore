@@ -12,6 +12,7 @@ __pycache__/
 *.pyc
 ml/style-transfer/datasets/raw/audio/
 apps/api/uploads/
+apps/mobile/android/
 apps/mobile/ios/
 apps/mobile/.expo/
 apps/api/apps/
