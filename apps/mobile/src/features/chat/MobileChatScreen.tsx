@@ -25,7 +25,7 @@ import * as Sharing from "expo-sharing";
 import JSZip from "jszip";
 import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
-import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
+import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
 import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
@@ -94,6 +94,7 @@ async function loadAuthenticatedUser(): Promise<AuthUser | undefined> {
 
 type SpeechRecognitionRuntime = typeof import("expo-speech-recognition");
 type SpeechRecognitionSubscription = { remove: () => void };
+type AudioPlaybackSubscription = { remove: () => void };
 declare const require: (moduleName: string) => unknown;
 const IMAGE_REQUEST_PATTERN =
   /\b(generate|create|make|draw|design|edit|change|remove|replace|recolor|retouch|give|get|show|provide|turn|convert)\b[\s\S]{0,80}\b(image|photo|picture|poster|logo|art|illustration|avatar|thumbnail|banner|flyer)\b/i;
@@ -210,6 +211,8 @@ export function MobileChatScreen() {
   const speechSubscriptionsRef = useRef<SpeechRecognitionSubscription[]>([]);
   const audioPlaybackRef = useRef<AudioPlayer | undefined>(undefined);
   const audioPlaybackUriRef = useRef<string | undefined>(undefined);
+  const audioPlaybackSubscriptionRef = useRef<AudioPlaybackSubscription | undefined>(undefined);
+  const audioPlaybackGenerationRef = useRef(0);
   const exchangedOAuthCodesRef = useRef(new Set<string>());
   const activeChatAbortControllerRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
@@ -240,6 +243,10 @@ export function MobileChatScreen() {
       speechSubscriptionsRef.current = [];
     };
   }, []);
+
+  useEffect(() => {
+    if (!audioEnabled) void releaseCurrentAudioPlayback();
+  }, [audioEnabled]);
 
   function clearVisualStateTimer(): void {
     if (!visualStateTimerRef.current) return;
@@ -338,6 +345,11 @@ export function MobileChatScreen() {
     const subscription = AppState.addEventListener("change", (nextState) => {
       const previousState = appStateRef.current;
       appStateRef.current = nextState;
+      if (nextState !== "active") {
+        // Persona speech is foreground-only. Relinquish audio focus immediately
+        // so music, podcasts, and calls from other apps return to normal volume.
+        void releaseCurrentAudioPlayback();
+      }
       const resumed = (previousState === "background" || previousState === "inactive") && nextState === "active";
       if (!resumed || !authUser || sessionValidationInFlightRef.current) return;
 
@@ -388,9 +400,10 @@ export function MobileChatScreen() {
         return true;
       }
 
-      // The authenticated chat screen is the mobile app's root. Consume the
-      // Android back event here so it cannot exit the app unexpectedly.
-      return true;
+      // The open conversation is the one screen where Android's normal back
+      // behavior should leave the app. Drawer and settings behavior remains
+      // handled above.
+      return false;
     });
 
     return () => subscription.remove();
@@ -705,10 +718,14 @@ export function MobileChatScreen() {
   }
 
   async function releaseCurrentAudioPlayback(): Promise<void> {
+    audioPlaybackGenerationRef.current += 1;
     const player = audioPlaybackRef.current;
     const uri = audioPlaybackUriRef.current;
+    const subscription = audioPlaybackSubscriptionRef.current;
     audioPlaybackRef.current = undefined;
     audioPlaybackUriRef.current = undefined;
+    audioPlaybackSubscriptionRef.current = undefined;
+    subscription?.remove();
     try {
       player?.pause();
       player?.remove();
@@ -717,6 +734,9 @@ export function MobileChatScreen() {
     }
     if (uri?.startsWith(FileSystem.cacheDirectory ?? "")) {
       await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+    }
+    if (player) {
+      await setIsAudioActiveAsync(false).catch(() => undefined);
     }
   }
 
@@ -736,8 +756,17 @@ export function MobileChatScreen() {
   }
 
   async function replayAudioOutput(output: Extract<RenderedTurn["outputs"][number], { type: "audio" }>): Promise<void> {
+    let pendingAudioUri: string | undefined;
     try {
       await releaseCurrentAudioPlayback();
+      const playbackGeneration = audioPlaybackGenerationRef.current;
+      pendingAudioUri = await prepareAudioUri(output);
+      if (playbackGeneration !== audioPlaybackGenerationRef.current || AppState.currentState !== "active") {
+        if (pendingAudioUri.startsWith(FileSystem.cacheDirectory ?? "")) {
+          await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
+        }
+        return;
+      }
       await setAudioModeAsync({
         allowsRecording: false,
         playsInSilentMode: true,
@@ -745,15 +774,43 @@ export function MobileChatScreen() {
         shouldPlayInBackground: false,
         shouldRouteThroughEarpiece: false
       });
-      const audioUri = await prepareAudioUri(output);
-      const player = createAudioPlayer({ uri: audioUri });
+      await setIsAudioActiveAsync(true);
+      if (playbackGeneration !== audioPlaybackGenerationRef.current || AppState.currentState !== "active") {
+        await setIsAudioActiveAsync(false).catch(() => undefined);
+        if (pendingAudioUri.startsWith(FileSystem.cacheDirectory ?? "")) {
+          await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
+        }
+        return;
+      }
+      const audioUri = pendingAudioUri;
+      const player = createAudioPlayer({ uri: audioUri }, {
+        keepAudioSessionActive: false,
+        updateInterval: 250
+      });
       audioPlaybackRef.current = player;
       audioPlaybackUriRef.current = audioUri;
+      audioPlaybackSubscriptionRef.current = player.addListener("playbackStatusUpdate", (status) => {
+        if (status.didJustFinish && audioPlaybackRef.current === player) {
+          void releaseCurrentAudioPlayback();
+        }
+      });
+      pendingAudioUri = undefined;
       player.play();
     } catch (playbackError) {
       await releaseCurrentAudioPlayback();
+      if (pendingAudioUri?.startsWith(FileSystem.cacheDirectory ?? "")) {
+        await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
+      }
       Alert.alert("Audio playback failed", playbackError instanceof Error ? playbackError.message : "Could not play this audio response.");
     }
+  }
+
+  function playGeneratedPersonaAudio(outputs: RenderedTurn["outputs"]): void {
+    if (!audioEnabled) return;
+    const audio = outputs.find(
+      (output): output is Extract<RenderedTurn["outputs"][number], { type: "audio" }> => output.type === "audio"
+    );
+    if (audio) void replayAudioOutput(audio);
   }
 
   function editUserMessage(message: string): void {
@@ -991,6 +1048,7 @@ export function MobileChatScreen() {
     };
     setConversationId(response.conversationId);
     markPersonaSpeaking(response.outputs);
+    playGeneratedPersonaAudio(response.outputs);
     setTurns((current) => current.map((turn) => (
       turn.id === turnId ? completedTurn : turn
     )));
@@ -1417,6 +1475,7 @@ export function MobileChatScreen() {
         userAssets: mapUploadedAssetsToUserAssets(attachments)
       };
       markPersonaSpeaking(finalResponse.outputs);
+      playGeneratedPersonaAudio(finalResponse.outputs);
       setTurns((current) => current.map((turn) => (
         turn.id === optimistic?.id ? completedTurn : turn
       )));
