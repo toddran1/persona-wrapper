@@ -150,6 +150,31 @@ export async function getMe(request: Request, response: Response): Promise<void>
   response.status(200).json(payload);
 }
 
+export async function getActiveSessions(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  const sessions = await authService.listActiveSessions(request.auth.userId, request.auth.sessionId);
+  response.status(200).json({ sessions });
+}
+
+export async function deleteActiveSession(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  const sessionId = request.params.sessionId;
+  if (typeof sessionId !== "string" || !sessionId.trim() || sessionId.length > 200) {
+    throw new HttpError("A valid session id is required.", 400);
+  }
+  if (sessionId === request.auth.sessionId) {
+    throw new HttpError("Use log out to end the current session.", 409);
+  }
+  await authService.revokeSession(request.auth.userId, sessionId);
+  response.status(204).send();
+}
+
+export async function deleteOtherSessions(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  const revoked = await authService.revokeOtherSessions(request.auth.userId, request.auth.sessionId);
+  response.status(200).json({ revoked });
+}
+
 export function getOAuthProviders(_request: Request, response: Response): void {
   response.status(200).json({ providers: authService.oauthProviderStatus() });
 }

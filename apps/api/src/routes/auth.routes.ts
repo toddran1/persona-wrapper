@@ -1,11 +1,14 @@
 import { Router } from "express";
 import { authRateLimit } from "../middleware/authRateLimit.js";
 import {
+  deleteAccount,
+  deleteActiveSession,
+  deleteOtherSessions,
+  getActiveSessions,
   getMe,
   getOAuthCallback,
   getOAuthProviders,
   getOAuthStart,
-  deleteAccount,
   postLogin,
   postLogout,
   postOAuthExchange,
@@ -48,6 +51,18 @@ authRouter.post("/logout", (request, response, next) => {
 
 authRouter.get("/me", (request, response, next) => {
   getMe(request, response).catch(next);
+});
+
+authRouter.get("/sessions", (request, response, next) => {
+  getActiveSessions(request, response).catch(next);
+});
+
+authRouter.delete("/sessions/others", authRateLimit, (request, response, next) => {
+  deleteOtherSessions(request, response).catch(next);
+});
+
+authRouter.delete("/sessions/:sessionId", authRateLimit, (request, response, next) => {
+  deleteActiveSession(request, response).catch(next);
 });
 
 authRouter.get("/oauth/providers", getOAuthProviders);

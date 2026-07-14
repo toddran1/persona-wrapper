@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { accountDeletionResponseSchema, chatRequestSchema, chatResponseSchema, deleteAccountRequestSchema, llmInputSchema, restoreAccountRequestSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, deleteAccountRequestSchema, llmInputSchema, restoreAccountRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
+  it("validates active device session responses", () => {
+    const parsed = activeSessionsResponseSchema.parse({
+      sessions: [{
+        id: "session_current",
+        clientType: "android",
+        deviceId: "mobile-device",
+        userAgent: "For the Baddiez Android",
+        createdAt: "2026-07-14T12:00:00.000Z",
+        lastActiveAt: "2026-07-14T13:00:00.000Z",
+        refreshExpiresAt: "2026-08-13T12:00:00.000Z",
+        current: true
+      }]
+    });
+
+    expect(parsed.sessions[0]?.clientType).toBe("android");
+    expect(parsed.sessions[0]?.current).toBe(true);
+  });
+
   it("validates account deletion and restoration contracts", () => {
     expect(deleteAccountRequestSchema.parse({ confirmation: "DELETE", password: "password123" })).toEqual({
       confirmation: "DELETE",

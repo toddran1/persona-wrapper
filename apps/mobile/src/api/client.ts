@@ -1,6 +1,8 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import type {
+  ActiveSession,
+  ActiveSessionsResponse,
   AuthResponse,
   AccountDeletionResponse,
   ChatJobResponse,
@@ -22,6 +24,7 @@ import type {
   ProviderId,
   RefreshAuthRequest,
   RegisterRequest,
+  RevokeOtherSessionsResponse,
   RestoreAccountRequest,
   ToolOptions,
   UploadedAsset
@@ -347,6 +350,14 @@ export const api = {
     }
   },
   getCurrentUser: (): Promise<MeResponse> => requestJson<MeResponse>("/api/auth/me"),
+  listActiveSessions: async (): Promise<ActiveSession[]> => {
+    const payload = await requestJson<ActiveSessionsResponse>("/api/auth/sessions");
+    return payload.sessions;
+  },
+  revokeActiveSession: (sessionId: string): Promise<void> =>
+    requestNoContent(`/api/auth/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
+  revokeOtherSessions: (): Promise<RevokeOtherSessionsResponse> =>
+    requestJson<RevokeOtherSessionsResponse>("/api/auth/sessions/others", { method: "DELETE" }),
   getOAuthProviders: async (): Promise<OAuthProviderStatus[]> => {
     const payload = await requestJson<{ providers: OAuthProviderStatus[] }>("/api/auth/oauth/providers");
     return payload.providers;

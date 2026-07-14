@@ -10,14 +10,14 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.personawrapper.mobile",
-    icon: "./assets/branding/FTB_logo_ios_icon.png"
+    icon: "./assets/branding/FTB_logo_ios_letters_only_icon.png"
   },
   android: {
     package: "com.personawrapper.mobile",
-    icon: "./assets/branding/FTB_logo_android_icon.png",
+    icon: "./assets/branding/FTB_logo_android_letters_only_icon.png",
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
-      foregroundImage: "./assets/branding/FTB_logo_android_icon.png",
+      foregroundImage: "./assets/branding/FTB_logo_android_letters_only_icon.png",
       backgroundColor: "#09060f"
     }
   },

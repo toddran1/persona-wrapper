@@ -1,11 +1,12 @@
 import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, ne, or } from "drizzle-orm";
 import {
   authClientTypeSchema,
   type AuthClientType,
   type AuthResponse,
   type AuthSession,
+  type ActiveSession,
   type AuthUser,
   type AccountDeletionResponse,
   type DeleteAccountRequest,
@@ -804,6 +805,54 @@ export class AuthService {
       user: toUserPayload(user),
       session: toSessionPayload(session)
     };
+  }
+
+  async listActiveSessions(userId: string, currentSessionId: string): Promise<ActiveSession[]> {
+    const db = requireDatabase();
+    const rows = await db.select().from(authSessions).where(and(
+      eq(authSessions.userId, userId),
+      isNull(authSessions.revokedAt),
+      gt(authSessions.refreshExpiresAt, new Date())
+    )).orderBy(desc(authSessions.updatedAt));
+
+    return rows.map((row) => ({
+      id: row.id,
+      clientType: parseClientType(row.clientType),
+      deviceId: row.deviceId,
+      userAgent: row.userAgent,
+      createdAt: row.createdAt.toISOString(),
+      lastActiveAt: row.updatedAt.toISOString(),
+      refreshExpiresAt: row.refreshExpiresAt.toISOString(),
+      current: row.id === currentSessionId
+    }));
+  }
+
+  async revokeSession(userId: string, sessionId: string): Promise<void> {
+    const db = requireDatabase();
+    const now = new Date();
+    const [revoked] = await db.update(authSessions).set({
+      revokedAt: now,
+      updatedAt: now
+    }).where(and(
+      eq(authSessions.id, sessionId),
+      eq(authSessions.userId, userId),
+      isNull(authSessions.revokedAt)
+    )).returning({ id: authSessions.id });
+    if (!revoked) throw new HttpError("Active session not found.", 404);
+  }
+
+  async revokeOtherSessions(userId: string, currentSessionId: string): Promise<number> {
+    const db = requireDatabase();
+    const now = new Date();
+    const revoked = await db.update(authSessions).set({
+      revokedAt: now,
+      updatedAt: now
+    }).where(and(
+      eq(authSessions.userId, userId),
+      ne(authSessions.id, currentSessionId),
+      isNull(authSessions.revokedAt)
+    )).returning({ id: authSessions.id });
+    return revoked.length;
   }
 
   oauthProviderStatus(): OAuthProviderStatus[] {

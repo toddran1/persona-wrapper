@@ -249,6 +249,28 @@ export const authSessionSchema = z.object({
 });
 export type AuthSession = z.infer<typeof authSessionSchema>;
 
+export const activeSessionSchema = z.object({
+  id: z.string(),
+  clientType: authClientTypeSchema,
+  deviceId: z.string().nullable().optional(),
+  userAgent: z.string().nullable().optional(),
+  createdAt: z.string(),
+  lastActiveAt: z.string(),
+  refreshExpiresAt: z.string(),
+  current: z.boolean()
+});
+export type ActiveSession = z.infer<typeof activeSessionSchema>;
+
+export const activeSessionsResponseSchema = z.object({
+  sessions: z.array(activeSessionSchema)
+});
+export type ActiveSessionsResponse = z.infer<typeof activeSessionsResponseSchema>;
+
+export const revokeOtherSessionsResponseSchema = z.object({
+  revoked: z.number().int().nonnegative()
+});
+export type RevokeOtherSessionsResponse = z.infer<typeof revokeOtherSessionsResponseSchema>;
+
 export const authTokensSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),

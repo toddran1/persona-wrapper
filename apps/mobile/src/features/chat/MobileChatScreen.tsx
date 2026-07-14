@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType }
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   BackHandler,
   Image,
   KeyboardAvoidingView,
@@ -27,7 +28,7 @@ import * as WebBrowser from "expo-web-browser";
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import type { AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
+import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -123,6 +124,21 @@ function isRequestCancellation(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
+function activeSessionLabel(session: ActiveSession): string {
+  if (session.current) return "This device";
+  if (session.clientType === "android") return "Android device";
+  if (session.clientType === "ios") return "iPhone or iPad";
+  if (session.clientType === "web") return "Web browser";
+  if (session.clientType === "desktop") return "Desktop app";
+  return "Unknown device";
+}
+
+function formatSessionActivity(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Activity time unavailable";
+  return `Last active ${date.toLocaleString()}`;
+}
+
 export function MobileChatScreen() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -154,6 +170,10 @@ export function MobileChatScreen() {
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | undefined>();
+  const [sessionActionId, setSessionActionId] = useState<string | undefined>();
   const [authMode, setAuthMode] = useState<MobileAuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [assistantActionTurn, setAssistantActionTurn] = useState<RenderedTurn | undefined>();
@@ -193,6 +213,8 @@ export function MobileChatScreen() {
   const exchangedOAuthCodesRef = useRef(new Set<string>());
   const activeChatAbortControllerRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
+  const appStateRef = useRef(AppState.currentState);
+  const sessionValidationInFlightRef = useRef(false);
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
@@ -311,6 +333,46 @@ export function MobileChatScreen() {
     setSettingsVisible(false);
     openDrawer();
   }, [openDrawer]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const previousState = appStateRef.current;
+      appStateRef.current = nextState;
+      const resumed = (previousState === "background" || previousState === "inactive") && nextState === "active";
+      if (!resumed || !authUser || sessionValidationInFlightRef.current) return;
+
+      sessionValidationInFlightRef.current = true;
+      void loadAuthenticatedUser()
+        .then((user) => {
+          if (user) {
+            setAuthUser(user);
+            return;
+          }
+          cancelActiveChatRequest();
+          selectionGenerationRef.current += 1;
+          setAuthUser(undefined);
+          setSettingsVisible(false);
+          setActiveSessions([]);
+          closeDrawer();
+          setConversations([]);
+          setConversationId(undefined);
+          setTurns([]);
+          setTurnsCursor(null);
+          setAuthMode("login");
+          setAuthError("This session ended on another device. Sign in again to continue.");
+          void clearSelectedConversationId();
+        })
+        .catch((validationError) => {
+          setError(validationError instanceof Error
+            ? `Could not verify your session after reconnecting. ${validationError.message}`
+            : "Could not verify your session after reconnecting.");
+        })
+        .finally(() => {
+          sessionValidationInFlightRef.current = false;
+        });
+    });
+    return () => subscription.remove();
+  }, [authUser, closeDrawer]);
 
   useEffect(() => {
     if (Platform.OS !== "android" || !authUser) return;
@@ -1123,6 +1185,11 @@ export function MobileChatScreen() {
   }, []);
 
   useEffect(() => {
+    if (!settingsVisible || !authUser) return;
+    void refreshActiveSessions();
+  }, [settingsVisible, authUser?.id]);
+
+  useEffect(() => {
     requestAnimationFrame(() => {
       if (nearConversationBottomRef.current || sending) {
         scrollRef.current?.scrollToEnd({ animated: true });
@@ -1452,6 +1519,7 @@ export function MobileChatScreen() {
       logoutError = error instanceof Error ? error.message : "Could not reach the server to revoke this session.";
     }
     setAuthUser(undefined);
+    setActiveSessions([]);
     setSettingsVisible(false);
     closeDrawer();
     setConversations([]);
@@ -1461,6 +1529,67 @@ export function MobileChatScreen() {
     setTurnsCursor(null);
     setAuthMode("login");
     setAuthError(logoutError ? `You were signed out on this device. ${logoutError}` : undefined);
+  }
+
+  async function refreshActiveSessions(): Promise<void> {
+    setSessionsLoading(true);
+    setSessionsError(undefined);
+    try {
+      setActiveSessions(await api.listActiveSessions());
+    } catch (sessionError) {
+      setSessionsError(sessionError instanceof Error ? sessionError.message : "Could not load active sessions.");
+    } finally {
+      setSessionsLoading(false);
+    }
+  }
+
+  function confirmRevokeSession(session: ActiveSession): void {
+    if (session.current) return;
+    Alert.alert(
+      "Log out this device?",
+      `${activeSessionLabel(session)} will need to sign in again.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Log out device",
+          style: "destructive",
+          onPress: () => {
+            setSessionActionId(session.id);
+            setSessionsError(undefined);
+            void api.revokeActiveSession(session.id)
+              .then(() => setActiveSessions((current) => current.filter((item) => item.id !== session.id)))
+              .catch((sessionError) => {
+                setSessionsError(sessionError instanceof Error ? sessionError.message : "Could not log out that device.");
+              })
+              .finally(() => setSessionActionId(undefined));
+          }
+        }
+      ]
+    );
+  }
+
+  function confirmRevokeOtherSessions(): void {
+    Alert.alert(
+      "Log out other devices?",
+      "Every other active session will need to sign in again. This device will stay signed in.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Log out others",
+          style: "destructive",
+          onPress: () => {
+            setSessionActionId("others");
+            setSessionsError(undefined);
+            void api.revokeOtherSessions()
+              .then(() => setActiveSessions((current) => current.filter((session) => session.current)))
+              .catch((sessionError) => {
+                setSessionsError(sessionError instanceof Error ? sessionError.message : "Could not log out other devices.");
+              })
+              .finally(() => setSessionActionId(undefined));
+          }
+        }
+      ]
+    );
   }
 
   async function shareDataArchive(scope: "account" | "conversation", selectedConversationId?: string): Promise<void> {
@@ -1932,6 +2061,73 @@ export function MobileChatScreen() {
               <Ionicons name="trash-outline" size={22} color={theme.danger} />
               <Text style={[styles.settingsRowText, { color: theme.danger }]}>Delete account</Text>
             </Pressable>
+          </View>
+          <View style={styles.settingsSection}>
+            <View style={styles.settingsSectionHeadingRow}>
+              <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Active sessions</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Refresh active sessions"
+                disabled={sessionsLoading}
+                onPress={() => void refreshActiveSessions()}
+                style={styles.sessionRefreshButton}
+              >
+                {sessionsLoading ? (
+                  <ActivityIndicator size="small" color={theme.accent} />
+                ) : (
+                  <Ionicons name="refresh" size={20} color={theme.accent} />
+                )}
+              </Pressable>
+            </View>
+            {sessionsError ? (
+              <Text style={[styles.sessionErrorText, { color: theme.danger }]}>{sessionsError}</Text>
+            ) : null}
+            {!sessionsLoading && activeSessions.length === 0 && !sessionsError ? (
+              <Text style={[styles.sessionEmptyText, { color: theme.muted }]}>No active sessions found.</Text>
+            ) : null}
+            {activeSessions.map((session) => (
+              <View key={session.id} style={[styles.sessionRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                <Ionicons
+                  name={session.clientType === "web" ? "globe-outline" : session.clientType === "desktop" ? "desktop-outline" : "phone-portrait-outline"}
+                  size={22}
+                  color={session.current ? theme.accent : theme.text}
+                />
+                <View style={styles.sessionDetails}>
+                  <Text style={[styles.sessionTitle, { color: theme.text }]}>{activeSessionLabel(session)}</Text>
+                  <Text style={[styles.sessionActivity, { color: theme.muted }]}>{formatSessionActivity(session.lastActiveAt)}</Text>
+                </View>
+                {!session.current ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Log out ${activeSessionLabel(session)}`}
+                    disabled={Boolean(sessionActionId)}
+                    onPress={() => confirmRevokeSession(session)}
+                    style={styles.sessionRevokeButton}
+                  >
+                    {sessionActionId === session.id ? (
+                      <ActivityIndicator size="small" color={theme.danger} />
+                    ) : (
+                      <Ionicons name="log-out-outline" size={21} color={theme.danger} />
+                    )}
+                  </Pressable>
+                ) : null}
+              </View>
+            ))}
+            {activeSessions.some((session) => !session.current) ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={Boolean(sessionActionId)}
+                onPress={confirmRevokeOtherSessions}
+                style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}
+              >
+                {sessionActionId === "others" ? (
+                  <ActivityIndicator size="small" color={theme.danger} />
+                ) : (
+                  <Ionicons name="log-out-outline" size={22} color={theme.danger} />
+                )}
+                <Text style={[styles.settingsRowText, { color: theme.danger }]}>Log out all other devices</Text>
+              </Pressable>
+            ) : null}
           </View>
           <View style={styles.settingsSection}>
             <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>About</Text>
@@ -2711,8 +2907,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18
   },
   settingsRowText: {
+    flex: 1,
     fontSize: 18,
     fontWeight: "900"
+  },
+  settingsSectionHeadingRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
   },
   settingsScreen: {
     bottom: 0,
@@ -2739,6 +2941,48 @@ const styles = StyleSheet.create({
   },
   settingsTopBar: {
     minHeight: 60
+  },
+  sessionActivity: {
+    fontSize: 12,
+    lineHeight: 17
+  },
+  sessionDetails: {
+    flex: 1,
+    gap: 2
+  },
+  sessionEmptyText: {
+    fontSize: 14,
+    paddingHorizontal: 4
+  },
+  sessionErrorText: {
+    fontSize: 14,
+    lineHeight: 19,
+    paddingHorizontal: 4
+  },
+  sessionRefreshButton: {
+    alignItems: "center",
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  sessionRevokeButton: {
+    alignItems: "center",
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  sessionRow: {
+    alignItems: "center",
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: 14,
+    minHeight: 70,
+    paddingHorizontal: 18,
+    paddingVertical: 12
+  },
+  sessionTitle: {
+    fontSize: 16,
+    fontWeight: "900"
   },
   suggestion: {
     borderRadius: 18,
