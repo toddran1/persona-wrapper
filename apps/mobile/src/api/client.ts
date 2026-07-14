@@ -66,7 +66,45 @@ class ApiResponseError extends Error {
   }
 }
 
+function isServerResponseError(error: unknown): boolean {
+  return error instanceof ApiResponseError || (
+    error instanceof Error && error.message.startsWith("The app server returned an invalid")
+  );
+}
+
 let authRefreshInFlight: Promise<boolean> | undefined;
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+const UPLOAD_REQUEST_TIMEOUT_MS = 90_000;
+
+type RequestTimeout = {
+  signal: AbortSignal;
+  didTimeout: () => boolean;
+  dispose: () => void;
+};
+
+function createRequestTimeout(externalSignal: AbortSignal | null | undefined, timeoutMs: number): RequestTimeout {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    dispose: () => {
+      clearTimeout(timer);
+      externalSignal?.removeEventListener("abort", abortFromCaller);
+    }
+  };
+}
 
 async function parseApiError(response: Response): Promise<ApiResponseError> {
   try {
@@ -133,24 +171,31 @@ async function requestJson<T>(
   options?: { skipAuthRefresh?: boolean }
 ): Promise<T> {
   const { headers, ...rest } = init ?? {};
-  let response: Response;
+  const timeout = createRequestTimeout(init?.signal, DEFAULT_REQUEST_TIMEOUT_MS);
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
       ...rest,
-      headers: await requestHeaders(true, headers)
+      headers: await requestHeaders(true, headers),
+      signal: timeout.signal
     });
+    if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
+      return requestJson<T>(path, init, { skipAuthRefresh: true });
+    }
+    if (!response.ok) throw await parseApiError(response);
+    try {
+      return await response.json() as T;
+    } catch {
+      throw new Error("The app server returned an invalid response. Please try again.");
+    }
   } catch (error) {
+    if (timeout.didTimeout()) {
+      throw new Error("The app server took too long to respond. Check your connection and try again.");
+    }
     rethrowAbort(error);
+    if (isServerResponseError(error)) throw error;
     throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
-  }
-  if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
-    return requestJson<T>(path, init, { skipAuthRefresh: true });
-  }
-  if (!response.ok) throw await parseApiError(response);
-  try {
-    return await response.json() as T;
-  } catch {
-    throw new Error("The app server returned an invalid response. Please try again.");
+  } finally {
+    timeout.dispose();
   }
 }
 
@@ -160,20 +205,27 @@ async function requestNoContent(
   options?: { skipAuthRefresh?: boolean }
 ): Promise<void> {
   const { headers, ...rest } = init ?? {};
-  let response: Response;
+  const timeout = createRequestTimeout(init?.signal, DEFAULT_REQUEST_TIMEOUT_MS);
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
       ...rest,
-      headers: await requestHeaders(false, headers)
+      headers: await requestHeaders(false, headers),
+      signal: timeout.signal
     });
+    if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
+      return requestNoContent(path, init, { skipAuthRefresh: true });
+    }
+    if (!response.ok) throw await parseApiError(response);
   } catch (error) {
+    if (timeout.didTimeout()) {
+      throw new Error("The app server took too long to respond. Check your connection and try again.");
+    }
     rethrowAbort(error);
+    if (isServerResponseError(error)) throw error;
     throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
+  } finally {
+    timeout.dispose();
   }
-  if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
-    return requestNoContent(path, init, { skipAuthRefresh: true });
-  }
-  if (!response.ok) throw await parseApiError(response);
 }
 
 export const api = {
@@ -192,32 +244,38 @@ export const api = {
         type: file.mimeType
       } as unknown as Blob);
     }
-    let response: Response;
+    const timeout = createRequestTimeout(options?.signal, UPLOAD_REQUEST_TIMEOUT_MS);
     try {
-      response = await fetch(`${API_BASE_URL}/api/uploads`, {
+      const response = await fetch(`${API_BASE_URL}/api/uploads`, {
         method: "POST",
         headers: await requestHeaders(false),
         body,
-        ...(options?.signal ? { signal: options.signal } : {})
+        signal: timeout.signal
       });
+      if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
+        return api.uploadFiles(files, { skipAuthRefresh: true, ...(options?.signal ? { signal: options.signal } : {}) });
+      }
+      if (!response.ok) throw await parseApiError(response);
+      let payload: { assets?: UploadedAsset[] };
+      try {
+        payload = await response.json() as { assets?: UploadedAsset[] };
+      } catch {
+        throw new Error("The app server returned an invalid upload response. Please try again.");
+      }
+      if (!Array.isArray(payload.assets)) {
+        throw new Error("The app server returned an invalid upload response. Please try again.");
+      }
+      return payload.assets;
     } catch (error) {
+      if (timeout.didTimeout()) {
+        throw new Error("The upload took too long to finish. Check your connection and try again.");
+      }
       rethrowAbort(error);
+      if (isServerResponseError(error)) throw error;
       throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
+    } finally {
+      timeout.dispose();
     }
-    if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
-      return api.uploadFiles(files, { skipAuthRefresh: true, ...(options?.signal ? { signal: options.signal } : {}) });
-    }
-    if (!response.ok) throw await parseApiError(response);
-    let payload: { assets?: UploadedAsset[] };
-    try {
-      payload = await response.json() as { assets?: UploadedAsset[] };
-    } catch {
-      throw new Error("The app server returned an invalid upload response. Please try again.");
-    }
-    if (!Array.isArray(payload.assets)) {
-      throw new Error("The app server returned an invalid upload response. Please try again.");
-    }
-    return payload.assets;
   },
   oauthStartUrl: async (provider: OAuthProvider, returnUrl?: string): Promise<string> => {
     const url = new URL(`/api/auth/oauth/${provider}/start`, API_BASE_URL);

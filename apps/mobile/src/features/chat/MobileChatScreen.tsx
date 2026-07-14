@@ -334,7 +334,7 @@ export function MobileChatScreen() {
   }));
 
   const drawerStartX = useSharedValue(-drawerWidth);
-  const gesture = Gesture.Pan().activeOffsetX([-12, 12])
+  const gesture = Gesture.Pan().activeOffsetX([-6, 6]).failOffsetY([-20, 20])
     .onBegin(() => {
       drawerStartX.value = drawerX.value;
     })
@@ -342,7 +342,7 @@ export function MobileChatScreen() {
       drawerX.value = Math.max(-drawerWidth, Math.min(0, drawerStartX.value + event.translationX));
     })
     .onEnd((event) => {
-      const shouldOpen = drawerX.value > -drawerWidth / 2 || event.velocityX > 450;
+      const shouldOpen = event.velocityX > 300 || (event.velocityX >= -250 && drawerX.value > -drawerWidth * 0.38);
       drawerX.value = withTiming(shouldOpen ? 0 : -drawerWidth, { duration: 190 });
       runOnJS(setDrawerInteractive)(shouldOpen);
     });
@@ -456,7 +456,7 @@ export function MobileChatScreen() {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         quality: 0.9,
         allowsMultipleSelection: true
       });
