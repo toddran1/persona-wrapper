@@ -8,13 +8,15 @@ type IconButtonProps = {
   theme: MobileTheme;
   onPress?: () => void;
   style?: StyleProp<ViewStyle>;
+  testID?: string;
 };
 
-export function IconButton({ name, label, theme, onPress, style }: IconButtonProps) {
+export function IconButton({ name, label, theme, onPress, style, testID }: IconButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      testID={testID}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,

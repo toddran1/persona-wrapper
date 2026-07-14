@@ -86,6 +86,7 @@ export function ChatComposer({
       <View style={[styles.wrap, compact ? styles.wrapCompact : null, { borderColor: theme.border, backgroundColor: theme.surfaceStrong }]}>
         <Pressable
           accessibilityRole="button"
+          testID="mobile-attach-file"
           accessibilityLabel="Attach file"
           disabled={disabled || uploadingAttachments}
           onPress={onAttach}
@@ -94,6 +95,8 @@ export function ChatComposer({
           <Ionicons name="add" size={25} color={theme.muted} />
         </Pressable>
         <TextInput
+          testID="mobile-chat-composer"
+          accessibilityLabel="Chat message"
           value={draft}
           onChangeText={updateDraft}
           editable={!disabled && !uploadingAttachments}
@@ -107,6 +110,7 @@ export function ChatComposer({
           {canSend ? (
             <Pressable
               accessibilityRole="button"
+              testID="mobile-send-message"
               accessibilityLabel="Send message"
               onPress={submit}
               style={[styles.sendButton, { backgroundColor: theme.text }]}
@@ -132,6 +136,7 @@ export function ChatComposer({
           )}
           <Pressable
             accessibilityRole="button"
+            testID="mobile-persona-audio-options"
             accessibilityLabel="Persona audio options"
             onPress={onAudioMenu}
             style={[

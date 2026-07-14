@@ -103,6 +103,7 @@ export function MobileAuthScreen({
                   return (
                     <Pressable
                       key={nextMode}
+                      testID={`mobile-auth-mode-${nextMode}`}
                       accessibilityRole="tab"
                       accessibilityState={{ selected }}
                       disabled={busy}
@@ -130,6 +131,7 @@ export function MobileAuthScreen({
                     <Pressable
                       key={providerStatus.provider}
                       accessibilityRole="button"
+                      testID={`mobile-auth-oauth-${providerStatus.provider}`}
                       disabled={busy}
                       onPress={() => onOAuth(providerStatus.provider)}
                       style={({ pressed }) => [
@@ -154,6 +156,8 @@ export function MobileAuthScreen({
                 <View style={styles.fieldGroup}>
                   <Text style={[styles.fieldLabel, { color: theme.muted }]}>Email or username</Text>
                   <TextInput
+                    testID="mobile-auth-identifier"
+                    accessibilityLabel="Email or username"
                     autoCapitalize="none"
                     autoComplete="email"
                     editable={!busy}
@@ -171,6 +175,8 @@ export function MobileAuthScreen({
                   <View style={styles.fieldGroup}>
                     <Text style={[styles.fieldLabel, { color: theme.muted }]}>Display name <Text style={styles.optional}>(optional)</Text></Text>
                     <TextInput
+                      testID="mobile-auth-display-name"
+                      accessibilityLabel="Display name"
                       autoCapitalize="words"
                       autoComplete="name"
                       editable={!busy}
@@ -188,6 +194,8 @@ export function MobileAuthScreen({
                   <Text style={[styles.fieldLabel, { color: theme.muted }]}>Password</Text>
                   <View style={[styles.passwordShell, { borderColor: theme.border }]}>
                     <TextInput
+                      testID="mobile-auth-password"
+                      accessibilityLabel="Password"
                       autoCapitalize="none"
                       autoComplete={mode === "register" ? "new-password" : "current-password"}
                       editable={!busy}
@@ -223,6 +231,7 @@ export function MobileAuthScreen({
 
               <Pressable
                 accessibilityRole="button"
+                testID="mobile-auth-submit"
                 disabled={!canSubmit}
                 onPress={onSubmit}
                 style={({ pressed }) => [

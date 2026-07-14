@@ -326,6 +326,7 @@ export function ConversationSidebar({
           <button
             type="button"
             className="conversation-auth-toggle"
+            data-testid="auth-panel-toggle"
             onClick={() => setAuthPanelOpen((open) => !open)}
             aria-expanded={authPanelOpen}
             aria-controls="conversation-auth-panel"
@@ -360,6 +361,7 @@ export function ConversationSidebar({
                     setLocalAuthError(undefined);
                   }}
                   disabled={authBusy}
+                  data-testid="auth-login-tab"
                 >
                   Log in
                 </button>
@@ -373,6 +375,7 @@ export function ConversationSidebar({
                     setLocalAuthError(undefined);
                   }}
                   disabled={authBusy}
+                  data-testid="auth-register-tab"
                 >
                   Sign up
                 </button>
@@ -396,6 +399,7 @@ export function ConversationSidebar({
                       onChange={(event) => setIdentifier(event.target.value)}
                       placeholder="Email or username"
                       aria-label="Email or username"
+                      data-testid="auth-identifier"
                       autoComplete="off"
                       data-1p-ignore="true"
                       data-lpignore="true"
@@ -408,6 +412,7 @@ export function ConversationSidebar({
                       onChange={(event) => setPassword(event.target.value)}
                       placeholder="Password"
                       aria-label="Password"
+                      data-testid="auth-password"
                       type="password"
                       autoComplete="new-password"
                       data-1p-ignore="true"
@@ -422,6 +427,7 @@ export function ConversationSidebar({
                       onChange={(event) => setRegisterEmail(event.target.value)}
                       placeholder="Email"
                       aria-label="Email"
+                      data-testid="auth-register-email"
                       type="email"
                       autoComplete="email"
                       disabled={authBusy || authLoading}
@@ -433,6 +439,7 @@ export function ConversationSidebar({
                       }
                       placeholder="Username"
                       aria-label="Username"
+                      data-testid="auth-register-username"
                       autoComplete="username"
                       disabled={authBusy || authLoading}
                     />
@@ -443,6 +450,7 @@ export function ConversationSidebar({
                       }
                       placeholder={`Password (${REGISTER_PASSWORD_MIN_LENGTH}+ chars)`}
                       aria-label="Password"
+                      data-testid="auth-register-password"
                       type="password"
                       autoComplete="new-password"
                       disabled={authBusy || authLoading}
@@ -458,6 +466,7 @@ export function ConversationSidebar({
                   <button
                     type="submit"
                     className="conversation-auth-submit"
+                    data-testid="auth-submit"
                     disabled={authBusy || authLoading}
                   >
                     {authBusy ? busyAuthText : authMode === "login" ? "Log in" : authMode === "restore" ? "Restore account" : "Create account"}
@@ -471,6 +480,7 @@ export function ConversationSidebar({
                       key={provider.provider}
                       type="button"
                       className="conversation-oauth-button"
+                      data-testid={`oauth-${provider.provider}`}
                       onClick={() => onOAuthLogin(provider.provider)}
                       disabled={authBusy}
                     >
@@ -545,6 +555,7 @@ export function ConversationSidebar({
       <button
         type="button"
         className="conversation-new-chat"
+        data-testid="new-chat"
         onClick={() => {
           setAccountMenuOpen(false);
           onNewConversation();
@@ -561,6 +572,7 @@ export function ConversationSidebar({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search chats"
           type="search"
+          data-testid="conversation-search"
         />
       </label>
 
@@ -621,6 +633,7 @@ export function ConversationSidebar({
                     <button
                       type="button"
                       className={`conversation-list-more${conversationActionMenuId === conversation.id ? " conversation-list-more-open" : ""}`}
+                      data-testid={`conversation-actions-${conversation.id}`}
                       onClick={() => setConversationActionMenuId((current) => current === conversation.id ? undefined : conversation.id)}
                       aria-label={`Chat actions for ${conversation.title}`}
                       aria-haspopup="menu"
@@ -679,7 +692,7 @@ export function ConversationSidebar({
               <div className="conversation-account-menu-label">Your data</div>
               <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => void onExportAccount()} disabled={authBusy}>Export account data</button>
               <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => importInputRef.current?.click()} disabled={authBusy}>Import conversations</button>
-              <input ref={importInputRef} type="file" accept="application/json,application/zip,.json,.jsonl,.zip" hidden onChange={(event) => void importFile(event.target.files?.[0])} />
+              <input ref={importInputRef} data-testid="conversation-import-input" type="file" accept="application/json,application/zip,.json,.jsonl,.zip" hidden onChange={(event) => void importFile(event.target.files?.[0])} />
               <div className="conversation-account-menu-divider" />
               <div className="conversation-account-menu-label">About</div>
               <a className="conversation-account-menu-button" role="menuitem" href="/privacy">Privacy Policy</a>
@@ -690,10 +703,10 @@ export function ConversationSidebar({
               {deleteAccountOpen ? (
                 <div className="conversation-auth-form">
                   <p className="conversation-auth-copy">You will be signed out now. All account data is permanently deleted after 30 days unless restored.</p>
-                  <input value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder="Type DELETE" aria-label="Type DELETE to confirm" disabled={authBusy} />
-                  <input value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} placeholder="Password (if applicable)" aria-label="Password" type="password" disabled={authBusy} />
+                  <input data-testid="delete-confirmation" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} placeholder="Type DELETE" aria-label="Type DELETE to confirm" disabled={authBusy} />
+                  <input data-testid="delete-password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} placeholder="Password (if applicable)" aria-label="Password" type="password" disabled={authBusy} />
                   {localAuthError ? <div className="conversation-auth-error" role="alert">{localAuthError}</div> : null}
-                  <button type="button" className="conversation-account-menu-button" disabled={authBusy || deleteConfirmation !== "DELETE"} onClick={() => void submitDeleteAccount()}>
+                  <button data-testid="confirm-delete-account" type="button" className="conversation-account-menu-button" disabled={authBusy || deleteConfirmation !== "DELETE"} onClick={() => void submitDeleteAccount()}>
                     {authBusy ? "Scheduling..." : "Confirm account deletion"}
                   </button>
                 </div>
@@ -718,6 +731,7 @@ export function ConversationSidebar({
           <button
             type="button"
             className="conversation-account-button"
+            data-testid="account-menu-toggle"
             onClick={() => setAccountMenuOpen((open) => !open)}
             aria-haspopup="menu"
             aria-expanded={accountMenuOpen}

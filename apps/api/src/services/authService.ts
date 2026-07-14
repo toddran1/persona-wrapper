@@ -185,6 +185,25 @@ function assertOAuthProviderEnabled(provider: OAuthProvider) {
   };
 }
 
+function testOAuthProfile(provider: OAuthProvider): OAuthProfile {
+  return {
+    providerAccountId: `for-the-baddiez-e2e-${provider}`,
+    email: `e2e-${provider}@for-the-baddiez.test`,
+    displayName: `E2E ${provider === "google" ? "Google" : "Facebook"} User`,
+    emailVerified: true,
+    metadata: { provider, testMode: true }
+  };
+}
+
+function testOAuthToken(provider: OAuthProvider): OAuthTokenResponse {
+  return {
+    access_token: `e2e-${provider}-access-token`,
+    refresh_token: `e2e-${provider}-refresh-token`,
+    token_type: "Bearer",
+    scope: "email profile"
+  };
+}
+
 function buildCodeChallenge(codeVerifier: string): string {
   return createHash("sha256").update(codeVerifier).digest("base64url");
 }
@@ -522,7 +541,6 @@ export class AuthService {
 
   async createOAuthAuthorizationUrl(options: OAuthStartOptions): Promise<string> {
     const provider = parseOAuthProvider(options.provider);
-    const config = assertOAuthProviderEnabled(provider);
     const state = randomBytes(32).toString("base64url");
     const codeVerifier = randomBytes(64).toString("base64url");
     const redirectUri = oauthRedirectUri(provider);
@@ -544,6 +562,16 @@ export class AuthService {
       metadata: stateMetadata
     });
 
+    // E2E never reaches Google or Facebook. This path is unavailable unless
+    // APP_TEST_MODE is explicitly enabled for a non-production test server.
+    if (env.APP_TEST_MODE) {
+      const callback = new URL(oauthRedirectUri(provider));
+      callback.searchParams.set("code", `e2e-${provider}`);
+      callback.searchParams.set("state", state);
+      return callback.toString();
+    }
+
+    const config = assertOAuthProviderEnabled(provider);
     const url = new URL(config.authorizationUrl);
     url.searchParams.set("client_id", config.clientId);
     url.searchParams.set("redirect_uri", redirectUri);
@@ -572,8 +600,13 @@ export class AuthService {
     if (stateRow.expiresAt.getTime() <= Date.now()) throw new HttpError("OAuth state is invalid or expired.", 400);
 
     const redirectUri = stateRow.redirectUri ?? oauthRedirectUri(provider);
-    const tokenPayload = await requestOAuthToken(provider, options.code, stateRow.codeVerifier ?? undefined, redirectUri);
-    const profile = await requestOAuthProfile(provider, tokenPayload.access_token as string);
+    const isTestOAuthCallback = env.APP_TEST_MODE && options.code === `e2e-${provider}`;
+    const tokenPayload = isTestOAuthCallback
+      ? testOAuthToken(provider)
+      : await requestOAuthToken(provider, options.code, stateRow.codeVerifier ?? undefined, redirectUri);
+    const profile = isTestOAuthCallback
+      ? testOAuthProfile(provider)
+      : await requestOAuthProfile(provider, tokenPayload.access_token as string);
     const user = await findOrCreateOAuthUser(profile, provider);
     const scopes = tokenPayload.scope?.split(/\s+/).filter(Boolean) ?? [];
     const existingAccount = await db.query.userOAuthAccounts.findFirst({
@@ -856,6 +889,12 @@ export class AuthService {
   }
 
   oauthProviderStatus(): OAuthProviderStatus[] {
+    if (env.APP_TEST_MODE) {
+      return [
+        { provider: "google", enabled: true },
+        { provider: "facebook", enabled: true }
+      ];
+    }
     return [
       { provider: "google", enabled: Boolean(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET) },
       { provider: "facebook", enabled: Boolean(env.FACEBOOK_OAUTH_CLIENT_ID && env.FACEBOOK_OAUTH_CLIENT_SECRET) }

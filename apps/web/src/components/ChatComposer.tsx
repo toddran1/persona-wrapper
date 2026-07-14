@@ -220,6 +220,7 @@ export function ChatComposer(props: ChatComposerProps) {
                       <div className="audio-toggle">
                         <input
                           type="checkbox"
+                          data-testid="audio-toggle"
                           checked={props.audioEnabled}
                           disabled={props.disabled}
                           onChange={(event) =>
@@ -298,6 +299,7 @@ export function ChatComposer(props: ChatComposerProps) {
       <div className="prompt-shell">
         <textarea
           ref={textareaRef}
+          data-testid="chat-composer"
           rows={2}
           value={message}
           disabled={props.disabled}
@@ -334,6 +336,7 @@ export function ChatComposer(props: ChatComposerProps) {
               id={fileInputId}
               ref={fileInputRef}
               className="hidden-file-input"
+              data-testid="chat-upload-input"
               type="file"
               multiple
               disabled={props.disabled}
@@ -363,6 +366,7 @@ export function ChatComposer(props: ChatComposerProps) {
               type="submit"
               className="send-button"
               aria-label="Send message"
+              data-testid="send-message"
               title="Send"
               disabled={props.disabled}
             >

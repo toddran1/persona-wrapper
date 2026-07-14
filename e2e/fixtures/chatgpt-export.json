@@ -1,0 +1,26 @@
+[
+  {
+    "title": "Imported E2E ChatGPT conversation",
+    "create_time": 1784025600,
+    "update_time": 1784025660,
+    "current_node": "assistant-1",
+    "mapping": {
+      "user-1": {
+        "parent": null,
+        "message": {
+          "author": { "role": "user" },
+          "content": { "parts": ["Imported E2E question"] },
+          "create_time": 1784025600
+        }
+      },
+      "assistant-1": {
+        "parent": "user-1",
+        "message": {
+          "author": { "role": "assistant" },
+          "content": { "parts": ["Imported E2E answer"] },
+          "create_time": 1784025660
+        }
+      }
+    }
+  }
+]

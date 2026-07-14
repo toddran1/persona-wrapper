@@ -1,0 +1,8 @@
+appId: com.personawrapper.mobile
+name: Test-mode OAuth callback
+---
+- launchApp:
+    clearState: true
+- tapOn:
+    id: mobile-auth-oauth-google
+- assertVisible: LaRae the Baddest

@@ -170,6 +170,13 @@ const envSchema = z.object({
       message: "CORS_ALLOWED_ORIGINS is required in production."
     });
   }
+  if (value.NODE_ENV === "production" && value.APP_TEST_MODE) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["APP_TEST_MODE"],
+      message: "APP_TEST_MODE must be disabled in production."
+    });
+  }
   if (value.CORS_ALLOWED_ORIGINS) {
     for (const origin of value.CORS_ALLOWED_ORIGINS.split(",").map((item) => item.trim()).filter(Boolean)) {
       try {

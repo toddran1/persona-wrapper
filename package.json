@@ -16,6 +16,9 @@
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:migrate": "npm run db:migrate -w @persona/api",
+    "test:e2e": "node scripts/e2e.mjs",
+    "test:e2e:web": "node scripts/e2e.mjs",
+    "test:e2e:mobile": "maestro test e2e/mobile",
     "build": "npm run build -w @persona/shared && npm run build -w @persona/api && npm run build -w @persona/web && npm run build -w @persona/mobile",
     "typecheck": "npm run build -w @persona/shared && npm run typecheck -w @persona/api && npm run typecheck -w @persona/web && npm run typecheck -w @persona/mobile",
     "lint": "npm run lint -w @persona/shared && npm run lint -w @persona/api && npm run lint -w @persona/web && npm run lint -w @persona/mobile",
@@ -25,6 +28,7 @@
     "node": "^20.19.4 || ^22.13.0 || ^24.3.0 || >=25.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/react": "19.2.4",
     "concurrently": "^9.1.2",
     "drizzle-orm": "^0.45.2"

@@ -1,0 +1,49 @@
+appId: com.personawrapper.mobile
+name: Account data controls and deletion restoration
+env:
+  E2E_EMAIL: e2e-device-recovery@for-the-baddiez.test
+  E2E_PASSWORD: E2eSecurePassword!42
+---
+- launchApp:
+    clearState: true
+- tapOn:
+    id: mobile-auth-mode-register
+- tapOn:
+    id: mobile-auth-identifier
+- inputText: ${E2E_EMAIL}
+- tapOn:
+    id: mobile-auth-password
+- inputText: ${E2E_PASSWORD}
+- tapOn:
+    id: mobile-auth-submit
+- assertVisible: LaRae the Baddest
+- tapOn:
+    id: mobile-open-chats
+- tapOn:
+    id: mobile-open-settings
+- assertVisible:
+    id: mobile-export-account
+- assertVisible:
+    id: mobile-export-conversation
+- assertVisible:
+    id: mobile-import-conversations
+- tapOn:
+    id: mobile-delete-account
+- tapOn:
+    id: mobile-delete-confirmation
+- inputText: DELETE
+- tapOn:
+    id: mobile-delete-password
+- inputText: ${E2E_PASSWORD}
+- tapOn:
+    id: mobile-delete-confirm
+- assertVisible: Restore your account
+- tapOn:
+    id: mobile-auth-identifier
+- inputText: ${E2E_EMAIL}
+- tapOn:
+    id: mobile-auth-password
+- inputText: ${E2E_PASSWORD}
+- tapOn:
+    id: mobile-auth-submit
+- assertVisible: LaRae the Baddest

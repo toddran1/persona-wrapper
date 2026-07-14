@@ -1804,7 +1804,7 @@ export function MobileChatScreen() {
             ]}
           >
           <View style={[styles.topBar, personaCardExpanded ? styles.layerAbovePersonaBackground : null]}>
-            <IconButton name="menu" label="Open chats" theme={theme} onPress={openDrawer} />
+            <IconButton name="menu" label="Open chats" theme={theme} onPress={openDrawer} testID="mobile-open-chats" />
             <View style={styles.titleBlock}>
               <Text style={[styles.personaName, { color: theme.text }]} numberOfLines={1}>
                 {activePersona?.name ?? "For the Baddiez"}
@@ -2080,6 +2080,7 @@ export function MobileChatScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Back to chats"
+              testID="mobile-settings-back"
               onPress={returnToDrawer}
               style={[styles.settingsBackButton, { backgroundColor: "rgba(255,255,255,0.08)" }]}
             >
@@ -2103,6 +2104,7 @@ export function MobileChatScreen() {
             <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Account</Text>
             <Pressable
               accessibilityRole="button"
+              testID="mobile-logout"
               onPress={() => void logout()}
               style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}
             >
@@ -2111,6 +2113,7 @@ export function MobileChatScreen() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
+              testID="mobile-delete-account"
               onPress={() => {
                 setDeleteAccountError(undefined);
                 setDeleteAccountVisible(true);
@@ -2212,15 +2215,15 @@ export function MobileChatScreen() {
           </View>
           <View style={styles.settingsSection}>
             <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Your data</Text>
-            <Pressable accessibilityRole="button" onPress={() => void shareDataArchive("account")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+            <Pressable accessibilityRole="button" testID="mobile-export-account" onPress={() => void shareDataArchive("account")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
               <Ionicons name="download-outline" size={22} color={theme.text} />
               <Text style={[styles.settingsRowText, { color: theme.text }]}>Export account data</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" disabled={!conversationId} onPress={() => void shareDataArchive("conversation")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: conversationId ? 1 : 0.45 }]}>
+            <Pressable accessibilityRole="button" testID="mobile-export-conversation" disabled={!conversationId} onPress={() => void shareDataArchive("conversation")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: conversationId ? 1 : 0.45 }]}>
               <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.text} />
               <Text style={[styles.settingsRowText, { color: theme.text }]}>Export current chat</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => void importConversationArchive()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+            <Pressable accessibilityRole="button" testID="mobile-import-conversations" onPress={() => void importConversationArchive()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
               <Ionicons name="cloud-upload-outline" size={22} color={theme.text} />
               <Text style={[styles.settingsRowText, { color: theme.text }]}>Import conversations</Text>
             </Pressable>
@@ -2237,6 +2240,7 @@ export function MobileChatScreen() {
               You will be signed out immediately. Your account and all chats, uploads, images, and audio will be permanently deleted after 30 days unless you restore it.
             </Text>
             <TextInput
+              testID="mobile-delete-confirmation"
               value={deleteConfirmation}
               onChangeText={setDeleteConfirmation}
               autoCapitalize="characters"
@@ -2245,6 +2249,7 @@ export function MobileChatScreen() {
               style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
             />
             <TextInput
+              testID="mobile-delete-password"
               value={deletePassword}
               onChangeText={setDeletePassword}
               secureTextEntry
@@ -2257,7 +2262,7 @@ export function MobileChatScreen() {
               <Pressable disabled={deleteAccountBusy} onPress={() => setDeleteAccountVisible(false)} style={[styles.renameSecondaryButton, { borderColor: theme.border }]}>
                 <Text style={{ color: theme.text }}>Cancel</Text>
               </Pressable>
-              <Pressable disabled={deleteAccountBusy || deleteConfirmation !== "DELETE"} onPress={() => void deleteAccount()} style={[styles.renamePrimaryButton, { backgroundColor: theme.danger, opacity: deleteConfirmation === "DELETE" ? 1 : 0.45 }]}>
+              <Pressable testID="mobile-delete-confirm" disabled={deleteAccountBusy || deleteConfirmation !== "DELETE"} onPress={() => void deleteAccount()} style={[styles.renamePrimaryButton, { backgroundColor: theme.danger, opacity: deleteConfirmation === "DELETE" ? 1 : 0.45 }]}>
                 <Text style={{ color: "#fff", fontWeight: "800" }}>{deleteAccountBusy ? "Scheduling..." : "Delete account"}</Text>
               </Pressable>
             </View>

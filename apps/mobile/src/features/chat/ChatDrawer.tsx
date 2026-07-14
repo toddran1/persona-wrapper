@@ -91,12 +91,13 @@ export function ChatDrawer({
           <Text style={[styles.brand, { color: theme.text }]} numberOfLines={1}>For the Baddiez</Text>
         </View>
         <View style={authUser ? [styles.accountPill, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.075)" }] : undefined}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Search chats" onPress={openSearch} style={styles.pillIconButton}>
+          <Pressable accessibilityRole="button" testID="mobile-open-chat-search" accessibilityLabel="Search chats" onPress={openSearch} style={styles.pillIconButton}>
             <Ionicons name="search" size={21} color={theme.text} />
           </Pressable>
           {authUser ? (
             <Pressable
               accessibilityRole="button"
+              testID="mobile-open-settings"
               accessibilityLabel="Open settings"
               onPress={onShowSettings}
               style={[styles.accountAvatar, { backgroundColor: theme.accent }]}
@@ -112,6 +113,7 @@ export function ChatDrawer({
           <Ionicons name="search" size={20} color={theme.muted} />
           <TextInput
             ref={searchInputRef}
+            testID="mobile-chat-search-input"
             accessibilityLabel="Search chats"
             autoCapitalize="none"
             autoCorrect={false}
@@ -142,7 +144,7 @@ export function ChatDrawer({
         </Pressable>
       ) : null}
 
-      <Pressable accessibilityRole="button" onPress={onNewChat} style={[styles.newChat, { backgroundColor: theme.text }]}>
+      <Pressable accessibilityRole="button" testID="mobile-new-chat" onPress={onNewChat} style={[styles.newChat, { backgroundColor: theme.text }]}>
         <Ionicons name="create-outline" size={18} color={theme.background} />
         <Text style={[styles.newChatText, { color: theme.background }]}>New chat</Text>
       </Pressable>
