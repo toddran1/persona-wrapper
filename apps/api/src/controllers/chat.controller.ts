@@ -155,10 +155,15 @@ export async function postChatStream(request: Request, response: Response): Prom
 }
 
 export async function listConversations(request: Request, response: Response): Promise<void> {
+  const query = typeof request.query.query === "string" ? request.query.query.trim() : undefined;
+  if (query && query.length > 120) {
+    throw new HttpError("Conversation search must be 120 characters or fewer.", 400);
+  }
   const page = await conversationStore.listPage(
     requestIdentity(request),
     boundedPageLimit(request.query.limit),
-    typeof request.query.cursor === "string" ? request.query.cursor : undefined
+    typeof request.query.cursor === "string" ? request.query.cursor : undefined,
+    query || undefined
   );
   response.status(200).json(page);
 }

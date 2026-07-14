@@ -1,4 +1,5 @@
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ImageStyle, type TextStyle, type ViewStyle } from "react-native";
+import { useRef, useState } from "react";
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type ImageStyle, type TextInput as TextInputType, type TextStyle, type ViewStyle } from "react-native";
 import type { AuthUser, ConversationSummary, PersonaSummary } from "@persona/shared";
 import { Ionicons } from "@expo/vector-icons";
 import type { MobileTheme } from "../../theme/personaTheme";
@@ -17,11 +18,14 @@ type ChatDrawerProps = {
   bottomInset: number;
   loading: boolean;
   refreshing: boolean;
+  searchQuery: string;
+  searching: boolean;
   onClose: () => void;
   onNewChat: () => void;
   onSelectConversation: (conversationId: string) => void;
   onShowConversationActions: (conversation: ConversationSummary) => void;
   onRefreshConversations: () => void;
+  onSearchQueryChange: (query: string) => void;
   onLoadMoreConversations: () => void;
   hasMoreConversations: boolean;
   onSelectPersona: (personaId: string) => void;
@@ -40,11 +44,14 @@ export function ChatDrawer({
   bottomInset,
   loading,
   refreshing,
+  searchQuery,
+  searching,
   onClose,
   onNewChat,
   onSelectConversation,
   onShowConversationActions,
   onRefreshConversations,
+  onSearchQueryChange,
   onLoadMoreConversations,
   hasMoreConversations,
   onSelectPersona,
@@ -52,6 +59,18 @@ export function ChatDrawer({
   onShowSettings
 }: ChatDrawerProps) {
   const accountInitial = (authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? authUser?.email?.[0] ?? "P").toUpperCase();
+  const [searchVisible, setSearchVisible] = useState(false);
+  const searchInputRef = useRef<TextInputType>(null);
+
+  function openSearch(): void {
+    setSearchVisible(true);
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  }
+
+  function closeSearch(): void {
+    setSearchVisible(false);
+    onSearchQueryChange("");
+  }
 
   return (
     <View
@@ -72,7 +91,7 @@ export function ChatDrawer({
           <Text style={[styles.brand, { color: theme.text }]} numberOfLines={1}>For the Baddiez</Text>
         </View>
         <View style={authUser ? [styles.accountPill, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.075)" }] : undefined}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Search chats" style={styles.pillIconButton}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Search chats" onPress={openSearch} style={styles.pillIconButton}>
             <Ionicons name="search" size={21} color={theme.text} />
           </Pressable>
           {authUser ? (
@@ -87,6 +106,29 @@ export function ChatDrawer({
           ) : null}
         </View>
       </View>
+
+      {searchVisible ? (
+        <View style={[styles.searchShell, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.065)" }]}>
+          <Ionicons name="search" size={20} color={theme.muted} />
+          <TextInput
+            ref={searchInputRef}
+            accessibilityLabel="Search chats"
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+            placeholder="Search chats"
+            placeholderTextColor={theme.muted}
+            returnKeyType="search"
+            value={searchQuery}
+            onChangeText={onSearchQueryChange}
+            style={[styles.searchInput, { color: theme.text }]}
+          />
+          {searching ? <Ionicons name="ellipsis-horizontal" size={20} color={theme.accent2} /> : null}
+          <Pressable accessibilityRole="button" accessibilityLabel="Close chat search" onPress={closeSearch} hitSlop={8}>
+            <Ionicons name="close" size={20} color={theme.text} />
+          </Pressable>
+        </View>
+      ) : null}
 
       {!authUser ? (
         <Pressable
@@ -131,8 +173,8 @@ export function ChatDrawer({
       </View>
 
       <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionLabel, { color: theme.accent2 }]}>Chats</Text>
-        <Text style={[styles.subtle, { color: theme.muted }]}>{loading ? "Loading" : `${conversations.length}`}</Text>
+        <Text style={[styles.sectionLabel, { color: theme.accent2 }]}>{searchVisible && searchQuery.trim() ? "Search results" : "Chats"}</Text>
+        <Text style={[styles.subtle, { color: theme.muted }]}>{loading || searching ? "Loading" : `${conversations.length}`}</Text>
       </View>
       <ScrollView
         style={styles.conversationScroller}
@@ -147,7 +189,7 @@ export function ChatDrawer({
         }
       >
         {conversations.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.muted }]}>No chats yet. Start with the persona that fits your style.</Text>
+          <Text style={[styles.empty, { color: theme.muted }]}>{searchVisible && searchQuery.trim() ? "No chats match that search." : "No chats yet. Start with the persona that fits your style."}</Text>
         ) : conversations.map((conversation) => {
           const selected = conversation.id === activeConversationId;
           return (
@@ -218,6 +260,8 @@ type DrawerStyles = {
   personaChipText: TextStyle;
   personaRow: ViewStyle;
   rail: ViewStyle;
+  searchInput: TextStyle;
+  searchShell: ViewStyle;
   section: ViewStyle;
   sectionHeader: ViewStyle;
   sectionLabel: TextStyle;
@@ -376,6 +420,23 @@ const styles = StyleSheet.create<DrawerStyles>({
     right: 0,
     top: 0,
     width: 3
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    minHeight: 42,
+    paddingVertical: 0
+  },
+  searchShell: {
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    marginHorizontal: 14,
+    marginTop: 4,
+    minHeight: 46,
+    paddingHorizontal: 12
   },
   section: {
     gap: 10,

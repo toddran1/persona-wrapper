@@ -13,7 +13,7 @@ import {
   type PortableConversation
 } from "@persona/shared";
 import { z } from "zod";
-import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { conversations, messages as dbMessages } from "../db/schema.js";
@@ -202,12 +202,16 @@ export class ConversationStore {
     this.conversations.delete(conversationId);
   }
 
-  async list(userId?: string, limit = 100, offset = 0): Promise<ConversationSummary[]> {
+  async list(userId?: string, limit = 100, offset = 0, query?: string): Promise<ConversationSummary[]> {
     const boundedLimit = Math.max(1, Math.min(limit, 10000));
+    const normalizedQuery = query?.trim().toLocaleLowerCase();
     const db = getDatabase();
     if (db) {
       const rows = await db.query.conversations.findMany({
-        where: userId ? eq(conversations.userId, userId) : isNull(conversations.userId),
+        where: and(
+          userId ? eq(conversations.userId, userId) : isNull(conversations.userId),
+          normalizedQuery ? ilike(conversations.title, `%${escapeLikePattern(normalizedQuery)}%`) : undefined
+        ),
         orderBy: desc(conversations.updatedAt),
         limit: boundedLimit,
         offset: Math.max(0, offset)
@@ -232,6 +236,7 @@ export class ConversationStore {
 
     return [...this.conversations.values()]
       .filter((conversation) => userId ? conversation.userId === userId : !conversation.userId)
+      .filter((conversation) => !normalizedQuery || (conversation.title ?? titleFromMessages(conversation.messages) ?? "New conversation").toLocaleLowerCase().includes(normalizedQuery))
       .sort((left, right) => {
         const pinnedDelta = Number(isPinned(right.metadata)) - Number(isPinned(left.metadata));
         if (pinnedDelta !== 0) return pinnedDelta;
@@ -249,10 +254,10 @@ export class ConversationStore {
       }));
   }
 
-  async listPage(userId?: string, limit = 50, cursor?: string): Promise<ConversationListPage> {
+  async listPage(userId?: string, limit = 50, cursor?: string, query?: string): Promise<ConversationListPage> {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
     const offset = parseCursor(cursor);
-    const rows = await this.list(userId, boundedLimit + 1, offset);
+    const rows = await this.list(userId, boundedLimit + 1, offset, query);
     const hasMore = rows.length > boundedLimit;
     return {
       conversations: rows.slice(0, boundedLimit),
@@ -901,6 +906,10 @@ function parseCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
   const value = Number(cursor);
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function parseSequenceCursor(cursor: string): number {

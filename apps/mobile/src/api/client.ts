@@ -370,8 +370,8 @@ export const api = {
       method: "GET",
       ...(signal ? { signal } : {})
     }),
-  listConversationsPage: (cursor?: string, limit = 50): Promise<ConversationListPage> =>
-    requestJson<ConversationListPage>(`/api/chat/conversations?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`),
+  listConversationsPage: (cursor?: string, limit = 50, query?: string): Promise<ConversationListPage> =>
+    requestJson<ConversationListPage>(`/api/chat/conversations?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}${query?.trim() ? `&query=${encodeURIComponent(query.trim())}` : ""}`),
   listConversations: async (): Promise<ConversationSummary[]> =>
     (await api.listConversationsPage()).conversations,
   getConversationTurnsPage: (conversationId: string, cursor?: string, limit = 40): Promise<ConversationTurnsPage> =>

@@ -277,6 +277,21 @@ describe("ConversationStore prompt context", () => {
     expect(new Set([...first.conversations, ...second.conversations].map((item) => item.id)).size).toBe(4);
   });
 
+  it("searches conversation titles with filtered pagination", async () => {
+    const store = new ConversationStore();
+    await store.getOrCreate("search-1", [], { titleSeed: "Dallas summer league recap" });
+    await store.getOrCreate("search-2", [], { titleSeed: "Recipe ideas" });
+    await store.getOrCreate("search-3", [], { titleSeed: "Dallas restaurants" });
+
+    const first = await store.listPage(undefined, 1, undefined, "DALLAS");
+    const second = await store.listPage(undefined, 1, first.nextCursor ?? undefined, "dallas");
+
+    expect(first.conversations).toHaveLength(1);
+    expect(second.conversations).toHaveLength(1);
+    expect([...first.conversations, ...second.conversations].every((conversation) => conversation.title.toLowerCase().includes("dallas"))).toBe(true);
+    expect(new Set([...first.conversations, ...second.conversations].map((conversation) => conversation.id)).size).toBe(2);
+  });
+
   it("loads newest turns first and pages backward through long histories", async () => {
     const store = new ConversationStore();
     let conversation = await store.getOrCreate("turn-page-test");

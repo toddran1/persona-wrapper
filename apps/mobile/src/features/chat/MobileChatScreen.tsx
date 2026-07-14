@@ -136,6 +136,10 @@ export function MobileChatScreen() {
   const [turns, setTurns] = useState<RenderedTurn[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationsCursor, setConversationsCursor] = useState<string | null>(null);
+  const [conversationSearchQuery, setConversationSearchQuery] = useState("");
+  const [conversationSearchResults, setConversationSearchResults] = useState<ConversationSummary[]>([]);
+  const [conversationSearchCursor, setConversationSearchCursor] = useState<string | null>(null);
+  const [conversationSearching, setConversationSearching] = useState(false);
   const [turnsCursor, setTurnsCursor] = useState<string | null>(null);
   const [loadingEarlierTurns, setLoadingEarlierTurns] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -177,6 +181,8 @@ export function MobileChatScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const visualStateTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scrollButtonTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const conversationSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const conversationSearchGenerationRef = useRef(0);
   const nearConversationBottomRef = useRef(true);
   const currentComposerDraftRef = useRef("");
   const speechBaseDraftRef = useRef("");
@@ -207,6 +213,7 @@ export function MobileChatScreen() {
       activeChatAbortControllerRef.current?.abort();
       activeChatAbortControllerRef.current = undefined;
       clearScrollButtonTimer();
+      clearConversationSearchTimer();
       speechSubscriptionsRef.current.forEach((subscription) => subscription.remove());
       speechSubscriptionsRef.current = [];
     };
@@ -222,6 +229,12 @@ export function MobileChatScreen() {
     if (!scrollButtonTimerRef.current) return;
     clearTimeout(scrollButtonTimerRef.current);
     scrollButtonTimerRef.current = undefined;
+  }
+
+  function clearConversationSearchTimer(): void {
+    if (!conversationSearchTimerRef.current) return;
+    clearTimeout(conversationSearchTimerRef.current);
+    conversationSearchTimerRef.current = undefined;
   }
 
   function scheduleScrollButtonHide(): void {
@@ -385,6 +398,81 @@ export function MobileChatScreen() {
       setError(loadError instanceof Error ? loadError.message : "Could not load more chats.");
     } finally {
       setConversationsRefreshing(false);
+    }
+  }
+
+  function updateConversationSearch(query: string): void {
+    setConversationSearchQuery(query);
+    clearConversationSearchTimer();
+    const generation = ++conversationSearchGenerationRef.current;
+    const normalizedQuery = query.trim();
+
+    if (!normalizedQuery) {
+      setConversationSearchResults([]);
+      setConversationSearchCursor(null);
+      setConversationSearching(false);
+      return;
+    }
+
+    setConversationSearching(true);
+    conversationSearchTimerRef.current = setTimeout(() => {
+      conversationSearchTimerRef.current = undefined;
+      void (async () => {
+        try {
+          const page = await api.listConversationsPage(undefined, 50, normalizedQuery);
+          if (generation !== conversationSearchGenerationRef.current) return;
+          setConversationSearchResults(page.conversations);
+          setConversationSearchCursor(page.nextCursor);
+        } catch (searchError) {
+          if (generation !== conversationSearchGenerationRef.current) return;
+          setConversationSearchResults([]);
+          setConversationSearchCursor(null);
+          setError(searchError instanceof Error ? searchError.message : "Could not search chats.");
+        } finally {
+          if (generation === conversationSearchGenerationRef.current) setConversationSearching(false);
+        }
+      })();
+    }, 220);
+  }
+
+  async function loadMoreConversationSearchResults(): Promise<void> {
+    const normalizedQuery = conversationSearchQuery.trim();
+    if (!normalizedQuery || !conversationSearchCursor || conversationSearching) return;
+    const generation = conversationSearchGenerationRef.current;
+    setConversationSearching(true);
+    try {
+      const page = await api.listConversationsPage(conversationSearchCursor, 50, normalizedQuery);
+      if (generation !== conversationSearchGenerationRef.current) return;
+      setConversationSearchResults((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
+      setConversationSearchCursor(page.nextCursor);
+    } catch (searchError) {
+      if (generation === conversationSearchGenerationRef.current) {
+        setError(searchError instanceof Error ? searchError.message : "Could not load more matching chats.");
+      }
+    } finally {
+      if (generation === conversationSearchGenerationRef.current) setConversationSearching(false);
+    }
+  }
+
+  async function refreshConversationSearchResults(): Promise<void> {
+    const normalizedQuery = conversationSearchQuery.trim();
+    if (!normalizedQuery) {
+      await refreshConversationsFromDrawer();
+      return;
+    }
+    const generation = ++conversationSearchGenerationRef.current;
+    setConversationSearching(true);
+    try {
+      const page = await api.listConversationsPage(undefined, 50, normalizedQuery);
+      if (generation !== conversationSearchGenerationRef.current) return;
+      setConversationSearchResults(page.conversations);
+      setConversationSearchCursor(page.nextCursor);
+    } catch (searchError) {
+      if (generation === conversationSearchGenerationRef.current) {
+        setError(searchError instanceof Error ? searchError.message : "Could not refresh matching chats.");
+      }
+    } finally {
+      if (generation === conversationSearchGenerationRef.current) setConversationSearching(false);
     }
   }
 
@@ -1463,6 +1551,9 @@ export function MobileChatScreen() {
   }
 
   const suggestedPrompts = activePersona?.suggestedPrompts ?? [];
+  const hasConversationSearch = conversationSearchQuery.trim().length > 0;
+  const drawerConversations = hasConversationSearch ? conversationSearchResults : conversations;
+  const drawerHasMoreConversations = hasConversationSearch ? Boolean(conversationSearchCursor) : Boolean(conversationsCursor);
   const visualStateLabel = personaVisualState[0]?.toUpperCase() + personaVisualState.slice(1);
   const assistantActionAudio = assistantActionTurn?.outputs.find(
     (output): output is Extract<RenderedTurn["outputs"][number], { type: "audio" }> => output.type === "audio"
@@ -1762,7 +1853,7 @@ export function MobileChatScreen() {
         <Animated.View style={[styles.drawerWrap, { width: drawerWidth }, drawerStyle]}>
           <ChatDrawer
             authUser={authUser}
-            conversations={conversations}
+            conversations={drawerConversations}
             activeConversationId={conversationId}
             personas={personas}
             activePersona={activePersona}
@@ -1770,14 +1861,17 @@ export function MobileChatScreen() {
             topInset={insets.top}
             bottomInset={insets.bottom}
             loading={loading}
-            refreshing={conversationsRefreshing}
+            refreshing={hasConversationSearch ? conversationSearching : conversationsRefreshing}
+            searchQuery={conversationSearchQuery}
+            searching={conversationSearching}
             onClose={closeDrawer}
             onNewChat={newChat}
             onSelectConversation={(id) => void selectConversation(id)}
             onShowConversationActions={showConversationActions}
-            onRefreshConversations={() => void refreshConversationsFromDrawer()}
-            onLoadMoreConversations={() => void loadMoreConversations()}
-            hasMoreConversations={Boolean(conversationsCursor)}
+            onRefreshConversations={() => void refreshConversationSearchResults()}
+            onSearchQueryChange={updateConversationSearch}
+            onLoadMoreConversations={() => void (hasConversationSearch ? loadMoreConversationSearchResults() : loadMoreConversations())}
+            hasMoreConversations={drawerHasMoreConversations}
             onSelectPersona={(id) => void selectPersona(id)}
             onShowLogin={() => undefined}
             onShowSettings={() => setSettingsVisible(true)}
