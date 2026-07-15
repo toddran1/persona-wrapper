@@ -40,6 +40,8 @@ services:
         value: https://for-the-baddiez-web-dev.onrender.com
       - key: CORS_ALLOWED_ORIGINS
         value: https://for-the-baddiez-web-dev.onrender.com
+      - key: OBSERVABILITY_DASHBOARD_TOKEN
+        sync: false
       - key: OAUTH_REDIRECT_BASE_URL
         value: https://for-the-baddiez-api-dev.onrender.com
       - key: IOS_OAUTH_REDIRECT_URL
@@ -132,6 +134,10 @@ services:
         value: support@forthebaddiez.com
       - key: VITE_TEST_MODE
         value: "false"
+      - key: VITE_TELEMETRY_ENABLED
+        value: "true"
+      - key: VITE_TELEMETRY_SAMPLE_RATE
+        value: "0.25"
     headers:
       - path: /*
         name: X-Content-Type-Options

@@ -12,6 +12,7 @@ import { chatRouter } from "./routes/chat.routes.js";
 import { personaRouter } from "./routes/persona.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
 import { dataTransferRouter } from "./routes/dataTransfer.routes.js";
+import { observabilityRouter } from "./routes/observability.routes.js";
 import { getGeneratedAudio } from "./controllers/generatedAudio.controller.js";
 import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
@@ -19,6 +20,7 @@ import { env } from "./config/env.js";
 import { storageService } from "./services/storageService.js";
 import { HttpError } from "./utils/httpError.js";
 import { logger } from "./utils/logger.js";
+import { recordMetric, traceIdFromRequest, withObservabilityContext } from "./utils/observability.js";
 
 function findRepoRoot(startDir: string): string {
   let current = startDir;
@@ -161,7 +163,10 @@ export function createApp() {
       ? suppliedRequestId
       : randomUUID();
     response.locals.requestId = requestId;
+    const traceId = traceIdFromRequest(request.header("x-client-trace-id"));
+    const startedAt = performance.now();
     response.setHeader("X-Request-Id", requestId);
+    response.setHeader("X-Trace-Id", traceId);
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("X-Frame-Options", "DENY");
     response.setHeader("Referrer-Policy", "no-referrer");
@@ -170,7 +175,27 @@ export function createApp() {
     if (env.NODE_ENV === "production") {
       response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     }
-    next();
+    response.once("finish", () => {
+      const durationMs = performance.now() - startedAt;
+      const route = request.route?.path ? `${request.baseUrl}${request.route.path}` : request.path;
+      const outcome = response.statusCode >= 500 ? "failure" : "success";
+      recordMetric("http.server.request", {
+        durationMs,
+        outcome,
+        attributes: { method: request.method, route, status: response.statusCode }
+      });
+      if (response.statusCode >= 500 || durationMs >= 5000) {
+        logger[response.statusCode >= 500 ? "error" : "warn"]("API request completed", {
+          requestId,
+          traceId,
+          method: request.method,
+          route,
+          status: response.statusCode,
+          durationMs: Math.round(durationMs)
+        });
+      }
+    });
+    withObservabilityContext({ requestId, traceId }, next);
   });
   app.use(cors(corsOptions));
   app.options("*", cors(corsOptions));
@@ -200,6 +225,7 @@ export function createApp() {
   });
 
   app.use("/api/auth", authRouter);
+  app.use("/api/observability", observabilityRouter);
   app.use("/api/chat", chatRouter);
   app.use("/api/personas", personaRouter);
   app.use("/api/uploads", uploadRouter);

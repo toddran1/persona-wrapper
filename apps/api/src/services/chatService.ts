@@ -11,6 +11,7 @@ import { PersonaEngine } from "./personaEngine.js";
 import { ResponseFormatter, type TTSDiagnostic } from "./responseFormatter.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
+import { measureOperation } from "../utils/observability.js";
 import { generatedMediaService } from "./generatedMediaService.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
 import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
@@ -259,11 +260,15 @@ export class ChatService {
     }
     let llmOutput;
     try {
-      llmOutput = llmOutputSchema.parse(
-        streamCallbacks && llmProvider.generateResponseStream
-          ? await llmProvider.generateResponseStream(llmInput, streamCallbacks, signal, progressCallbacks)
-          : await llmProvider.generateResponse(llmInput, signal, progressCallbacks)
-      );
+      llmOutput = llmOutputSchema.parse(await measureOperation("provider.llm", {
+        provider: request.provider,
+        mode: streamCallbacks && llmProvider.generateResponseStream ? "stream" : "standard",
+        imageGeneration: Boolean(llmInput.toolOptions?.imageGeneration),
+        codeInterpreter: Boolean(llmInput.toolOptions?.codeInterpreter),
+        webSearch: Boolean(llmInput.toolOptions?.webSearch)
+      }, () => streamCallbacks && llmProvider.generateResponseStream
+        ? llmProvider.generateResponseStream(llmInput, streamCallbacks, signal, progressCallbacks)
+        : llmProvider.generateResponse(llmInput, signal, progressCallbacks)));
     } catch (error) {
       logger.llmTurn({
         conversationId: conversation.id,
@@ -350,7 +355,9 @@ export class ChatService {
     };
     const styleTransferOutput = useStyleTransfer
       ? neutralText.trim()
-        ? await createStyleTransferProvider().transferStyle(styleTransferInput, signal)
+        ? await measureOperation("provider.style_transfer", { provider: request.provider }, () =>
+          createStyleTransferProvider().transferStyle(styleTransferInput, signal)
+        )
         : {
             provider: "stub_style_transfer" as const,
             styledText: "",
@@ -464,12 +471,12 @@ export class ChatService {
               scriptMode: ttsScriptMode
             };
             const ttsProvider = createTTSProvider(request.provider);
-            ttsOutput = await ttsProvider.synthesize({
+            ttsOutput = await measureOperation("provider.tts", { provider: request.provider }, () => ttsProvider.synthesize({
               text: ttsScript,
               persona,
               ...(options.ownerId ? { ownerId: options.ownerId } : {}),
               conversationId: conversation.id
-            });
+            }));
             ttsDiagnostic = {
               status: "generated",
               provider: ttsOutput.provider,

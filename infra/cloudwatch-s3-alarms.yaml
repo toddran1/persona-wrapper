@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudWatch alarms for the existing For the Baddiez S3 media bucket.
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: Existing S3 media bucket name, for example forthebaddiez-media.
+  RequestMetricsFilterId:
+    Type: String
+    Default: EntireBucket
+    Description: S3 request metrics configuration filter id. Create this configuration on the bucket first.
+  AlarmTopicArn:
+    Type: String
+    Default: ""
+    Description: Optional SNS topic ARN for alarm notifications.
+  ErrorThreshold:
+    Type: Number
+    Default: 5
+
+Conditions:
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, ""]]
+
+Resources:
+  S3ServerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${BucketName}-s3-5xx-errors"
+      AlarmDescription: S3 server-side errors in the configured media bucket.
+      Namespace: AWS/S3
+      MetricName: 5xxErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: !Ref ErrorThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: BucketName
+          Value: !Ref BucketName
+        - Name: FilterId
+          Value: !Ref RequestMetricsFilterId
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+  S3ClientErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${BucketName}-s3-4xx-errors"
+      AlarmDescription: Elevated S3 client errors, commonly credential, policy, or bad-key regressions.
+      Namespace: AWS/S3
+      MetricName: 4xxErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: !Ref ErrorThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: BucketName
+          Value: !Ref BucketName
+        - Name: FilterId
+          Value: !Ref RequestMetricsFilterId
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref AWS::NoValue]
+
+Outputs:
+  ServerErrorAlarm:
+    Value: !Ref S3ServerErrorAlarm
+  ClientErrorAlarm:
+    Value: !Ref S3ClientErrorAlarm

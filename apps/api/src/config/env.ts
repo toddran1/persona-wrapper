@@ -39,6 +39,7 @@ const envSchema = z.object({
   API_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   APP_TEST_MODE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   CORS_ALLOWED_ORIGINS: z.preprocess(emptyStringToUndefined, z.string().optional()),
+  OBSERVABILITY_DASHBOARD_TOKEN: z.preprocess(optionalTrimmedString, z.string().min(24).optional()),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_RUN_INTEGRATION_TESTS: z.preprocess(stringToBoolean, z.boolean().default(false)),
   OPENAI_MODEL: z.string().default("gpt-5.6-luna"),

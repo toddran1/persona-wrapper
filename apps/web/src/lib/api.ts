@@ -24,6 +24,7 @@ import type {
   ToolOptions,
   UploadedAsset
 } from "@persona/shared";
+import { logClientEvent, newClientTraceId } from "./telemetry.js";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
 const configuredApiBaseUrl = typeof import.meta.env.VITE_API_URL === "string" ? import.meta.env.VITE_API_URL.trim() : "";
@@ -210,6 +211,7 @@ async function parseApiError(response: Response): Promise<string> {
 function requestHeaders(includeJson: boolean, headers?: HeadersInit): HeadersInit {
   const next: Record<string, string> = {};
   if (includeJson) next["Content-Type"] = "application/json";
+  next["x-client-trace-id"] = newClientTraceId();
   const token = authTokens()?.accessToken;
   if (token) {
     next.Authorization = `Bearer ${token}`;
@@ -266,12 +268,15 @@ async function refreshStoredAuth(): Promise<boolean> {
 async function requestJson<T>(path: string, init?: RequestInit, options?: { skipAuthRefresh?: boolean }): Promise<T> {
   const { headers, ...rest } = init ?? {};
   let response: Response;
+  const startedAt = performance.now();
+  const traceId = newClientTraceId();
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...rest,
-      headers: requestHeaders(true, headers)
+      headers: requestHeaders(true, { ...(headers ?? {}), "x-client-trace-id": traceId })
     });
   } catch (error) {
+    logClientEvent("client_api_request", { level: "error", error, message: `Network request failed: ${path}`, durationMs: performance.now() - startedAt, traceId });
     throw new Error("Could not connect to the app server. Make sure the API is running.");
   }
 
@@ -279,8 +284,10 @@ async function requestJson<T>(path: string, init?: RequestInit, options?: { skip
     return requestJson<T>(path, init, { skipAuthRefresh: true });
   }
   if (!response.ok) {
+    logClientEvent("client_api_request", { level: "error", message: `API request failed: ${path}`, durationMs: performance.now() - startedAt, status: response.status, traceId });
     throw new Error(await parseApiError(response));
   }
+  logClientEvent("client_api_request", { message: `API request completed: ${path}`, durationMs: performance.now() - startedAt, status: response.status, traceId });
 
   try {
     return await response.json() as T;

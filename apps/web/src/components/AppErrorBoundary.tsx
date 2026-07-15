@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { logClientEvent } from "../lib/telemetry.js";
 
 type AppErrorBoundaryProps = {
   children: ReactNode;
@@ -17,7 +18,11 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error("Web application render failed", { error, componentStack: info.componentStack });
+    logClientEvent("client_render_error", {
+      level: "error",
+      error,
+      message: `${error.message} (${info.componentStack?.slice(0, 250) ?? "no component stack"})`
+    });
   }
 
   private retry = (): void => {

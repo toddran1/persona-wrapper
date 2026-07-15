@@ -3,15 +3,10 @@ import ReactDOM from "react-dom/client";
 import { App } from "./App.js";
 import { AppErrorBoundary } from "./components/AppErrorBoundary.js";
 import { PublicLegalPage, PUBLIC_PAGE_PATHS } from "./components/PublicLegalPage.js";
+import { installClientCrashReporting } from "./lib/telemetry.js";
 import "./styles.css";
 
-window.addEventListener("error", (event) => {
-  console.error("Unhandled web error", event.error ?? event.message);
-});
-
-window.addEventListener("unhandledrejection", (event) => {
-  console.error("Unhandled web promise rejection", event.reason);
-});
+installClientCrashReporting();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

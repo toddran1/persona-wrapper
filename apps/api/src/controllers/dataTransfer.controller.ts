@@ -5,6 +5,7 @@ import { ConversationStore } from "../services/conversationStore.js";
 import { DataTransferService } from "../services/dataTransferService.js";
 import { HttpError } from "../utils/httpError.js";
 import { contentDisposition } from "../utils/httpHeaders.js";
+import { measureOperation } from "../utils/observability.js";
 
 const dataTransferService = new DataTransferService(new ConversationStore());
 const selectedConversationExportSchema = z.object({
@@ -23,18 +24,25 @@ function sendArchive(response: Response, archive: unknown, fileName: string): vo
 }
 
 export async function getAccountDataExport(request: Request, response: Response): Promise<void> {
-  const archive = await dataTransferService.exportAccount(authenticatedUserId(request));
+  const archive = await measureOperation("data_transfer.export", { scope: "account" }, () =>
+    dataTransferService.exportAccount(authenticatedUserId(request))
+  );
   sendArchive(response, archive, `for-the-baddiez-account-export-${new Date().toISOString().slice(0, 10)}.json`);
 }
 
 export async function postConversationDataExport(request: Request, response: Response): Promise<void> {
   const payload = selectedConversationExportSchema.parse(request.body);
-  const archive = await dataTransferService.exportConversations(authenticatedUserId(request), payload.conversationIds);
+  const archive = await measureOperation("data_transfer.export", {
+    scope: "conversations",
+    conversationCount: payload.conversationIds.length
+  }, () => dataTransferService.exportConversations(authenticatedUserId(request), payload.conversationIds));
   sendArchive(response, archive, `for-the-baddiez-conversations-${new Date().toISOString().slice(0, 10)}.json`);
 }
 
 export async function postDataImport(request: Request, response: Response): Promise<void> {
   const payload = dataImportRequestSchema.parse(request.body);
-  const result = await dataTransferService.importArchive(authenticatedUserId(request), payload.archive);
+  const result = await measureOperation("data_transfer.import", {}, () =>
+    dataTransferService.importArchive(authenticatedUserId(request), payload.archive)
+  );
   response.status(201).json(result);
 }
