@@ -1,0 +1,160 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+
+# Hosted development environment. Local development continues to use the
+# existing local .env files and Docker Postgres configuration. Production
+# resources can be added later with distinct -prod names and credentials.
+services:
+  - type: web
+    runtime: node
+    name: for-the-baddiez-api-dev
+    region: ohio
+    plan: starter
+    autoDeployTrigger: commit
+    buildCommand: npm ci && npm run build -w @persona/shared && npm run build -w @persona/api
+    preDeployCommand: npm run db:migrate -w @persona/api
+    startCommand: npm run start -w @persona/api
+    healthCheckPath: /health
+    maxShutdownDelaySeconds: 30
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/shared/**
+        - package.json
+        - package-lock.json
+        - render.yaml
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: NODE_ENV
+        value: production
+      - key: APP_TEST_MODE
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: for-the-baddiez-db-dev
+          property: connectionString
+
+      # These URLs depend on the stable service names in this file.
+      # Update all four if Render assigns a different subdomain.
+      - key: WEB_APP_URL
+        value: https://for-the-baddiez-web-dev.onrender.com
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://for-the-baddiez-web-dev.onrender.com
+      - key: OAUTH_REDIRECT_BASE_URL
+        value: https://for-the-baddiez-api-dev.onrender.com
+      - key: IOS_OAUTH_REDIRECT_URL
+        value: personawrapper://auth/callback
+      - key: ANDROID_OAUTH_REDIRECT_URL
+        value: personawrapper://auth/callback
+
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: AUTH_REQUIRE_OWNED_MEDIA_ACCESS
+        value: "true"
+      - key: AUTH_ACCESS_TOKEN_TTL_MINUTES
+        value: "15"
+      - key: AUTH_REFRESH_TOKEN_TTL_DAYS
+        value: "30"
+      - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS
+        value: "30"
+
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.6-luna
+      - key: OPENAI_TOOL_ROUTER_MODEL
+        value: gpt-5.6-luna
+      - key: OPENAI_IMAGE_MODEL
+        value: gpt-image-2
+      - key: OPENAI_ENABLE_WEB_SEARCH
+        value: "true"
+      - key: OPENAI_ENABLE_FILE_SEARCH
+        value: "true"
+      - key: OPENAI_ENABLE_CODE_INTERPRETER
+        value: "true"
+      - key: OPENAI_ENABLE_IMAGE_GENERATION
+        value: "true"
+      - key: OPENAI_DIRECT_IMAGE_API_ENABLED
+        value: "true"
+
+      - key: TTS_PROVIDER
+        value: elevenlabs
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+      - key: ELEVENLABS_VOICE_ID_LARAE
+        sync: false
+
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: FACEBOOK_OAUTH_CLIENT_ID
+        sync: false
+      - key: FACEBOOK_OAUTH_CLIENT_SECRET
+        sync: false
+
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: STORAGE_S3_BUCKET
+        sync: false
+      - key: STORAGE_S3_REGION
+        sync: false
+      - key: STORAGE_S3_PREFIX
+        value: development
+      - key: STORAGE_S3_FORCE_PATH_STYLE
+        value: "false"
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+
+  - type: web
+    runtime: static
+    name: for-the-baddiez-web-dev
+    autoDeployTrigger: commit
+    buildCommand: npm ci && npm run build -w @persona/shared && npm run build -w @persona/web
+    staticPublishPath: ./apps/web/dist
+    buildFilter:
+      paths:
+        - apps/web/**
+        - packages/shared/**
+        - package.json
+        - package-lock.json
+        - render.yaml
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: VITE_API_URL
+        value: https://for-the-baddiez-api-dev.onrender.com
+      - key: VITE_SUPPORT_EMAIL
+        value: support@forthebaddiez.com
+      - key: VITE_TEST_MODE
+        value: "false"
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), geolocation=(), payment=()
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+databases:
+  - name: for-the-baddiez-db-dev
+    region: ohio
+    plan: basic-256mb
+    diskSizeGB: 5
+    storageAutoscalingEnabled: false
+    postgresMajorVersion: "17"
+    databaseName: for_the_baddiez_dev
+    user: for_the_baddiez_dev
+    connectionPool: none
+    ipAllowList: []
