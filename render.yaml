@@ -10,7 +10,9 @@ services:
     region: ohio
     plan: starter
     autoDeployTrigger: commit
-    buildCommand: npm ci && npm run build -w @persona/shared && npm run build -w @persona/api
+    # Render runs this service with NODE_ENV=production. Include development
+    # packages for TypeScript compilation without changing the runtime mode.
+    buildCommand: npm ci --include=dev && npm run build -w @persona/shared && npm run build -w @persona/api
     preDeployCommand: npm run db:migrate -w @persona/api
     startCommand: npm run start -w @persona/api
     healthCheckPath: /health
@@ -114,7 +116,7 @@ services:
     runtime: static
     name: for-the-baddiez-web-dev
     autoDeployTrigger: commit
-    buildCommand: npm ci && npm run build -w @persona/shared && npm run build -w @persona/web
+    buildCommand: npm ci --include=dev && npm run build -w @persona/shared && npm run build -w @persona/web
     staticPublishPath: ./apps/web/dist
     buildFilter:
       paths:
