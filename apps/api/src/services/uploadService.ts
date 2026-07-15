@@ -38,10 +38,6 @@ export class UploadService {
   private readonly assets = new Map<string, StoredAsset>();
   private readonly vectorStores = new Map<string, StoredVectorStore>();
 
-  constructor() {
-    void this.cleanupOrphanedDiskFiles();
-  }
-
   async save(ownerId: string, file: Express.Multer.File): Promise<UploadedAsset> {
     await this.cleanupExpired();
     if (!ownerId.trim()) throw new HttpError("An upload owner ID is required.", 400);
@@ -237,7 +233,10 @@ export class UploadService {
   }
 
   async cleanupExpiredNow(): Promise<void> {
-    await this.cleanupExpiredRemote();
+    await Promise.all([
+      this.cleanupExpiredRemote(),
+      this.cleanupOrphanedDiskFiles()
+    ]);
   }
 
   private publicAsset(asset: StoredAsset): UploadedAsset {
