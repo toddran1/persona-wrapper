@@ -6,6 +6,9 @@ import { LocalTTSProvider } from "./LocalTTSProvider.js";
 import { OpenAITTSProvider } from "./OpenAITTSProvider.js";
 
 export function createTTSProvider(providerId: ProviderId): TTSProvider {
+  // Test traffic must never reach a billable speech provider, regardless of a
+  // developer's inherited shell or .env configuration.
+  if (env.APP_TEST_MODE) return new LocalTTSProvider();
   if (env.TTS_PROVIDER === "elevenlabs") return new ElevenLabsTTSProvider();
   if (env.TTS_PROVIDER === "local") return new LocalTTSProvider();
 

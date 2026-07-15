@@ -105,6 +105,18 @@ export const fileOutputSchema = z.object({
   metadata: z.record(z.unknown()).optional()
 });
 
+// File artifacts already provide a download control in the client. Some model
+// responses also add a standalone "download here" sentence that has no link.
+const generatedFileDownloadPromptLine =
+  /^\s*(?:download\s+(?:(?:it|the\s+(?:file|spreadsheet|workbook|report))\s+)?(?:right\s+)?(?:here|below)|(?:click|tap)\s+(?:the\s+)?(?:download\s+)?(?:link|file|button)\s+(?:below|above|here)|(?:the\s+)?(?:download|file)\s+(?:is\s+)?(?:attached|below|above))\s*[:.!]*\s*$/gim;
+
+export function stripGeneratedFileDownloadPrompt(text: string): string {
+  return text
+    .replace(generatedFileDownloadPromptLine, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export const toolCallOutputSchema = z.object({
   type: z.literal("tool_call"),
   toolName: toolNameSchema,

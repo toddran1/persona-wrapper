@@ -21,7 +21,15 @@ const child = spawn(
     env: {
       ...process.env,
       APP_TEST_MODE: testMode ? "true" : "false",
-      VITE_TEST_MODE: testMode ? "true" : "false"
+      VITE_TEST_MODE: testMode ? "true" : "false",
+      ...(testMode
+        ? {
+            TTS_PROVIDER: "local",
+            ELEVENLABS_API_KEY: "",
+            ELEVENLABS_VOICE_ID: "",
+            ELEVENLABS_VOICE_ID_LARAE: ""
+          }
+        : {})
     }
   }
 );

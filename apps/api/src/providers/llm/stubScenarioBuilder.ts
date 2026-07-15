@@ -135,7 +135,17 @@ export function buildStubOutput(input: LLMInput, provider: ProviderId, mode: Stu
   const requested = new Set(input.requestedOutputs ?? []);
   const wantsChart = requested.has("chart") || hasKeyword(lowerMessage, ["chart", "graph", "data", "breakdown", "analytics"]);
   const wantsImage = requested.has("image") || hasKeyword(lowerMessage, ["image", "poster", "cover", "look", "outfit", "photo"]);
-  const wantsFile = requested.has("file") || hasKeyword(lowerMessage, ["file", "csv", "pdf", "download", "script"]);
+  const wantsFile = requested.has("file") || hasKeyword(lowerMessage, [
+    "csv",
+    "pdf",
+    "spreadsheet",
+    "excel",
+    "xlsx",
+    "download",
+    "create a file",
+    "make a file",
+    "generate a file"
+  ]);
   const wantsJson = requested.has("json") || hasKeyword(lowerMessage, ["json", "structured", "payload"]);
   const wantsSearch = hasKeyword(lowerMessage, ["search", "find", "look up", "research", "news", "web"]);
   const wantsAnalysis = hasKeyword(lowerMessage, ["analyze", "analysis", "compare", "numbers"]);

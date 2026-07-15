@@ -3,7 +3,8 @@ import { ActivityIndicator, Alert, Image, Linking, Modal, Pressable, StyleSheet,
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library/legacy";
-import type { ContentBlock } from "@persona/shared";
+import * as Sharing from "expo-sharing";
+import { stripGeneratedFileDownloadPrompt, type ContentBlock } from "@persona/shared";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
@@ -37,17 +38,23 @@ function showOpenError(error: unknown): void {
 }
 
 export function OutputBlocks({ outputs, theme, onAction }: OutputBlocksProps) {
+  const hasFileOutput = outputs.some((output) => output.type === "file");
   const visible = outputs.filter((output) =>
     output.type !== "source_list" &&
     output.type !== "tool_call" &&
     output.type !== "tool_result" &&
-    (output.type !== "text" || output.text.trim().length > 0)
+    (output.type !== "text" || (hasFileOutput ? stripGeneratedFileDownloadPrompt(output.text) : output.text).trim().length > 0)
   );
   if (visible.length === 0) return null;
   return (
     <View style={styles.stack}>
       {visible.map((output, index) => (
-        <OutputBlock key={`${output.type}-${index}`} output={output} theme={theme} onAction={onAction} />
+        <OutputBlock
+          key={`${output.type}-${index}`}
+          output={output.type === "text" && hasFileOutput ? { ...output, text: stripGeneratedFileDownloadPrompt(output.text) } : output}
+          theme={theme}
+          onAction={onAction}
+        />
       ))}
     </View>
   );
@@ -186,11 +193,28 @@ function OutputBlock({
   }
   if (output.type === "file" || output.type === "video") {
     const title = output.type === "file" ? output.fileName : output.title ?? "Video";
+    const openOutput = async (): Promise<void> => {
+      if (output.type !== "file") {
+        await openExternalUrl(api.resolveUrl(output.url));
+        return;
+      }
+
+      if (!FileSystem.cacheDirectory) throw new Error("File downloads are unavailable on this device.");
+      const safeFileName = output.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const destination = `${FileSystem.cacheDirectory}download-${Date.now().toString(36)}-${safeFileName}`;
+      const result = await FileSystem.downloadAsync(api.resolveUrl(output.url), destination, {
+        headers: await api.mediaHeaders()
+      });
+      if (!await Sharing.isAvailableAsync()) {
+        throw new Error("No compatible app is available to save or open this file.");
+      }
+      await Sharing.shareAsync(result.uri, { mimeType: output.mimeType, dialogTitle: `Download ${output.fileName}` });
+    };
     return (
       <Pressable
         style={[styles.linkCard, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.045)" }]}
         onPress={() => {
-          void openExternalUrl(api.resolveUrl(output.url)).catch((openError) => {
+          void openOutput().catch((openError) => {
             Alert.alert("Open failed", openError instanceof Error ? openError.message : "Could not open this file.");
           });
         }}
@@ -198,7 +222,7 @@ function OutputBlock({
         <Ionicons name="document-text-outline" size={22} color={theme.accent2} />
         <View style={styles.linkCopy}>
           <Text style={[styles.linkTitle, { color: theme.text }]}>{title}</Text>
-          <Text style={[styles.caption, { color: theme.muted }]}>{output.mimeType}</Text>
+          <Text style={[styles.caption, { color: theme.muted }]}>{output.type === "file" ? "Tap to download" : "Tap to open"}</Text>
         </View>
       </Pressable>
     );

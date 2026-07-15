@@ -66,4 +66,25 @@ describe("stubScenarioBuilder", () => {
     expect(textBlock?.type === "text" ? textBlock.text : "").toContain("Clock it");
     expect(output.metadata?.promptTrack).toBe("full");
   });
+
+  it("does not treat an uploaded file summary as a request to generate a new file", () => {
+    const persona = getPersonaById("larae");
+    const output = buildStubOutput(
+      {
+        persona: persona!,
+        systemPrompt: "full prompt",
+        messages: [{ role: "user", content: "Please summarize the attached E2E file." }],
+        userMessage: "Please summarize the attached E2E file.",
+        toolDefinitions: [],
+        requestedOutputs: [],
+        audio: false
+      },
+      "openai_persona"
+    );
+
+    expect(output.content.some((block) => block.type === "file")).toBe(false);
+    expect(output.content.find((block) => block.type === "text")).toMatchObject({
+      type: "text"
+    });
+  });
 });

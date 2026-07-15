@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
-import type { ChatResponse, ContentBlock, UploadedAsset } from "@persona/shared";
+import { stripGeneratedFileDownloadPrompt, type ChatResponse, type ContentBlock, type UploadedAsset } from "@persona/shared";
 import { useEffect, useId, useRef, useState } from "react";
 import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
@@ -615,6 +615,9 @@ export function ConversationHistory({
             const inlineOutputs = turn.outputs.filter(shouldRenderInlineOutput);
             const sources = turn.outputs.filter((output): output is Extract<ContentBlock, { type: "source_list" }> => output.type === "source_list");
             const audioBlocks = turn.outputs.filter((output): output is Extract<ContentBlock, { type: "audio" }> => output.type === "audio");
+            const assistantText = turn.outputs.some((output) => output.type === "file")
+              ? stripGeneratedFileDownloadPrompt(turn.assistantText)
+              : turn.assistantText;
 
             return (
               <div key={`turn-${turnIndex}`} className="chat-turn">
@@ -631,7 +634,7 @@ export function ConversationHistory({
                   <div className="chat-avatar chat-avatar-assistant">{personaId}</div>
                   <div className="chat-bubble chat-bubble-assistant">
                     <span className="history-role">Reply</span>
-                    {turn.assistantText ? <MarkdownText text={turn.assistantText} className="message-text markdown-text" /> : null}
+                    {assistantText ? <MarkdownText text={assistantText} className="message-text markdown-text" /> : null}
                     {inlineOutputs.length > 0 ? (
                       <div className="inline-artifact-stack">
                         {inlineOutputs.map((output, outputIndex) => (
@@ -644,7 +647,7 @@ export function ConversationHistory({
                     {testMode ? <TokenUsageFooter usage={turn.usage} /> : null}
                   </div>
                   <AssistantActions
-                    text={turn.assistantText}
+                    text={assistantText}
                     sources={sources}
                     audioBlocks={audioBlocks}
                     personaId={personaId}

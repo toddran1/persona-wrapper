@@ -188,11 +188,9 @@ function normalizeSymbols(text: string): string {
 
 function addPacing(text: string): string {
   return text
-    .replace(/:\s*\n/g, ": ... \n")
-    .replace(/;\s*/g, "; ... ")
-    .replace(/([.!?])\s+(?=[A-Z0-9"“])/g, "$1 ... ")
-    .replace(/\n\n/g, " ... \n\n")
-    .replace(/\s{2,}/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
 
@@ -205,9 +203,9 @@ function addPersonaPerformanceCues(text: string, persona: PersonaDefinition): st
   }
 
   return text
-    .replace(/\b(Bitch,? be serious\.?)/gi, "$1 ...")
-    .replace(/\b(Clock it\.?)/gi, "$1 ...")
-    .replace(/\b(baby girl|baby)\b/gi, "$1,");
+    .replace(/\b(baby girl|baby)\b,*\s*/gi, "$1, ")
+    .replace(/,{2,}/g, ",")
+    .trim();
 }
 
 export function buildTtsScript(text: string, persona: PersonaDefinition): string {

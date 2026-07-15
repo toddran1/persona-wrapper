@@ -3454,9 +3454,40 @@ button:disabled {
   text-align: center;
 }
 
-.output-file a {
+.output-file-kind {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.output-file-name {
+  display: block;
+  width: fit-content;
+  margin-top: 6px;
   color: #fff;
   font-size: 1.1rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.output-file-download {
+  margin-top: 14px;
+  padding: 8px 12px;
+  border: 1px solid rgba(214, 181, 94, 0.42);
+  border-radius: 999px;
+  background: rgba(214, 181, 94, 0.12);
+  color: #fff7d5;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.output-file-download:hover,
+.output-file-download:focus-visible {
+  background: rgba(214, 181, 94, 0.24);
 }
 
 .error-banner {

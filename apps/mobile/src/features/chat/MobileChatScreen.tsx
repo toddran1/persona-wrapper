@@ -54,6 +54,7 @@ import {
   turnFromChatResponse,
   turnsFromConversationTurns
 } from "./mobileChatUtils";
+import { stripGeneratedFileDownloadPrompt } from "@persona/shared";
 import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
@@ -67,6 +68,12 @@ const MOBILE_APP_SCHEME = "personawrapper";
 function mobileAppUrl(path = ""): string {
   const normalizedPath = path.replace(/^\/+/, "");
   return normalizedPath ? `${MOBILE_APP_SCHEME}://${normalizedPath}` : `${MOBILE_APP_SCHEME}://`;
+}
+
+function assistantTextForDisplay(turn: Pick<RenderedTurn, "assistantText" | "outputs">): string {
+  return turn.outputs.some((output) => output.type === "file")
+    ? stripGeneratedFileDownloadPrompt(turn.assistantText)
+    : turn.assistantText;
 }
 
 WebBrowser.maybeCompleteAuthSession();
@@ -1981,8 +1988,8 @@ export function MobileChatScreen() {
                         align="left"
                         theme={theme}
                         actions={[
-                          ...(turn.assistantText.trim()
-                            ? [{ icon: "copy-outline" as const, label: "Copy response", onPress: () => void copyMessage("Response copied.", turn.assistantText) }]
+                          ...(assistantTextForDisplay(turn).trim()
+                            ? [{ icon: "copy-outline" as const, label: "Copy response", onPress: () => void copyMessage("Response copied.", assistantTextForDisplay(turn)) }]
                             : []),
                           { icon: "ellipsis-horizontal", label: "More response actions", onPress: () => showAssistantActions(turn) }
                         ]}
@@ -2347,9 +2354,10 @@ export function MobileChatScreen() {
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setAssistantActionTurn(undefined)} />
           <View style={[styles.actionSheet, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Response actions</Text>
-            {assistantActionTurn?.assistantText.trim() ? (
+            {assistantActionTurn && assistantTextForDisplay(assistantActionTurn).trim() ? (
               <Pressable style={styles.actionSheetRow} onPress={() => {
-                const text = assistantActionTurn.assistantText;
+                if (!assistantActionTurn) return;
+                const text = assistantTextForDisplay(assistantActionTurn);
                 setAssistantActionTurn(undefined);
                 void copyMessage("Response copied.", text);
               }}>

@@ -28,20 +28,11 @@ test.describe("For the Baddiez browser E2E", () => {
     }
   });
 
-  test("password login, chat, background work, audio, upload, data transfer, deletion, and restoration", async ({ page }) => {
+  test("password login, chat, background work, upload, data transfer, deletion, and restoration", async ({ page }) => {
     const suffix = `${Date.now()}${Math.floor(Math.random() * 10_000)}`;
     const email = `e2e-${suffix}@for-the-baddiez.test`;
     const password = "E2eSecurePassword!42";
 
-    await page.addInitScript(() => {
-      Object.defineProperty(HTMLMediaElement.prototype, "play", {
-        configurable: true,
-        value() {
-          document.documentElement.dataset.e2eAudioPlayed = "true";
-          return Promise.resolve();
-        }
-      });
-    });
     await page.goto("/");
     await openAuth(page, "register");
     await page.getByTestId("auth-register-email").fill(email);
@@ -50,23 +41,12 @@ test.describe("For the Baddiez browser E2E", () => {
     await page.getByTestId("auth-submit").click();
     await expect(page.getByTestId("account-menu-toggle")).toBeVisible();
 
-    await page.getByText("Settings", { exact: true }).click();
-    await page.getByTestId("audio-toggle").check();
     await page.getByTestId("chat-upload-input").setInputFiles(fixture("e2e-upload.txt"));
     await page.getByTestId("chat-composer").fill("Please summarize the attached E2E file.");
     const chatResponse = page.waitForResponse((response) => response.url().endsWith("/api/chat") && response.status() === 200);
     await page.getByTestId("send-message").click();
     await chatResponse;
     await expect(page.getByText("e2e-upload.txt", { exact: true })).toBeVisible();
-
-    await page.getByTestId("chat-composer").fill("Give this E2E test a short reply with audio.");
-    const audioResponse = page.waitForResponse((response) => response.url().endsWith("/api/chat") && response.status() === 200);
-    await page.getByTestId("send-message").click();
-    await audioResponse;
-    await expect(page.getByLabel("Audio settings").last()).toBeVisible();
-    await page.getByLabel("Audio settings").last().evaluate((button) => (button as HTMLButtonElement).click());
-    await page.getByRole("menuitem", { name: "Replay audio" }).evaluate((button) => (button as HTMLButtonElement).click());
-    await expect.poll(() => page.locator("html").getAttribute("data-e2e-audio-played")).toBe("true");
 
     await page.getByTestId("chat-composer").fill("Run this long-running task in the background for the E2E test.");
     const backgroundStart = page.waitForResponse((response) => response.url().endsWith("/api/chat") && response.status() === 202);

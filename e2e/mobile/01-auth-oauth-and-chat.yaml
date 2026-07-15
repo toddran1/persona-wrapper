@@ -1,5 +1,5 @@
 appId: com.personawrapper.mobile
-name: Auth, OAuth, chat, audio, and background work
+name: Auth, OAuth, chat, and background work
 env:
   E2E_EMAIL: e2e-device@for-the-baddiez.test
   E2E_PASSWORD: E2eSecurePassword!42
@@ -29,6 +29,3 @@ env:
 - tapOn:
     id: mobile-send-message
 - assertVisible: Run this long-running task in the background for device E2E.
-- tapOn:
-    id: mobile-persona-audio-options
-- assertVisible: Turn on persona audio

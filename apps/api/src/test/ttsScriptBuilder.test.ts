@@ -17,12 +17,13 @@ describe("buildTtsScript", () => {
     expect(script).not.toContain("https://example.com");
   });
 
-  it("adds pacing without changing the visible response text", () => {
-    const script = buildTtsScript("Bitch, be serious. Clock it.", larae);
+  it("preserves natural punctuation without adding repeated pauses or commas", () => {
+    const script = buildTtsScript("Baby, let me set this off. Clock it.", larae);
 
-    expect(script).toContain("...");
-    expect(script).toContain("Bitch, be serious");
+    expect(script).toContain("Baby, let me set this off.");
     expect(script).toContain("Clock it");
+    expect(script).not.toContain("Baby,,");
+    expect(script).not.toContain("...");
   });
 
   it("normalizes common speech-hostile tokens before sending to ElevenLabs", () => {
