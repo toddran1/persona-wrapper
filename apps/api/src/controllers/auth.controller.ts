@@ -36,7 +36,10 @@ function oauthProviderFromParams(request: Request): OAuthProvider {
 }
 
 function authCallbackUrl(params: Record<string, string>): string {
-  const url = new URL("/auth/callback", env.WEB_APP_URL);
+  // Keep the handoff on the static site's root. Static hosts may redirect an
+  // unknown /auth/callback route to / and lose the URL fragment containing the
+  // short-lived browser handoff tokens in the process.
+  const url = new URL("/", env.WEB_APP_URL);
   url.hash = new URLSearchParams(params).toString();
   return url.toString();
 }

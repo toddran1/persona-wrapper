@@ -86,8 +86,13 @@ export function oauthStartUrl(provider: OAuthProvider, clientType = "web", devic
 }
 
 export function consumeOAuthCallbackResult(): OAuthCallbackResult | undefined {
-  if (typeof window === "undefined" || window.location.pathname !== "/auth/callback") return undefined;
+  if (typeof window === "undefined") return undefined;
   const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const isOAuthCallback = window.location.pathname === "/auth/callback"
+    || params.has("accessToken")
+    || params.has("refreshToken")
+    || params.has("error");
+  if (!isOAuthCallback) return undefined;
   const error = params.get("error") ?? undefined;
   const accessToken = params.get("accessToken");
   const refreshToken = params.get("refreshToken");
