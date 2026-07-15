@@ -10,11 +10,11 @@ services:
     region: ohio
     plan: starter
     autoDeployTrigger: commit
-    # Render runs this service with NODE_ENV=production. Include development
-    # packages for TypeScript compilation without changing the runtime mode.
+    # TypeScript's declarations are build-time dev dependencies. Keep the
+    # service's production mode scoped to migration and runtime commands.
     buildCommand: npm ci --include=dev && npm run build -w @persona/shared && npm run build -w @persona/api
-    preDeployCommand: npm run db:migrate -w @persona/api
-    startCommand: npm run start -w @persona/api
+    preDeployCommand: NODE_ENV=production npm run db:migrate -w @persona/api
+    startCommand: NODE_ENV=production npm run start -w @persona/api
     healthCheckPath: /health
     maxShutdownDelaySeconds: 30
     buildFilter:
@@ -27,8 +27,6 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22.13.0
-      - key: NODE_ENV
-        value: production
       - key: APP_TEST_MODE
         value: "false"
       - key: DATABASE_URL
