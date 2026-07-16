@@ -25,6 +25,7 @@ import * as Sharing from "expo-sharing";
 import JSZip from "jszip";
 import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
@@ -151,6 +152,12 @@ function formatSessionActivity(value: string): string {
 }
 
 export function MobileChatScreen() {
+  const router = useRouter();
+  const { oauthCode, oauthProvider, oauthError } = useLocalSearchParams<{
+    oauthCode?: string | string[];
+    oauthProvider?: string | string[];
+    oauthError?: string | string[];
+  }>();
   const { t } = useLocalization();
   const { isOnline, recentlyRestored } = useNetwork();
   const insets = useSafeAreaInsets();
@@ -1216,6 +1223,20 @@ export function MobileChatScreen() {
       setAuthBusy(false);
     }
   }
+
+  useEffect(() => {
+    const code = typeof oauthCode === "string" ? oauthCode : undefined;
+    const provider = typeof oauthProvider === "string" ? oauthProvider : undefined;
+    const callbackError = typeof oauthError === "string" ? oauthError : undefined;
+    if (!code && !callbackError) return;
+
+    const callbackUrl = new URL(mobileAppUrl("auth/callback"));
+    if (code) callbackUrl.searchParams.set("code", code);
+    if (provider) callbackUrl.searchParams.set("provider", provider);
+    if (callbackError) callbackUrl.searchParams.set("error", callbackError);
+    void handleOAuthCallback(callbackUrl.toString());
+    router.replace("/");
+  }, [oauthCode, oauthError, oauthProvider, router]);
 
   useEffect(() => {
     let mounted = true;

@@ -59,12 +59,20 @@ function mobileAuthCallbackUrl(clientType: AuthClientType, params: Record<string
   return url.toString();
 }
 
-function hasMobileAuthCallbackUrl(clientType: AuthClientType): boolean {
-  return Boolean(clientType === "ios"
-    ? env.IOS_OAUTH_REDIRECT_URL
-    : clientType === "android"
-      ? env.ANDROID_OAUTH_REDIRECT_URL
-      : undefined);
+function isMobileClient(clientType: AuthClientType): clientType is "ios" | "android" {
+  return clientType === "ios" || clientType === "android";
+}
+
+function redirectWithoutCaching(response: Response, destination: string): void {
+  response
+    .status(302)
+    .set({
+      "Cache-Control": "no-store, max-age=0",
+      Location: destination,
+      Pragma: "no-cache",
+      "Referrer-Policy": "no-referrer"
+    })
+    .end();
 }
 
 function configuredMobileReturnUrl(clientType: AuthClientType): string | undefined {
@@ -215,6 +223,7 @@ export async function getOAuthStart(request: Request, response: Response): Promi
 }
 
 export async function getOAuthCallback(request: Request, response: Response): Promise<void> {
+  let completedMobileCallbackUrl: string | undefined;
   try {
     const provider = oauthProviderFromParams(request);
     const code = typeof request.query.code === "string" ? request.query.code : undefined;
@@ -229,7 +238,7 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
       state,
       metadata: requestMetadata(request)
     });
-    if (auth.oauthReturnUrl || hasMobileAuthCallbackUrl(auth.session.clientType)) {
+    if (isMobileClient(auth.session.clientType)) {
       const exchangeCode = await authService.createOAuthExchangeCode(auth);
       // Production deep links are server configuration, not client input. This
       // keeps a mobile OAuth session from ever being redirected to a web URL.
@@ -239,12 +248,13 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
         provider
       }, runtimeReturnUrl);
       if (!mobileCallbackUrl) throw new HttpError("Mobile OAuth callback URL is not configured.", 500);
+      completedMobileCallbackUrl = mobileCallbackUrl;
       logger.info("OAuth callback completed", {
         provider,
         clientType: auth.session.clientType,
         destination: "mobile"
       });
-      response.redirect(302, mobileCallbackUrl);
+      redirectWithoutCaching(response, mobileCallbackUrl);
       return;
     }
     logger.info("OAuth callback completed", {
@@ -265,6 +275,14 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
       message,
       provider: typeof request.params.provider === "string" ? request.params.provider : "unknown"
     });
+    // Once an exchange code exists, preserve the native handoff even if
+    // non-essential callback work fails. Falling back to the web app here
+    // strands a mobile auth session in the browser with an unconsumed code.
+    if (completedMobileCallbackUrl && !response.headersSent) {
+      redirectWithoutCaching(response, completedMobileCallbackUrl);
+      return;
+    }
+    if (response.headersSent) return;
     response.redirect(302, authCallbackUrl({ error: message }));
   }
 }

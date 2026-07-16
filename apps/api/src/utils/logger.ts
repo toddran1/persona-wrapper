@@ -43,7 +43,16 @@ function write(level: LogLevel, message: string, payload?: unknown): void {
   };
 
   const serialized = safeSerialize(line);
-  emitTelemetryLog(level, message, payload);
+  try {
+    emitTelemetryLog(level, message, payload);
+  } catch (error) {
+    console.error(safeSerialize({
+      timestamp: new Date().toISOString(),
+      level: "error",
+      message: "Failed to emit telemetry log",
+      payload: { errorName: error instanceof Error ? error.name : "UnknownError" }
+    }));
+  }
   if (level === "error") {
     console.error(serialized);
     return;
