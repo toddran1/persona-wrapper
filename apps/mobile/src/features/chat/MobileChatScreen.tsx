@@ -1880,6 +1880,7 @@ export function MobileChatScreen() {
               profile={activePersona.visualStage}
               state={personaVisualState}
               theme={theme}
+              visible={!drawerInteractive && !settingsVisible}
               onExpandedChange={handlePersonaExpandedChange}
               onHiddenChange={setPersonaCardHidden}
               onAppForeground={markPersonaIdle}

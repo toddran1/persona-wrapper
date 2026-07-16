@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useEventListener } from "expo";
-import { AppState, Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { AppState, Image, Platform, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { Ionicons } from "@expo/vector-icons";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -23,6 +23,7 @@ type PersonaVisualStageProps = {
   profile: PersonaVisualStageProfile;
   state: PersonaVisualState;
   theme: MobileTheme;
+  visible: boolean;
   onExpandedChange: (expanded: boolean) => void;
   onHiddenChange: (hidden: boolean) => void;
   onAppForeground: () => void;
@@ -53,6 +54,8 @@ function PersonaVideo({
   const player = useVideoPlayer({ uri: source, useCaching: true }, (instance) => {
     instance.loop = false;
     instance.muted = true;
+    instance.keepScreenOnWhilePlaying = false;
+    instance.staysActiveInBackground = false;
     if (playing) instance.play();
   });
 
@@ -66,15 +69,23 @@ function PersonaVideo({
     lastRestartTokenRef.current = restartToken;
 
     try {
-      player.replay();
+      if (playing) player.replay();
+      else player.currentTime = 0;
     } catch {
       onError(source);
     }
-  }, [onError, player, restartToken, source]);
+  }, [onError, player, playing, restartToken, source]);
 
   useEventListener(player, "playToEnd", () => onEnd(source));
   useEventListener(player, "statusChange", ({ status }) => {
     if (status === "error") onError(source);
+    else if (status === "readyToPlay" && playing && !player.playing) {
+      try {
+        player.play();
+      } catch {
+        onError(source);
+      }
+    }
   });
 
   return (
@@ -82,6 +93,7 @@ function PersonaVideo({
       player={player}
       contentFit="cover"
       nativeControls={false}
+      {...(Platform.OS === "android" ? { surfaceType: "textureView" as const } : {})}
       style={styles.media}
     />
   );
@@ -117,7 +129,7 @@ function pickStateClip(profile: PersonaVisualStageProfile, state: PersonaVisualS
   };
 }
 
-export function PersonaVisualStage({ expanded, hidden, personaName, profile, state, theme, onExpandedChange, onHiddenChange, onAppForeground }: PersonaVisualStageProps) {
+export function PersonaVisualStage({ expanded, hidden, personaName, profile, state, theme, visible, onExpandedChange, onHiddenChange, onAppForeground }: PersonaVisualStageProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const compactLayout = windowWidth < 360 || windowHeight < 700;
   const tabletLayout = windowWidth >= 768;
@@ -134,6 +146,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
   const onAppForegroundRef = useRef(onAppForeground);
   const settledStateRef = useRef<PersonaVisualState>(state);
   const targetStateRef = useRef<PersonaVisualState>(state);
+  const wasVisibleRef = useRef(visible);
   const expandedProgress = useSharedValue(expanded ? 1 : 0);
   const translateX = useSharedValue(hidden ? hiddenTranslate : 0);
 
@@ -148,6 +161,13 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
   useEffect(() => {
     onAppForegroundRef.current = onAppForeground;
   }, [onAppForeground]);
+
+  useEffect(() => {
+    if (visible && !wasVisibleRef.current) {
+      setPlaybackGeneration((generation) => generation + 1);
+    }
+    wasVisibleRef.current = visible;
+  }, [visible]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
@@ -305,7 +325,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
     return (
       <PersonaVideo
         source={source.uri}
-        playing={!hidden || expanded}
+        playing={visible && (!hidden || expanded)}
         restartToken={playbackGeneration}
         onError={handleMediaError}
         onEnd={finishClip}

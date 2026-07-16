@@ -66,18 +66,32 @@ function hasMobileAuthCallbackUrl(clientType: AuthClientType): boolean {
       : undefined);
 }
 
-function mobileReturnUrlFromQuery(request: Request): string | undefined {
+function configuredMobileReturnUrl(clientType: AuthClientType): string | undefined {
+  return clientType === "ios"
+    ? env.IOS_OAUTH_REDIRECT_URL
+    : clientType === "android"
+      ? env.ANDROID_OAUTH_REDIRECT_URL
+      : undefined;
+}
+
+function mobileReturnUrlFromQuery(request: Request, clientType: AuthClientType): string | undefined {
   const value = typeof request.query.returnUrl === "string" ? request.query.returnUrl.trim() : undefined;
   if (!value) return undefined;
-  if (env.NODE_ENV === "production") {
-    throw new HttpError("Runtime mobile OAuth return URLs are disabled in production.", 400);
-  }
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
     throw new HttpError("Unsupported mobile OAuth return URL.", 400);
   }
+
+  if (env.NODE_ENV === "production") {
+    const configuredUrl = configuredMobileReturnUrl(clientType);
+    if (!configuredUrl || parsed.toString() !== new URL(configuredUrl).toString()) {
+      throw new HttpError("Unsupported mobile OAuth return URL.", 400);
+    }
+    return parsed.toString();
+  }
+
   if (parsed.protocol === "personawrapper:" || parsed.protocol === "exp:") return parsed.toString();
   if ((parsed.protocol === "http:" || parsed.protocol === "https:") && ["localhost", "127.0.0.1"].includes(parsed.hostname)) {
     return parsed.toString();
@@ -189,7 +203,7 @@ export async function getOAuthStart(request: Request, response: Response): Promi
   const normalizedClientType = clientType === "web" || clientType === "desktop" || clientType === "ios" || clientType === "android"
     ? clientType
     : "unknown";
-  const returnUrl = mobileReturnUrlFromQuery(request);
+  const returnUrl = mobileReturnUrlFromQuery(request, normalizedClientType);
   const authorizationUrl = await authService.createOAuthAuthorizationUrl({
     provider,
     clientType: normalizedClientType,
