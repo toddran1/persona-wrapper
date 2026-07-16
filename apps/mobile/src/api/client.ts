@@ -56,6 +56,13 @@ type MobileRegisterRequest = Omit<RegisterRequest, "clientType" | "deviceId">;
 type MobileLoginRequest = Omit<LoginRequest, "clientType" | "deviceId">;
 type MobileRestoreAccountRequest = Omit<RestoreAccountRequest, "clientType" | "deviceId">;
 type MobileOAuthExchangeRequest = Omit<OAuthExchangeRequest, "clientType" | "deviceId">;
+type MobileOAuthStartResponse = {
+  authorizationUrl: string;
+  exchangeCode: string;
+};
+type MobileOAuthPollResponse =
+  | { status: "pending" }
+  | { status: "complete"; auth: AuthResponse };
 
 type ApiErrorPayload = {
   error?: string;
@@ -287,6 +294,13 @@ export const api = {
     if (returnUrl) url.searchParams.set("returnUrl", returnUrl);
     return url.toString();
   },
+  startMobileOAuth: async (provider: OAuthProvider, returnUrl: string): Promise<MobileOAuthStartResponse> => {
+    const url = new URL(`/api/auth/oauth/${provider}/mobile-start`, API_BASE_URL);
+    url.searchParams.set("clientType", clientType());
+    url.searchParams.set("deviceId", await getDeviceId());
+    url.searchParams.set("returnUrl", returnUrl);
+    return requestJson<MobileOAuthStartResponse>(`${url.pathname}${url.search}`, { method: "GET" }, { skipAuthRefresh: true });
+  },
   register: async (payload: MobileRegisterRequest): Promise<AuthResponse> => {
     const response = await requestJson<AuthResponse>("/api/auth/register", {
       method: "POST",
@@ -326,6 +340,15 @@ export const api = {
     }, { skipAuthRefresh: true });
     await setAuthTokens(response.tokens);
     return response;
+  },
+  pollMobileOAuthCode: async (payload: MobileOAuthExchangeRequest): Promise<AuthResponse | undefined> => {
+    const response = await requestJson<MobileOAuthPollResponse>("/api/auth/oauth/mobile-exchange", {
+      method: "POST",
+      body: JSON.stringify({ ...payload, clientType: clientType(), deviceId: await getDeviceId() })
+    }, { skipAuthRefresh: true });
+    if (response.status === "pending") return undefined;
+    await setAuthTokens(response.auth.tokens);
+    return response.auth;
   },
   refreshAuth: async (payload?: Partial<RefreshAuthRequest>): Promise<AuthResponse> => {
     const refreshToken = payload?.refreshToken ?? (await getAuthTokens())?.refreshToken;

@@ -8,10 +8,12 @@ import {
   getMe,
   getOAuthCallback,
   getOAuthProviders,
+  getMobileOAuthStart,
   getOAuthStart,
   postLogin,
   postLogout,
   postOAuthExchange,
+  postMobileOAuthExchange,
   postRefresh,
   postRegister,
   postRestoreAccount
@@ -19,7 +21,7 @@ import {
 
 export const authRouter = Router();
 
-authRouter.use(["/login", "/register", "/restore", "/refresh", "/oauth/exchange", "/oauth/:provider/start", "/account"], authRateLimit);
+authRouter.use(["/login", "/register", "/restore", "/refresh", "/oauth/exchange", "/oauth/:provider/start", "/oauth/:provider/mobile-start", "/account"], authRateLimit);
 
 authRouter.post("/register", (request, response, next) => {
   postRegister(request, response).catch(next);
@@ -43,6 +45,10 @@ authRouter.post("/refresh", (request, response, next) => {
 
 authRouter.post("/oauth/exchange", (request, response, next) => {
   postOAuthExchange(request, response).catch(next);
+});
+
+authRouter.post("/oauth/mobile-exchange", (request, response, next) => {
+  postMobileOAuthExchange(request, response).catch(next);
 });
 
 authRouter.post("/logout", (request, response, next) => {
@@ -69,6 +75,10 @@ authRouter.get("/oauth/providers", getOAuthProviders);
 
 authRouter.get("/oauth/:provider/start", (request, response, next) => {
   getOAuthStart(request, response).catch(next);
+});
+
+authRouter.get("/oauth/:provider/mobile-start", (request, response, next) => {
+  getMobileOAuthStart(request, response).catch(next);
 });
 
 authRouter.get("/oauth/:provider/callback", (request, response, next) => {

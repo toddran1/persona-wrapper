@@ -29,7 +29,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
+import type { ActiveSession, AuthResponse, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -64,6 +64,8 @@ import type { MobilePickedFile, RenderedTurn } from "./types";
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
+const MOBILE_OAUTH_COMPLETION_TIMEOUT_MS = 3 * 60 * 1000;
+const MOBILE_OAUTH_POLL_INTERVAL_MS = 3000;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 // Keep this aligned with `scheme` in app.config.ts. OAuth must not depend on
 // Expo Constants because the native manifest can be unavailable during startup.
@@ -72,6 +74,20 @@ const MOBILE_APP_SCHEME = "personawrapper";
 function mobileAppUrl(path = ""): string {
   const normalizedPath = path.replace(/^\/+/, "");
   return normalizedPath ? `${MOBILE_APP_SCHEME}://${normalizedPath}` : `${MOBILE_APP_SCHEME}://`;
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForMobileOAuthExchange(code: string): Promise<AuthResponse> {
+  const deadline = Date.now() + MOBILE_OAUTH_COMPLETION_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const auth = await api.pollMobileOAuthCode({ code });
+    if (auth) return auth;
+    await wait(MOBILE_OAUTH_POLL_INTERVAL_MS);
+  }
+  throw new Error("Sign in completed in the browser, but the app could not finish it. Please try again.");
 }
 
 function assistantTextForDisplay(turn: Pick<RenderedTurn, "assistantText" | "outputs">): string {
@@ -1622,11 +1638,35 @@ export function MobileChatScreen() {
     setAuthError(undefined);
     try {
       const returnUrl = mobileAppUrl("auth/callback");
-      const url = await api.oauthStartUrl(provider, returnUrl);
-      const result = await WebBrowser.openAuthSessionAsync(url, returnUrl);
-      if (result.type === "success") {
-        await handleOAuthCallback(result.url);
+      const { authorizationUrl, exchangeCode } = await api.startMobileOAuth(provider, returnUrl);
+      const browserResultPromise = WebBrowser.openAuthSessionAsync(authorizationUrl, returnUrl);
+      const exchangeResultPromise = waitForMobileOAuthExchange(exchangeCode);
+      const firstResult = await Promise.race([
+        browserResultPromise.then((result) => ({ type: "browser" as const, result })),
+        exchangeResultPromise.then((auth) => ({ type: "auth" as const, auth }))
+      ]);
+
+      if (firstResult.type === "auth") {
+        try {
+          WebBrowser.dismissAuthSession();
+        } catch {
+          // Android closes its custom tab when the app returns to the foreground.
+        }
+        await finishAuth(firstResult.auth.user);
+        closeDrawer();
+        return;
       }
+
+      if (firstResult.result.type === "success") {
+        const callbackCode = new URL(firstResult.result.url).searchParams.get("code");
+        if (callbackCode) {
+          await handleOAuthCallback(firstResult.result.url);
+          return;
+        }
+      }
+      const auth = await exchangeResultPromise;
+      await finishAuth(auth.user);
+      closeDrawer();
     } catch (oauthError) {
       setAuthError(oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
     } finally {

@@ -45,6 +45,7 @@ type OAuthStartOptions = {
   clientType: AuthClientType;
   deviceId?: string;
   returnUrl?: string;
+  exchangeCodeHash?: string;
 };
 
 type OAuthCallbackOptions = {
@@ -56,6 +57,7 @@ type OAuthCallbackOptions = {
 
 type OAuthCallbackResult = AuthResponse & {
   oauthReturnUrl?: string;
+  oauthExchangeCodeHash?: string;
 };
 
 type OAuthTokenResponse = {
@@ -288,13 +290,21 @@ async function requestOAuthProfile(provider: OAuthProvider, accessToken: string)
   return profileFromProvider(provider, payload);
 }
 
-function oauthStateMetadata(value: Record<string, unknown> | null | undefined): { clientType: AuthClientType; deviceId?: string; returnUrl?: string } {
+function oauthStateMetadata(value: Record<string, unknown> | null | undefined): {
+  clientType: AuthClientType;
+  deviceId?: string;
+  returnUrl?: string;
+  exchangeCodeHash?: string;
+} {
   const metadata = value ?? {};
-  const result: { clientType: AuthClientType; deviceId?: string; returnUrl?: string } = {
+  const result: { clientType: AuthClientType; deviceId?: string; returnUrl?: string; exchangeCodeHash?: string } = {
     clientType: parseClientType(metadata.clientType)
   };
   if (typeof metadata.deviceId === "string" && metadata.deviceId.trim()) result.deviceId = metadata.deviceId.trim();
   if (typeof metadata.returnUrl === "string" && metadata.returnUrl.trim()) result.returnUrl = metadata.returnUrl.trim();
+  if (typeof metadata.exchangeCodeHash === "string" && metadata.exchangeCodeHash.trim()) {
+    result.exchangeCodeHash = metadata.exchangeCodeHash.trim();
+  }
   return result;
 }
 
@@ -551,6 +561,7 @@ export class AuthService {
     };
     if (options.deviceId) stateMetadata.deviceId = options.deviceId;
     if (options.returnUrl) stateMetadata.returnUrl = options.returnUrl;
+    if (options.exchangeCodeHash) stateMetadata.exchangeCodeHash = options.exchangeCodeHash;
 
     await db.insert(oauthStates).values({
       id: `oauth_state_${randomUUID()}`,
@@ -585,6 +596,18 @@ export class AuthService {
       url.searchParams.set("prompt", "select_account");
     }
     return url.toString();
+  }
+
+  async createMobileOAuthAuthorization(options: Omit<OAuthStartOptions, "exchangeCodeHash">): Promise<{
+    authorizationUrl: string;
+    exchangeCode: string;
+  }> {
+    const exchangeCode = randomBytes(32).toString("base64url");
+    const authorizationUrl = await this.createOAuthAuthorizationUrl({
+      ...options,
+      exchangeCodeHash: hashToken(exchangeCode)
+    });
+    return { authorizationUrl, exchangeCode };
   }
 
   async completeOAuthCallback(options: OAuthCallbackOptions): Promise<OAuthCallbackResult> {
@@ -657,7 +680,8 @@ export class AuthService {
     );
     return {
       ...buildAuthResponse(user, session),
-      ...(stateMetadata.returnUrl ? { oauthReturnUrl: stateMetadata.returnUrl } : {})
+      ...(stateMetadata.returnUrl ? { oauthReturnUrl: stateMetadata.returnUrl } : {}),
+      ...(stateMetadata.exchangeCodeHash ? { oauthExchangeCodeHash: stateMetadata.exchangeCodeHash } : {})
     };
   }
 
@@ -672,6 +696,18 @@ export class AuthService {
       expiresAt: oauthExchangeExpiry()
     });
     return code;
+  }
+
+  async createPreissuedOAuthExchangeCode(auth: AuthResponse, codeHash: string, deviceId?: string): Promise<void> {
+    const db = requireDatabase();
+    await db.insert(oauthExchangeCodes).values({
+      id: `oauth_exchange_${randomUUID()}`,
+      codeHash,
+      sessionId: auth.session.id,
+      clientType: auth.session.clientType,
+      ...(deviceId ? { deviceId } : {}),
+      expiresAt: oauthExchangeExpiry()
+    });
   }
 
   async exchangeOAuthCode(payload: OAuthExchangeRequest, metadata: AuthMetadata = {}): Promise<AuthResponse> {

@@ -71,9 +71,16 @@ function escapeHtmlAttribute(value: string): string {
     .replaceAll(">", "&gt;");
 }
 
-function sendMobileOAuthHandoff(response: Response, destination: string): void {
-  const serializedDestination = JSON.stringify(destination).replaceAll("<", "\\u003c");
-  const linkedDestination = escapeHtmlAttribute(destination);
+function androidIntentUrl(destination: string): string {
+  const url = new URL(destination);
+  const authorityAndPath = `${url.hostname}${url.pathname}`.replace(/^\/+/, "");
+  return `intent://${authorityAndPath}${url.search}#Intent;scheme=${url.protocol.slice(0, -1)};package=com.personawrapper.mobile;end`;
+}
+
+function sendMobileOAuthHandoff(response: Response, destination: string, clientType: "ios" | "android"): void {
+  const launchDestination = clientType === "android" ? androidIntentUrl(destination) : destination;
+  const serializedDestination = JSON.stringify(launchDestination).replaceAll("<", "\\u003c");
+  const linkedDestination = escapeHtmlAttribute(launchDestination);
   response
     .status(200)
     .set({
@@ -195,6 +202,26 @@ export async function postOAuthExchange(request: Request, response: Response): P
   response.status(200).json(auth);
 }
 
+export async function postMobileOAuthExchange(request: Request, response: Response): Promise<void> {
+  const payload = oauthExchangeRequestSchema.parse({
+    clientType: clientTypeFromHeader(request),
+    ...request.body
+  });
+  if (payload.clientType !== "ios" && payload.clientType !== "android") {
+    throw new HttpError("Mobile OAuth requires an iOS or Android client.", 400);
+  }
+  try {
+    const auth = await authService.exchangeOAuthCode(payload, requestMetadata(request));
+    response.status(200).json({ status: "complete", auth });
+  } catch (error) {
+    if (error instanceof HttpError && error.statusCode === 401 && error.message === "OAuth exchange code is invalid or expired.") {
+      response.status(202).json({ status: "pending" });
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function postLogout(request: Request, response: Response): Promise<void> {
   const refreshToken = typeof request.body?.refreshToken === "string" ? request.body.refreshToken : undefined;
   const accessToken = requestBearerToken(request);
@@ -257,8 +284,26 @@ export async function getOAuthStart(request: Request, response: Response): Promi
   response.redirect(302, authorizationUrl);
 }
 
+export async function getMobileOAuthStart(request: Request, response: Response): Promise<void> {
+  const provider = oauthProviderFromParams(request);
+  const deviceId = typeof request.query.deviceId === "string" ? request.query.deviceId : undefined;
+  const clientType = typeof request.query.clientType === "string" ? request.query.clientType : clientTypeFromHeader(request);
+  if (clientType !== "ios" && clientType !== "android") {
+    throw new HttpError("Mobile OAuth requires an iOS or Android client.", 400);
+  }
+  const returnUrl = mobileReturnUrlFromQuery(request, clientType);
+  const result = await authService.createMobileOAuthAuthorization({
+    provider,
+    clientType,
+    ...(deviceId ? { deviceId } : {}),
+    ...(returnUrl ? { returnUrl } : {})
+  });
+  response.status(200).json(result);
+}
+
 export async function getOAuthCallback(request: Request, response: Response): Promise<void> {
   let completedMobileCallbackUrl: string | undefined;
+  let completedMobileClientType: "ios" | "android" | undefined;
   try {
     const provider = oauthProviderFromParams(request);
     const code = typeof request.query.code === "string" ? request.query.code : undefined;
@@ -274,22 +319,28 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
       metadata: requestMetadata(request)
     });
     if (isMobileClient(auth.session.clientType)) {
-      const exchangeCode = await authService.createOAuthExchangeCode(auth);
+      const exchangeCode = auth.oauthExchangeCodeHash
+        ? undefined
+        : await authService.createOAuthExchangeCode(auth);
+      if (auth.oauthExchangeCodeHash) {
+        await authService.createPreissuedOAuthExchangeCode(auth, auth.oauthExchangeCodeHash);
+      }
       // Production deep links are server configuration, not client input. This
       // keeps a mobile OAuth session from ever being redirected to a web URL.
       const runtimeReturnUrl = env.NODE_ENV === "production" ? undefined : auth.oauthReturnUrl;
       const mobileCallbackUrl = mobileAuthCallbackUrl(auth.session.clientType, {
-        code: exchangeCode,
+        ...(exchangeCode ? { code: exchangeCode } : {}),
         provider
       }, runtimeReturnUrl);
       if (!mobileCallbackUrl) throw new HttpError("Mobile OAuth callback URL is not configured.", 500);
       completedMobileCallbackUrl = mobileCallbackUrl;
+      completedMobileClientType = auth.session.clientType;
       logger.info("OAuth callback completed", {
         provider,
         clientType: auth.session.clientType,
         destination: "mobile"
       });
-      sendMobileOAuthHandoff(response, mobileCallbackUrl);
+      sendMobileOAuthHandoff(response, mobileCallbackUrl, auth.session.clientType);
       return;
     }
     logger.info("OAuth callback completed", {
@@ -314,7 +365,11 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
     // non-essential callback work fails. Falling back to the web app here
     // strands a mobile auth session in the browser with an unconsumed code.
     if (completedMobileCallbackUrl && !response.headersSent) {
-      sendMobileOAuthHandoff(response, completedMobileCallbackUrl);
+      if (completedMobileClientType) {
+        sendMobileOAuthHandoff(response, completedMobileCallbackUrl, completedMobileClientType);
+      } else {
+        response.redirect(302, completedMobileCallbackUrl);
+      }
       return;
     }
     if (response.headersSent) return;

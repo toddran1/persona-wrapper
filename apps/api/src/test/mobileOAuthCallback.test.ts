@@ -74,8 +74,8 @@ describe("mobile OAuth callback", () => {
     expect(state.statusCode).toBe(200);
     expect(state.contentType).toBe("html");
     expect(state.headers["Cache-Control"]).toContain("no-store");
-    expect(state.body).toContain("personawrapper://auth/callback?code=exchange-code&amp;provider=facebook");
-    expect(state.body).toContain('window.location.replace("personawrapper://auth/callback?code=exchange-code&provider=facebook")');
+    expect(state.body).toContain("intent://auth/callback?code=exchange-code&amp;provider=facebook#Intent;scheme=personawrapper;package=com.personawrapper.mobile;end");
+    expect(state.body).toContain('window.location.replace("intent://auth/callback?code=exchange-code&provider=facebook#Intent;scheme=personawrapper;package=com.personawrapper.mobile;end")');
     expect(response.redirect).not.toHaveBeenCalled();
   });
 });
