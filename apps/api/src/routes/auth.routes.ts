@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authRateLimit } from "../middleware/authRateLimit.js";
+import { authRateLimit, mobileOAuthPollRateLimit } from "../middleware/authRateLimit.js";
 import {
   deleteAccount,
   deleteActiveSession,
@@ -47,7 +47,7 @@ authRouter.post("/oauth/exchange", (request, response, next) => {
   postOAuthExchange(request, response).catch(next);
 });
 
-authRouter.post("/oauth/mobile-exchange", (request, response, next) => {
+authRouter.post("/oauth/mobile-exchange", mobileOAuthPollRateLimit, (request, response, next) => {
   postMobileOAuthExchange(request, response).catch(next);
 });
 
