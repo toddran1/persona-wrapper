@@ -41,13 +41,16 @@ export function logClientEvent(name: ClientEventName, options: {
     status: options.status
   };
   console[level === "error" ? "error" : level === "warn" ? "warn" : "info"]("[telemetry]", payload);
-  if (!sampled && level !== "error") return;
+  if (!telemetryEnabled || (!sampled && level !== "error")) return;
 
   const body = JSON.stringify(payload);
   try {
     if (navigator.sendBeacon) {
-      navigator.sendBeacon(`${apiBaseUrl}/api/observability/client-events`, new Blob([body], { type: "application/json" }));
-      return;
+      const queued = navigator.sendBeacon(
+        `${apiBaseUrl}/api/observability/client-events`,
+        new Blob([body], { type: "application/json" })
+      );
+      if (queued) return;
     }
     void fetch(`${apiBaseUrl}/api/observability/client-events`, {
       method: "POST",

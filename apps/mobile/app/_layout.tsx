@@ -6,6 +6,8 @@ import { useEffect, type ComponentType, type PropsWithChildren } from "react";
 import type { ViewProps } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { MobileErrorBoundary } from "../src/components/MobileErrorBoundary";
+import { LocalizationProvider } from "../src/localization/LocalizationProvider";
+import { NetworkProvider } from "../src/network/NetworkProvider";
 
 const AppGestureHandlerRootView = GestureHandlerRootView as ComponentType<PropsWithChildren<ViewProps>>;
 
@@ -18,10 +20,14 @@ export default function RootLayout() {
 
   return (
     <AppGestureHandlerRootView style={{ flex: 1 }}>
-      <MobileErrorBoundary>
-        <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false }} />
-      </MobileErrorBoundary>
+      <LocalizationProvider>
+        <NetworkProvider>
+          <MobileErrorBoundary>
+            <StatusBar style="light" />
+            <Stack screenOptions={{ headerShown: false }} />
+          </MobileErrorBoundary>
+        </NetworkProvider>
+      </LocalizationProvider>
     </AppGestureHandlerRootView>
   );
 }

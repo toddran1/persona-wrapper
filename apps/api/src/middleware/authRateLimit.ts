@@ -40,7 +40,11 @@ export function authRateLimit(request: Request, response: Response, next: NextFu
   if (entry.count > env.AUTH_RATE_LIMIT_REQUESTS) {
     const retryAfterSeconds = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
     response.setHeader("Retry-After", String(retryAfterSeconds));
-    response.status(429).json({ error: "Too many authentication attempts. Please try again later." });
+    response.status(429).json({
+      error: "Too many authentication attempts. Please try again later.",
+      code: "RATE_LIMITED",
+      requestId: response.locals.requestId
+    });
     return;
   }
 

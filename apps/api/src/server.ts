@@ -3,7 +3,9 @@ import { env } from "./config/env.js";
 import { closeDatabase } from "./db/client.js";
 import { backgroundCleanupService } from "./services/backgroundCleanupService.js";
 import { logger } from "./utils/logger.js";
+import { initializeTelemetry, shutdownTelemetry } from "./utils/telemetry.js";
 
+initializeTelemetry({ endpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT, serviceName: env.OTEL_SERVICE_NAME });
 const app = createApp();
 let shuttingDown = false;
 
@@ -32,15 +34,24 @@ const shutdown = (reason: string, exitCode = 0): void => {
   forceExitTimer.unref();
 
   server.close(async () => {
+    let shutdownFailed = false;
     try {
       await closeDatabase();
     } catch (error) {
-      process.exitCode = 1;
+      shutdownFailed = true;
       logger.error("Failed to close database during shutdown", error);
-    } finally {
-      clearTimeout(forceExitTimer);
-      process.exit(process.exitCode ?? exitCode);
     }
+    try {
+      await shutdownTelemetry();
+    } catch (error) {
+      shutdownFailed = true;
+      logger.error("Failed to flush telemetry during shutdown", {
+        errorName: error instanceof Error ? error.name : "UnknownError"
+      });
+    }
+    if (shutdownFailed) process.exitCode = 1;
+    clearTimeout(forceExitTimer);
+    process.exit(process.exitCode ?? exitCode);
   });
 };
 

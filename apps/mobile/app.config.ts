@@ -23,6 +23,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    ["expo-localization", { supportedLocales: ["en"] }],
     "./plugins/withQuotedExpoConstantsScript",
     [
       "expo-splash-screen",

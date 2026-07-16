@@ -293,6 +293,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
     if (activeClip.media === "image") {
       return (
         <Image
+          accessible={false}
           source={source}
           resizeMode="cover"
           style={styles.media}

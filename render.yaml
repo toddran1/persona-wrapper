@@ -29,6 +29,9 @@ services:
         value: 22.13.0
       - key: APP_TEST_MODE
         value: "false"
+      # Render terminates HTTPS one proxy hop in front of the Node service.
+      - key: API_TRUST_PROXY_HOPS
+        value: "1"
       - key: DATABASE_URL
         fromDatabase:
           name: for-the-baddiez-db-dev
@@ -42,6 +45,22 @@ services:
         value: https://for-the-baddiez-web-dev.onrender.com
       - key: OBSERVABILITY_DASHBOARD_TOKEN
         sync: false
+      # Copy the endpoint and Authorization header from the Grafana Cloud
+      # OpenTelemetry connection. Both stay disabled until configured.
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_HEADERS
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+      - key: OTEL_SERVICE_NAME
+        value: for-the-baddiez-api-dev
+      - key: OTEL_RESOURCE_ATTRIBUTES
+        value: deployment.environment.name=development,service.namespace=for-the-baddiez
+      - key: OTEL_TRACES_SAMPLER
+        value: parentbased_traceidratio
+      - key: OTEL_TRACES_SAMPLER_ARG
+        value: "0.25"
       - key: OAUTH_REDIRECT_BASE_URL
         value: https://for-the-baddiez-api-dev.onrender.com
       - key: IOS_OAUTH_REDIRECT_URL

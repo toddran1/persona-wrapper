@@ -15,6 +15,7 @@ describe("web API authentication refresh", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
     localStorage.clear();
   });
 
@@ -54,5 +55,35 @@ describe("web API authentication refresh", () => {
     ));
 
     await expect(api.exportAccountData()).rejects.toThrow("Authentication required.");
+  });
+
+  it("times out stalled API requests instead of leaving the UI pending", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_url: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    })));
+
+    const request = api.getPersonas();
+    const assertion = expect(request).rejects.toThrow("The app server took too long to respond. Please try again.");
+    await vi.advanceTimersByTimeAsync(130_000);
+
+    await assertion;
+  });
+
+  it("preserves caller cancellation for chat requests", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal("fetch", vi.fn((_url: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+    })));
+
+    const request = api.sendChat({
+      personaId: "larae",
+      message: "hello",
+      provider: "openai_persona",
+      audio: false
+    }, controller.signal);
+    controller.abort();
+
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
   });
 });

@@ -42,8 +42,8 @@ export function getClientContext(): ClientContext {
   };
 }
 
-export function formatConversationTime(value: string): string {
+export function formatConversationTime(value: string, locale?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
 }

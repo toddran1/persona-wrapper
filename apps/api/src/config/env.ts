@@ -37,9 +37,13 @@ const envSchema = z.object({
   API_HEADERS_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
   API_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   API_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  API_TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   APP_TEST_MODE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   CORS_ALLOWED_ORIGINS: z.preprocess(emptyStringToUndefined, z.string().optional()),
   OBSERVABILITY_DASHBOARD_TOKEN: z.preprocess(optionalTrimmedString, z.string().min(24).optional()),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.preprocess(optionalTrimmedString, z.string().url().optional()),
+  OTEL_EXPORTER_OTLP_HEADERS: z.preprocess(optionalTrimmedString, z.string().min(1).optional()),
+  OTEL_SERVICE_NAME: z.preprocess(optionalTrimmedString, z.string().min(1).default("for-the-baddiez-api")),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_RUN_INTEGRATION_TESTS: z.preprocess(stringToBoolean, z.boolean().default(false)),
   OPENAI_MODEL: z.string().default("gpt-5.6-luna"),
@@ -176,6 +180,13 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["APP_TEST_MODE"],
       message: "APP_TEST_MODE must be disabled in production."
+    });
+  }
+  if (Boolean(value.OTEL_EXPORTER_OTLP_ENDPOINT) !== Boolean(value.OTEL_EXPORTER_OTLP_HEADERS)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["OTEL_EXPORTER_OTLP_ENDPOINT"],
+      message: "OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_HEADERS must be configured together."
     });
   }
   if (value.CORS_ALLOWED_ORIGINS) {

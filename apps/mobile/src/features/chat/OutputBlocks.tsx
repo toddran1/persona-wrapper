@@ -212,6 +212,8 @@ function OutputBlock({
     };
     return (
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${output.type === "file" ? "Download" : "Open"} ${title}`}
         style={[styles.linkCard, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.045)" }]}
         onPress={() => {
           void openOutput().catch((openError) => {
@@ -399,7 +401,7 @@ function ImageOutputBlock({
       <View style={[styles.mediaCard, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.045)" }]}>
         <Pressable accessibilityRole="imagebutton" accessibilityLabel="Open generated image" onPress={() => setViewerOpen(true)} style={styles.imageButton}>
           {displayImageUri ? (
-            <Image source={{ uri: displayImageUri }} style={styles.image} resizeMode="cover" onError={() => setImageError("Could not load this image.")} />
+            <Image accessible={false} source={{ uri: displayImageUri }} style={styles.image} resizeMode="cover" onError={() => setImageError("Could not load this image.")} />
           ) : (
             <View style={styles.image} />
           )}
@@ -421,7 +423,7 @@ function ImageOutputBlock({
           </Pressable>
         </View>
       </View>
-      <Modal visible={viewerOpen} animationType="fade" presentationStyle="fullScreen" onRequestClose={() => setViewerOpen(false)}>
+      <Modal accessibilityViewIsModal visible={viewerOpen} animationType="fade" presentationStyle="fullScreen" onRequestClose={() => setViewerOpen(false)}>
         <View
           style={[
             styles.viewer,
@@ -442,22 +444,22 @@ function ImageOutputBlock({
             </Pressable>
           </View>
           {displayImageUri ? (
-            <Image source={{ uri: displayImageUri }} style={styles.viewerImage} resizeMode="contain" />
+            <Image accessibilityLabel={output.alt} source={{ uri: displayImageUri }} style={styles.viewerImage} resizeMode="contain" />
           ) : (
             <View style={[styles.viewerImage, styles.viewerLoading]}>
               <ActivityIndicator color={theme.accent2} />
             </View>
           )}
           <View style={styles.viewerActions}>
-            <Pressable onPress={() => void openOriginal()} style={[styles.viewerActionButton, { borderColor: theme.border }]}>
+            <Pressable accessibilityRole="button" onPress={() => void openOriginal()} style={[styles.viewerActionButton, { borderColor: theme.border }]}>
               <Ionicons name="open-outline" size={18} color={theme.text} />
               <Text style={[styles.viewerActionText, { color: theme.text }]}>Open original</Text>
             </Pressable>
-            <Pressable onPress={() => void downloadImage()} style={[styles.viewerActionButton, { borderColor: theme.border }]}>
+            <Pressable accessibilityRole="button" onPress={() => void downloadImage()} style={[styles.viewerActionButton, { borderColor: theme.border }]}>
               <Ionicons name="download-outline" size={18} color={theme.text} />
               <Text style={[styles.viewerActionText, { color: theme.text }]}>Download</Text>
             </Pressable>
-            <Pressable onPress={() => void copyPrompt()} style={[styles.viewerActionButton, { borderColor: theme.border }]}>
+            <Pressable accessibilityRole="button" onPress={() => void copyPrompt()} style={[styles.viewerActionButton, { borderColor: theme.border }]}>
               <Ionicons name="copy-outline" size={18} color={theme.text} />
               <Text style={[styles.viewerActionText, { color: theme.text }]}>Copy prompt</Text>
             </Pressable>

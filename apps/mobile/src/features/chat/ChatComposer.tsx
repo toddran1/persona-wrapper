@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type LayoutCh
 import { Ionicons } from "@expo/vector-icons";
 import type { MobileTheme } from "../../theme/personaTheme";
 import type { MobilePickedFile } from "./types";
+import { useLocalization } from "../../localization/LocalizationProvider";
 
 type ChatComposerProps = {
   theme: MobileTheme;
@@ -39,6 +40,7 @@ export function ChatComposer({
   onRemoveAttachment,
   onSubmit
 }: ChatComposerProps) {
+  const { t } = useLocalization();
   const [draft, setDraft] = useState("");
   const canSend = draft.trim().length > 0 && !disabled && !uploadingAttachments;
 
@@ -73,7 +75,7 @@ export function ChatComposer({
               <Text style={[styles.attachmentName, { color: theme.text }]} numberOfLines={1}>{attachment.name}</Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Remove ${attachment.name}`}
+                accessibilityLabel={t("composer.removeAttachment", { name: attachment.name })}
                 onPress={() => onRemoveAttachment(attachment.id)}
                 style={styles.removeAttachment}
               >
@@ -87,7 +89,8 @@ export function ChatComposer({
         <Pressable
           accessibilityRole="button"
           testID="mobile-attach-file"
-          accessibilityLabel="Attach file"
+          accessibilityLabel={t("composer.attach")}
+          accessibilityState={{ disabled: Boolean(disabled || uploadingAttachments) }}
           disabled={disabled || uploadingAttachments}
           onPress={onAttach}
           style={styles.sideButton}
@@ -96,11 +99,11 @@ export function ChatComposer({
         </Pressable>
         <TextInput
           testID="mobile-chat-composer"
-          accessibilityLabel="Chat message"
+          accessibilityLabel={t("composer.message")}
           value={draft}
           onChangeText={updateDraft}
           editable={!disabled && !uploadingAttachments}
-          placeholder={uploadingAttachments ? "Uploading attachments..." : placeholder}
+          placeholder={uploadingAttachments ? t("composer.uploading") : placeholder}
           placeholderTextColor={theme.muted}
           multiline
           maxLength={4000}
@@ -111,7 +114,7 @@ export function ChatComposer({
             <Pressable
               accessibilityRole="button"
               testID="mobile-send-message"
-              accessibilityLabel="Send message"
+              accessibilityLabel={t("composer.send")}
               onPress={submit}
               style={[styles.sendButton, { backgroundColor: theme.text }]}
             >
@@ -120,7 +123,8 @@ export function ChatComposer({
           ) : (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Voice input"
+              accessibilityLabel={t("composer.voice")}
+              accessibilityState={{ disabled: Boolean(disabled || uploadingAttachments), selected: voiceInputActive }}
               disabled={disabled || uploadingAttachments}
               onPress={onMicPress}
               style={[
@@ -137,7 +141,7 @@ export function ChatComposer({
           <Pressable
             accessibilityRole="button"
             testID="mobile-persona-audio-options"
-            accessibilityLabel="Persona audio options"
+            accessibilityLabel={t("composer.audio")}
             onPress={onAudioMenu}
             style={[
               styles.audioButton,

@@ -21,6 +21,7 @@ import { storageService } from "./services/storageService.js";
 import { HttpError } from "./utils/httpError.js";
 import { logger } from "./utils/logger.js";
 import { recordMetric, traceIdFromRequest, withObservabilityContext } from "./utils/observability.js";
+import { finishHttpRequestSpan, runWithTelemetrySpan, startHttpRequestSpan } from "./utils/telemetry.js";
 
 function findRepoRoot(startDir: string): string {
   let current = startDir;
@@ -136,6 +137,10 @@ export function createApp() {
   const app = express();
   const personaAssetsRoot = resolve(findRepoRoot(process.cwd()), "apps/web/public/personas");
 
+  if (env.API_TRUST_PROXY_HOPS > 0) {
+    app.set("trust proxy", env.API_TRUST_PROXY_HOPS);
+  }
+
   const allowedOrigins = env.CORS_ALLOWED_ORIGINS
     ?.split(",")
     .map((origin) => origin.trim())
@@ -167,6 +172,7 @@ export function createApp() {
     const startedAt = performance.now();
     response.setHeader("X-Request-Id", requestId);
     response.setHeader("X-Trace-Id", traceId);
+    const telemetrySpan = startHttpRequestSpan(request.method, traceId);
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("X-Frame-Options", "DENY");
     response.setHeader("Referrer-Policy", "no-referrer");
@@ -177,13 +183,14 @@ export function createApp() {
     }
     response.once("finish", () => {
       const durationMs = performance.now() - startedAt;
-      const route = request.route?.path ? `${request.baseUrl}${request.route.path}` : request.path;
+      const route = request.route?.path ? `${request.baseUrl}${request.route.path}` : "unmatched";
       const outcome = response.statusCode >= 500 ? "failure" : "success";
       recordMetric("http.server.request", {
         durationMs,
         outcome,
         attributes: { method: request.method, route, status: response.statusCode }
       });
+      finishHttpRequestSpan(telemetrySpan, { route, status: response.statusCode, durationMs });
       if (response.statusCode >= 500 || durationMs >= 5000) {
         logger[response.statusCode >= 500 ? "error" : "warn"]("API request completed", {
           requestId,
@@ -195,7 +202,7 @@ export function createApp() {
         });
       }
     });
-    withObservabilityContext({ requestId, traceId }, next);
+    runWithTelemetrySpan(telemetrySpan, () => withObservabilityContext({ requestId, traceId }, next));
   });
   app.use(cors(corsOptions));
   app.options("*", cors(corsOptions));

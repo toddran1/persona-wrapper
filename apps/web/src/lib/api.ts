@@ -33,6 +33,46 @@ const OWNER_ID_KEY = "persona-wrapper-owner-id";
 const AUTH_TOKENS_KEY = "persona-wrapper-auth-tokens";
 let fallbackOwnerId: string | undefined;
 let authRefreshInFlight: Promise<boolean> | undefined;
+const API_REQUEST_TIMEOUT_MS = 130_000;
+const AUTH_REFRESH_TIMEOUT_MS = 30_000;
+
+class RequestTimeoutError extends Error {
+  constructor() {
+    super("The app server took too long to respond. Please try again.");
+    this.name = "RequestTimeoutError";
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = API_REQUEST_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const externalSignal = init.signal;
+  const abortFromCaller = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) abortFromCaller();
+  else externalSignal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (timedOut && isAbortError(error)) throw new RequestTimeoutError();
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", abortFromCaller);
+  }
+}
 
 export function resolveApiUrl(pathOrUrl: string): string {
   return pathOrUrl.startsWith("/") ? `${API_BASE_URL}${pathOrUrl}` : pathOrUrl;
@@ -237,11 +277,11 @@ async function performStoredAuthRefresh(): Promise<boolean> {
   if (!refreshToken) return false;
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+    response = await fetchWithTimeout(`${API_BASE_URL}/api/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-client-type": "web" },
       body: JSON.stringify({ refreshToken, clientType: "web" })
-    });
+    }, AUTH_REFRESH_TIMEOUT_MS);
   } catch {
     return false;
   }
@@ -271,12 +311,14 @@ async function requestJson<T>(path: string, init?: RequestInit, options?: { skip
   const startedAt = performance.now();
   const traceId = newClientTraceId();
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
       ...rest,
       headers: requestHeaders(true, { ...(headers ?? {}), "x-client-trace-id": traceId })
     });
   } catch (error) {
     logClientEvent("client_api_request", { level: "error", error, message: `Network request failed: ${path}`, durationMs: performance.now() - startedAt, traceId });
+    if (rest.signal?.aborted && isAbortError(error)) throw error;
+    if (error instanceof RequestTimeoutError) throw error;
     throw new Error("Could not connect to the app server. Make sure the API is running.");
   }
 
@@ -300,11 +342,13 @@ async function requestNoContent(path: string, init?: RequestInit, options?: { sk
   const { headers, ...rest } = init ?? {};
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
       ...rest,
       headers: requestHeaders(false, headers)
     });
   } catch (error) {
+    if (rest.signal?.aborted && isAbortError(error)) throw error;
+    if (error instanceof RequestTimeoutError) throw error;
     throw new Error("Could not connect to the app server. Make sure the API is running.");
   }
   if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
@@ -319,12 +363,12 @@ export const api = {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       let response: Response;
       try {
-        response = await fetch(resolvedUrl, {
+        response = await fetchWithTimeout(resolvedUrl, {
           headers: requestHeaders(false),
           ...(signal ? { signal } : {})
         });
       } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") throw error;
+        if (isAbortError(error) || error instanceof RequestTimeoutError) throw error;
         throw new Error("Could not download this file from the app server.");
       }
       if (response.status === 401 && attempt === 0 && await refreshStoredAuth()) continue;
@@ -339,14 +383,14 @@ export const api = {
       files.forEach((file) => body.append("files", file));
       let response: Response;
       try {
-        response = await fetch(`${API_BASE_URL}/api/uploads`, {
+        response = await fetchWithTimeout(`${API_BASE_URL}/api/uploads`, {
           method: "POST",
           headers: requestHeaders(false),
           body,
           ...(signal ? { signal } : {})
         });
       } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") throw error;
+        if (isAbortError(error) || error instanceof RequestTimeoutError) throw error;
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(`Could not reach API at ${API_BASE_URL}/api/uploads: ${message}`);
       }

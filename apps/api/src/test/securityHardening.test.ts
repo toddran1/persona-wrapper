@@ -20,6 +20,7 @@ describe("security hardening", () => {
 
     for (let index = 0; index <= env.AUTH_RATE_LIMIT_REQUESTS; index += 1) {
       const response = {
+        locals: { requestId: "request-rate-limit" },
         setHeader: vi.fn(),
         status: vi.fn().mockReturnThis(),
         json: vi.fn()
@@ -27,7 +28,11 @@ describe("security hardening", () => {
       authRateLimit(request, response, next as unknown as NextFunction);
       if (index === env.AUTH_RATE_LIMIT_REQUESTS) {
         expect(response.status).toHaveBeenCalledWith(429);
-        expect(response.json).toHaveBeenCalledWith({ error: "Too many authentication attempts. Please try again later." });
+        expect(response.json).toHaveBeenCalledWith({
+          error: "Too many authentication attempts. Please try again later.",
+          code: "RATE_LIMITED",
+          requestId: "request-rate-limit"
+        });
       }
     }
 

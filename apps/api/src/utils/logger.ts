@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { emitTelemetryLog } from "./telemetry.js";
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -42,6 +43,7 @@ function write(level: LogLevel, message: string, payload?: unknown): void {
   };
 
   const serialized = safeSerialize(line);
+  emitTelemetryLog(level, message, payload);
   if (level === "error") {
     console.error(serialized);
     return;

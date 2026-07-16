@@ -41,6 +41,9 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
 import { IconButton } from "../../components/IconButton";
+import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
+import { useLocalization } from "../../localization/LocalizationProvider";
+import { useNetwork } from "../../network/NetworkProvider";
 import { clearSelectedConversationId, getAuthTokens, getSelectedConversationId, setSelectedConversationId } from "../../storage/secureTokens";
 import { defaultPersonaTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
@@ -148,6 +151,8 @@ function formatSessionActivity(value: string): string {
 }
 
 export function MobileChatScreen() {
+  const { t } = useLocalization();
+  const { isOnline, recentlyRestored } = useNetwork();
   const insets = useSafeAreaInsets();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const drawerWidth = windowWidth;
@@ -225,6 +230,7 @@ export function MobileChatScreen() {
   const selectionGenerationRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
   const sessionValidationInFlightRef = useRef(false);
+  const appDataReloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
@@ -254,6 +260,11 @@ export function MobileChatScreen() {
   useEffect(() => {
     if (!audioEnabled) void releaseCurrentAudioPlayback();
   }, [audioEnabled]);
+
+  useEffect(() => {
+    if (!recentlyRestored || !authChecked) return;
+    void retryLoadAppData();
+  }, [recentlyRestored]);
 
   function clearVisualStateTimer(): void {
     if (!visualStateTimerRef.current) return;
@@ -349,6 +360,7 @@ export function MobileChatScreen() {
   }, [openDrawer]);
 
   useEffect(() => {
+    let active = true;
     const subscription = AppState.addEventListener("change", (nextState) => {
       const previousState = appStateRef.current;
       appStateRef.current = nextState;
@@ -358,11 +370,12 @@ export function MobileChatScreen() {
         void releaseCurrentAudioPlayback();
       }
       const resumed = (previousState === "background" || previousState === "inactive") && nextState === "active";
-      if (!resumed || !authUser || sessionValidationInFlightRef.current) return;
+      if (!resumed || !authUser || !isOnline || sessionValidationInFlightRef.current) return;
 
       sessionValidationInFlightRef.current = true;
       void loadAuthenticatedUser()
         .then((user) => {
+          if (!active) return;
           if (user) {
             setAuthUser(user);
             return;
@@ -382,6 +395,7 @@ export function MobileChatScreen() {
           void clearSelectedConversationId();
         })
         .catch((validationError) => {
+          if (!active) return;
           setError(validationError instanceof Error
             ? `Could not verify your session after reconnecting. ${validationError.message}`
             : "Could not verify your session after reconnecting.");
@@ -390,8 +404,11 @@ export function MobileChatScreen() {
           sessionValidationInFlightRef.current = false;
         });
     });
-    return () => subscription.remove();
-  }, [authUser, closeDrawer]);
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [authUser, closeDrawer, isOnline]);
 
   useEffect(() => {
     if (Platform.OS !== "android" || !authUser) return;
@@ -569,40 +586,49 @@ export function MobileChatScreen() {
     }
   }
 
-  async function retryLoadAppData(): Promise<void> {
-    setLoading(true);
-    setError(undefined);
-    setAuthError(undefined);
-    setAuthChecked(false);
-    try {
-      const [user, providers] = await Promise.all([
-        loadAuthenticatedUser(),
-        api.getOAuthProviders().catch(() => [])
-      ]);
-      setAuthUser(user);
-      setOAuthProviders(providers);
+  function retryLoadAppData(): Promise<void> {
+    if (appDataReloadInFlightRef.current) return appDataReloadInFlightRef.current;
 
-      const personaList = await api.getPersonas();
-      setPersonas(personaList);
-      const selected = persona ?? personaList[0];
-      if (selected) {
-        const detail = await api.getPersona(selected.id);
-        setPersona(detail);
-        setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
-      }
-      if (user) {
-        const nextConversations = await refreshConversations();
-        const savedConversationId = await getSelectedConversationId();
-        if (!conversationId && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
-          await selectConversation(savedConversationId, { keepDrawerOpen: true });
+    const reload = (async () => {
+      setLoading(true);
+      setError(undefined);
+      setAuthError(undefined);
+      setAuthChecked(false);
+      try {
+        const [user, providers] = await Promise.all([
+          loadAuthenticatedUser(),
+          api.getOAuthProviders().catch(() => [])
+        ]);
+        setAuthUser(user);
+        setOAuthProviders(providers);
+
+        const personaList = await api.getPersonas();
+        setPersonas(personaList);
+        const selected = persona ?? personaList[0];
+        if (selected) {
+          const detail = await api.getPersona(selected.id);
+          setPersona(detail);
+          setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
         }
+        if (user) {
+          const nextConversations = await refreshConversations();
+          const savedConversationId = await getSelectedConversationId();
+          if (!conversationId && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
+            await selectConversation(savedConversationId, { keepDrawerOpen: true });
+          }
+        }
+      } catch (retryError) {
+        setError(retryError instanceof Error ? retryError.message : "Could not load mobile app data.");
+      } finally {
+        setAuthChecked(true);
+        setLoading(false);
       }
-    } catch (retryError) {
-      setError(retryError instanceof Error ? retryError.message : "Could not load mobile app data.");
-    } finally {
-      setAuthChecked(true);
-      setLoading(false);
-    }
+    })();
+    appDataReloadInFlightRef.current = reload;
+    void reload.finally(() => {
+      if (appDataReloadInFlightRef.current === reload) appDataReloadInFlightRef.current = undefined;
+    });
+    return reload;
   }
 
   function appendPickedFiles(files: MobilePickedFile[]): void {
@@ -1184,6 +1210,7 @@ export function MobileChatScreen() {
       await finishAuth(auth.user);
       closeDrawer();
     } catch (exchangeError) {
+      exchangedOAuthCodesRef.current.delete(code);
       setAuthError(exchangeError instanceof Error ? exchangeError.message : "Could not finish sign in.");
     } finally {
       setAuthBusy(false);
@@ -1238,13 +1265,20 @@ export function MobileChatScreen() {
   }, []);
 
   useEffect(() => {
+    let active = true;
     void Linking.getInitialURL()
-      .then((url) => handleOAuthCallback(url))
-      .catch(() => setAuthError("Could not complete the sign-in callback. Please try again."));
+      .then((url) => {
+        if (active) return handleOAuthCallback(url);
+        return undefined;
+      })
+      .catch(() => {
+        if (active) setAuthError("Could not complete the sign-in callback. Please try again.");
+      });
     const subscription = Linking.addEventListener("url", (event) => {
-      void handleOAuthCallback(event.url);
+      if (active) void handleOAuthCallback(event.url);
     });
     return () => {
+      active = false;
       subscription.remove();
     };
   }, []);
@@ -1418,6 +1452,10 @@ export function MobileChatScreen() {
 
   async function submit(message: string, options?: { files?: MobilePickedFile[] }): Promise<void> {
     if (!activePersona || sending || activeChatAbortControllerRef.current) return;
+    if (!isOnline) {
+      setError(t("network.offlineBody"));
+      return;
+    }
     const controller = new AbortController();
     activeChatAbortControllerRef.current = controller;
     setSending(true);
@@ -1598,6 +1636,10 @@ export function MobileChatScreen() {
   }
 
   async function refreshActiveSessions(): Promise<void> {
+    if (!isOnline) {
+      setSessionsError("Connect to the internet to refresh active devices.");
+      return;
+    }
     setSessionsLoading(true);
     setSessionsError(undefined);
     try {
@@ -1811,7 +1853,7 @@ export function MobileChatScreen() {
             ]}
           >
           <View style={[styles.topBar, personaCardExpanded ? styles.layerAbovePersonaBackground : null]}>
-            <IconButton name="menu" label="Open chats" theme={theme} onPress={openDrawer} testID="mobile-open-chats" />
+            <IconButton name="menu" label={t("chat.openChats")} theme={theme} onPress={openDrawer} testID="mobile-open-chats" />
             <View style={styles.titleBlock}>
               <Text style={[styles.personaName, { color: theme.text }]} numberOfLines={1}>
                 {activePersona?.name ?? "For the Baddiez"}
@@ -1822,11 +1864,13 @@ export function MobileChatScreen() {
             </View>
             <IconButton
               name={audioEnabled ? "volume-high" : "volume-mute-outline"}
-              label={audioEnabled ? "Disable audio" : "Enable audio"}
+              label={audioEnabled ? t("chat.disableAudio") : t("chat.enableAudio")}
               theme={theme}
               onPress={() => setAudioEnabled((enabled) => !enabled)}
             />
           </View>
+
+          <NetworkStatusBanner theme={theme} onRetry={() => void retryLoadAppData()} />
 
           {activePersona?.visualStage ? (
             <PersonaVisualStage
@@ -1845,7 +1889,7 @@ export function MobileChatScreen() {
           {personaCardExpanded ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Minimize persona background"
+              accessibilityLabel={t("chat.minimizePersona")}
               onPress={() => setPersonaCardExpanded(false)}
               style={[
                 styles.personaMinimizeButton,
@@ -1858,13 +1902,15 @@ export function MobileChatScreen() {
           ) : null}
 
           {error ? (
-            <View style={[styles.error, personaCardExpanded ? styles.layerAbovePersonaBackground : null, { borderColor: theme.danger }]}>
+            <View accessibilityLiveRegion="assertive" accessibilityRole="alert" style={[styles.error, personaCardExpanded ? styles.layerAbovePersonaBackground : null, { borderColor: theme.danger }]}>
               <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("auth.tryAgain")}
                 onPress={() => void retryLoadAppData()}
                 style={[styles.errorRetryButton, { borderColor: theme.border }]}
               >
-                <Text style={[styles.errorRetryText, { color: theme.text }]}>Try again</Text>
+                <Text style={[styles.errorRetryText, { color: theme.text }]}>{t("auth.tryAgain")}</Text>
               </Pressable>
             </View>
           ) : null}
@@ -1879,9 +1925,9 @@ export function MobileChatScreen() {
             onScroll={handleConversationScroll}
           >
             {loading && turns.length === 0 ? (
-              <View style={styles.loadingState}>
+              <View accessibilityLiveRegion="polite" accessibilityLabel={t("chat.loadingPersonas")} style={styles.loadingState}>
                 <ActivityIndicator color={theme.accent2} />
-                <Text style={[styles.loadingText, { color: theme.muted }]}>Loading your personas...</Text>
+                <Text style={[styles.loadingText, { color: theme.muted }]}>{t("chat.loadingPersonas")}</Text>
               </View>
             ) : turns.length === 0 ? (
               <View style={[styles.emptyState, compactLayout ? styles.emptyStateCompact : null]}>
@@ -1895,6 +1941,7 @@ export function MobileChatScreen() {
                 >
                   {activePersona?.avatarUrl ? (
                     <Image
+                      accessibilityLabel={activePersona.name}
                       source={{ uri: api.resolveUrl(activePersona.avatarUrl) }}
                       style={styles.emptyAvatarImage}
                       resizeMode="cover"
@@ -1913,8 +1960,11 @@ export function MobileChatScreen() {
                   {suggestedPrompts.slice(0, 3).map((prompt) => (
                     <Pressable
                       key={prompt}
+                      accessibilityRole="button"
+                      accessibilityLabel={prompt}
+                      disabled={!isOnline}
                       onPress={() => void submit(prompt)}
-                      style={[styles.suggestion, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.045)" }]}
+                      style={[styles.suggestion, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.045)", opacity: isOnline ? 1 : 0.45 }]}
                     >
                       <Text style={[styles.suggestionText, { color: theme.text }]}>{prompt}</Text>
                     </Pressable>
@@ -1924,8 +1974,8 @@ export function MobileChatScreen() {
             ) : (
               <>
               {turnsCursor ? (
-                <Pressable accessibilityRole="button" onPress={() => void loadEarlierTurns()} style={[styles.loadEarlierButton, { borderColor: theme.border }]}>
-                  {loadingEarlierTurns ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.loadEarlierText, { color: theme.text }]}>Load earlier messages</Text>}
+                <Pressable accessibilityRole="button" accessibilityLabel={t("chat.loadEarlier")} disabled={!isOnline || loadingEarlierTurns} onPress={() => void loadEarlierTurns()} style={[styles.loadEarlierButton, { borderColor: theme.border, opacity: isOnline ? 1 : 0.45 }]}>
+                  {loadingEarlierTurns ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.loadEarlierText, { color: theme.text }]}>{t("chat.loadEarlier")}</Text>}
                 </Pressable>
               ) : null}
               {turns.map((turn) => (
@@ -1980,7 +2030,7 @@ export function MobileChatScreen() {
                         >
                           <Ionicons name="refresh" size={16} color={theme.accent2} />
                           <Text style={[styles.checkStatusText, { color: theme.text }]}>
-                            {resumingJobId === turn.backgroundJobId ? "Checking..." : "Check status"}
+                            {resumingJobId === turn.backgroundJobId ? t("chat.checking") : t("chat.checkStatus")}
                           </Text>
                         </Pressable>
                       ) : null}
@@ -2005,7 +2055,7 @@ export function MobileChatScreen() {
           {showScrollToBottom && turns.length > 0 ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Scroll to latest message"
+              accessibilityLabel={t("chat.scrollLatest")}
               onPress={scrollConversationToBottom}
               style={[
                 styles.scrollToBottomButton,
@@ -2020,12 +2070,12 @@ export function MobileChatScreen() {
           <ChatComposer
             theme={theme}
             compact={compactLayout}
-            disabled={sending || !activePersona}
+            disabled={sending || !activePersona || !isOnline}
             uploadingAttachments={uploadingAttachments}
             voiceInputActive={voiceInputActive}
             attachments={selectedFiles}
             draftMessage={composerDraft}
-            placeholder={voiceInputActive ? "Listening..." : activePersona?.promptPlaceholder ?? "Ask anything"}
+            placeholder={!isOnline ? t("chat.offlineComposer") : voiceInputActive ? t("chat.listening") : activePersona?.promptPlaceholder ?? t("chat.askAnything")}
             onAttach={openAttachmentPicker}
             onAudioMenu={showPersonaAudioMenu}
             onDraftChange={updateComposerDraft}
@@ -2040,7 +2090,7 @@ export function MobileChatScreen() {
 
       {drawerInteractive ? (
         <Animated.View style={[styles.overlay, overlayStyle]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeDrawer} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close chats" style={StyleSheet.absoluteFill} onPress={closeDrawer} />
         </Animated.View>
       ) : null}
 
@@ -2238,15 +2288,16 @@ export function MobileChatScreen() {
         </ScrollView>
       ) : null}
 
-      <Modal visible={deleteAccountVisible} transparent animationType="fade" onRequestClose={() => setDeleteAccountVisible(false)}>
+      <Modal accessibilityViewIsModal visible={deleteAccountVisible} transparent animationType="fade" onRequestClose={() => setDeleteAccountVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setDeleteAccountVisible(false)} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close delete account dialog" style={StyleSheet.absoluteFill} onPress={() => setDeleteAccountVisible(false)} />
           <View style={[styles.loginCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
             <Text style={[styles.loginTitle, { color: theme.text }]}>Delete account?</Text>
             <Text style={{ color: theme.muted, lineHeight: 20 }}>
               You will be signed out immediately. Your account and all chats, uploads, images, and audio will be permanently deleted after 30 days unless you restore it.
             </Text>
             <TextInput
+              accessibilityLabel="Type DELETE to confirm account deletion"
               testID="mobile-delete-confirmation"
               value={deleteConfirmation}
               onChangeText={setDeleteConfirmation}
@@ -2256,6 +2307,7 @@ export function MobileChatScreen() {
               style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
             />
             <TextInput
+              accessibilityLabel="Password for account deletion"
               testID="mobile-delete-password"
               value={deletePassword}
               onChangeText={setDeletePassword}
@@ -2266,10 +2318,10 @@ export function MobileChatScreen() {
             />
             {deleteAccountError ? <Text style={{ color: theme.danger }}>{deleteAccountError}</Text> : null}
             <View style={styles.renameActions}>
-              <Pressable disabled={deleteAccountBusy} onPress={() => setDeleteAccountVisible(false)} style={[styles.renameSecondaryButton, { borderColor: theme.border }]}>
+              <Pressable accessibilityRole="button" disabled={deleteAccountBusy} onPress={() => setDeleteAccountVisible(false)} style={[styles.renameSecondaryButton, { borderColor: theme.border }]}>
                 <Text style={{ color: theme.text }}>Cancel</Text>
               </Pressable>
-              <Pressable testID="mobile-delete-confirm" disabled={deleteAccountBusy || deleteConfirmation !== "DELETE"} onPress={() => void deleteAccount()} style={[styles.renamePrimaryButton, { backgroundColor: theme.danger, opacity: deleteConfirmation === "DELETE" ? 1 : 0.45 }]}>
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: deleteAccountBusy || deleteConfirmation !== "DELETE" }} testID="mobile-delete-confirm" disabled={deleteAccountBusy || deleteConfirmation !== "DELETE"} onPress={() => void deleteAccount()} style={[styles.renamePrimaryButton, { backgroundColor: theme.danger, opacity: deleteConfirmation === "DELETE" ? 1 : 0.45 }]}>
                 <Text style={{ color: "#fff", fontWeight: "800" }}>{deleteAccountBusy ? "Scheduling..." : "Delete account"}</Text>
               </Pressable>
             </View>
@@ -2278,13 +2330,14 @@ export function MobileChatScreen() {
       </Modal>
 
       <Modal
+        accessibilityViewIsModal
         visible={attachmentMenuVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setAttachmentMenuVisible(false)}
       >
         <View style={styles.actionSheetScrim}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setAttachmentMenuVisible(false)} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close attachment menu" style={StyleSheet.absoluteFill} onPress={() => setAttachmentMenuVisible(false)} />
           <View style={[styles.attachmentSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <View style={[styles.attachmentSheetHandle, { backgroundColor: theme.border }]} />
             <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Add to message</Text>
@@ -2307,7 +2360,7 @@ export function MobileChatScreen() {
                 <Text style={[styles.attachmentSheetHint, { color: theme.muted }]}>Documents, PDFs, and more</Text>
               </View>
             </Pressable>
-            <Pressable style={styles.actionSheetCancel} onPress={() => setAttachmentMenuVisible(false)}>
+            <Pressable accessibilityRole="button" style={styles.actionSheetCancel} onPress={() => setAttachmentMenuVisible(false)}>
               <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
             </Pressable>
           </View>
@@ -2316,10 +2369,11 @@ export function MobileChatScreen() {
 
       {renameTarget ? (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setRenameTarget(undefined)} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close rename chat dialog" style={StyleSheet.absoluteFill} onPress={() => setRenameTarget(undefined)} />
           <View style={[styles.loginCard, styles.renameCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
             <Text style={[styles.loginTitle, { color: theme.text }]}>Rename chat</Text>
             <TextInput
+              accessibilityLabel="Chat title"
               value={renameTitle}
               onChangeText={setRenameTitle}
               placeholder="Chat title"
@@ -2329,12 +2383,14 @@ export function MobileChatScreen() {
             />
             <View style={styles.renameActions}>
               <Pressable
+                accessibilityRole="button"
                 onPress={() => setRenameTarget(undefined)}
                 style={[styles.renameSecondaryButton, { borderColor: theme.border }]}
               >
                 <Text style={[styles.renameSecondaryText, { color: theme.text }]}>Cancel</Text>
               </Pressable>
               <Pressable
+                accessibilityRole="button"
                 onPress={() => void renameConversation()}
                 style={[styles.renamePrimaryButton, { backgroundColor: theme.text }]}
               >
@@ -2345,17 +2401,18 @@ export function MobileChatScreen() {
         </KeyboardAvoidingView>
       ) : null}
       <Modal
+        accessibilityViewIsModal
         visible={Boolean(assistantActionTurn)}
         transparent
         animationType="slide"
         onRequestClose={() => setAssistantActionTurn(undefined)}
       >
         <View style={styles.actionSheetScrim}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setAssistantActionTurn(undefined)} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close response actions" style={StyleSheet.absoluteFill} onPress={() => setAssistantActionTurn(undefined)} />
           <View style={[styles.actionSheet, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Response actions</Text>
             {assistantActionTurn && assistantTextForDisplay(assistantActionTurn).trim() ? (
-              <Pressable style={styles.actionSheetRow} onPress={() => {
+              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
                 if (!assistantActionTurn) return;
                 const text = assistantTextForDisplay(assistantActionTurn);
                 setAssistantActionTurn(undefined);
@@ -2366,7 +2423,7 @@ export function MobileChatScreen() {
               </Pressable>
             ) : null}
             {assistantActionAudio ? (
-              <Pressable style={styles.actionSheetRow} onPress={() => {
+              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
                 const audio = assistantActionAudio;
                 setAssistantActionTurn(undefined);
                 void replayAudioOutput(audio);
@@ -2376,13 +2433,13 @@ export function MobileChatScreen() {
               </Pressable>
             ) : null}
             {assistantActionReferences.length > 0 ? (
-              <Pressable style={styles.actionSheetRow} onPress={() => showReferences(assistantActionReferences)}>
+              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => showReferences(assistantActionReferences)}>
                 <Ionicons name="book-outline" size={20} color={theme.text} />
                 <Text style={[styles.actionSheetText, { color: theme.text }]}>References</Text>
               </Pressable>
             ) : null}
             {assistantActionTurn ? (
-              <Pressable style={styles.actionSheetRow} onPress={() => {
+              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
                 const turn = assistantActionTurn;
                 setAssistantActionTurn(undefined);
                 void retryAssistantTurn(turn);
@@ -2392,7 +2449,7 @@ export function MobileChatScreen() {
               </Pressable>
             ) : null}
             {assistantActionTurn && isStillRunningTurn(assistantActionTurn) ? (
-              <Pressable style={styles.actionSheetRow} onPress={() => {
+              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
                 const turn = assistantActionTurn;
                 setAssistantActionTurn(undefined);
                 void resumeBackgroundJob(turn);
@@ -2401,20 +2458,21 @@ export function MobileChatScreen() {
                 <Text style={[styles.actionSheetText, { color: theme.text }]}>Check status</Text>
               </Pressable>
             ) : null}
-            <Pressable style={styles.actionSheetCancel} onPress={() => setAssistantActionTurn(undefined)}>
+            <Pressable accessibilityRole="button" style={styles.actionSheetCancel} onPress={() => setAssistantActionTurn(undefined)}>
               <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
       <Modal
+        accessibilityViewIsModal
         visible={referenceSources.length > 0}
         transparent
         animationType="fade"
         onRequestClose={() => setReferenceSources([])}
       >
         <View style={styles.referenceScrim}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setReferenceSources([])} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close references" style={StyleSheet.absoluteFill} onPress={() => setReferenceSources([])} />
           <View style={[styles.referenceCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
             <View style={styles.referenceHeader}>
               <Text style={[styles.loginTitle, { color: theme.text }]}>References</Text>

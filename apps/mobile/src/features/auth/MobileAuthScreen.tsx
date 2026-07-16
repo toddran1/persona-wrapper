@@ -17,6 +17,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OAuthProvider, OAuthProviderStatus } from "@persona/shared";
 import type { MobileTheme } from "../../theme/personaTheme";
+import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
+import { useLocalization } from "../../localization/LocalizationProvider";
+import { useNetwork } from "../../network/NetworkProvider";
 
 const APP_LOGO = require("../../../assets/branding/For_the_Baddiez_logo_transparent.png");
 
@@ -61,12 +64,14 @@ export function MobileAuthScreen({
   onRetry,
   onOpenPublicPage
 }: MobileAuthScreenProps) {
+  const { t } = useLocalization();
+  const { isOnline } = useNetwork();
   const { height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [passwordVisible, setPasswordVisible] = useState(false);
   const compact = height < 700 || width < 360;
   const enabledProviders = oauthProviders.filter((provider) => provider.enabled);
-  const canSubmit = identifier.trim().length > 0 && password.length > 0 && !busy;
+  const canSubmit = identifier.trim().length > 0 && password.length > 0 && !busy && isOnline;
 
   return (
     <LinearGradient
@@ -85,15 +90,17 @@ export function MobileAuthScreen({
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.brandBlock}>
-            <Image accessibilityIgnoresInvertColors source={APP_LOGO} resizeMode="contain" style={[styles.logo, compact ? styles.logoCompact : null]} />
-            <Text style={[styles.brandName, { color: theme.text }]}>For the Baddiez</Text>
-            <Text style={[styles.brandLine, { color: theme.muted }]}>Your conversations. Your favorite personas. One account.</Text>
+            <Image accessible={false} accessibilityIgnoresInvertColors source={APP_LOGO} resizeMode="contain" style={[styles.logo, compact ? styles.logoCompact : null]} />
+            <Text style={[styles.brandName, { color: theme.text }]}>{t("app.name")}</Text>
+            <Text style={[styles.brandLine, { color: theme.muted }]}>{t("auth.brandLine")}</Text>
           </View>
 
+          <NetworkStatusBanner theme={theme} onRetry={onRetry} />
+
           {checkingSession ? (
-            <View accessibilityLabel="Restoring your session" style={styles.sessionLoader}>
+            <View accessibilityLiveRegion="polite" accessibilityLabel={t("auth.restoreSession")} style={styles.sessionLoader}>
               <ActivityIndicator color={theme.accent2} size="small" />
-              <Text style={[styles.sessionText, { color: theme.muted }]}>Restoring your session...</Text>
+              <Text style={[styles.sessionText, { color: theme.muted }]}>{t("auth.restoreSession")}</Text>
             </View>
           ) : (
             <View style={styles.form}>
@@ -111,7 +118,7 @@ export function MobileAuthScreen({
                       style={[styles.modeButton, selected ? { backgroundColor: theme.text } : null]}
                     >
                       <Text style={[styles.modeText, { color: selected ? theme.background : theme.muted }]}>
-                        {nextMode === "login" ? "Sign in" : "Create account"}
+                        {nextMode === "login" ? t("auth.signIn") : t("auth.createAccount")}
                       </Text>
                     </Pressable>
                   );
@@ -119,9 +126,9 @@ export function MobileAuthScreen({
               </View>
 
               <View style={styles.headingBlock}>
-                <Text style={[styles.title, { color: theme.text }]}>{mode === "login" ? "Welcome back" : mode === "restore" ? "Restore your account" : "Join the conversation"}</Text>
+                <Text style={[styles.title, { color: theme.text }]}>{mode === "login" ? t("auth.welcomeBack") : mode === "restore" ? t("auth.restoreAccount") : t("auth.joinConversation")}</Text>
                 <Text style={[styles.copy, { color: theme.muted }]}>
-                  {mode === "login" ? "Sign in to continue your chats." : mode === "restore" ? "Sign in before the recovery deadline to cancel deletion." : "Create an account to start and save your chats."}
+                  {mode === "login" ? t("auth.signInDescription") : mode === "restore" ? t("auth.restoreDescription") : t("auth.registerDescription")}
                 </Text>
               </View>
 
@@ -132,7 +139,7 @@ export function MobileAuthScreen({
                       key={providerStatus.provider}
                       accessibilityRole="button"
                       testID={`mobile-auth-oauth-${providerStatus.provider}`}
-                      disabled={busy}
+                      disabled={busy || !isOnline}
                       onPress={() => onOAuth(providerStatus.provider)}
                       style={({ pressed }) => [
                         styles.oauthButton,
@@ -141,12 +148,12 @@ export function MobileAuthScreen({
                       ]}
                     >
                       <Ionicons name={providerStatus.provider === "google" ? "logo-google" : "logo-facebook"} size={20} color={theme.text} />
-                      <Text style={[styles.oauthText, { color: theme.text }]}>Continue with {providerStatus.provider === "google" ? "Google" : "Facebook"}</Text>
+                      <Text style={[styles.oauthText, { color: theme.text }]}>{t("auth.continueWith", { provider: providerStatus.provider === "google" ? "Google" : "Facebook" })}</Text>
                     </Pressable>
                   ))}
                   <View style={styles.dividerRow}>
                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
-                    <Text style={[styles.dividerText, { color: theme.muted }]}>or</Text>
+                    <Text style={[styles.dividerText, { color: theme.muted }]}>{t("auth.or")}</Text>
                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
                   </View>
                 </View>
@@ -154,13 +161,13 @@ export function MobileAuthScreen({
 
               <View style={styles.fields}>
                 <View style={styles.fieldGroup}>
-                  <Text style={[styles.fieldLabel, { color: theme.muted }]}>Email or username</Text>
+                  <Text style={[styles.fieldLabel, { color: theme.muted }]}>{t("auth.identifier")}</Text>
                   <TextInput
                     testID="mobile-auth-identifier"
-                    accessibilityLabel="Email or username"
+                    accessibilityLabel={t("auth.identifier")}
                     autoCapitalize="none"
                     autoComplete="email"
-                    editable={!busy}
+                    editable={!busy && isOnline}
                     keyboardType="email-address"
                     value={identifier}
                     onChangeText={onIdentifierChange}
@@ -173,16 +180,16 @@ export function MobileAuthScreen({
 
                 {mode === "register" ? (
                   <View style={styles.fieldGroup}>
-                    <Text style={[styles.fieldLabel, { color: theme.muted }]}>Display name <Text style={styles.optional}>(optional)</Text></Text>
+                    <Text style={[styles.fieldLabel, { color: theme.muted }]}>{t("auth.displayName")} <Text style={styles.optional}>({t("auth.optional")})</Text></Text>
                     <TextInput
                       testID="mobile-auth-display-name"
-                      accessibilityLabel="Display name"
+                      accessibilityLabel={t("auth.displayName")}
                       autoCapitalize="words"
                       autoComplete="name"
-                      editable={!busy}
+                      editable={!busy && isOnline}
                       value={displayName}
                       onChangeText={onDisplayNameChange}
-                      placeholder="How should we address you?"
+                      placeholder={t("auth.displayNamePlaceholder")}
                       placeholderTextColor="rgba(200,189,216,0.54)"
                       returnKeyType="next"
                       style={[styles.input, { borderColor: theme.border, color: theme.text }]}
@@ -191,26 +198,26 @@ export function MobileAuthScreen({
                 ) : null}
 
                 <View style={styles.fieldGroup}>
-                  <Text style={[styles.fieldLabel, { color: theme.muted }]}>Password</Text>
+                  <Text style={[styles.fieldLabel, { color: theme.muted }]}>{t("auth.password")}</Text>
                   <View style={[styles.passwordShell, { borderColor: theme.border }]}>
                     <TextInput
                       testID="mobile-auth-password"
-                      accessibilityLabel="Password"
+                      accessibilityLabel={t("auth.password")}
                       autoCapitalize="none"
                       autoComplete={mode === "register" ? "new-password" : "current-password"}
-                      editable={!busy}
+                      editable={!busy && isOnline}
                       secureTextEntry={!passwordVisible}
                       value={password}
                       onChangeText={onPasswordChange}
                       onSubmitEditing={() => {
                         if (canSubmit) onSubmit();
                       }}
-                      placeholder={mode === "register" ? "At least 10 characters" : "Enter your password"}
+                      placeholder={mode === "register" ? t("auth.newPasswordPlaceholder") : t("auth.passwordPlaceholder")}
                       placeholderTextColor="rgba(200,189,216,0.54)"
                       returnKeyType="go"
                       style={[styles.passwordInput, { color: theme.text }]}
                     />
-                    <Pressable accessibilityLabel={passwordVisible ? "Hide password" : "Show password"} onPress={() => setPasswordVisible((visible) => !visible)} style={styles.passwordToggle}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={passwordVisible ? t("auth.hidePassword") : t("auth.showPassword")} onPress={() => setPasswordVisible((visible) => !visible)} style={styles.passwordToggle}>
                       <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={20} color={theme.muted} />
                     </Pressable>
                   </View>
@@ -223,7 +230,7 @@ export function MobileAuthScreen({
                   <View style={styles.errorCopy}>
                     <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
                     <Pressable accessibilityRole="button" disabled={busy} onPress={onRetry} style={styles.retryButton}>
-                      <Text style={[styles.retryText, { color: theme.accent2 }]}>Try again</Text>
+                      <Text style={[styles.retryText, { color: theme.accent2 }]}>{t("auth.tryAgain")}</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -239,7 +246,7 @@ export function MobileAuthScreen({
                   { backgroundColor: theme.accent2, opacity: !canSubmit ? 0.48 : pressed ? 0.84 : 1 }
                 ]}
               >
-                {busy ? <ActivityIndicator color="#170f21" /> : <Text style={styles.primaryText}>{mode === "login" ? "Sign in" : mode === "restore" ? "Restore account" : "Create account"}</Text>}
+                {busy ? <ActivityIndicator color="#170f21" /> : <Text style={styles.primaryText}>{mode === "login" ? t("auth.signIn") : mode === "restore" ? t("auth.restoreAction") : t("auth.createAccount")}</Text>}
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -248,16 +255,16 @@ export function MobileAuthScreen({
                 style={styles.recoveryLink}
               >
                 <Text style={[styles.retryText, { color: theme.accent2 }]}>
-                  {mode === "restore" ? "Back to sign in" : "Account scheduled for deletion? Restore it"}
+                  {mode === "restore" ? t("auth.backToSignIn") : t("auth.restorePrompt")}
                 </Text>
               </Pressable>
               <View style={[styles.aboutMenu, { borderTopColor: theme.border }]}>
-                <Text style={[styles.aboutMenuLabel, { color: theme.muted }]}>About</Text>
+                <Text style={[styles.aboutMenuLabel, { color: theme.muted }]}>{t("auth.about")}</Text>
                 {([
-                  ["Privacy Policy", "shield-checkmark-outline", "/privacy"],
-                  ["Terms of Use", "document-text-outline", "/terms"],
-                  ["Delete account policy", "person-remove-outline", "/delete-account"],
-                  ["Support", "help-circle-outline", "/support"]
+                  [t("about.privacy"), "shield-checkmark-outline", "/privacy"],
+                  [t("about.terms"), "document-text-outline", "/terms"],
+                  [t("about.delete"), "person-remove-outline", "/delete-account"],
+                  [t("about.support"), "help-circle-outline", "/support"]
                 ] as const).map(([label, icon, path]) => (
                   <Pressable
                     key={path}

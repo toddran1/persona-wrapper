@@ -3,6 +3,8 @@ import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInp
 import type { AuthUser, ConversationSummary, PersonaSummary } from "@persona/shared";
 import { Ionicons } from "@expo/vector-icons";
 import type { MobileTheme } from "../../theme/personaTheme";
+import { useLocalization } from "../../localization/LocalizationProvider";
+import { useNetwork } from "../../network/NetworkProvider";
 import { formatConversationTime } from "./mobileChatUtils";
 
 const APP_LOGO = require("../../../assets/branding/For_the_Baddiez_logo_transparent.png");
@@ -58,6 +60,8 @@ export function ChatDrawer({
   onShowLogin,
   onShowSettings
 }: ChatDrawerProps) {
+  const { languageTag, t } = useLocalization();
+  const { isOnline } = useNetwork();
   const accountInitial = (authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? authUser?.email?.[0] ?? "P").toUpperCase();
   const [searchVisible, setSearchVisible] = useState(false);
   const searchInputRef = useRef<TextInputType>(null);
@@ -87,18 +91,18 @@ export function ChatDrawer({
       <View style={[styles.rail, { backgroundColor: theme.rail }]} />
       <View style={styles.header}>
         <View style={styles.brandLockup}>
-          <Image accessibilityIgnoresInvertColors source={APP_LOGO} style={styles.brandLogo} resizeMode="contain" />
-          <Text style={[styles.brand, { color: theme.text }]} numberOfLines={1}>For the Baddiez</Text>
+          <Image accessible={false} accessibilityIgnoresInvertColors source={APP_LOGO} style={styles.brandLogo} resizeMode="contain" />
+          <Text style={[styles.brand, { color: theme.text }]} numberOfLines={1}>{t("app.name")}</Text>
         </View>
         <View style={authUser ? [styles.accountPill, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.075)" }] : undefined}>
-          <Pressable accessibilityRole="button" testID="mobile-open-chat-search" accessibilityLabel="Search chats" onPress={openSearch} style={styles.pillIconButton}>
+          <Pressable accessibilityRole="button" testID="mobile-open-chat-search" accessibilityLabel={t("drawer.search")} disabled={!isOnline} onPress={openSearch} style={[styles.pillIconButton, !isOnline ? styles.disabled : null]}>
             <Ionicons name="search" size={21} color={theme.text} />
           </Pressable>
           {authUser ? (
             <Pressable
               accessibilityRole="button"
               testID="mobile-open-settings"
-              accessibilityLabel="Open settings"
+              accessibilityLabel={t("drawer.settings")}
               onPress={onShowSettings}
               style={[styles.accountAvatar, { backgroundColor: theme.accent }]}
             >
@@ -114,11 +118,11 @@ export function ChatDrawer({
           <TextInput
             ref={searchInputRef}
             testID="mobile-chat-search-input"
-            accessibilityLabel="Search chats"
+            accessibilityLabel={t("drawer.search")}
             autoCapitalize="none"
             autoCorrect={false}
             clearButtonMode="while-editing"
-            placeholder="Search chats"
+            placeholder={t("drawer.search")}
             placeholderTextColor={theme.muted}
             returnKeyType="search"
             value={searchQuery}
@@ -126,7 +130,7 @@ export function ChatDrawer({
             style={[styles.searchInput, { color: theme.text }]}
           />
           {searching ? <Ionicons name="ellipsis-horizontal" size={20} color={theme.accent2} /> : null}
-          <Pressable accessibilityRole="button" accessibilityLabel="Close chat search" onPress={closeSearch} hitSlop={8}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("drawer.closeSearch")} onPress={closeSearch} hitSlop={8}>
             <Ionicons name="close" size={20} color={theme.text} />
           </Pressable>
         </View>
@@ -135,22 +139,22 @@ export function ChatDrawer({
       {!authUser ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Sign in or create an account"
+          accessibilityLabel={t("drawer.signIn")}
           onPress={onShowLogin}
           style={[styles.authCallToAction, { backgroundColor: "rgba(255,255,255,0.075)", borderColor: theme.border }]}
         >
           <Ionicons name="log-in-outline" size={18} color={theme.accent2} />
-          <Text style={[styles.authCallToActionText, { color: theme.text }]}>Sign in | Create account</Text>
+          <Text style={[styles.authCallToActionText, { color: theme.text }]}>{t("drawer.signIn")}</Text>
         </Pressable>
       ) : null}
 
-      <Pressable accessibilityRole="button" testID="mobile-new-chat" onPress={onNewChat} style={[styles.newChat, { backgroundColor: theme.text }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={t("drawer.newChat")} testID="mobile-new-chat" onPress={onNewChat} style={[styles.newChat, { backgroundColor: theme.text }]}>
         <Ionicons name="create-outline" size={18} color={theme.background} />
-        <Text style={[styles.newChatText, { color: theme.background }]}>New chat</Text>
+        <Text style={[styles.newChatText, { color: theme.background }]}>{t("drawer.newChat")}</Text>
       </Pressable>
 
       <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: theme.accent2 }]}>Persona</Text>
+        <Text style={[styles.sectionLabel, { color: theme.accent2 }]}>{t("drawer.persona")}</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.personaRow}>
           {personas.map((persona) => {
             const selected = persona.id === activePersona?.id;
@@ -158,6 +162,8 @@ export function ChatDrawer({
               <Pressable
                 key={persona.id}
                 accessibilityRole="button"
+                accessibilityLabel={persona.name}
+                accessibilityState={{ selected }}
                 onPress={() => onSelectPersona(persona.id)}
                 style={[
                   styles.personaChip,
@@ -175,8 +181,8 @@ export function ChatDrawer({
       </View>
 
       <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionLabel, { color: theme.accent2 }]}>{searchVisible && searchQuery.trim() ? "Search results" : "Chats"}</Text>
-        <Text style={[styles.subtle, { color: theme.muted }]}>{loading || searching ? "Loading" : `${conversations.length}`}</Text>
+        <Text style={[styles.sectionLabel, { color: theme.accent2 }]}>{searchVisible && searchQuery.trim() ? t("drawer.searchResults") : t("drawer.chats")}</Text>
+        <Text accessibilityLiveRegion="polite" style={[styles.subtle, { color: theme.muted }]}>{loading || searching ? t("drawer.loading") : `${conversations.length}`}</Text>
       </View>
       <ScrollView
         style={styles.conversationScroller}
@@ -185,13 +191,15 @@ export function ChatDrawer({
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={onRefreshConversations}
+            onRefresh={() => {
+              if (isOnline) onRefreshConversations();
+            }}
             tintColor={theme.accent2}
           />
         }
       >
         {conversations.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.muted }]}>{searchVisible && searchQuery.trim() ? "No chats match that search." : "No chats yet. Start with the persona that fits your style."}</Text>
+          <Text style={[styles.empty, { color: theme.muted }]}>{searchVisible && searchQuery.trim() ? t("drawer.noMatches") : t("drawer.empty")}</Text>
         ) : conversations.map((conversation) => {
           const selected = conversation.id === activeConversationId;
           return (
@@ -210,11 +218,11 @@ export function ChatDrawer({
               <Ionicons name={conversation.pinned ? "bookmark" : "chatbubble-outline"} size={16} color={selected ? theme.accent2 : theme.muted} />
               <View style={styles.conversationCopy}>
                 <Text style={[styles.conversationTitle, { color: theme.text }]} numberOfLines={1}>{conversation.title}</Text>
-                <Text style={[styles.subtle, { color: theme.muted }]}>{formatConversationTime(conversation.updatedAt)}</Text>
+                <Text style={[styles.subtle, { color: theme.muted }]}>{formatConversationTime(conversation.updatedAt, languageTag)}</Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Actions for ${conversation.title}`}
+                accessibilityLabel={t("drawer.actions", { title: conversation.title })}
                 onPress={(event) => {
                   event.stopPropagation();
                   onShowConversationActions(conversation);
@@ -227,8 +235,8 @@ export function ChatDrawer({
           );
         })}
         {hasMoreConversations ? (
-          <Pressable onPress={onLoadMoreConversations} style={[styles.loadMore, { borderColor: theme.border }]}>
-            <Text style={[styles.subtle, { color: theme.text }]}>Load more chats</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("drawer.loadMore")} disabled={!isOnline} onPress={onLoadMoreConversations} style={[styles.loadMore, { borderColor: theme.border }, !isOnline ? styles.disabled : null]}>
+            <Text style={[styles.subtle, { color: theme.text }]}>{t("drawer.loadMore")}</Text>
           </Pressable>
         ) : null}
       </ScrollView>
@@ -251,6 +259,7 @@ type DrawerStyles = {
   conversationRow: ViewStyle;
   conversationScroller: ViewStyle;
   conversationTitle: TextStyle;
+  disabled: ViewStyle;
   loadMore: ViewStyle;
   drawer: ViewStyle;
   empty: TextStyle;
@@ -358,6 +367,9 @@ const styles = StyleSheet.create<DrawerStyles>({
   conversationTitle: {
     fontSize: 14,
     fontWeight: "600"
+  },
+  disabled: {
+    opacity: 0.45
   },
   loadMore: {
     alignItems: "center",

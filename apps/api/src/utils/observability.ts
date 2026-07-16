@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { logger } from "./logger.js";
+import { recordPersistentMetric, traceOperation } from "./telemetry.js";
 
 type ObservabilityContext = { requestId?: string; traceId?: string };
 type MetricRecord = {
@@ -65,6 +66,7 @@ export function recordMetric(name: string, options: {
   current.maxDurationMs = Math.max(current.maxDurationMs, durationMs);
   current.lastUpdatedAt = new Date().toISOString();
   metrics.set(key, current);
+  recordPersistentMetric(name, options);
 
   if (metrics.size > MAX_METRICS) {
     const oldest = metrics.keys().next().value;
@@ -73,22 +75,24 @@ export function recordMetric(name: string, options: {
 }
 
 export async function measureOperation<T>(name: string, attributes: Record<string, unknown>, operation: () => Promise<T>): Promise<T> {
-  const startedAt = performance.now();
-  try {
-    const result = await operation();
-    recordMetric(name, { durationMs: performance.now() - startedAt, attributes });
-    return result;
-  } catch (error) {
-    const durationMs = performance.now() - startedAt;
-    recordMetric(name, { durationMs, outcome: "failure", attributes });
-    logger.warn("Observed operation failed", {
-      operation: name,
-      durationMs: Math.round(durationMs),
-      attributes,
-      errorName: error instanceof Error ? error.name : "UnknownError"
-    });
-    throw error;
-  }
+  return traceOperation(name, attributes, async () => {
+    const startedAt = performance.now();
+    try {
+      const result = await operation();
+      recordMetric(name, { durationMs: performance.now() - startedAt, attributes });
+      return result;
+    } catch (error) {
+      const durationMs = performance.now() - startedAt;
+      recordMetric(name, { durationMs, outcome: "failure", attributes });
+      logger.warn("Observed operation failed", {
+        operation: name,
+        durationMs: Math.round(durationMs),
+        attributes,
+        errorName: error instanceof Error ? error.name : "UnknownError"
+      });
+      throw error;
+    }
+  });
 }
 
 export function observabilitySnapshot(): { generatedAt: string; metrics: Array<MetricRecord & { name: string; averageDurationMs: number }> } {

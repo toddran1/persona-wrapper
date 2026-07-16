@@ -10,11 +10,14 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "build": "npm run typecheck"
+    "audit:accessibility": "node scripts/audit-accessibility.mjs",
+    "verify:release": "npm run typecheck && npm run audit:accessibility",
+    "build": "npm run verify:release"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@persona/shared": "*",
+    "@react-native-community/netinfo": "^12.0.1",
     "expo": "~57.0.0",
     "expo-audio": "~57.0.0",
     "expo-clipboard": "~57.0.0",
@@ -24,6 +27,7 @@
     "expo-image-picker": "~57.0.2",
     "expo-linear-gradient": "~57.0.0",
     "expo-linking": "~57.0.2",
+    "expo-localization": "~57.0.0",
     "expo-media-library": "~57.0.1",
     "expo-router": "~57.0.4",
     "expo-secure-store": "~57.0.0",
