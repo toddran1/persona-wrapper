@@ -84,8 +84,8 @@ AUTH_REFRESH_TOKEN_TTL_DAYS=30
 AUTH_PASSWORD_MIN_LENGTH=8
 AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false
 WEB_APP_URL=http://localhost:5173
-IOS_OAUTH_REDIRECT_URL=persona://auth/callback
-ANDROID_OAUTH_REDIRECT_URL=persona://auth/callback
+IOS_OAUTH_REDIRECT_URL=personawrapper://auth/callback
+ANDROID_OAUTH_REDIRECT_URL=personawrapper://auth/callback
 OAUTH_REDIRECT_BASE_URL=http://localhost:4000
 GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
@@ -95,7 +95,7 @@ FACEBOOK_OAUTH_CLIENT_SECRET=
 
 Password auth stores only password hashes. Access and refresh tokens are opaque random tokens; only token hashes are stored in Postgres. Sessions include a client type so web, desktop, iOS, and Android clients can be tracked independently.
 
-OAuth provider tables and state storage are included in the schema for Google/Facebook sign-in. Provider callbacks return to the API at `/api/auth/oauth/:provider/callback`; after a successful web callback the API redirects the browser to `${WEB_APP_URL}/auth/callback` with the short-lived access/refresh tokens in the URL fragment so the web client can consume them without sending them back to the server in a query string. Mobile clients start OAuth with `clientType=ios` or `clientType=android`; the API redirects to `IOS_OAUTH_REDIRECT_URL` or `ANDROID_OAUTH_REDIRECT_URL` with a short-lived one-time `code`, and the app exchanges that code at `POST /api/auth/oauth/exchange` for access/refresh tokens stored in Keychain/Keystore.
+OAuth provider tables and state storage are included in the schema for Google/Facebook sign-in. Provider callbacks return to the API at `/api/auth/oauth/:provider/callback`; after a successful web callback the API redirects the browser to `${WEB_APP_URL}/auth/callback` with the short-lived access/refresh tokens in the URL fragment so the web client can consume them without sending them back to the server in a query string. Mobile clients start OAuth with `clientType=ios` or `clientType=android`; the API returns a short-lived one-time code to the configured mobile callback and the app exchanges it at `POST /api/auth/oauth/mobile-exchange` for access/refresh tokens stored in Keychain/Keystore. For hosted Android builds, configure `ANDROID_OAUTH_REDIRECT_URL` as the verified HTTPS App Link (`${WEB_APP_URL}/auth/mobile-callback`), not as a custom scheme.
 
 For production:
 

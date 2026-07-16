@@ -78,7 +78,12 @@ function androidIntentUrl(destination: string): string {
 }
 
 function sendMobileOAuthHandoff(response: Response, destination: string, clientType: "ios" | "android"): void {
-  const launchDestination = clientType === "android" ? androidIntentUrl(destination) : destination;
+  // Verified Android App Links are HTTPS URLs. Keep those as normal URLs so
+  // Android can return directly to the installed app; use an intent only for
+  // the legacy custom-scheme fallback used by local development.
+  const launchDestination = clientType === "android" && new URL(destination).protocol === "personawrapper:"
+    ? androidIntentUrl(destination)
+    : destination;
   const serializedDestination = JSON.stringify(launchDestination).replaceAll("<", "\\u003c");
   const linkedDestination = escapeHtmlAttribute(launchDestination);
   response

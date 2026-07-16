@@ -78,4 +78,38 @@ describe("mobile OAuth callback", () => {
     expect(state.body).toContain('window.location.replace("intent://auth/callback?code=exchange-code&provider=facebook#Intent;scheme=personawrapper;package=com.personawrapper.mobile;end")');
     expect(response.redirect).not.toHaveBeenCalled();
   });
+
+  it("keeps a verified Android App Link as HTTPS instead of converting it to an intent URL", async () => {
+    vi.spyOn(authService, "completeOAuthCallback").mockResolvedValue({
+      user: {
+        id: "user_mobile", status: "active", displayName: "Mobile user", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      },
+      session: {
+        id: "session_mobile", userId: "user_mobile", clientType: "android", expiresAt: new Date(Date.now() + 60_000).toISOString(), refreshExpiresAt: new Date(Date.now() + 120_000).toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      },
+      tokens: {
+        accessToken: "access-token", refreshToken: "refresh-token", tokenType: "Bearer", expiresAt: new Date(Date.now() + 60_000).toISOString(), refreshExpiresAt: new Date(Date.now() + 120_000).toISOString()
+      },
+      oauthReturnUrl: "https://for-the-baddiez-web-dev.onrender.com/auth/mobile-callback"
+    });
+    vi.spyOn(authService, "createOAuthExchangeCode").mockResolvedValue("exchange-code");
+
+    const state = { body: "", statusCode: 0 };
+    const response = {
+      headersSent: false,
+      status(code: number) { state.statusCode = code; return response; },
+      set() { return response; },
+      type() { return response; },
+      send(body: string) { state.body = body; return response; },
+      redirect: vi.fn()
+    } as unknown as Response;
+
+    await getOAuthCallback({
+      params: { provider: "facebook" }, query: { code: "provider-code", state: "oauth-state" }, header: () => undefined, ip: "203.0.113.10"
+    } as unknown as Request, response);
+
+    expect(state.statusCode).toBe(200);
+    expect(state.body).toContain("https://for-the-baddiez-web-dev.onrender.com/auth/mobile-callback?code=exchange-code&amp;provider=facebook");
+    expect(state.body).not.toContain("intent://for-the-baddiez-web-dev.onrender.com");
+  });
 });

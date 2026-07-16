@@ -771,6 +771,39 @@ textarea {
   text-decoration: none;
 }
 
+.mobile-oauth-return-shell {
+  align-items: center;
+  background: radial-gradient(circle at 20% 0%, rgba(109, 67, 197, 0.42), transparent 38%), #09060f;
+  box-sizing: border-box;
+  color: #f7f0e8;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.mobile-oauth-return-card {
+  background: rgba(23, 14, 31, 0.92);
+  border: 1px solid rgba(214, 181, 94, 0.38);
+  border-radius: 12px;
+  max-width: 380px;
+  padding: 32px;
+  text-align: center;
+}
+
+.mobile-oauth-return-card img {
+  display: block;
+  height: 88px;
+  margin: 0 auto 18px;
+  object-fit: contain;
+  width: 88px;
+}
+
+.mobile-oauth-return-card h1 { font-size: 28px; margin: 0 0 10px; }
+.mobile-oauth-return-card p { color: #c7bccd; line-height: 1.5; margin: 0 0 24px; }
+.mobile-oauth-return-eyebrow { color: #d6b55e !important; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.mobile-oauth-return-card a { background: #d6b55e; border-radius: 8px; color: #160d1d; display: inline-block; font-weight: 800; padding: 13px 20px; text-decoration: none; }
+
 .legal-shell {
   min-height: 100vh;
   color: #f8f1fb;

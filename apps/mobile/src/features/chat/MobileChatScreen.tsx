@@ -76,6 +76,23 @@ function mobileAppUrl(path = ""): string {
   return normalizedPath ? `${MOBILE_APP_SCHEME}://${normalizedPath}` : `${MOBILE_APP_SCHEME}://`;
 }
 
+function mobileOAuthReturnUrl(): string {
+  if (Platform.OS !== "android") return mobileAppUrl("auth/callback");
+
+  try {
+    const webUrl = new URL(PUBLIC_WEB_BASE_URL);
+    // App Links cannot be verified for a local Vite host, so preserve the
+    // custom scheme when developing against localhost.
+    if (["localhost", "127.0.0.1"].includes(webUrl.hostname)) return mobileAppUrl("auth/callback");
+    webUrl.pathname = "/auth/mobile-callback";
+    webUrl.search = "";
+    webUrl.hash = "";
+    return webUrl.toString();
+  } catch {
+    return mobileAppUrl("auth/callback");
+  }
+}
+
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -1216,7 +1233,8 @@ export function MobileChatScreen() {
     }
     const isOAuthCallback =
       (parsed.hostname === "auth" && parsed.pathname === "/callback") ||
-      parsed.pathname.endsWith("/auth/callback");
+      parsed.pathname.endsWith("/auth/callback") ||
+      parsed.pathname === "/auth/mobile-callback";
     if (!isOAuthCallback) return;
     const errorMessage = parsed.searchParams.get("error");
     if (errorMessage) {
@@ -1637,7 +1655,7 @@ export function MobileChatScreen() {
     setAuthBusy(true);
     setAuthError(undefined);
     try {
-      const returnUrl = mobileAppUrl("auth/callback");
+      const returnUrl = mobileOAuthReturnUrl();
       const { authorizationUrl, exchangeCode } = await api.startMobileOAuth(provider, returnUrl);
       const browserResultPromise = WebBrowser.openAuthSessionAsync(authorizationUrl, returnUrl);
       const exchangeResultPromise = waitForMobileOAuthExchange(exchangeCode);
