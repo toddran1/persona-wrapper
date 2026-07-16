@@ -14,6 +14,7 @@ import { env } from "../config/env.js";
 import { authService } from "../services/authService.js";
 import { requestBearerToken } from "../middleware/authMiddleware.js";
 import { HttpError } from "../utils/httpError.js";
+import { logger } from "../utils/logger.js";
 
 function requestMetadata(request: Request): { userAgent?: string; ipAddress?: string } {
   const metadata: { userAgent?: string; ipAddress?: string } = {};
@@ -230,14 +231,27 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
     });
     if (auth.oauthReturnUrl || hasMobileAuthCallbackUrl(auth.session.clientType)) {
       const exchangeCode = await authService.createOAuthExchangeCode(auth);
+      // Production deep links are server configuration, not client input. This
+      // keeps a mobile OAuth session from ever being redirected to a web URL.
+      const runtimeReturnUrl = env.NODE_ENV === "production" ? undefined : auth.oauthReturnUrl;
       const mobileCallbackUrl = mobileAuthCallbackUrl(auth.session.clientType, {
         code: exchangeCode,
         provider
-      }, auth.oauthReturnUrl);
+      }, runtimeReturnUrl);
       if (!mobileCallbackUrl) throw new HttpError("Mobile OAuth callback URL is not configured.", 500);
+      logger.info("OAuth callback completed", {
+        provider,
+        clientType: auth.session.clientType,
+        destination: "mobile"
+      });
       response.redirect(302, mobileCallbackUrl);
       return;
     }
+    logger.info("OAuth callback completed", {
+      provider,
+      clientType: auth.session.clientType,
+      destination: "web"
+    });
     response.redirect(302, authCallbackUrl({
       accessToken: auth.tokens.accessToken,
       refreshToken: auth.tokens.refreshToken,
@@ -247,6 +261,10 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
     }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "OAuth login failed.";
+    logger.warn("OAuth callback failed", {
+      message,
+      provider: typeof request.params.provider === "string" ? request.params.provider : "unknown"
+    });
     response.redirect(302, authCallbackUrl({ error: message }));
   }
 }
