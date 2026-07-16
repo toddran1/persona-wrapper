@@ -130,6 +130,19 @@ function configuredMobileReturnUrl(clientType: AuthClientType): string | undefin
       : undefined;
 }
 
+function androidAppLinkReturnUrl(): string {
+  return new URL("/auth/mobile-callback", env.WEB_APP_URL).toString();
+}
+
+function isAllowedMobileReturnUrl(clientType: AuthClientType, returnUrl: string): boolean {
+  const configuredUrl = configuredMobileReturnUrl(clientType);
+  if (configuredUrl && returnUrl === new URL(configuredUrl).toString()) return true;
+  // Android App Links are derived from the server's public web origin rather
+  // than a client-supplied host. This makes the return target deterministic
+  // across Render redeployments and prevents an open redirect.
+  return clientType === "android" && returnUrl === androidAppLinkReturnUrl();
+}
+
 function mobileReturnUrlFromQuery(request: Request, clientType: AuthClientType): string | undefined {
   const value = typeof request.query.returnUrl === "string" ? request.query.returnUrl.trim() : undefined;
   if (!value) return undefined;
@@ -141,8 +154,7 @@ function mobileReturnUrlFromQuery(request: Request, clientType: AuthClientType):
   }
 
   if (env.NODE_ENV === "production") {
-    const configuredUrl = configuredMobileReturnUrl(clientType);
-    if (!configuredUrl || parsed.toString() !== new URL(configuredUrl).toString()) {
+    if (!isAllowedMobileReturnUrl(clientType, parsed.toString())) {
       throw new HttpError("Unsupported mobile OAuth return URL.", 400);
     }
     return parsed.toString();
@@ -332,7 +344,11 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
       }
       // Production deep links are server configuration, not client input. This
       // keeps a mobile OAuth session from ever being redirected to a web URL.
-      const runtimeReturnUrl = env.NODE_ENV === "production" ? undefined : auth.oauthReturnUrl;
+      const runtimeReturnUrl = env.NODE_ENV === "production" && auth.session.clientType === "android"
+        ? androidAppLinkReturnUrl()
+        : env.NODE_ENV === "production"
+          ? undefined
+          : auth.oauthReturnUrl;
       const mobileCallbackUrl = mobileAuthCallbackUrl(auth.session.clientType, {
         ...(exchangeCode ? { code: exchangeCode } : {}),
         provider
