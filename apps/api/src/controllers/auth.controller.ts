@@ -63,16 +63,51 @@ function isMobileClient(clientType: AuthClientType): clientType is "ios" | "andr
   return clientType === "ios" || clientType === "android";
 }
 
-function redirectWithoutCaching(response: Response, destination: string): void {
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function sendMobileOAuthHandoff(response: Response, destination: string): void {
+  const serializedDestination = JSON.stringify(destination).replaceAll("<", "\\u003c");
+  const linkedDestination = escapeHtmlAttribute(destination);
   response
-    .status(302)
+    .status(200)
     .set({
       "Cache-Control": "no-store, max-age=0",
-      Location: destination,
+      "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
       Pragma: "no-cache",
-      "Referrer-Policy": "no-referrer"
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff"
     })
-    .end();
+    .type("html")
+    .send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Return to For the Baddiez</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      body { align-items: center; background: #09060f; color: #f7f0e8; display: flex; justify-content: center; margin: 0; min-height: 100vh; padding: 24px; text-align: center; }
+      main { max-width: 360px; }
+      h1 { font-size: 24px; margin: 0 0 10px; }
+      p { color: #c7bccd; line-height: 1.5; margin: 0 0 22px; }
+      a { background: #d6b55e; border-radius: 8px; color: #160d1d; display: inline-block; font-weight: 700; padding: 13px 20px; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Returning to For the Baddiez</h1>
+      <p>If the app does not open automatically, use the button below.</p>
+      <a href="${linkedDestination}">Open For the Baddiez</a>
+    </main>
+    <script>window.location.replace(${serializedDestination});</script>
+  </body>
+</html>`);
 }
 
 function configuredMobileReturnUrl(clientType: AuthClientType): string | undefined {
@@ -254,7 +289,7 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
         clientType: auth.session.clientType,
         destination: "mobile"
       });
-      redirectWithoutCaching(response, mobileCallbackUrl);
+      sendMobileOAuthHandoff(response, mobileCallbackUrl);
       return;
     }
     logger.info("OAuth callback completed", {
@@ -279,7 +314,7 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
     // non-essential callback work fails. Falling back to the web app here
     // strands a mobile auth session in the browser with an unconsumed code.
     if (completedMobileCallbackUrl && !response.headersSent) {
-      redirectWithoutCaching(response, completedMobileCallbackUrl);
+      sendMobileOAuthHandoff(response, completedMobileCallbackUrl);
       return;
     }
     if (response.headersSent) return;
