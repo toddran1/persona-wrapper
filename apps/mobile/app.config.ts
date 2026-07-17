@@ -83,7 +83,10 @@ const config: ExpoConfig = {
   },
   extra: {
     apiUrl: process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000",
-    webAppUrl: process.env.EXPO_PUBLIC_WEB_APP_URL ?? "http://localhost:5173"
+    webAppUrl: process.env.EXPO_PUBLIC_WEB_APP_URL ?? "http://localhost:5173",
+    eas: {
+      projectId: "075598af-c09e-4a7f-81b6-0151a8549441"
+    }
   }
 };
 
