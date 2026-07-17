@@ -158,7 +158,10 @@ export function createApp() {
       callback(new Error(`CORS origin not allowed: ${origin}`));
     },
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Authorization", "Content-Type", "x-client-type", "x-owner-id"],
+    // Every first-party client adds this correlation header for observability.
+    // Keep it in the preflight allow-list or browsers reject requests before
+    // they reach the API.
+    allowedHeaders: ["Authorization", "Content-Type", "x-client-type", "x-owner-id", "x-client-trace-id"],
     optionsSuccessStatus: 204
   };
   app.disable("x-powered-by");
