@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "audit:accessibility": "node scripts/audit-accessibility.mjs",
     "verify:release": "npm run typecheck && npm run audit:accessibility",
-    "build": "npm run verify:release"
+    "build": "npm run verify:release",
+    "eas-build-post-install": "cd ../.. && npm run build -w @persona/shared"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

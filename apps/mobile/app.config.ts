@@ -16,10 +16,10 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.personawrapper.mobile",
-    icon: "./assets/branding/FTB_logo_android_letters_only_icon.png",
+    icon: "./assets/branding/FTB_Logo_120x120.png",
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
-      foregroundImage: "./assets/branding/FTB_logo_android_letters_only_icon.png",
+      foregroundImage: "./assets/branding/FTB_Logo_120x120_adaptive.png",
       backgroundColor: "#09060f"
     },
     intentFilters: [
@@ -83,7 +83,10 @@ const config: ExpoConfig = {
   },
   extra: {
     apiUrl: process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000",
-    webAppUrl: process.env.EXPO_PUBLIC_WEB_APP_URL ?? "http://localhost:5173"
+    webAppUrl: process.env.EXPO_PUBLIC_WEB_APP_URL ?? "http://localhost:5173",
+    eas: {
+      projectId: "075598af-c09e-4a7f-81b6-0151a8549441"
+    }
   }
 };
 
