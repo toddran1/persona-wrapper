@@ -16,10 +16,10 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.personawrapper.mobile",
-    icon: "./assets/branding/FTB_logo_android_letters_only_icon.png",
+    icon: "./assets/branding/FTB_Logo_120x120.png",
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
-      foregroundImage: "./assets/branding/FTB_logo_android_letters_only_icon.png",
+      foregroundImage: "./assets/branding/FTB_Logo_120x120_adaptive.png",
       backgroundColor: "#09060f"
     },
     intentFilters: [
