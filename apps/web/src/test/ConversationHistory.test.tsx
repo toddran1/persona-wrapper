@@ -2,8 +2,23 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ConversationHistory } from "../components/ConversationHistory";
+import { MarkdownText } from "../components/MarkdownText";
 
 describe("ConversationHistory pending state", () => {
+  it("renders fenced code in a copyable code block", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+
+    render(<MarkdownText text={"```javascript\nconst hello = 'world';\n```"} />);
+
+    expect(screen.getByLabelText("javascript code block")).toBeInTheDocument();
+    expect(screen.getByText("const hello = 'world';")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy code" }));
+    expect(writeText).toHaveBeenCalledWith("const hello = 'world';");
+    expect(screen.getByRole("button", { name: "Copy code" })).toHaveTextContent("Copied");
+  });
+
   it("shows a thinking indicator and replaces it with the final reply", () => {
     const { rerender } = render(
       <ConversationHistory
@@ -178,7 +193,7 @@ describe("ConversationHistory pending state", () => {
 
     const lists = Array.from(container.querySelectorAll("ol"));
     expect(lists).toHaveLength(3);
-    expect(lists.map((list) => list.getAttribute("start"))).toEqual(["1", "2", "3"]);
+    expect(lists.map((list) => list.start)).toEqual([1, 2, 3]);
   });
 
   it("shows submitted asset previews in the user prompt bubble", () => {

@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Alert, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library/legacy";
 import * as Sharing from "expo-sharing";
 import { stripGeneratedFileDownloadPrompt, type ContentBlock } from "@persona/shared";
 import { Ionicons } from "@expo/vector-icons";
+import { EnrichedMarkdownText, type MarkdownStyle } from "react-native-enriched-markdown";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
 import type { MobileTheme } from "../../theme/personaTheme";
@@ -77,103 +78,125 @@ function ThinkingDots({ theme }: { theme: MobileTheme }) {
   );
 }
 
-function renderInlineMarkdown(text: string, keyPrefix: string, theme: MobileTheme): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const pattern = /(\*\*([^*]+)\*\*)|(\[([^\]]+)\]\((https?:\/\/[^)]+)\))/g;
-  let lastIndex = 0;
-  let index = 0;
+function MobileCodeBlock({ code, language, theme }: { code: string; language: string; theme: MobileTheme }) {
+  const [copied, setCopied] = useState(false);
 
-  for (const match of text.matchAll(pattern)) {
-    if (match.index === undefined) continue;
-    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+  const copy = async (): Promise<void> => {
+    await Clipboard.setStringAsync(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
-    if (match[2]) {
-      nodes.push(<Text key={`${keyPrefix}-bold-${index}`} style={styles.markdownBold}>{match[2]}</Text>);
-    } else if (match[4] && match[5]) {
-      const url = safeExternalUrl(match[5]);
-      nodes.push(
-        <Text
-          key={`${keyPrefix}-link-${index}`}
-          accessibilityRole={url ? "link" : undefined}
-          onPress={url ? () => void openExternalUrl(url).catch(showOpenError) : undefined}
-          style={[styles.markdownLink, { color: theme.accent2 }]}
+  return (
+    <View style={[styles.markdownCodeBlock, { borderColor: theme.border, backgroundColor: "rgba(5,4,10,0.78)" }]}>
+      <View style={[styles.markdownCodeToolbar, { borderBottomColor: theme.border }]}>
+        <Text style={[styles.markdownCodeLanguage, { color: theme.muted }]}>{language || "text"}</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Copy code"
+          onPress={() => void copy().catch((error) => Alert.alert("Copy failed", error instanceof Error ? error.message : "Could not copy the code."))}
+          style={[styles.markdownCodeCopy, { borderColor: theme.border }]}
         >
-          {match[4]}
-        </Text>
-      );
+          <Ionicons name={copied ? "checkmark" : "copy-outline"} size={14} color={copied ? theme.accent2 : theme.text} />
+          <Text style={[styles.markdownCodeCopyText, { color: copied ? theme.accent2 : theme.text }]}>{copied ? "Copied" : "Copy"}</Text>
+        </Pressable>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.markdownCodeScroll}>
+        <Text selectable style={[styles.markdownCodeText, { color: theme.text }]}>{code}</Text>
+      </ScrollView>
+    </View>
+  );
+}
+
+type MarkdownSegment =
+  | { type: "markdown"; value: string }
+  | { type: "code"; value: string; language: string };
+
+function splitFencedCodeBlocks(markdown: string): MarkdownSegment[] {
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  const segments: MarkdownSegment[] = [];
+  const pendingMarkdown: string[] = [];
+  const flushMarkdown = () => {
+    const value = pendingMarkdown.join("\n");
+    if (value.trim()) segments.push({ type: "markdown", value });
+    pendingMarkdown.length = 0;
+  };
+
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    const opening = line.match(/^\s{0,3}(`{3,}|~{3,})\s*(.*)$/);
+    if (!opening) {
+      pendingMarkdown.push(line);
+      index += 1;
+      continue;
     }
 
-    lastIndex = match.index + match[0].length;
+    flushMarkdown();
+    const marker = opening[1] ?? "```";
+    const markerCharacter = marker[0] ?? "`";
+    const closingPattern = new RegExp(`^\\s{0,3}\\${markerCharacter}{${marker.length},}\\s*$`);
+    const language = (opening[2] ?? "").trim().split(/\s+/, 1)[0]?.toLowerCase() || "text";
+    const code: string[] = [];
     index += 1;
+    while (index < lines.length && !closingPattern.test(lines[index] ?? "")) {
+      code.push(lines[index] ?? "");
+      index += 1;
+    }
+    if (index < lines.length) index += 1;
+    segments.push({ type: "code", value: code.join("\n"), language });
   }
 
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
-  return nodes.length > 0 ? nodes : [text];
+  flushMarkdown();
+  return segments;
+}
+
+function mobileMarkdownStyle(theme: MobileTheme): MarkdownStyle {
+  const body = { color: theme.text, fontSize: 16, lineHeight: 23, marginBottom: 10 };
+  return {
+    paragraph: body,
+    h1: { color: theme.text, fontSize: 24, lineHeight: 30, fontWeight: "800", marginTop: 12, marginBottom: 8 },
+    h2: { color: theme.text, fontSize: 21, lineHeight: 27, fontWeight: "800", marginTop: 11, marginBottom: 7 },
+    h3: { color: theme.text, fontSize: 18, lineHeight: 25, fontWeight: "800", marginTop: 10, marginBottom: 6 },
+    h4: { color: theme.text, fontSize: 17, lineHeight: 24, fontWeight: "800", marginTop: 9, marginBottom: 5 },
+    h5: { color: theme.text, fontSize: 16, lineHeight: 23, fontWeight: "800", marginTop: 8, marginBottom: 4 },
+    h6: { color: theme.muted, fontSize: 15, lineHeight: 22, fontWeight: "800", marginTop: 8, marginBottom: 4 },
+    strong: { color: theme.text, fontWeight: "bold" },
+    em: { color: theme.text, fontStyle: "italic" },
+    link: { color: theme.accent2, underline: true },
+    code: { color: theme.accent2, backgroundColor: "rgba(0,0,0,0.32)", borderColor: theme.border, fontFamily: "Courier", fontSize: 13 },
+    codeBlock: { color: theme.text, backgroundColor: "rgba(5,4,10,0.78)", borderColor: theme.border, borderRadius: 14, borderWidth: 1, padding: 13, fontFamily: "Courier", fontSize: 13, lineHeight: 20, marginBottom: 10 },
+    blockquote: { color: theme.muted, fontSize: 16, lineHeight: 23, borderColor: theme.accent2, borderWidth: 3, gapWidth: 12, backgroundColor: "transparent", marginBottom: 10 },
+    list: { color: theme.text, fontSize: 16, lineHeight: 23, bulletColor: theme.accent2, markerColor: theme.accent2, markerFontWeight: "bold", gapWidth: 8, marginBottom: 10 },
+    thematicBreak: { color: theme.border, height: 1, marginTop: 8, marginBottom: 12 },
+    table: { color: theme.muted, fontSize: 13, lineHeight: 19, headerBackgroundColor: "rgba(255,255,255,0.04)", headerTextColor: theme.text, borderColor: theme.border, borderWidth: 1, borderRadius: 12, cellPaddingHorizontal: 11, cellPaddingVertical: 9, marginBottom: 10 },
+    taskList: { checkedColor: theme.accent2, borderColor: theme.border, checkmarkColor: theme.text, checkedTextColor: theme.muted }
+  };
 }
 
 function MobileMarkdownText({ text, theme }: { text: string; theme: MobileTheme }) {
-  const lines = text.split("\n");
-  const blocks: ReactNode[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index] ?? "";
-    if (!line.trim()) {
-      index += 1;
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      blocks.push(
-        <Text key={`heading-${index}`} style={[styles.markdownHeading, { color: theme.text }]}>
-          {renderInlineMarkdown(heading[2] ?? "", `heading-${index}`, theme)}
-        </Text>
-      );
-      index += 1;
-      continue;
-    }
-
-    const listMatch = line.match(/^\s*((?:[-*])|(\d+)\.)\s+(.+)$/);
-    if (listMatch) {
-      const ordered = Boolean(listMatch[2]);
-      const items: Array<{ marker: string; text: string }> = [];
-      while (index < lines.length) {
-        const itemMatch = (lines[index] ?? "").match(/^\s*((?:[-*])|(\d+)\.)\s+(.+)$/);
-        if (!itemMatch || Boolean(itemMatch[2]) !== ordered) break;
-        items.push({ marker: ordered ? `${itemMatch[2]}.` : "•", text: itemMatch[3] ?? "" });
-        index += 1;
-      }
-      blocks.push(
-        <View key={`list-${index}`} style={styles.markdownList}>
-          {items.map((item, itemIndex) => (
-            <View key={`list-${index}-${itemIndex}`} style={styles.markdownListItem}>
-              <Text style={[styles.markdownMarker, { color: theme.text }]}>{item.marker}</Text>
-              <Text style={[styles.assistantText, styles.markdownListText, { color: theme.text }]}>
-                {renderInlineMarkdown(item.text, `list-${index}-${itemIndex}`, theme)}
-              </Text>
-            </View>
-          ))}
-        </View>
-      );
-      continue;
-    }
-
-    const paragraph: string[] = [];
-    while (index < lines.length) {
-      const paragraphLine = lines[index] ?? "";
-      if (!paragraphLine.trim() || /^(#{1,3})\s+/.test(paragraphLine) || /^\s*(?:[-*]|\d+\.)\s+/.test(paragraphLine)) break;
-      paragraph.push(paragraphLine);
-      index += 1;
-    }
-    blocks.push(
-      <Text key={`paragraph-${index}`} style={[styles.assistantText, { color: theme.text }]}>
-        {renderInlineMarkdown(paragraph.join("\n"), `paragraph-${index}`, theme)}
-      </Text>
-    );
-  }
-
-  return <View style={styles.markdownStack}>{blocks}</View>;
+  const markdownStyle = mobileMarkdownStyle(theme);
+  return (
+    <View style={styles.markdownStack}>
+      {splitFencedCodeBlocks(text).map((segment, index) => segment.type === "code" ? (
+        <MobileCodeBlock key={`code-${index}`} code={segment.value} language={segment.language} theme={theme} />
+      ) : (
+        <EnrichedMarkdownText
+          key={`markdown-${index}`}
+          markdown={segment.value}
+          flavor="github"
+          markdownStyle={markdownStyle}
+          containerStyle={styles.markdownNativeContainer}
+          selectable
+          selectionColor={theme.accent2}
+          selectionHandleColor={theme.accent2}
+          md4cFlags={{ latexMath: false }}
+          selectionMenuConfig={{ copyAsMarkdown: { enabled: true }, copyImageUrl: { enabled: false } }}
+          onLinkPress={({ url }) => void openExternalUrl(url).catch(showOpenError)}
+        />
+      ))}
+    </View>
+  );
 }
 
 function OutputBlock({
@@ -564,33 +587,49 @@ const styles = StyleSheet.create({
     gap: 9,
     padding: 8
   },
-  markdownBold: {
+  markdownCodeBlock: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: "hidden"
+  },
+  markdownCodeCopy: {
+    alignItems: "center",
+    borderRadius: 7,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
+    minHeight: 28,
+    paddingHorizontal: 8
+  },
+  markdownCodeCopyText: {
+    fontSize: 12,
     fontWeight: "800"
   },
-  markdownHeading: {
-    fontSize: 18,
-    fontWeight: "800",
-    lineHeight: 25
+  markdownCodeLanguage: {
+    fontFamily: "monospace",
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "lowercase"
   },
-  markdownLink: {
-    textDecorationLine: "underline"
+  markdownCodeScroll: {
+    minWidth: "100%",
+    padding: 13
   },
-  markdownList: {
-    gap: 5
+  markdownCodeText: {
+    fontFamily: "monospace",
+    fontSize: 13,
+    lineHeight: 20
   },
-  markdownListItem: {
-    alignItems: "flex-start",
+  markdownCodeToolbar: {
+    alignItems: "center",
+    borderBottomWidth: 1,
     flexDirection: "row",
-    gap: 8
+    justifyContent: "space-between",
+    minHeight: 39,
+    paddingHorizontal: 10
   },
-  markdownListText: {
-    flex: 1
-  },
-  markdownMarker: {
-    fontSize: 16,
-    lineHeight: 23,
-    minWidth: 18,
-    textAlign: "right"
+  markdownNativeContainer: {
+    width: "100%"
   },
   markdownStack: {
     gap: 10
