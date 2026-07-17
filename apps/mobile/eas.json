@@ -11,7 +11,12 @@
       }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api-dev.onrender.com",
+        "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web-dev.onrender.com",
+        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web-dev.onrender.com"
+      }
     },
     "production": {
       "autoIncrement": true
