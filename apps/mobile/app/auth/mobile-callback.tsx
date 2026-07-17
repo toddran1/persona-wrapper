@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
+import { markPendingMobileOAuthCallbackReceived } from "../../src/storage/secureTokens";
 
 // Android App Links resolve this HTTPS callback into the installed app. OAuth
 // completion is finalized by the in-flight one-time-code poll in the chat
@@ -9,7 +10,7 @@ export default function MobileOAuthAppLinkCallbackScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/");
+    void markPendingMobileOAuthCallbackReceived().finally(() => router.replace("/"));
   }, [router]);
 
   return <View style={styles.screen}><ActivityIndicator color="#d6b55e" /></View>;

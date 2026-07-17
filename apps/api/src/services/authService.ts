@@ -58,6 +58,7 @@ type OAuthCallbackOptions = {
 type OAuthCallbackResult = AuthResponse & {
   oauthReturnUrl?: string;
   oauthExchangeCodeHash?: string;
+  oauthDeviceId?: string;
 };
 
 type OAuthTokenResponse = {
@@ -681,7 +682,8 @@ export class AuthService {
     return {
       ...buildAuthResponse(user, session),
       ...(stateMetadata.returnUrl ? { oauthReturnUrl: stateMetadata.returnUrl } : {}),
-      ...(stateMetadata.exchangeCodeHash ? { oauthExchangeCodeHash: stateMetadata.exchangeCodeHash } : {})
+      ...(stateMetadata.exchangeCodeHash ? { oauthExchangeCodeHash: stateMetadata.exchangeCodeHash } : {}),
+      ...(stateMetadata.deviceId ? { oauthDeviceId: stateMetadata.deviceId } : {})
     };
   }
 
@@ -720,6 +722,9 @@ export class AuthService {
       )
     });
     if (!codeRow || codeRow.expiresAt.getTime() <= Date.now()) {
+      throw new HttpError("OAuth exchange code is invalid or expired.", 401);
+    }
+    if (codeRow.clientType !== payload.clientType || (codeRow.deviceId && codeRow.deviceId !== payload.deviceId)) {
       throw new HttpError("OAuth exchange code is invalid or expired.", 401);
     }
 

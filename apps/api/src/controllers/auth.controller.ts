@@ -340,7 +340,7 @@ export async function getOAuthCallback(request: Request, response: Response): Pr
         ? undefined
         : await authService.createOAuthExchangeCode(auth);
       if (auth.oauthExchangeCodeHash) {
-        await authService.createPreissuedOAuthExchangeCode(auth, auth.oauthExchangeCodeHash);
+        await authService.createPreissuedOAuthExchangeCode(auth, auth.oauthExchangeCodeHash, auth.oauthDeviceId);
       }
       // Production deep links are server configuration, not client input. This
       // keeps a mobile OAuth session from ever being redirected to a web URL.

@@ -45,7 +45,15 @@ import { IconButton } from "../../components/IconButton";
 import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
 import { useLocalization } from "../../localization/LocalizationProvider";
 import { useNetwork } from "../../network/NetworkProvider";
-import { clearSelectedConversationId, getAuthTokens, getSelectedConversationId, setSelectedConversationId } from "../../storage/secureTokens";
+import {
+  clearPendingMobileOAuth,
+  clearSelectedConversationId,
+  getAuthTokens,
+  getPendingMobileOAuth,
+  getSelectedConversationId,
+  setPendingMobileOAuth,
+  setSelectedConversationId
+} from "../../storage/secureTokens";
 import { defaultPersonaTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
@@ -64,8 +72,9 @@ import type { MobilePickedFile, RenderedTurn } from "./types";
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
-const MOBILE_OAUTH_COMPLETION_TIMEOUT_MS = 3 * 60 * 1000;
-const MOBILE_OAUTH_POLL_INTERVAL_MS = 3000;
+const MOBILE_OAUTH_COMPLETION_TIMEOUT_MS = 10 * 60 * 1000;
+const MOBILE_OAUTH_CALLBACK_RESUME_TIMEOUT_MS = 20 * 1000;
+const MOBILE_OAUTH_POLL_INTERVAL_MS = 5000;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 // Keep this aligned with `scheme` in app.config.ts. OAuth must not depend on
 // Expo Constants because the native manifest can be unavailable during startup.
@@ -97,14 +106,36 @@ function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function waitForMobileOAuthExchange(code: string): Promise<AuthResponse> {
-  const deadline = Date.now() + MOBILE_OAUTH_COMPLETION_TIMEOUT_MS;
+async function waitForMobileOAuthExchange(code: string, timeoutMs = MOBILE_OAUTH_COMPLETION_TIMEOUT_MS): Promise<AuthResponse> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const auth = await api.pollMobileOAuthCode({ code });
     if (auth) return auth;
     await wait(MOBILE_OAUTH_POLL_INTERVAL_MS);
   }
   throw new Error("Sign in completed in the browser, but the app could not finish it. Please try again.");
+}
+
+async function resumePendingMobileOAuth(): Promise<AuthResponse | undefined> {
+  const pending = await getPendingMobileOAuth();
+  if (!pending) return undefined;
+  if (Date.now() - pending.startedAt >= MOBILE_OAUTH_COMPLETION_TIMEOUT_MS) {
+    await clearPendingMobileOAuth();
+    return undefined;
+  }
+
+  try {
+    const auth = pending.callbackReceivedAt
+      ? await waitForMobileOAuthExchange(pending.exchangeCode, MOBILE_OAUTH_CALLBACK_RESUME_TIMEOUT_MS)
+      : await api.pollMobileOAuthCode({ code: pending.exchangeCode });
+    if (auth) await clearPendingMobileOAuth();
+    return auth;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("invalid or expired")) await clearPendingMobileOAuth();
+    if (pending.callbackReceivedAt) throw error;
+    return undefined;
+  }
 }
 
 function assistantTextForDisplay(turn: Pick<RenderedTurn, "assistantText" | "outputs">): string {
@@ -1248,6 +1279,7 @@ export function MobileChatScreen() {
     setAuthBusy(true);
     try {
       const auth = await api.exchangeOAuthCode({ code });
+      await clearPendingMobileOAuth();
       await finishAuth(auth.user);
       closeDrawer();
     } catch (exchangeError) {
@@ -1279,7 +1311,18 @@ export function MobileChatScreen() {
       setError(undefined);
       setAuthError(undefined);
       try {
-        const user = await loadAuthenticatedUser();
+        let resumedAuth: AuthResponse | undefined;
+        try {
+          resumedAuth = await resumePendingMobileOAuth();
+        } catch (resumeError) {
+          await clearPendingMobileOAuth().catch(() => undefined);
+          if (mounted) {
+            setAuthError(resumeError instanceof Error
+              ? resumeError.message
+              : "Could not finish the previous sign-in attempt. Please try again.");
+          }
+        }
+        const user = resumedAuth?.user ?? await loadAuthenticatedUser();
         if (!mounted) return;
         setAuthUser(user);
         setAuthChecked(true);
@@ -1657,6 +1700,7 @@ export function MobileChatScreen() {
     try {
       const returnUrl = mobileOAuthReturnUrl();
       const { authorizationUrl, exchangeCode } = await api.startMobileOAuth(provider, returnUrl);
+      await setPendingMobileOAuth(exchangeCode);
       const browserResultPromise = WebBrowser.openAuthSessionAsync(authorizationUrl, returnUrl);
       const exchangeResultPromise = waitForMobileOAuthExchange(exchangeCode);
       const firstResult = await Promise.race([
@@ -1665,6 +1709,7 @@ export function MobileChatScreen() {
       ]);
 
       if (firstResult.type === "auth") {
+        await clearPendingMobileOAuth();
         try {
           WebBrowser.dismissAuthSession();
         } catch {
@@ -1682,10 +1727,26 @@ export function MobileChatScreen() {
           return;
         }
       }
+      if (firstResult.result.type === "cancel" || firstResult.result.type === "dismiss") {
+        // Android can report a dismissal while an App Link is transferring
+        // focus. Keep the pending exchange so the App Link route (or the next
+        // app activation) can finish authentication if the callback arrives
+        // after the browser result.
+        const auth = await api.pollMobileOAuthCode({ code: exchangeCode });
+        if (!auth) {
+          return;
+        }
+        await clearPendingMobileOAuth();
+        await finishAuth(auth.user);
+        closeDrawer();
+        return;
+      }
       const auth = await exchangeResultPromise;
+      await clearPendingMobileOAuth();
       await finishAuth(auth.user);
       closeDrawer();
     } catch (oauthError) {
+      await clearPendingMobileOAuth().catch(() => undefined);
       setAuthError(oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
     } finally {
       setAuthBusy(false);

@@ -5,6 +5,13 @@ const AUTH_TOKENS_KEY = "persona-wrapper-auth-tokens";
 const DEVICE_ID_KEY = "persona-wrapper-device-id";
 const OWNER_ID_KEY = "persona-wrapper-owner-id";
 const SELECTED_CONVERSATION_ID_KEY = "persona-wrapper-selected-conversation-id";
+const PENDING_MOBILE_OAUTH_KEY = "persona-wrapper-pending-mobile-oauth";
+
+export type PendingMobileOAuth = {
+  exchangeCode: string;
+  startedAt: number;
+  callbackReceivedAt?: number;
+};
 
 function createLocalId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
@@ -55,4 +62,40 @@ export async function setSelectedConversationId(conversationId: string): Promise
 
 export async function clearSelectedConversationId(): Promise<void> {
   await SecureStore.deleteItemAsync(SELECTED_CONVERSATION_ID_KEY);
+}
+
+export async function getPendingMobileOAuth(): Promise<PendingMobileOAuth | undefined> {
+  const value = await SecureStore.getItemAsync(PENDING_MOBILE_OAUTH_KEY);
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as Partial<PendingMobileOAuth>;
+    if (typeof parsed.exchangeCode !== "string" || !parsed.exchangeCode || typeof parsed.startedAt !== "number") {
+      throw new Error("Invalid pending OAuth state.");
+    }
+    return {
+      exchangeCode: parsed.exchangeCode,
+      startedAt: parsed.startedAt,
+      ...(typeof parsed.callbackReceivedAt === "number" ? { callbackReceivedAt: parsed.callbackReceivedAt } : {})
+    };
+  } catch {
+    await SecureStore.deleteItemAsync(PENDING_MOBILE_OAUTH_KEY);
+    return undefined;
+  }
+}
+
+export async function setPendingMobileOAuth(exchangeCode: string): Promise<void> {
+  await SecureStore.setItemAsync(PENDING_MOBILE_OAUTH_KEY, JSON.stringify({ exchangeCode, startedAt: Date.now() }));
+}
+
+export async function markPendingMobileOAuthCallbackReceived(): Promise<void> {
+  const pending = await getPendingMobileOAuth();
+  if (!pending) return;
+  await SecureStore.setItemAsync(PENDING_MOBILE_OAUTH_KEY, JSON.stringify({
+    ...pending,
+    callbackReceivedAt: Date.now()
+  }));
+}
+
+export async function clearPendingMobileOAuth(): Promise<void> {
+  await SecureStore.deleteItemAsync(PENDING_MOBILE_OAUTH_KEY);
 }

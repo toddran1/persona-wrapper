@@ -90,9 +90,11 @@ describe("mobile OAuth callback", () => {
       tokens: {
         accessToken: "access-token", refreshToken: "refresh-token", tokenType: "Bearer", expiresAt: new Date(Date.now() + 60_000).toISOString(), refreshExpiresAt: new Date(Date.now() + 120_000).toISOString()
       },
-      oauthReturnUrl: "https://for-the-baddiez-web-dev.onrender.com/auth/mobile-callback"
+      oauthReturnUrl: "https://for-the-baddiez-web-dev.onrender.com/auth/mobile-callback",
+      oauthExchangeCodeHash: "preissued-code-hash",
+      oauthDeviceId: "android-device"
     });
-    vi.spyOn(authService, "createOAuthExchangeCode").mockResolvedValue("exchange-code");
+    const preissueExchangeCode = vi.spyOn(authService, "createPreissuedOAuthExchangeCode").mockResolvedValue();
 
     const state = { body: "", statusCode: 0 };
     const response = {
@@ -109,7 +111,12 @@ describe("mobile OAuth callback", () => {
     } as unknown as Request, response);
 
     expect(state.statusCode).toBe(200);
-    expect(state.body).toContain("https://for-the-baddiez-web-dev.onrender.com/auth/mobile-callback?code=exchange-code&amp;provider=facebook");
+    expect(state.body).toContain("https://for-the-baddiez-web-dev.onrender.com/auth/mobile-callback?provider=facebook");
     expect(state.body).not.toContain("intent://for-the-baddiez-web-dev.onrender.com");
+    expect(preissueExchangeCode).toHaveBeenCalledWith(
+      expect.objectContaining({ oauthDeviceId: "android-device" }),
+      "preissued-code-hash",
+      "android-device"
+    );
   });
 });
