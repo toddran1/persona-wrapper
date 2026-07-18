@@ -4,6 +4,7 @@ import { closeDatabase } from "./db/client.js";
 import { backgroundCleanupService } from "./services/backgroundCleanupService.js";
 import { backgroundChatJobService } from "./services/backgroundChatJobService.js";
 import { jobQueueService } from "./services/jobQueueService.js";
+import { dataTransferJobService } from "./services/dataTransferJobService.js";
 import { logger } from "./utils/logger.js";
 import { initializeTelemetry, shutdownTelemetry } from "./utils/telemetry.js";
 
@@ -12,6 +13,7 @@ const app = createApp();
 let shuttingDown = false;
 
 await backgroundChatJobService.startWorker();
+await dataTransferJobService.startWorker();
 await backgroundCleanupService.start();
 const server = app.listen(env.PORT, () => {
   logger.info("API server started", {

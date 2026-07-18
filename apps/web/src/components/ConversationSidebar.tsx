@@ -1,18 +1,18 @@
 import type {
   AuthUser,
   ConversationSummary,
+  DataTransferJob,
   OAuthProvider,
   OAuthProviderStatus,
 } from "@persona/shared";
 import { useMemo, useRef, useState } from "react";
-import JSZip from "jszip";
 
 const REGISTER_PASSWORD_MIN_LENGTH = 10;
-const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_IMPORT_FILE_BYTES = 128 * 1024 * 1024;
 
 function assertSupportedImportSize(size: number | undefined): void {
   if (size !== undefined && size > MAX_IMPORT_FILE_BYTES) {
-    throw new Error("Import files must be 25 MB or smaller.");
+    throw new Error("Import archives must be 128 MB or smaller.");
   }
 }
 
@@ -46,6 +46,8 @@ export function ConversationSidebar({
   onExportAccount,
   onExportConversation,
   onImportConversations,
+  dataTransferJob,
+  onCancelDataTransfer,
   onLogout,
   onOAuthLogin,
   onNewConversation,
@@ -75,7 +77,9 @@ export function ConversationSidebar({
   onDeleteAccount: (payload: { confirmation: "DELETE"; password?: string }) => Promise<void>;
   onExportAccount: () => Promise<void>;
   onExportConversation: (conversationId: string) => Promise<void>;
-  onImportConversations: (archive: unknown) => Promise<void>;
+  onImportConversations: (file: File) => Promise<void>;
+  dataTransferJob?: DataTransferJob | undefined;
+  onCancelDataTransfer?: (() => Promise<void>) | undefined;
   onLogout: () => Promise<void>;
   onOAuthLogin: (provider: OAuthProvider) => void;
   onNewConversation: () => void;
@@ -103,6 +107,7 @@ export function ConversationSidebar({
   const [deletePassword, setDeletePassword] = useState("");
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const dataTransferActive = Boolean(dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status));
   const filteredConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return conversations;
@@ -261,22 +266,7 @@ export function ConversationSidebar({
     setLocalAuthError(undefined);
     try {
       assertSupportedImportSize(file.size);
-      const fileName = file.name.toLowerCase();
-      let text: string;
-      if (fileName.endsWith(".zip")) {
-        const zip = await JSZip.loadAsync(await file.arrayBuffer());
-        const entry = zip.file("conversations.json") ?? Object.values(zip.files).find((candidate) => candidate.name.toLowerCase().endsWith(".json"));
-        if (!entry || entry.dir) throw new Error("The ZIP file does not contain a supported JSON conversation export.");
-        assertSupportedImportSize((entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize);
-        text = await entry.async("text");
-      } else {
-        text = await file.text();
-      }
-      assertSupportedImportSize(text.length);
-      const archive = fileName.endsWith(".jsonl")
-        ? { conversations: text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)) }
-        : JSON.parse(text);
-      await onImportConversations(archive);
+      await onImportConversations(file);
       setAccountMenuOpen(false);
     } catch (error) {
       setLocalAuthError(error instanceof Error ? error.message : "Could not import this file.");
@@ -690,8 +680,17 @@ export function ConversationSidebar({
               {localAuthError ? <div className="conversation-auth-error" role="alert">{localAuthError}</div> : null}
               <div className="conversation-account-menu-divider" />
               <div className="conversation-account-menu-label">Your data</div>
-              <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => void onExportAccount()} disabled={authBusy}>Export account data</button>
-              <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => importInputRef.current?.click()} disabled={authBusy}>Import conversations</button>
+              {dataTransferJob ? (
+                <div className="conversation-auth-copy" role="status">
+                  {dataTransferJob.phase} · {dataTransferJob.progress}%
+                  {dataTransferJob.totalItems > 0 ? ` (${dataTransferJob.processedItems}/${dataTransferJob.totalItems})` : ""}
+                </div>
+              ) : null}
+              {dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status) && onCancelDataTransfer ? (
+                <button type="button" className="conversation-account-menu-button" onClick={() => void onCancelDataTransfer()}>Cancel data transfer</button>
+              ) : null}
+              <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => void onExportAccount()} disabled={authBusy || dataTransferActive}>Export account data</button>
+              <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => importInputRef.current?.click()} disabled={authBusy || dataTransferActive}>Import conversations</button>
               <input ref={importInputRef} data-testid="conversation-import-input" type="file" accept="application/json,application/zip,.json,.jsonl,.zip" hidden onChange={(event) => void importFile(event.target.files?.[0])} />
               <div className="conversation-account-menu-divider" />
               <div className="conversation-account-menu-label">About</div>

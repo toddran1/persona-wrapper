@@ -127,29 +127,25 @@ export class BackgroundChatJobService {
 
   async get(id: string, ownerId?: string): Promise<ChatJobResponse | undefined> {
     await this.prune();
-    const job = this.jobs.get(id);
-    if (job) {
-      if (ownerId && job.ownerId && job.ownerId !== ownerId) return undefined;
-      return toChatJobResponse(job);
-    }
-
     const db = getDatabase();
-    if (!db) return undefined;
-    const persisted = await db.query.backgroundJobs.findFirst({
-      where: eq(backgroundJobs.id, id)
-    });
-    if (!persisted) return undefined;
-    if (ownerId && persisted.ownerId && persisted.ownerId !== ownerId) return undefined;
-    return {
-      id: persisted.id,
-      status: parseJobStatus(persisted.status),
-      ...(persisted.response ? { response: chatResponseSchema.parse(persisted.response) } : {}),
-      ...(persisted.error ? { error: persisted.error } : {}),
-      ...(persisted.failureReason ? { failureReason: chatJobFailureReasonSchema.parse(persisted.failureReason) } : {}),
-      ...(persisted.providerResponseId ? { providerResponseId: persisted.providerResponseId } : {}),
-      ...(persisted.providerStatus ? { providerStatus: persisted.providerStatus } : {}),
-      updatedAt: persisted.updatedAt.toISOString()
-    };
+    if (db) {
+      const persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
+      if (!persisted || persisted.kind !== "chat") return undefined;
+      if (ownerId && persisted.ownerId && persisted.ownerId !== ownerId) return undefined;
+      return {
+        id: persisted.id,
+        status: parseJobStatus(persisted.status),
+        ...(persisted.response ? { response: chatResponseSchema.parse(persisted.response) } : {}),
+        ...(persisted.error ? { error: persisted.error } : {}),
+        ...(persisted.failureReason ? { failureReason: chatJobFailureReasonSchema.parse(persisted.failureReason) } : {}),
+        ...(persisted.providerResponseId ? { providerResponseId: persisted.providerResponseId } : {}),
+        ...(persisted.providerStatus ? { providerStatus: persisted.providerStatus } : {}),
+        updatedAt: persisted.updatedAt.toISOString()
+      };
+    }
+    const job = this.jobs.get(id);
+    if (!job || (ownerId && job.ownerId && job.ownerId !== ownerId)) return undefined;
+    return toChatJobResponse(job);
   }
 
   async trackProviderResponse(id: string, providerResponseId: string, providerStatus?: string): Promise<void> {
@@ -161,10 +157,10 @@ export class BackgroundChatJobService {
 
   async cancel(id: string, error = "Request cancelled.", ownerId?: string): Promise<ChatJobResponse | undefined> {
     const job = this.jobs.get(id);
-    if (ownerId && job?.ownerId && job.ownerId !== ownerId) return undefined;
-    if (job && job.status !== "queued" && job.status !== "running") return this.get(id, ownerId);
-    let reservationId = job?.usageReservationId;
     const db = getDatabase();
+    if (ownerId && job?.ownerId && job.ownerId !== ownerId) return undefined;
+    if (!db && job && job.status !== "queued" && job.status !== "running") return this.get(id, ownerId);
+    let reservationId = job?.usageReservationId;
     let persistedStatus: string | undefined;
     if (db) {
       const persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
@@ -183,7 +179,14 @@ export class BackgroundChatJobService {
     if (!cancelled) return this.get(id, ownerId);
     job?.abortController.abort(new Error(error));
     const queueJobId = this.queueJobIds.get(id) ?? await jobQueueService.findQueueJobId(CHAT_QUEUE, id);
-    if (queueJobId) await jobQueueService.cancel(CHAT_QUEUE, queueJobId);
+    if (queueJobId) {
+      await jobQueueService.cancel(CHAT_QUEUE, queueJobId).catch((queueError) => {
+        logger.warn("Could not cancel chat queue entry after marking the app job cancelled", {
+          jobId: id,
+          error: queueError instanceof Error ? queueError.message : String(queueError)
+        });
+      });
+    }
     if (ownerId && reservationId) {
       await usageControlService.recordUsage(ownerId, undefined, undefined, reservationId);
     }
@@ -339,13 +342,17 @@ export class BackgroundChatJobService {
   private async prune(): Promise<void> {
     const cutoff = Date.now() - JOB_TTL_MS;
     for (const [id, job] of this.jobs) {
-      if (Date.parse(job.updatedAt) < cutoff) {
+      if (["completed", "failed", "cancelled"].includes(job.status) && Date.parse(job.updatedAt) < cutoff) {
         this.jobs.delete(id);
       }
     }
     const db = getDatabase();
     if (!db) return;
-    await db.delete(backgroundJobs).where(lte(backgroundJobs.updatedAt, new Date(cutoff)));
+    await db.delete(backgroundJobs).where(and(
+      eq(backgroundJobs.kind, "chat"),
+      inArray(backgroundJobs.status, ["completed", "failed", "cancelled"]),
+      lte(backgroundJobs.updatedAt, new Date(cutoff))
+    ));
   }
 }
 

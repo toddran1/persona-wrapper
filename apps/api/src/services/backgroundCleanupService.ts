@@ -7,6 +7,7 @@ import { uploadService } from "./uploadService.js";
 import { accountDeletionService } from "./accountDeletionService.js";
 import { jobQueueService } from "./jobQueueService.js";
 import { usageControlService } from "./usageControlService.js";
+import { dataTransferJobService } from "./dataTransferJobService.js";
 
 const CLEANUP_QUEUE = "storage-cleanup";
 
@@ -47,7 +48,8 @@ export class BackgroundCleanupService {
         ["generated audio", generatedAudioService.cleanupExpiredNow()],
         ["OpenAI artifacts", openAIArtifactService.cleanupExpiredNow()],
         ["usage reservations", usageControlService.cleanupExpiredNow()],
-        ["scheduled accounts", accountDeletionService.purgeDueAccounts()]
+        ["scheduled accounts", accountDeletionService.purgeDueAccounts()],
+        ["data transfers", dataTransferJobService.cleanupExpiredNow()]
       ] as const;
       const results = await Promise.allSettled(tasks.map(([, task]) => task));
       results.forEach((result, index) => {

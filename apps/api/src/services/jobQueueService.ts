@@ -36,7 +36,9 @@ class JobQueueService {
       retryLimit: 3,
       retryDelay: 5,
       retryBackoff: true,
-      expireInSeconds: 30 * 60,
+      // Large account archives can legitimately take longer than chat jobs.
+      // Individual providers still enforce their own tighter request limits.
+      expireInSeconds: 2 * 60 * 60,
       retentionSeconds: 24 * 60 * 60
     });
     await boss.work<T>(queue, { batchSize: 1 }, async ([job]) => {

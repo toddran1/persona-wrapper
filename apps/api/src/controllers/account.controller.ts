@@ -6,6 +6,8 @@ import { getDatabase } from "../db/client.js";
 import { betterAuthAccounts, betterAuthSessions, users } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { accountDeletionService } from "../services/accountDeletionService.js";
+import { backgroundChatJobService } from "../services/backgroundChatJobService.js";
+import { dataTransferJobService } from "../services/dataTransferJobService.js";
 import { verifyPassword } from "../services/passwordService.js";
 
 function requireDatabase() {
@@ -64,6 +66,10 @@ export async function deleteAccount(request: Request, response: Response): Promi
   const deletionScheduledFor = new Date(
     deletionRequestedAt.getTime() + env.AUTH_ACCOUNT_DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000
   );
+  await Promise.all([
+    backgroundChatJobService.cancelForOwner(user.id, "Account deletion cancelled this request."),
+    dataTransferJobService.cancelForOwner(user.id)
+  ]);
   await db.transaction(async (tx) => {
     await tx.update(users).set({
       status: "pending_deletion",

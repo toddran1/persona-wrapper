@@ -1,4 +1,4 @@
-import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
+import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, DataTransferJob, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRef } from "react";
@@ -79,13 +79,13 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-function downloadExport(content: string, fileName: string, mimeType: string): void {
+function downloadExport(content: BlobPart, fileName: string, mimeType: string): void {
   const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = fileName;
   anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function archiveToMarkdown(archive: ForTheBaddiezArchive): string {
@@ -205,6 +205,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [authUser, setAuthUser] = useState<AuthUser | undefined>();
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState<string | undefined>();
+  const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
   const [evalSaving, setEvalSaving] = useState(false);
   const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
@@ -217,6 +218,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const activeRequestRef = useRef<AbortController | undefined>(undefined);
   const activeBackgroundJobIdRef = useRef<string | undefined>(undefined);
+  const dataTransferAbortRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
   const completedTurnCountRef = useRef(0);
   const lastCompletedTurnWasImageOnlyRef = useRef(false);
@@ -605,10 +607,13 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }
 
   function clearAccountConversationState(): void {
+    dataTransferAbortRef.current?.abort();
+    dataTransferAbortRef.current = undefined;
     queryClient.removeQueries({ queryKey: ["conversations"] });
     queryClient.removeQueries({ queryKey: ["conversation-turns"] });
     setConversationList([]);
     setConversationListCursor(null);
+    setDataTransferJob(undefined);
   }
 
   async function loadConversation(nextConversationId: string, accountId = authUser?.id): Promise<void> {
@@ -1097,12 +1102,21 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
 
   async function handleExportAccount(): Promise<void> {
     setError(undefined);
+    const controller = new AbortController();
     try {
-      const archive = await api.exportAccountData();
-      const date = new Date().toISOString().slice(0, 10);
-      downloadExport(JSON.stringify(archive, null, 2), `for-the-baddiez-account-${date}.json`, "application/json");
+      if (dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status)) throw new Error("Another data transfer is already running.");
+      dataTransferAbortRef.current = controller;
+      const started = await api.startDataExportJob("account", undefined, controller.signal);
+      setDataTransferJob(started);
+      const completed = await api.waitForDataTransferJob(started.id, setDataTransferJob, controller.signal);
+      const blob = await api.downloadDataTransferArchive(completed);
+      downloadExport(blob, completed.fileName ?? `for-the-baddiez-account-${new Date().toISOString().slice(0, 10)}.zip`, "application/zip");
     } catch (exportError) {
-      setError(exportError instanceof Error ? exportError.message : "Could not export your account data.");
+      if (!(exportError instanceof Error && exportError.name === "AbortError")) {
+        setError(exportError instanceof Error ? exportError.message : "Could not export your account data.");
+      }
+    } finally {
+      if (dataTransferAbortRef.current === controller) dataTransferAbortRef.current = undefined;
     }
   }
 
@@ -1119,16 +1133,38 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
   }
 
-  async function handleImportConversations(archive: unknown): Promise<void> {
-    const result = await api.importConversationData(archive);
-    await refreshConversationList(undefined, true);
-    setAuthError(`Imported ${result.importedConversations} conversation${result.importedConversations === 1 ? "" : "s"} from ${result.source}.`);
+  async function handleImportConversations(file: File): Promise<void> {
+    if (dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status)) throw new Error("Another data transfer is already running.");
+    const controller = new AbortController();
+    dataTransferAbortRef.current = controller;
+    try {
+      const started = await api.startDataImportJob(file, controller.signal);
+      setDataTransferJob(started);
+      const completed = await api.waitForDataTransferJob(started.id, setDataTransferJob, controller.signal);
+      await refreshConversationList(undefined, true);
+      const result = completed.result;
+      setAuthError(result ? `Imported ${result.importedConversations} conversation${result.importedConversations === 1 ? "" : "s"} from ${result.source}; skipped ${result.skippedConversations} duplicate or unsupported conversation${result.skippedConversations === 1 ? "" : "s"}.` : "Import complete.");
+    } catch (importError) {
+      if (!(importError instanceof Error && importError.name === "AbortError")) throw importError;
+    } finally {
+      if (dataTransferAbortRef.current === controller) dataTransferAbortRef.current = undefined;
+    }
+  }
+
+  async function handleCancelDataTransfer(): Promise<void> {
+    if (!dataTransferJob) return;
+    setDataTransferJob(await api.cancelDataTransferJob(dataTransferJob.id));
+    dataTransferAbortRef.current?.abort();
+    dataTransferAbortRef.current = undefined;
   }
 
   async function handleLogout(): Promise<void> {
     setAuthLoading(true);
     setAuthError(undefined);
     try {
+      if (dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status)) {
+        await api.cancelDataTransferJob(dataTransferJob.id).catch(() => undefined);
+      }
       await api.logout();
     } finally {
       setAuthUser(undefined);
@@ -1239,6 +1275,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           onExportAccount={handleExportAccount}
           onExportConversation={handleExportConversation}
           onImportConversations={handleImportConversations}
+          dataTransferJob={dataTransferJob}
+          onCancelDataTransfer={handleCancelDataTransfer}
           onLogout={handleLogout}
           onOAuthLogin={handleOAuthLogin}
           onNewConversation={() => {

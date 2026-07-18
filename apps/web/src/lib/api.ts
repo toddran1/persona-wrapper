@@ -11,6 +11,7 @@ import type {
   ConversationSummary,
   ConversationTurnsPage,
   DataImportResult,
+  DataTransferJob,
   ForTheBaddiezArchive,
   LoginRequest,
   OAuthProvider,
@@ -38,6 +39,7 @@ let authRefreshInFlight: Promise<boolean> | undefined;
 const API_REQUEST_TIMEOUT_MS = 130_000;
 const AUTH_REFRESH_TIMEOUT_MS = 30_000;
 const UPLOAD_REQUEST_TIMEOUT_MS = 90_000;
+const DATA_TRANSFER_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 5 * 60 * 1000;
 
 class RequestTimeoutError extends Error {
   constructor() {
@@ -558,6 +560,70 @@ export const api = {
     const response = await contractClient.data.import({ body: { archive } });
     if (response.status !== 201) throw contractError(response.body, "Could not import conversation data.");
     return response.body;
+  },
+  startDataExportJob: async (scope: "account" | "conversations", conversationIds?: string[], signal?: AbortSignal): Promise<DataTransferJob> => {
+    const response = await contractClient.data.startExportJob({ body: { scope, ...(conversationIds ? { conversationIds } : {}) }, ...(signal ? { fetchOptions: { signal } } : {}) });
+    if (response.status !== 202) throw contractError(response.body, "Could not start data export.");
+    return response.body;
+  },
+  startDataImportJob: async (file: File, signal?: AbortSignal): Promise<DataTransferJob> => {
+    const presigned = await contractClient.data.presignImportJob({
+      body: { fileName: file.name, mimeType: file.type || (file.name.toLowerCase().endsWith(".zip") ? "application/zip" : "application/json"), sizeBytes: file.size },
+      ...(signal ? { fetchOptions: { signal } } : {})
+    });
+    if (presigned.status === 409) {
+      const body = new FormData();
+      body.append("archive", file);
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/data/jobs/import`, {
+        method: "POST",
+        headers: requestHeaders(false),
+        body,
+        ...(signal ? { signal } : {})
+      }, 10 * 60_000);
+      if (!response.ok) throw new Error(await parseApiError(response));
+      return await response.json() as DataTransferJob;
+    }
+    if (presigned.status !== 201) throw contractError(presigned.body, "Could not prepare data import.");
+    try {
+      const uploaded = await fetchWithTimeout(presigned.body.uploadUrl, { method: "PUT", headers: presigned.body.headers, body: file, credentials: "omit", ...(signal ? { signal } : {}) }, 10 * 60_000);
+      if (!uploaded.ok) throw new Error("The storage service rejected the import archive.");
+      const completed = await contractClient.data.completeImportJob({ params: { jobId: presigned.body.jobId }, ...(signal ? { fetchOptions: { signal } } : {}) });
+      if (completed.status !== 202) throw contractError(completed.body, "Could not start data import.");
+      return completed.body;
+    } catch (error) {
+      await contractClient.data.cancelJob({ params: { jobId: presigned.body.jobId } }).catch(() => undefined);
+      throw error;
+    }
+  },
+  getDataTransferJob: async (jobId: string): Promise<DataTransferJob> => {
+    const response = await contractClient.data.getJob({ params: { jobId } });
+    if (response.status !== 200) throw contractError(response.body, "Data transfer job not found.");
+    return response.body;
+  },
+  cancelDataTransferJob: async (jobId: string): Promise<DataTransferJob> => {
+    const response = await contractClient.data.cancelJob({ params: { jobId } });
+    if (response.status !== 200) throw contractError(response.body, "Data transfer job not found.");
+    return response.body;
+  },
+  waitForDataTransferJob: async (jobId: string, onProgress?: (job: DataTransferJob) => void, signal?: AbortSignal): Promise<DataTransferJob> => {
+    const deadline = Date.now() + DATA_TRANSFER_POLL_TIMEOUT_MS;
+    for (;;) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (Date.now() >= deadline) throw new Error("The data transfer is taking longer than expected. Check its status again later.");
+      const job = await api.getDataTransferJob(jobId);
+      onProgress?.(job);
+      if (job.status === "completed") return job;
+      if (job.status === "failed" || job.status === "cancelled") throw new Error(job.error || `Data transfer ${job.status}.`);
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => { window.clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
+        const timer = window.setTimeout(() => { signal?.removeEventListener("abort", abort); resolve(); }, 1000);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+    }
+  },
+  downloadDataTransferArchive: async (job: DataTransferJob): Promise<Blob> => {
+    if (!job.downloadUrl) throw new Error("Export archive is not ready.");
+    return api.fetchUploadBlob(job.downloadUrl);
   },
   cancelChatJob: async (jobId: string): Promise<ChatJobResponse> =>
     contractClient.chat.cancelJob({ params: { jobId } }).then((response) => {

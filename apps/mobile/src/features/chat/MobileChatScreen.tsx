@@ -23,14 +23,13 @@ import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
-import JSZip from "jszip";
 import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
 import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
+import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, DataTransferJob, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -70,7 +69,7 @@ import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
-const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_IMPORT_FILE_BYTES = 128 * 1024 * 1024;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 // Keep this aligned with `scheme` in app.config.ts. OAuth must not depend on
 // Expo Constants because the native manifest can be unavailable during startup.
@@ -97,8 +96,12 @@ async function openPublicWebPage(path: string): Promise<void> {
 
 function assertSupportedImportSize(size: number | undefined): void {
   if (size !== undefined && size > MAX_IMPORT_FILE_BYTES) {
-    throw new Error("Import files must be 25 MB or smaller.");
+    throw new Error("Import archives must be 128 MB or smaller.");
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 async function loadAuthenticatedUser(): Promise<AuthUser | undefined> {
@@ -191,6 +194,8 @@ export function MobileChatScreen() {
   const [error, setError] = useState<string | undefined>();
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
+  const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
+  const dataTransferActive = Boolean(dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status));
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | undefined>();
   const [sessionActionId, setSessionActionId] = useState<string | undefined>();
@@ -233,6 +238,7 @@ export function MobileChatScreen() {
   const audioPlaybackSubscriptionRef = useRef<AudioPlaybackSubscription | undefined>(undefined);
   const audioPlaybackGenerationRef = useRef(0);
   const activeChatAbortControllerRef = useRef<AbortController | undefined>(undefined);
+  const dataTransferAbortControllerRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
   const sessionValidationInFlightRef = useRef(false);
@@ -426,7 +432,10 @@ export function MobileChatScreen() {
           }
           cancelActiveChatRequest();
           selectionGenerationRef.current += 1;
+          dataTransferAbortControllerRef.current?.abort();
+          dataTransferAbortControllerRef.current = undefined;
           setAuthUser(undefined);
+          setDataTransferJob(undefined);
           setSettingsVisible(false);
           setActiveSessions([]);
           closeDrawer();
@@ -1609,11 +1618,17 @@ export function MobileChatScreen() {
     selectionGenerationRef.current += 1;
     let logoutError: string | undefined;
     try {
+      if (dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status)) {
+        await api.cancelDataTransferJob(dataTransferJob.id).catch(() => undefined);
+      }
+      dataTransferAbortControllerRef.current?.abort();
+      dataTransferAbortControllerRef.current = undefined;
       await api.logout();
     } catch (error) {
       logoutError = error instanceof Error ? error.message : "Could not reach the server to revoke this session.";
     }
     setAuthUser(undefined);
+    setDataTransferJob(undefined);
     setActiveSessions([]);
     setSettingsVisible(false);
     closeDrawer();
@@ -1692,56 +1707,71 @@ export function MobileChatScreen() {
   }
 
   async function shareDataArchive(scope: "account" | "conversation", selectedConversationId?: string): Promise<void> {
+    const controller = new AbortController();
     try {
+      if (dataTransferActive) throw new Error("Another data transfer is already running.");
+      dataTransferAbortControllerRef.current = controller;
       const targetConversationId = selectedConversationId ?? conversationId;
-      const archive = scope === "account"
-        ? await api.exportAccountData()
-        : targetConversationId
-          ? await api.exportConversations([targetConversationId])
-          : undefined;
-      if (!archive) throw new Error("Open a conversation before exporting it.");
+      if (scope === "conversation" && !targetConversationId) throw new Error("Open a conversation before exporting it.");
+      const started = await api.startDataExportJob(scope === "account" ? "account" : "conversations", targetConversationId ? [targetConversationId] : undefined, controller.signal);
+      setDataTransferJob(started);
+      const completed = await api.waitForDataTransferJob(started.id, setDataTransferJob, controller.signal);
+      if (!completed.downloadUrl) throw new Error("Export archive is not ready.");
       if (!FileSystem.documentDirectory) throw new Error("This device cannot create an export file.");
-      const fileName = `for-the-baddiez-${scope}-${new Date().toISOString().slice(0, 10)}.json`;
+      const fileName = completed.fileName ?? `for-the-baddiez-${scope}-${new Date().toISOString().slice(0, 10)}.zip`;
       const uri = `${FileSystem.documentDirectory}${fileName}`;
-      await FileSystem.writeAsStringAsync(uri, JSON.stringify(archive, null, 2), { encoding: FileSystem.EncodingType.UTF8 });
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, { mimeType: "application/json", dialogTitle: "Export For the Baddiez data" });
-      } else {
-        Alert.alert("Export saved", `Saved ${fileName} to the app documents folder.`);
+      let keepSavedExport = false;
+      try {
+        const downloaded = await FileSystem.downloadAsync(api.resolveUrl(completed.downloadUrl), uri, { headers: await api.mediaHeaders() });
+        if (downloaded.status < 200 || downloaded.status >= 300) throw new Error(`Export download failed with status ${downloaded.status}.`);
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, { mimeType: "application/zip", dialogTitle: "Export For the Baddiez data" });
+        } else {
+          keepSavedExport = true;
+          Alert.alert("Export saved", `Saved ${fileName} to the app documents folder.`);
+        }
+      } finally {
+        if (!keepSavedExport) await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
       }
     } catch (exportError) {
-      Alert.alert("Export failed", exportError instanceof Error ? exportError.message : "Could not export your data.");
+      if (!isAbortError(exportError)) Alert.alert("Export failed", exportError instanceof Error ? exportError.message : "Could not export your data.");
+    } finally {
+      if (dataTransferAbortControllerRef.current === controller) dataTransferAbortControllerRef.current = undefined;
     }
   }
 
   async function importConversationArchive(): Promise<void> {
+    const controller = new AbortController();
     try {
+      if (dataTransferActive) throw new Error("Another data transfer is already running.");
+      dataTransferAbortControllerRef.current = controller;
       const result = await DocumentPicker.getDocumentAsync({ type: ["application/json", "application/zip", "text/plain"], copyToCacheDirectory: true, multiple: false });
       if (result.canceled || !result.assets[0]) return;
       const asset = result.assets[0];
       assertSupportedImportSize(asset.size);
-      const fileName = asset.name.toLowerCase();
-      let text: string;
-      if (fileName.endsWith(".zip")) {
-        const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
-        const zip = await JSZip.loadAsync(base64, { base64: true });
-        const entry = zip.file("conversations.json") ?? Object.values(zip.files).find((candidate) => candidate.name.toLowerCase().endsWith(".json"));
-        if (!entry || entry.dir) throw new Error("The ZIP file does not contain a supported JSON conversation export.");
-        assertSupportedImportSize((entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize);
-        text = await entry.async("text");
-      } else {
-        text = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
-      }
-      assertSupportedImportSize(text.length);
-      const archive = fileName.endsWith(".jsonl")
-        ? { conversations: text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)) }
-        : JSON.parse(text);
-      const imported = await api.importConversationData(archive);
+      const info = await FileSystem.getInfoAsync(asset.uri);
+      const sizeBytes = asset.size ?? (info.exists && "size" in info ? info.size : undefined);
+      if (!sizeBytes) throw new Error("Could not determine the import archive size.");
+      const started = await api.startDataImportJob({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType ?? (asset.name.toLowerCase().endsWith(".zip") ? "application/zip" : "application/json") }, sizeBytes, controller.signal);
+      setDataTransferJob(started);
+      const completed = await api.waitForDataTransferJob(started.id, setDataTransferJob, controller.signal);
+      const imported = completed.result;
+      if (!imported) throw new Error("Import completed without a result summary.");
       await refreshConversationsFromDrawer();
       Alert.alert("Import complete", `Imported ${imported.importedConversations} conversation${imported.importedConversations === 1 ? "" : "s"} from ${imported.source}.`);
     } catch (importError) {
-      Alert.alert("Import failed", importError instanceof Error ? importError.message : "Could not import this file.");
+      if (!isAbortError(importError)) Alert.alert("Import failed", importError instanceof Error ? importError.message : "Could not import this file.");
+    } finally {
+      if (dataTransferAbortControllerRef.current === controller) dataTransferAbortControllerRef.current = undefined;
     }
+  }
+
+  async function cancelDataTransfer(): Promise<void> {
+    if (!dataTransferJob) return;
+    const cancelled = await api.cancelDataTransferJob(dataTransferJob.id);
+    setDataTransferJob(cancelled);
+    dataTransferAbortControllerRef.current?.abort();
+    dataTransferAbortControllerRef.current = undefined;
   }
 
   async function deleteAccount(): Promise<void> {
@@ -1752,6 +1782,8 @@ export function MobileChatScreen() {
     setDeleteAccountBusy(true);
     setDeleteAccountError(undefined);
     cancelActiveChatRequest();
+    dataTransferAbortControllerRef.current?.abort();
+    dataTransferAbortControllerRef.current = undefined;
     selectionGenerationRef.current += 1;
     try {
       const result = await api.deleteAccount({
@@ -1762,6 +1794,7 @@ export function MobileChatScreen() {
       setDeleteAccountVisible(false);
       setSettingsVisible(false);
       setAuthUser(undefined);
+      setDataTransferJob(undefined);
       setConversations([]);
       setConversationId(undefined);
       setTurns([]);
@@ -2262,15 +2295,22 @@ export function MobileChatScreen() {
           </View>
           <View style={styles.settingsSection}>
             <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Your data</Text>
-            <Pressable accessibilityRole="button" testID="mobile-export-account" onPress={() => void shareDataArchive("account")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+            {dataTransferJob ? <Text style={{ color: theme.muted, fontSize: 12, marginBottom: 4 }}>{dataTransferJob.phase} · {dataTransferJob.progress}%</Text> : null}
+            {dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status) ? (
+              <Pressable accessibilityRole="button" onPress={() => void cancelDataTransfer().catch((cancelError) => Alert.alert("Cancel failed", cancelError instanceof Error ? cancelError.message : "Could not cancel data transfer."))} style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}>
+                <Ionicons name="close-circle-outline" size={22} color={theme.danger} />
+                <Text style={[styles.settingsRowText, { color: theme.danger }]}>Cancel data transfer</Text>
+              </Pressable>
+            ) : null}
+            <Pressable accessibilityRole="button" testID="mobile-export-account" disabled={dataTransferActive} onPress={() => void shareDataArchive("account")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: dataTransferActive ? 0.45 : 1 }]}>
               <Ionicons name="download-outline" size={22} color={theme.text} />
               <Text style={[styles.settingsRowText, { color: theme.text }]}>Export account data</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" testID="mobile-export-conversation" disabled={!conversationId} onPress={() => void shareDataArchive("conversation")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: conversationId ? 1 : 0.45 }]}>
+            <Pressable accessibilityRole="button" testID="mobile-export-conversation" disabled={!conversationId || dataTransferActive} onPress={() => void shareDataArchive("conversation")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: conversationId && !dataTransferActive ? 1 : 0.45 }]}>
               <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.text} />
               <Text style={[styles.settingsRowText, { color: theme.text }]}>Export current chat</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" testID="mobile-import-conversations" onPress={() => void importConversationArchive()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+            <Pressable accessibilityRole="button" testID="mobile-import-conversations" disabled={dataTransferActive} onPress={() => void importConversationArchive()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: dataTransferActive ? 0.45 : 1 }]}>
               <Ionicons name="cloud-upload-outline" size={22} color={theme.text} />
               <Text style={[styles.settingsRowText, { color: theme.text }]}>Import conversations</Text>
             </Pressable>

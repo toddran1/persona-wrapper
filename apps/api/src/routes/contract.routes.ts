@@ -13,7 +13,12 @@ import {
   postChat
 } from "../controllers/chat.controller.js";
 import {
+  deleteDataTransferJob,
+  getDataTransferJob,
   getAccountDataExport,
+  postDataExportJob,
+  postDataImportComplete,
+  postDataImportPresign,
   postConversationDataExport,
   postDataImport
 } from "../controllers/dataTransfer.controller.js";
@@ -124,6 +129,11 @@ export const apiContractRouter = server.router(apiContract, {
   data: {
     exportAccount: captured(getAccountDataExport),
     exportConversations: captured(postConversationDataExport),
-    import: captured(postDataImport)
+    import: captured(postDataImport),
+    startExportJob: captured(postDataExportJob),
+    presignImportJob: captured(postDataImportPresign),
+    completeImportJob: captured(postDataImportComplete),
+    getJob: captured(getDataTransferJob),
+    cancelJob: captured(deleteDataTransferJob)
   }
 });

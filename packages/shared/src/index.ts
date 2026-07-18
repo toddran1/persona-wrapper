@@ -669,6 +669,36 @@ export const dataImportResultSchema = z.object({
 });
 export type DataImportResult = z.infer<typeof dataImportResultSchema>;
 
+export const dataTransferJobSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["import", "export"]),
+  status: z.enum(["awaiting_upload", "queued", "running", "completed", "failed", "cancelled"]),
+  phase: z.string(),
+  progress: z.number().int().min(0).max(100),
+  processedItems: z.number().int().nonnegative(),
+  totalItems: z.number().int().nonnegative(),
+  source: z.enum(["for-the-baddiez", "chatgpt", "claude"]).optional(),
+  result: dataImportResultSchema.optional(),
+  downloadUrl: z.string().optional(),
+  fileName: z.string().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  error: z.string().optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  expiresAt: z.string().datetime().optional()
+});
+export type DataTransferJob = z.infer<typeof dataTransferJobSchema>;
+
+export const dataExportJobRequestSchema = z.object({
+  scope: z.enum(["account", "conversations"]),
+  conversationIds: z.array(z.string().min(1)).max(10000).optional()
+}).superRefine((value, context) => {
+  if (value.scope === "conversations" && !value.conversationIds?.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["conversationIds"], message: "Select at least one conversation." });
+  }
+});
+export type DataExportJobRequest = z.infer<typeof dataExportJobRequestSchema>;
+
 export const uploadPresignRequestSchema = z.object({
   fileName: z.string().min(1).max(500),
   mimeType: z.string().min(1).max(200),
@@ -683,6 +713,16 @@ export const uploadPresignResponseSchema = z.object({
   expiresAt: z.string()
 });
 export type UploadPresignResponse = z.infer<typeof uploadPresignResponseSchema>;
+
+export const dataImportPresignRequestSchema = uploadPresignRequestSchema.extend({
+  sha256: z.string().regex(/^[a-f0-9]{64}$/i).optional()
+});
+export type DataImportPresignRequest = z.infer<typeof dataImportPresignRequestSchema>;
+
+export const dataImportPresignResponseSchema = uploadPresignResponseSchema.extend({
+  jobId: z.string()
+});
+export type DataImportPresignResponse = z.infer<typeof dataImportPresignResponseSchema>;
 
 export const vectorStoreRequestSchema = z.object({
   assetIds: z.array(z.string()).min(1).max(20),
@@ -857,6 +897,38 @@ export const apiContract = contract.router({
       path: "/api/data/import",
       body: dataImportRequestSchema,
       responses: { 201: dataImportResultSchema }
+    },
+    startExportJob: {
+      method: "POST",
+      path: "/api/data/jobs/export",
+      body: dataExportJobRequestSchema,
+      responses: { 202: dataTransferJobSchema, 400: apiErrorSchema, 409: apiErrorSchema }
+    },
+    presignImportJob: {
+      method: "POST",
+      path: "/api/data/jobs/import/presign",
+      body: dataImportPresignRequestSchema,
+      responses: { 201: dataImportPresignResponseSchema, 400: apiErrorSchema, 409: apiErrorSchema, 413: apiErrorSchema }
+    },
+    completeImportJob: {
+      method: "POST",
+      path: "/api/data/jobs/:jobId/import/complete",
+      pathParams: z.object({ jobId: z.string().min(1) }),
+      body: contract.noBody(),
+      responses: { 202: dataTransferJobSchema, 400: apiErrorSchema, 404: apiErrorSchema, 409: apiErrorSchema }
+    },
+    getJob: {
+      method: "GET",
+      path: "/api/data/jobs/:jobId",
+      pathParams: z.object({ jobId: z.string().min(1) }),
+      responses: { 200: dataTransferJobSchema, 404: apiErrorSchema }
+    },
+    cancelJob: {
+      method: "DELETE",
+      path: "/api/data/jobs/:jobId",
+      pathParams: z.object({ jobId: z.string().min(1) }),
+      body: contract.noBody(),
+      responses: { 200: dataTransferJobSchema, 404: apiErrorSchema }
     }
   })
 });

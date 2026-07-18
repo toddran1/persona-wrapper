@@ -122,6 +122,14 @@ services:
         value: development
       - key: STORAGE_S3_FORCE_PATH_STYLE
         value: "false"
+      - key: DATA_TRANSFER_ARCHIVE_MAX_BYTES
+        value: "134217728"
+      - key: DATA_TRANSFER_RATE_LIMIT_REQUESTS
+        value: "10"
+      - key: DATA_TRANSFER_RATE_LIMIT_WINDOW_MS
+        value: "900000"
+      - key: DATA_TRANSFER_JOB_TTL_HOURS
+        value: "24"
       - key: AWS_ACCESS_KEY_ID
         sync: false
       - key: AWS_SECRET_ACCESS_KEY

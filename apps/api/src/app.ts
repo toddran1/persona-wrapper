@@ -11,7 +11,7 @@ import { createExpressEndpoints } from "@ts-rest/express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { authenticateRequest } from "./middleware/authMiddleware.js";
-import { authRateLimit } from "./middleware/authRateLimit.js";
+import { authRateLimit, dataTransferRateLimit } from "./middleware/authRateLimit.js";
 import { chatRouter } from "./routes/chat.routes.js";
 import { apiContractRouter } from "./routes/contract.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
@@ -19,6 +19,7 @@ import { observabilityRouter } from "./routes/observability.routes.js";
 import { getGeneratedAudio } from "./controllers/generatedAudio.controller.js";
 import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
+import { downloadDataExport, postDataImportUpload } from "./controllers/dataTransfer.controller.js";
 import { env } from "./config/env.js";
 import { storageService } from "./services/storageService.js";
 import { HttpError } from "./utils/httpError.js";
@@ -265,7 +266,19 @@ export function createApp() {
   // whenever the sign-in screen mounts.
   app.post("/api/account/restore", authRateLimit);
   app.delete("/api/account", authRateLimit);
+  app.post("/api/data/jobs/export", dataTransferRateLimit);
+  app.post("/api/data/jobs/import/presign", dataTransferRateLimit);
+  app.post("/api/data/jobs/import", dataTransferRateLimit, multer({
+    storage: multer.memoryStorage(),
+    limits: { files: 1, fileSize: Math.min(env.DATA_TRANSFER_ARCHIVE_MAX_BYTES, 64 * 1024 * 1024) },
+    fileFilter: (_request, file, callback) => callback(null, /\.(zip|json|jsonl)$/i.test(file.originalname))
+  }).single("archive"), (request, response, next) => {
+    postDataImportUpload(request, response).catch(next);
+  });
   createExpressEndpoints(apiContract, apiContractRouter, app);
+  app.get("/api/data/jobs/:jobId/download", (request, response, next) => {
+    downloadDataExport(request, response).catch(next);
+  });
   app.use("/api/chat", chatRouter);
   app.use("/api/uploads", uploadRouter);
   app.get("/api/generated-audio/:token", (request, response, next) => {

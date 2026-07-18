@@ -38,6 +38,7 @@
     "drizzle-orm": "^0.45.2",
     "express": "^4.21.1",
     "file-type": "^22.0.1",
+    "jszip": "^3.10.1",
     "multer": "^2.2.0",
     "openai": "^6.42.0",
     "pg-boss": "^12.26.1",

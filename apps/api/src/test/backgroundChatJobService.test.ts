@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BackgroundChatJobService } from "../services/backgroundChatJobService.js";
 
 function waitForAbort(signal: AbortSignal): Promise<never> {
@@ -10,6 +10,8 @@ function waitForAbort(signal: AbortSignal): Promise<never> {
 }
 
 describe("BackgroundChatJobService", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("marks manual cancellation separately and aborts the running executor", async () => {
     const service = new BackgroundChatJobService();
     const job = await service.start({}, async (runningJob) => waitForAbort(runningJob.abortController.signal));
@@ -66,5 +68,16 @@ describe("BackgroundChatJobService", () => {
     const service = new BackgroundChatJobService();
 
     await expect(service.start({})).rejects.toThrow("No background chat executor is configured.");
+  });
+
+  it("does not prune an active job merely because it has run for an hour", async () => {
+    vi.useFakeTimers();
+    const service = new BackgroundChatJobService();
+    const job = await service.start({}, async (runningJob) => waitForAbort(runningJob.abortController.signal));
+    await Promise.resolve();
+    vi.advanceTimersByTime(61 * 60 * 1000);
+
+    expect((await service.get(job.id))?.status).toBe("running");
+    await service.cancel(job.id, "Test cleanup.");
   });
 });

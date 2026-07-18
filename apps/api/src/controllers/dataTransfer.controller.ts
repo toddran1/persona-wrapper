@@ -1,7 +1,8 @@
 import type { Request, Response } from "express";
-import { dataImportRequestSchema, selectedConversationExportSchema } from "@persona/shared";
+import { dataExportJobRequestSchema, dataImportPresignRequestSchema, dataImportRequestSchema, selectedConversationExportSchema } from "@persona/shared";
 import { ConversationStore } from "../services/conversationStore.js";
 import { DataTransferService } from "../services/dataTransferService.js";
+import { dataTransferJobService } from "../services/dataTransferJobService.js";
 import { HttpError } from "../utils/httpError.js";
 import { contentDisposition } from "../utils/httpHeaders.js";
 import { measureOperation } from "../utils/observability.js";
@@ -40,4 +41,48 @@ export async function postDataImport(request: Request, response: Response): Prom
     dataTransferService.importArchive(authenticatedUserId(request), payload.archive)
   );
   response.status(201).json(result);
+}
+
+export async function postDataExportJob(request: Request, response: Response): Promise<void> {
+  const payload = dataExportJobRequestSchema.parse(request.body);
+  response.status(202).json(await dataTransferJobService.startExport(authenticatedUserId(request), payload));
+}
+
+export async function postDataImportPresign(request: Request, response: Response): Promise<void> {
+  const payload = dataImportPresignRequestSchema.parse(request.body);
+  response.status(201).json(await dataTransferJobService.presignImport(authenticatedUserId(request), payload));
+}
+
+export async function postDataImportUpload(request: Request, response: Response): Promise<void> {
+  if (!request.file) throw new HttpError("Select a ZIP or JSON archive to import.", 400);
+  response.status(202).json(await dataTransferJobService.startImportBuffer(authenticatedUserId(request), {
+    fileName: request.file.originalname,
+    mimeType: request.file.mimetype,
+    buffer: request.file.buffer
+  }));
+}
+
+export async function postDataImportComplete(request: Request, response: Response): Promise<void> {
+  response.status(202).json(await dataTransferJobService.completeImport(authenticatedUserId(request), String(request.params.jobId)));
+}
+
+export async function getDataTransferJob(request: Request, response: Response): Promise<void> {
+  const job = await dataTransferJobService.get(String(request.params.jobId), authenticatedUserId(request));
+  if (!job) throw new HttpError("Data transfer job not found.", 404);
+  response.status(200).json(job);
+}
+
+export async function deleteDataTransferJob(request: Request, response: Response): Promise<void> {
+  const job = await dataTransferJobService.cancel(String(request.params.jobId), authenticatedUserId(request));
+  if (!job) throw new HttpError("Data transfer job not found.", 404);
+  response.status(200).json(job);
+}
+
+export async function downloadDataExport(request: Request, response: Response): Promise<void> {
+  const archive = await dataTransferJobService.download(String(request.params.jobId), authenticatedUserId(request));
+  response.setHeader("Content-Disposition", contentDisposition("attachment", archive.fileName));
+  response.setHeader("Cache-Control", "private, no-store");
+  response.setHeader("Pragma", "no-cache");
+  response.setHeader("Content-Length", String(archive.buffer.byteLength));
+  response.type(archive.mimeType).send(archive.buffer);
 }

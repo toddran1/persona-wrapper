@@ -9,11 +9,11 @@ const config: ExpoConfig = {
   userInterfaceStyle: "dark",
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "com.personawrapper.mobile",
+    bundleIdentifier: "com.forthebaddiez.mobile",
     icon: "./assets/branding/FTB_logo_ios_letters_only_icon.png"
   },
   android: {
-    package: "com.personawrapper.mobile",
+    package: "com.forthebaddiez.mobile",
     icon: "./assets/branding/FTB_Logo_120x120.png",
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {

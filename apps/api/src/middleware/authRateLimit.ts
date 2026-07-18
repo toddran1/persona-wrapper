@@ -12,6 +12,7 @@ type RateLimitEntry = {
 
 const attempts = new Map<string, RateLimitEntry>();
 const oauthPollAttempts = new Map<string, RateLimitEntry>();
+const dataTransferAttempts = new Map<string, RateLimitEntry>();
 const MAX_TRACKED_CLIENTS = 10_000;
 
 function pruneExpired(now: number): void {
@@ -103,6 +104,41 @@ export function mobileOAuthPollRateLimit(request: Request, response: Response, n
     return;
   }
   next();
+}
+
+export function dataTransferRateLimit(request: Request, response: Response, next: NextFunction): void {
+  const identity = request.auth?.userId || request.ip || request.socket.remoteAddress || "unknown";
+  const key = `data-transfer:${identity}`;
+  const message = "Too many data transfer requests. Please wait before starting another transfer.";
+  const limit = env.DATA_TRANSFER_RATE_LIMIT_REQUESTS;
+  const windowMs = env.DATA_TRANSFER_RATE_LIMIT_WINDOW_MS;
+  if (getDatabase()) {
+    void consumeDistributedLimit(key, "data_transfer_request", limit, windowMs)
+      .then((entry) => finishRateLimit(entry, limit, response, next, message))
+      .catch(next);
+    return;
+  }
+
+  const now = Date.now();
+  pruneMap(dataTransferAttempts, now);
+  const current = dataTransferAttempts.get(key);
+  const entry = !current || current.resetAt <= now
+    ? { count: 1, resetAt: now + windowMs }
+    : { ...current, count: current.count + 1 };
+  dataTransferAttempts.set(key, entry);
+  finishRateLimit(entry, limit, response, next, message);
+}
+
+function pruneMap(entries: Map<string, RateLimitEntry>, now: number): void {
+  if (entries.size < MAX_TRACKED_CLIENTS) return;
+  for (const [key, entry] of entries) {
+    if (entry.resetAt <= now) entries.delete(key);
+  }
+  while (entries.size >= MAX_TRACKED_CLIENTS) {
+    const oldestKey = entries.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    entries.delete(oldestKey);
+  }
 }
 
 async function consumeDistributedLimit(

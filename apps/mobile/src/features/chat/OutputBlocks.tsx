@@ -85,11 +85,17 @@ function ThinkingDots({ theme }: { theme: MobileTheme }) {
 
 function MobileCodeBlock({ code, language, theme }: { code: string; language: string; theme: MobileTheme }) {
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => () => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+  }, []);
 
   const copy = async (): Promise<void> => {
     await Clipboard.setStringAsync(code);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => setCopied(false), 1800);
   };
 
   return (

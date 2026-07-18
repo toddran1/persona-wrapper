@@ -16,6 +16,7 @@ import {
 import { logger } from "../utils/logger.js";
 import { storageService } from "./storageService.js";
 import { backgroundChatJobService } from "./backgroundChatJobService.js";
+import { dataTransferJobService } from "./dataTransferJobService.js";
 
 function requireDatabase() {
   const db = getDatabase();
@@ -65,20 +66,26 @@ export class AccountDeletionService {
     if (!user) return false;
 
     await backgroundChatJobService.cancelForOwner(userId);
+    await dataTransferJobService.cancelForOwner(userId);
 
-    const [ownedUploads, ownedMedia, ownedAudio, ownedArtifacts, ownedVectorStores] = await Promise.all([
+    const [ownedUploads, ownedMedia, ownedAudio, ownedArtifacts, ownedVectorStores, ownedJobs] = await Promise.all([
       db.select().from(uploads).where(eq(uploads.ownerId, userId)),
       db.select().from(generatedMedia).where(eq(generatedMedia.ownerId, userId)),
       db.select().from(generatedAudio).where(eq(generatedAudio.ownerId, userId)),
       db.select().from(openAIArtifacts).where(eq(openAIArtifacts.ownerId, userId)),
-      db.select().from(vectorStores).where(eq(vectorStores.ownerId, userId))
+      db.select().from(vectorStores).where(eq(vectorStores.ownerId, userId)),
+      db.select().from(backgroundJobs).where(eq(backgroundJobs.ownerId, userId))
     ]);
 
     await deleteStoredObjects([
       ...ownedUploads.map((item) => item.storageKey),
       ...ownedMedia.map((item) => item.storageKey),
       ...ownedAudio.map((item) => item.storageKey),
-      ...ownedArtifacts.map((item) => item.storageKey)
+      ...ownedArtifacts.map((item) => item.storageKey),
+      ...ownedJobs.flatMap((item) => [
+        typeof item.request?.storageKey === "string" ? item.request.storageKey : null,
+        typeof item.metadata.resultStorageKey === "string" ? item.metadata.resultStorageKey : null
+      ])
     ]);
     await deleteOpenAIResources(
       ownedUploads.flatMap((item) => item.openaiFileId ? [item.openaiFileId] : []),

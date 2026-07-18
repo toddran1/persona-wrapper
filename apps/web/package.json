@@ -16,7 +16,6 @@
     "@tanstack/react-query": "^5.101.2",
     "@ts-rest/core": "^3.53.0-rc.1",
     "better-auth": "^1.6.23",
-    "jszip": "^3.10.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",

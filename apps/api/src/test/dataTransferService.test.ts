@@ -73,6 +73,22 @@ describe("data transfer import parsing", () => {
     expect(result.conversations[0]?.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
   });
 
+  it("normalizes nested text blocks from current ChatGPT and Claude exports", () => {
+    const chatGpt = parseImportArchive([{
+      title: "Multimodal export",
+      mapping: {
+        user: { message: { author: { role: "user" }, content: { content_type: "multimodal_text", parts: [{ type: "text", text: "Describe this" }] } } }
+      }
+    }]);
+    const claude = parseImportArchive([{
+      name: "Block export",
+      chat_messages: [{ sender: "assistant", content: [{ type: "text", text: "Nested Claude text" }] }]
+    }]);
+
+    expect(chatGpt.conversations[0]?.messages[0]?.content).toBe("Describe this");
+    expect(claude.conversations[0]?.messages[0]?.content).toBe("Nested Claude text");
+  });
+
   it("rejects unsupported input", () => {
     expect(() => parseImportArchive({ unexpected: true })).toThrow("Unsupported export file");
   });

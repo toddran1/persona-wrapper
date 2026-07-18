@@ -1,34 +1,54 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 function CodeBlock({ code, language }: { code: string; language: string }) {
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const resetTimerRef = useRef<number | undefined>(undefined);
   const label = language || "text";
 
+  useEffect(() => () => {
+    if (resetTimerRef.current !== undefined) window.clearTimeout(resetTimerRef.current);
+  }, []);
+
   const copy = async () => {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(code);
-    } else {
-      const textarea = document.createElement("textarea");
-      textarea.value = code;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.append(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      textarea.remove();
+    setCopyFailed(false);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = code;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.append(textarea);
+        let copiedByBrowser = false;
+        try {
+          textarea.select();
+          copiedByBrowser = document.execCommand("copy");
+        } finally {
+          textarea.remove();
+        }
+        if (!copiedByBrowser) throw new Error("Browser copy command was rejected.");
+      }
+      setCopied(true);
+      if (resetTimerRef.current !== undefined) window.clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+      setCopyFailed(true);
+      if (resetTimerRef.current !== undefined) window.clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = window.setTimeout(() => setCopyFailed(false), 2400);
     }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
   };
 
   return (
     <section className="markdown-code-block" aria-label={`${label} code block`}>
       <div className="markdown-code-toolbar">
         <span>{label}</span>
-        <button type="button" className="markdown-code-copy" onClick={() => void copy()} aria-label="Copy code">
-          {copied ? "Copied" : "Copy"}
+        <button type="button" className="markdown-code-copy" onClick={() => void copy()} aria-label={copyFailed ? "Copy failed" : "Copy code"}>
+          {copyFailed ? "Copy failed" : copied ? "Copied" : "Copy"}
         </button>
       </div>
       <pre><code className={`language-${label}`}>{code}</code></pre>

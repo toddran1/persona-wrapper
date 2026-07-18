@@ -1,7 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, deleteAccountRequestSchema, llmInputSchema, restoreAccountRequestSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, llmInputSchema, restoreAccountRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
+  it("validates cancellable data-transfer jobs and selected exports", () => {
+    const job = dataTransferJobSchema.parse({
+      id: "data_job_test",
+      kind: "export",
+      status: "running",
+      phase: "Adding media",
+      progress: 64,
+      processedItems: 32,
+      totalItems: 50,
+      createdAt: "2026-07-18T12:00:00.000Z",
+      updatedAt: "2026-07-18T12:01:00.000Z"
+    });
+    expect(job.progress).toBe(64);
+    expect(dataExportJobRequestSchema.parse({ scope: "conversations", conversationIds: ["conv_1"] }).conversationIds).toEqual(["conv_1"]);
+    expect(() => dataExportJobRequestSchema.parse({ scope: "conversations" })).toThrow();
+  });
+
   it("validates active device session responses", () => {
     const parsed = activeSessionsResponseSchema.parse({
       sessions: [{
