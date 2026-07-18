@@ -1,18 +1,10 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import {
-  cancelChatJob,
-  deleteConversation,
   deleteStyleTransferReviewRecord,
-  getConversation,
-  getConversationTurns,
-  getChatJob,
   getStyleTransferReview,
-  listConversations,
-  patchConversation,
   patchStyleTransferReviewRecord,
   postStyleTransferReviewRecord,
   postPromoteRejectedStylePair,
-  postChat,
   postChatStream,
   postStyleTransferEvalCapture
 } from "../controllers/chat.controller.js";
@@ -36,15 +28,7 @@ export function requireTestMode(request: Request, _response: Response, next: Nex
   next(new HttpError(`${request.path} is only available in test mode.`, 404));
 }
 
-chatRouter.post("/", asyncHandler(postChat));
 chatRouter.post("/stream", asyncHandler(postChatStream));
-chatRouter.get("/conversations", asyncHandler(listConversations));
-chatRouter.get("/conversations/:conversationId/turns", asyncHandler(getConversationTurns));
-chatRouter.get("/conversations/:conversationId", asyncHandler(getConversation));
-chatRouter.patch("/conversations/:conversationId", asyncHandler(patchConversation));
-chatRouter.delete("/conversations/:conversationId", asyncHandler(deleteConversation));
-chatRouter.get("/jobs/:jobId", asyncHandler(getChatJob));
-chatRouter.post("/jobs/:jobId/cancel", asyncHandler(cancelChatJob));
 chatRouter.get("/style-transfer-review", requireTestMode, asyncHandler(getStyleTransferReview));
 chatRouter.post("/style-transfer-review", requireTestMode, asyncHandler(postStyleTransferReviewRecord));
 chatRouter.patch("/style-transfer-review", requireTestMode, asyncHandler(patchStyleTransferReviewRecord));

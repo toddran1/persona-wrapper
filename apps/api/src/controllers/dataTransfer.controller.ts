@@ -1,6 +1,5 @@
 import type { Request, Response } from "express";
-import { z } from "zod";
-import { dataImportRequestSchema } from "@persona/shared";
+import { dataImportRequestSchema, selectedConversationExportSchema } from "@persona/shared";
 import { ConversationStore } from "../services/conversationStore.js";
 import { DataTransferService } from "../services/dataTransferService.js";
 import { HttpError } from "../utils/httpError.js";
@@ -8,10 +7,6 @@ import { contentDisposition } from "../utils/httpHeaders.js";
 import { measureOperation } from "../utils/observability.js";
 
 const dataTransferService = new DataTransferService(new ConversationStore());
-const selectedConversationExportSchema = z.object({
-  conversationIds: z.array(z.string().min(1)).min(1).max(100)
-});
-
 function authenticatedUserId(request: Request): string {
   if (!request.auth?.userId) throw new HttpError("Authentication required.", 401);
   return request.auth.userId;

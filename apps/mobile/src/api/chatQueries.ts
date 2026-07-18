@@ -13,12 +13,12 @@ export const personaQueryOptions = (id: string) => queryOptions({
   staleTime: 5 * 60_000
 });
 
-export const conversationsPageQueryOptions = (cursor?: string, query?: string) => queryOptions({
-  queryKey: ["conversations", { cursor: cursor ?? null, query: query ?? null }],
+export const conversationsPageQueryOptions = (cursor?: string, query?: string, accountId = "anonymous") => queryOptions({
+  queryKey: ["conversations", accountId, { cursor: cursor ?? null, query: query ?? null }],
   queryFn: () => api.listConversationsPage(cursor, 50, query)
 });
 
-export const conversationTurnsQueryOptions = (conversationId: string, cursor?: string) => queryOptions({
-  queryKey: ["conversation-turns", conversationId, cursor ?? null],
+export const conversationTurnsQueryOptions = (conversationId: string, cursor?: string, accountId = "anonymous") => queryOptions({
+  queryKey: ["conversation-turns", accountId, conversationId, cursor ?? null],
   queryFn: () => api.getConversationTurnsPage(conversationId, cursor)
 });

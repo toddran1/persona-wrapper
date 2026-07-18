@@ -123,6 +123,21 @@ Use the app server IAM role for S3 access in AWS instead of long-lived access ke
 - `s3:DeleteObject`
 - `s3:ListBucket` limited to the configured prefix
 
+Direct browser and native uploads also require bucket CORS for the deployed web
+origins and the `PUT` method. A minimal rule is:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://for-the-baddiez-web.onrender.com", "https://for-the-baddiez-web-dev.onrender.com"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["content-type", "x-amz-meta-storage_bucket"],
+    "ExposeHeaders": ["etag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
 The storage service boundary is isolated in `apps/api/src/services/storageService.ts`. Both local and S3 drivers implement:
 
 - `put`

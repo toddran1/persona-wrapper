@@ -11,11 +11,10 @@ import { createExpressEndpoints } from "@ts-rest/express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { authenticateRequest } from "./middleware/authMiddleware.js";
-import { authRouter } from "./routes/auth.routes.js";
+import { authRateLimit } from "./middleware/authRateLimit.js";
 import { chatRouter } from "./routes/chat.routes.js";
-import { personaContractRouter } from "./routes/contract.routes.js";
+import { apiContractRouter } from "./routes/contract.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
-import { dataTransferRouter } from "./routes/dataTransfer.routes.js";
 import { observabilityRouter } from "./routes/observability.routes.js";
 import { getGeneratedAudio } from "./controllers/generatedAudio.controller.js";
 import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
@@ -217,7 +216,7 @@ export function createApp() {
   if (auth) {
     app.all("/api/auth/*", toNodeHandler(auth));
   }
-  app.use("/api/data", authenticateRequest, requireAuthenticatedRequest, express.json({ limit: env.DATA_TRANSFER_MAX_BYTES }), dataTransferRouter);
+  app.use("/api/data", authenticateRequest, requireAuthenticatedRequest, express.json({ limit: env.DATA_TRANSFER_MAX_BYTES }));
   app.use(express.json({ limit: env.API_JSON_MAX_BYTES }));
   app.use(authenticateRequest);
 
@@ -249,10 +248,10 @@ export function createApp() {
       .catch(next);
   });
 
-  app.use("/api/account", authRouter);
   app.use("/api/observability", observabilityRouter);
+  app.use("/api/account", authRateLimit);
+  createExpressEndpoints(apiContract, apiContractRouter, app);
   app.use("/api/chat", chatRouter);
-  createExpressEndpoints(apiContract.personas, personaContractRouter, app);
   app.use("/api/uploads", uploadRouter);
   app.get("/api/generated-audio/:token", (request, response, next) => {
     getGeneratedAudio(request, response).catch(next);

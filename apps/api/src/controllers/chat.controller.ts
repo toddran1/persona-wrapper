@@ -48,57 +48,73 @@ const patchConversationSchema = z.object({
 
 backgroundChatJobService.setExecutor(async (payload, backgroundJob) => {
   if (!backgroundJob.ownerId) throw new Error("Background chat job is missing its owner.");
-  const result = await chatService.handleChat(payload, undefined, backgroundJob.abortController.signal, {
-    onProviderResponse: (event) => {
-      void backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
-    }
-  }, { ownerId: backgroundJob.ownerId });
-  await usageControlService.recordUsage(
-    backgroundJob.ownerId,
-    result.usage?.totalTokens,
-    result.usage?.estimatedCostUsd
-  );
-  return result;
+  try {
+    const result = await chatService.handleChat(payload, undefined, backgroundJob.abortController.signal, {
+      onProviderResponse: (event) => {
+        void backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
+      }
+    }, { ownerId: backgroundJob.ownerId });
+    await usageControlService.recordUsage(
+      backgroundJob.ownerId,
+      result.usage?.totalTokens,
+      result.usage?.estimatedCostUsd,
+      backgroundJob.usageReservationId
+    );
+    return result;
+  } catch (error) {
+    await usageControlService.recordUsage(backgroundJob.ownerId, undefined, undefined, backgroundJob.usageReservationId);
+    throw error;
+  }
 });
 
 export async function postChat(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
-  await usageControlService.check(identity);
-  const payload = await selectTools(await resolveOwnedChatAssets(request));
-  if (shouldRunInBackground(payload)) {
-    const requestedConversationId = payload.conversationId ?? `conv_${randomUUID()}`;
-    const conversation = await conversationStore.getOrCreate(requestedConversationId, payload.history, {
-      userId: identity,
-      personaId: payload.personaId,
-      titleSeed: payload.message
-    });
-    const conversationId = conversation.id;
-    const backgroundPayload: ChatRequest = {
-      ...payload,
-      conversationId,
-      toolOptions: {
-        webSearch: payload.toolOptions?.webSearch ?? false,
-        fileSearch: payload.toolOptions?.fileSearch ?? false,
-        codeInterpreter: payload.toolOptions?.codeInterpreter ?? false,
-        imageGeneration: payload.toolOptions?.imageGeneration ?? false,
-        appFunctions: payload.toolOptions?.appFunctions ?? true,
-        background: true,
-        vectorStoreIds: payload.toolOptions?.vectorStoreIds ?? []
-      }
-    };
-    const job = await backgroundChatJobService.start({
-      ownerId: identity,
-      provider: backgroundPayload.provider,
-      conversationId,
-      request: backgroundPayload
-    });
-    response.status(202).json(createPendingChatResponse(backgroundPayload, job.id));
-    return;
+  const reservationId = await usageControlService.check(identity);
+  let reservationReconciled = false;
+  try {
+    const payload = await selectTools(await resolveOwnedChatAssets(request));
+    if (shouldRunInBackground(payload)) {
+      const requestedConversationId = payload.conversationId ?? `conv_${randomUUID()}`;
+      const conversation = await conversationStore.getOrCreate(requestedConversationId, payload.history, {
+        userId: identity,
+        personaId: payload.personaId,
+        titleSeed: payload.message
+      });
+      const conversationId = conversation.id;
+      const backgroundPayload: ChatRequest = {
+        ...payload,
+        conversationId,
+        toolOptions: {
+          webSearch: payload.toolOptions?.webSearch ?? false,
+          fileSearch: payload.toolOptions?.fileSearch ?? false,
+          codeInterpreter: payload.toolOptions?.codeInterpreter ?? false,
+          imageGeneration: payload.toolOptions?.imageGeneration ?? false,
+          appFunctions: payload.toolOptions?.appFunctions ?? true,
+          background: true,
+          vectorStoreIds: payload.toolOptions?.vectorStoreIds ?? []
+        }
+      };
+      const job = await backgroundChatJobService.start({
+        ownerId: identity,
+        provider: backgroundPayload.provider,
+        conversationId,
+        request: backgroundPayload,
+        usageReservationId: reservationId
+      });
+      response.status(202).json(createPendingChatResponse(backgroundPayload, job.id));
+      return;
+    }
+    const controller = requestAbortController(request);
+    const result = await chatService.handleChat(payload, undefined, controller.signal, undefined, { ownerId: identity });
+    await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd, reservationId);
+    reservationReconciled = true;
+    response.status(200).json(result);
+  } catch (error) {
+    if (!reservationReconciled) {
+      await usageControlService.recordUsage(identity, undefined, undefined, reservationId);
+    }
+    throw error;
   }
-  const controller = requestAbortController(request);
-  const result = await chatService.handleChat(payload, undefined, controller.signal, undefined, { ownerId: identity });
-  await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
-  response.status(200).json(result);
 }
 
 export async function getChatJob(request: Request, response: Response): Promise<void> {
@@ -132,7 +148,8 @@ export async function cancelChatJob(request: Request, response: Response): Promi
 
 export async function postChatStream(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
-  await usageControlService.check(identity);
+  const reservationId = await usageControlService.check(identity);
+  let reservationReconciled = false;
   const payload = await selectTools(await resolveOwnedChatAssets(request));
   response.status(200);
   response.setHeader("Content-Type", "text/event-stream");
@@ -148,10 +165,14 @@ export async function postChatStream(request: Request, response: Response): Prom
         }
       }
     }, controller.signal, undefined, { ownerId: identity });
-    await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
+    await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd, reservationId);
+    reservationReconciled = true;
     response.write(`event: response\ndata: ${JSON.stringify(result)}\n\n`);
     response.end();
   } catch (error) {
+    if (!reservationReconciled) {
+      await usageControlService.recordUsage(identity, undefined, undefined, reservationId);
+    }
     if (!controller.signal.aborted && !response.writableEnded && !response.destroyed) {
       response.write(`event: error\ndata: ${JSON.stringify({
         message: error instanceof Error ? error.message : "Streaming request failed."
@@ -187,7 +208,7 @@ export async function getConversationTurns(request: Request, response: Response)
 }
 
 function boundedPageLimit(raw: unknown): number {
-  const value = typeof raw === "string" ? Number(raw) : 50;
+  const value = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : 50;
   if (!Number.isInteger(value) || value < 1 || value > 100) {
     throw new HttpError("Page limit must be an integer from 1 to 100.", 400);
   }

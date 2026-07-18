@@ -1,14 +1,9 @@
 import type { Request, Response } from "express";
-import { z } from "zod";
+import { vectorStoreRequestSchema } from "@persona/shared";
 import { uploadService } from "../services/uploadService.js";
 import { HttpError } from "../utils/httpError.js";
 import { requestAuthenticatedOwnerId, requestOwnerId } from "../utils/requestIdentity.js";
 import { contentDisposition } from "../utils/httpHeaders.js";
-
-const vectorStoreRequestSchema = z.object({
-  assetIds: z.array(z.string()).min(1).max(20),
-  name: z.string().max(100).optional()
-});
 
 export async function postUploads(request: Request, response: Response): Promise<void> {
   const files = request.files;

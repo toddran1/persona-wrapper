@@ -39,12 +39,80 @@ export class UploadService {
   private readonly assets = new Map<string, StoredAsset>();
   private readonly vectorStores = new Map<string, StoredVectorStore>();
 
+  supportsDirectUploads(): boolean {
+    return Boolean(getDatabase()) && storageService.supportsPresignedUploads();
+  }
+
+  async createPresignedUpload(ownerId: string, input: {
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+  }): Promise<{ assetId: string; uploadUrl: string; headers: Record<string, string>; expiresAt: string }> {
+    await this.cleanupExpired();
+    validateUploadDeclaration(ownerId, input.fileName, input.mimeType, input.sizeBytes);
+    const db = getDatabase();
+    if (!db || !storageService.supportsPresignedUploads()) {
+      throw new HttpError("Direct uploads are not available for this storage driver.", 409);
+    }
+
+    const id = `asset_${randomUUID()}`;
+    const safeExtension = extname(basename(input.fileName)).slice(0, 12);
+    const storageKey = `uploads/${id}${safeExtension.replace(/[^a-zA-Z0-9.]/g, "")}`;
+    const expiresAt = uploadExpiresAt();
+    const presigned = await storageService.presignPut(storageKey, input.mimeType, input.sizeBytes);
+    await db.insert(uploads).values({
+      id,
+      ownerId,
+      kind: IMAGE_MIME_TYPES.has(input.mimeType) ? "image" : "file",
+      fileName: basename(input.fileName),
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      storageKey,
+      publicUrl: `/api/uploads/${id}`,
+      expiresAt,
+      metadata: { uploadStatus: "pending" }
+    });
+    return { assetId: id, ...presigned };
+  }
+
+  async completePresignedUpload(ownerId: string, id: string): Promise<UploadedAsset> {
+    const db = getDatabase();
+    if (!db) throw new HttpError("Direct uploads require database-backed storage.", 409);
+    const row = await db.query.uploads.findFirst({
+      where: and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))
+    });
+    if (!row || !row.storageKey) throw new HttpError("Upload not found.", 404);
+    if (row.metadata.uploadStatus !== "pending") return this.publicAsset(this.assetFromDatabase(row));
+
+    try {
+      const object = await storageService.head(row.storageKey);
+      if (object.sizeBytes !== row.sizeBytes || (object.mimeType && object.mimeType !== row.mimeType)) {
+        throw new HttpError("Uploaded object does not match the requested file metadata.", 400);
+      }
+      const { buffer } = await storageService.get(row.storageKey);
+      await validateUploadBuffer(buffer, row.fileName, row.mimeType, row.sizeBytes);
+      const openaiFileId = await uploadBufferToOpenAI(buffer, row.fileName, row.mimeType);
+      await db.update(uploads).set({
+        openaiFileId,
+        metadata: { ...row.metadata, uploadStatus: "ready" },
+        updatedAt: new Date()
+      }).where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId)));
+      return this.publicAsset(this.assetFromDatabase({
+        ...row,
+        openaiFileId: openaiFileId ?? null,
+        metadata: { ...row.metadata, uploadStatus: "ready" },
+        updatedAt: new Date()
+      }));
+    } catch (error) {
+      await db.delete(uploads).where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))).catch(() => undefined);
+      await storageService.delete(row.storageKey).catch(() => undefined);
+      throw error;
+    }
+  }
+
   async save(ownerId: string, file: Express.Multer.File): Promise<UploadedAsset> {
     await this.cleanupExpired();
-    if (!ownerId.trim()) throw new HttpError("An upload owner ID is required.", 400);
-    if (!IMAGE_MIME_TYPES.has(file.mimetype) && !FILE_MIME_TYPES.has(file.mimetype)) {
-      throw new HttpError(`Unsupported upload type: ${file.mimetype}`, 415);
-    }
+    validateUploadDeclaration(ownerId, file.originalname, file.mimetype, file.size);
     await validateFileContents(file);
 
     const id = `asset_${randomUUID()}`;
@@ -149,7 +217,9 @@ export class UploadService {
     const db = getDatabase();
     if (db) {
       const rows = await db.select().from(uploads).where(eq(uploads.ownerId, ownerId));
-      return rows.map((row) => this.publicAsset(this.assetFromDatabase(row)));
+      return rows
+        .filter((row) => row.metadata.uploadStatus !== "pending")
+        .map((row) => this.publicAsset(this.assetFromDatabase(row)));
     }
     return [...this.assets.values()].filter((asset) => asset.ownerId === ownerId).map((asset) => this.publicAsset(asset));
   }
@@ -173,8 +243,11 @@ export class UploadService {
   }
 
   async remove(ownerId: string, id: string): Promise<void> {
-    const asset = await this.get(ownerId, id);
     const db = getDatabase();
+    const asset = db
+      ? await this.getFromDatabaseIncludingPending(ownerId, id)
+      : this.assets.get(id);
+    if (!asset || asset.ownerId !== ownerId) throw new HttpError("Upload not found.", 404);
     if (db) {
       await db.delete(uploads).where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId)));
     } else {
@@ -319,6 +392,28 @@ export class UploadService {
     return row ? this.assetFromDatabase(row) : undefined;
   }
 
+  private async getFromDatabaseIncludingPending(ownerId: string, id: string): Promise<StoredAsset | undefined> {
+    const db = getDatabase();
+    if (!db) return undefined;
+    const row = await db.query.uploads.findFirst({
+      where: and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))
+    });
+    if (!row || (!row.storageKey && !row.localPath)) return undefined;
+    return {
+      id: row.id,
+      ownerId: row.ownerId,
+      kind: row.kind as UploadedAsset["kind"],
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      url: row.publicUrl ?? `/api/uploads/${row.id}`,
+      ...(row.openaiFileId ? { openaiFileId: row.openaiFileId } : {}),
+      ...(row.expiresAt ? { expiresAt: row.expiresAt.toISOString() } : {}),
+      ...(row.localPath ? { localPath: row.localPath } : {}),
+      ...(row.storageKey ? { storageKey: row.storageKey } : {})
+    };
+  }
+
   private async getAnyFromDatabase(id: string): Promise<StoredAsset | undefined> {
     const db = getDatabase();
     if (!db) return undefined;
@@ -329,6 +424,7 @@ export class UploadService {
   }
 
   private assetFromDatabase(row: typeof uploads.$inferSelect): StoredAsset {
+    if (row.metadata.uploadStatus === "pending") throw new HttpError("Upload is not complete.", 409);
     if (!row.storageKey && !row.localPath) throw new HttpError("Upload file is unavailable.", 404);
     return {
       id: row.id,
@@ -344,6 +440,40 @@ export class UploadService {
       ...(row.storageKey ? { storageKey: row.storageKey } : {})
     };
   }
+}
+
+function validateUploadDeclaration(ownerId: string, fileName: string, mimeType: string, sizeBytes: number): void {
+  if (!ownerId.trim()) throw new HttpError("An upload owner ID is required.", 400);
+  if (!basename(fileName).trim() || basename(fileName).length > 500) throw new HttpError("Invalid upload file name.", 400);
+  if (!Number.isInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > env.UPLOAD_MAX_BYTES) {
+    throw new HttpError("Upload size is outside the allowed range.", sizeBytes > env.UPLOAD_MAX_BYTES ? 413 : 400);
+  }
+  if (!IMAGE_MIME_TYPES.has(mimeType) && !FILE_MIME_TYPES.has(mimeType)) {
+    throw new HttpError(`Unsupported upload type: ${mimeType}`, 415);
+  }
+}
+
+async function uploadBufferToOpenAI(buffer: Buffer, fileName: string, mimeType: string): Promise<string | undefined> {
+  if (!env.OPENAI_API_KEY) return undefined;
+  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
+  const uploaded = await client.files.create({
+    file: await toFile(buffer, basename(fileName), { type: mimeType }),
+    purpose: "user_data",
+    expires_after: {
+      anchor: "created_at",
+      seconds: Math.max(3600, Math.min(2592000, env.UPLOAD_TTL_HOURS * 3600))
+    }
+  });
+  return uploaded.id;
+}
+
+async function validateUploadBuffer(buffer: Buffer, fileName: string, mimeType: string, sizeBytes: number): Promise<void> {
+  await validateFileContents({
+    buffer,
+    originalname: fileName,
+    mimetype: mimeType,
+    size: sizeBytes
+  } as Express.Multer.File);
 }
 
 function uploadExpiresAt(): Date {

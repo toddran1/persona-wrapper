@@ -138,11 +138,14 @@ endpoint. Internal style-transfer status is never exposed to the user. The clien
 can abort the stream with the composer Stop button; cancellation propagates to
 OpenAI and the style-transfer HTTP request.
 
-### `POST /api/uploads`
+### `POST /api/uploads/presign` and `POST /api/uploads/:id/complete`
 
-Accepts multipart uploads in the `files` field. Uploads require an `x-owner-id`
-header, are validated by MIME type and size, and expire automatically. When
-OpenAI is configured, the server also creates short-lived OpenAI file references.
+Production clients request an owner-scoped, short-lived S3 PUT URL, upload bytes
+directly to S3, and then complete the upload through the API. Completion verifies
+the object size, MIME metadata, and file signature before the asset becomes usable.
+The multipart `POST /api/uploads` route remains only as the local-storage
+development fallback. When OpenAI is configured, completion also creates a
+short-lived OpenAI file reference.
 
 ### `POST /api/uploads/vector-stores`
 

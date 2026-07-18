@@ -3,11 +3,13 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
   S3ServiceException
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "../config/env.js";
 import { HttpError } from "../utils/httpError.js";
 
@@ -22,6 +24,17 @@ export type StoredObject = {
 export type StorageDownload = {
   buffer: Buffer;
   localPath?: string;
+};
+
+export type PresignedStorageUpload = {
+  uploadUrl: string;
+  headers: Record<string, string>;
+  expiresAt: string;
+};
+
+export type StoredObjectMetadata = {
+  sizeBytes: number;
+  mimeType?: string;
 };
 
 type PutObjectInput = {
@@ -50,6 +63,8 @@ interface StorageDriver {
   delete(storageKey: string): Promise<void>;
   cleanupOlderThan(bucket: StorageBucket, cutoffMs: number): Promise<void>;
   healthCheck(): Promise<StorageHealth>;
+  presignPut?(storageKey: string, mimeType: string, sizeBytes: number): Promise<PresignedStorageUpload>;
+  head?(storageKey: string): Promise<StoredObjectMetadata>;
 }
 
 function safeFileName(fileName: string): string {
@@ -242,6 +257,40 @@ class S3StorageDriver implements StorageDriver {
     }
   }
 
+  async presignPut(storageKey: string, mimeType: string, sizeBytes: number): Promise<PresignedStorageUpload> {
+    parseStorageKey(storageKey);
+    const expiresIn = 10 * 60;
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: this.objectKey(storageKey),
+      ContentType: mimeType,
+      ContentLength: sizeBytes,
+      Metadata: { storage_bucket: "uploads" }
+    });
+    return {
+      uploadUrl: await getSignedUrl(this.client, command, { expiresIn }),
+      headers: { "Content-Type": mimeType, "x-amz-meta-storage_bucket": "uploads" },
+      expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString()
+    };
+  }
+
+  async head(storageKey: string): Promise<StoredObjectMetadata> {
+    parseStorageKey(storageKey);
+    try {
+      const output = await this.client.send(new HeadObjectCommand({
+        Bucket: this.bucket,
+        Key: this.objectKey(storageKey)
+      }));
+      return {
+        sizeBytes: output.ContentLength ?? 0,
+        ...(output.ContentType ? { mimeType: output.ContentType } : {})
+      };
+    } catch (error) {
+      if (isS3NotFound(error)) throw new HttpError("Stored object not found.", 404);
+      throw error;
+    }
+  }
+
   async delete(storageKey: string): Promise<void> {
     parseStorageKey(storageKey);
     await this.client.send(new DeleteObjectCommand({
@@ -334,6 +383,20 @@ export class StorageService implements StorageDriver {
 
   healthCheck(): Promise<StorageHealth> {
     return this.driver.healthCheck();
+  }
+
+  supportsPresignedUploads(): boolean {
+    return Boolean(this.driver.presignPut && this.driver.head);
+  }
+
+  presignPut(storageKey: string, mimeType: string, sizeBytes: number): Promise<PresignedStorageUpload> {
+    if (!this.driver.presignPut) throw new HttpError("Direct uploads are not available for this storage driver.", 409);
+    return this.driver.presignPut(storageKey, mimeType, sizeBytes);
+  }
+
+  head(storageKey: string): Promise<StoredObjectMetadata> {
+    if (!this.driver.head) throw new HttpError("Direct uploads are not available for this storage driver.", 409);
+    return this.driver.head(storageKey);
   }
 }
 

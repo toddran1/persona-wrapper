@@ -1,5 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
+import { randomUUID } from "node:crypto";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
+import { getDatabase } from "../db/client.js";
+import { usageEvents } from "../db/schema.js";
 
 type RateLimitEntry = {
   count: number;
@@ -22,6 +26,15 @@ function pruneExpired(now: number): void {
 }
 
 export function authRateLimit(request: Request, response: Response, next: NextFunction): void {
+  const db = getDatabase();
+  if (db) {
+    const key = `auth:${request.ip || request.socket.remoteAddress || "unknown"}:${request.path}`;
+    void consumeDistributedLimit(key, "auth_request", env.AUTH_RATE_LIMIT_REQUESTS, env.AUTH_RATE_LIMIT_WINDOW_MS)
+      .then((entry) => finishRateLimit(entry, env.AUTH_RATE_LIMIT_REQUESTS, response, next,
+        "Too many authentication attempts. Please try again later."))
+      .catch(next);
+    return;
+  }
   const now = Date.now();
   if (attempts.size >= MAX_TRACKED_CLIENTS) pruneExpired(now);
 
@@ -53,6 +66,14 @@ export function authRateLimit(request: Request, response: Response, next: NextFu
 }
 
 export function mobileOAuthPollRateLimit(request: Request, response: Response, next: NextFunction): void {
+  const db = getDatabase();
+  if (db) {
+    const key = `oauth-poll:${request.ip || request.socket.remoteAddress || "unknown"}`;
+    void consumeDistributedLimit(key, "oauth_poll", 90, 5 * 60 * 1000)
+      .then((entry) => finishRateLimit(entry, 90, response, next, "Too many OAuth completion checks. Please try again."))
+      .catch(next);
+    return;
+  }
   const now = Date.now();
   const key = request.ip || request.socket.remoteAddress || "unknown";
   const current = oauthPollAttempts.get(key);
@@ -79,6 +100,46 @@ export function mobileOAuthPollRateLimit(request: Request, response: Response, n
       code: "RATE_LIMITED",
       requestId: response.locals.requestId
     });
+    return;
+  }
+  next();
+}
+
+async function consumeDistributedLimit(
+  identity: string,
+  eventType: string,
+  limit: number,
+  windowMs: number
+): Promise<RateLimitEntry> {
+  const db = getDatabase();
+  if (!db) return { count: 1, resetAt: Date.now() + windowMs };
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);
+    const windowStart = new Date(Date.now() - windowMs);
+    const [row] = await tx.select({ count: sql<number>`count(*)::int` }).from(usageEvents).where(and(
+      eq(usageEvents.identity, identity),
+      eq(usageEvents.eventType, eventType),
+      gte(usageEvents.createdAt, windowStart)
+    ));
+    const count = Number(row?.count ?? 0) + 1;
+    await tx.insert(usageEvents).values({ id: `usage_${randomUUID()}`, identity, eventType });
+    return { count, resetAt: Date.now() + windowMs };
+  });
+}
+
+function finishRateLimit(
+  entry: RateLimitEntry,
+  limit: number,
+  response: Response,
+  next: NextFunction,
+  message: string
+): void {
+  response.setHeader("RateLimit-Limit", String(limit));
+  response.setHeader("RateLimit-Remaining", String(Math.max(0, limit - entry.count)));
+  response.setHeader("RateLimit-Reset", String(Math.ceil(entry.resetAt / 1000)));
+  if (entry.count > limit) {
+    response.setHeader("Retry-After", String(Math.max(1, Math.ceil((entry.resetAt - Date.now()) / 1000))));
+    response.status(429).json({ error: message, code: "RATE_LIMITED", requestId: response.locals.requestId });
     return;
   }
   next();

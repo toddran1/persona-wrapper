@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { App } from "./App.js";
 import { AppErrorBoundary } from "./components/AppErrorBoundary.js";
 import { PublicLegalPage, PUBLIC_PAGE_PATHS } from "./components/PublicLegalPage.js";
@@ -15,11 +16,17 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <AppErrorBoundary>
-        {window.location.pathname === "/auth/mobile-callback"
-          ? <MobileOAuthReturnPage />
-          : PUBLIC_PAGE_PATHS.has(window.location.pathname.replace(/\/$/, "") || "/")
-          ? <PublicLegalPage path={window.location.pathname.replace(/\/$/, "")} />
-          : <App />}
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<App />} />
+            <Route path="/review" element={<App reviewPage />} />
+            <Route path="/auth/mobile-callback" element={<MobileOAuthReturnPage />} />
+            {[...PUBLIC_PAGE_PATHS].map((path) => (
+              <Route key={path} path={path} element={<PublicLegalPage path={path} />} />
+            ))}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
       </AppErrorBoundary>
     </QueryClientProvider>
   </React.StrictMode>

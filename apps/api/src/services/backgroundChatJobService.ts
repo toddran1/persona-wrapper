@@ -12,6 +12,7 @@ import { getDatabase } from "../db/client.js";
 import { backgroundJobs } from "../db/schema.js";
 import { logger } from "../utils/logger.js";
 import { jobQueueService } from "./jobQueueService.js";
+import { usageControlService } from "./usageControlService.js";
 
 export type BackgroundChatJob = {
   id: string;
@@ -19,6 +20,7 @@ export type BackgroundChatJob = {
   createdAt: string;
   updatedAt: string;
   ownerId?: string;
+  usageReservationId?: string;
   abortController: AbortController;
   response?: ChatResponse;
   error?: string;
@@ -33,6 +35,7 @@ type QueuedChatJob = {
   appJobId: string;
   request: ChatRequest;
   ownerId?: string;
+  usageReservationId?: string;
   provider?: ChatRequest["provider"];
   conversationId?: string;
   createdAt: string;
@@ -40,6 +43,7 @@ type QueuedChatJob = {
 
 type BackgroundChatJobStartOptions = {
   ownerId?: string;
+  usageReservationId?: string;
   provider?: ChatRequest["provider"];
   conversationId?: string;
   request?: ChatRequest;
@@ -81,6 +85,7 @@ export class BackgroundChatJobService {
       createdAt: timestamp,
       updatedAt: timestamp,
       ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+      ...(options.usageReservationId ? { usageReservationId: options.usageReservationId } : {}),
       abortController: new AbortController()
     };
     this.jobs.set(job.id, job);
@@ -91,6 +96,7 @@ export class BackgroundChatJobService {
         appJobId: job.id,
         request: options.request,
         ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+        ...(options.usageReservationId ? { usageReservationId: options.usageReservationId } : {}),
         ...(options.provider ? { provider: options.provider } : {}),
         ...(options.conversationId ? { conversationId: options.conversationId } : {}),
         createdAt: job.createdAt
@@ -144,6 +150,13 @@ export class BackgroundChatJobService {
   async cancel(id: string, error = "Request cancelled.", ownerId?: string): Promise<ChatJobResponse | undefined> {
     const job = this.jobs.get(id);
     if (ownerId && job?.ownerId && job.ownerId !== ownerId) return undefined;
+    let reservationId = job?.usageReservationId;
+    const db = getDatabase();
+    if (!reservationId && db) {
+      const persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
+      const candidate = persisted?.metadata.usageReservationId;
+      if (typeof candidate === "string") reservationId = candidate;
+    }
     await this.update(id, {
       status: "cancelled",
       error,
@@ -153,6 +166,9 @@ export class BackgroundChatJobService {
     job?.abortController.abort(new Error(error));
     const queueJobId = this.queueJobIds.get(id) ?? await jobQueueService.findQueueJobId(CHAT_QUEUE, id);
     if (queueJobId) await jobQueueService.cancel(CHAT_QUEUE, queueJobId);
+    if (ownerId && reservationId) {
+      await usageControlService.recordUsage(ownerId, undefined, undefined, reservationId);
+    }
     return this.get(id, ownerId);
   }
 
@@ -179,6 +195,7 @@ export class BackgroundChatJobService {
       createdAt: payload.createdAt,
       updatedAt: timestamp,
       ...(payload.ownerId ? { ownerId: payload.ownerId } : {}),
+      ...(payload.usageReservationId ? { usageReservationId: payload.usageReservationId } : {}),
       abortController: new AbortController()
     };
     this.jobs.set(job.id, job);
@@ -243,6 +260,7 @@ export class BackgroundChatJobService {
       conversationId: options.conversationId,
       provider: options.provider,
       request: sanitizeStoredRequest(options.request),
+      metadata: options.usageReservationId ? { usageReservationId: options.usageReservationId } : {},
       createdAt: new Date(job.createdAt),
       updatedAt: new Date(job.updatedAt)
     });

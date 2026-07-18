@@ -669,8 +669,34 @@ export const dataImportResultSchema = z.object({
 });
 export type DataImportResult = z.infer<typeof dataImportResultSchema>;
 
+export const uploadPresignRequestSchema = z.object({
+  fileName: z.string().min(1).max(500),
+  mimeType: z.string().min(1).max(200),
+  sizeBytes: z.number().int().positive()
+});
+export type UploadPresignRequest = z.infer<typeof uploadPresignRequestSchema>;
+
+export const uploadPresignResponseSchema = z.object({
+  assetId: z.string(),
+  uploadUrl: z.string().url(),
+  headers: z.record(z.string(), z.string()),
+  expiresAt: z.string()
+});
+export type UploadPresignResponse = z.infer<typeof uploadPresignResponseSchema>;
+
+export const vectorStoreRequestSchema = z.object({
+  assetIds: z.array(z.string()).min(1).max(20),
+  name: z.string().max(100).optional()
+});
+
+export const vectorStoreSchema = z.object({ id: z.string(), expiresAt: z.string() });
+
+export const selectedConversationExportSchema = z.object({
+  conversationIds: z.array(z.string().min(1)).min(1).max(100)
+});
+
 const contract = initContract();
-const apiErrorSchema = z.object({
+export const apiErrorSchema = z.object({
   error: z.string(),
   code: z.string().optional(),
   requestId: z.string().optional()
@@ -753,6 +779,84 @@ export const apiContract = contract.router({
       pathParams: z.object({ conversationId: z.string().min(1) }),
       body: contract.noBody(),
       responses: { 204: contract.noBody(), 404: apiErrorSchema }
+    }
+  }),
+  account: contract.router({
+    restore: {
+      method: "POST",
+      path: "/api/account/restore",
+      body: restoreAccountRequestSchema,
+      responses: { 200: z.object({ restored: z.literal(true) }), 401: apiErrorSchema, 409: apiErrorSchema }
+    },
+    remove: {
+      method: "DELETE",
+      path: "/api/account",
+      body: deleteAccountRequestSchema,
+      responses: { 202: accountDeletionResponseSchema, 401: apiErrorSchema, 404: apiErrorSchema }
+    },
+    oauthProviders: {
+      method: "GET",
+      path: "/api/account/oauth/providers",
+      responses: { 200: z.object({ providers: z.array(oauthProviderStatusSchema) }) }
+    }
+  }),
+  uploads: contract.router({
+    list: {
+      method: "GET",
+      path: "/api/uploads",
+      responses: { 200: z.object({ assets: z.array(uploadedAssetSchema) }) }
+    },
+    presign: {
+      method: "POST",
+      path: "/api/uploads/presign",
+      body: uploadPresignRequestSchema,
+      responses: { 201: uploadPresignResponseSchema, 409: apiErrorSchema }
+    },
+    complete: {
+      method: "POST",
+      path: "/api/uploads/:id/complete",
+      pathParams: z.object({ id: z.string().min(1) }),
+      body: contract.noBody(),
+      responses: { 200: z.object({ asset: uploadedAssetSchema }), 404: apiErrorSchema }
+    },
+    remove: {
+      method: "DELETE",
+      path: "/api/uploads/:id",
+      pathParams: z.object({ id: z.string().min(1) }),
+      body: contract.noBody(),
+      responses: { 204: contract.noBody(), 404: apiErrorSchema }
+    },
+    createVectorStore: {
+      method: "POST",
+      path: "/api/uploads/vector-stores",
+      body: vectorStoreRequestSchema,
+      responses: { 201: z.object({ vectorStore: vectorStoreSchema }) }
+    },
+    removeVectorStore: {
+      method: "DELETE",
+      path: "/api/uploads/vector-stores/:id",
+      pathParams: z.object({ id: z.string().min(1) }),
+      body: contract.noBody(),
+      responses: { 204: contract.noBody(), 404: apiErrorSchema }
+    }
+  }),
+  data: contract.router({
+    exportAccount: {
+      method: "GET",
+      path: "/api/data/export/account",
+      responses: { 200: forTheBaddiezArchiveSchema }
+    },
+    exportConversations: {
+      method: "POST",
+      path: "/api/data/export/conversations",
+      body: selectedConversationExportSchema,
+      responses: { 200: forTheBaddiezArchiveSchema }
+    },
+    import: {
+      method: "POST",
+      path: "/api/data/import",
+      body: dataImportRequestSchema,
+      responses: { 201: dataImportResultSchema }
     }
   })
 });

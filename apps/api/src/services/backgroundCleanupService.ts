@@ -6,6 +6,7 @@ import { openAIArtifactService } from "./openAIArtifactService.js";
 import { uploadService } from "./uploadService.js";
 import { accountDeletionService } from "./accountDeletionService.js";
 import { jobQueueService } from "./jobQueueService.js";
+import { usageControlService } from "./usageControlService.js";
 
 const CLEANUP_QUEUE = "storage-cleanup";
 
@@ -45,6 +46,7 @@ export class BackgroundCleanupService {
         generatedMediaService.cleanupExpiredNow(),
         generatedAudioService.cleanupExpiredNow(),
         openAIArtifactService.cleanupExpiredNow(),
+        usageControlService.cleanupExpiredNow(),
         accountDeletionService.purgeDueAccounts()
       ]);
     } catch (error) {

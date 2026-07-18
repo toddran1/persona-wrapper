@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ActivityIndicator,
   Alert,
@@ -240,6 +241,44 @@ export function MobileChatScreen() {
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
   const [selectedFiles, setSelectedFiles] = useState<MobilePickedFile[]>([]);
+  const personasResource = useQuery(personasQueryOptions());
+  const primaryPersonaId = personasResource.data?.[0]?.id;
+  const primaryPersonaResource = useQuery({
+    ...personaQueryOptions(primaryPersonaId ?? ""),
+    enabled: Boolean(primaryPersonaId)
+  });
+  const conversationsResource = useQuery({
+    ...conversationsPageQueryOptions(undefined, undefined, authUser?.id),
+    enabled: Boolean(authUser),
+    staleTime: 15_000
+  });
+  const deleteConversationMutation = useMutation({
+    mutationFn: api.deleteConversation,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["conversations", authUser?.id] })
+  });
+  const renameConversationMutation = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) => api.renameConversation(id, title),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["conversations", authUser?.id] })
+  });
+  const pinConversationMutation = useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => api.pinConversation(id, pinned),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["conversations", authUser?.id] })
+  });
+
+  useEffect(() => {
+    if (personasResource.data) setPersonas(personasResource.data);
+    if (personasResource.error) setError(personasResource.error.message);
+  }, [personasResource.data, personasResource.error]);
+
+  useEffect(() => {
+    if (primaryPersonaResource.data && !persona) setPersona(primaryPersonaResource.data);
+  }, [primaryPersonaResource.data, persona]);
+
+  useEffect(() => {
+    if (!conversationsResource.data) return;
+    setConversations([...conversationsResource.data.conversations].sort(sortConversationSummaries));
+    setConversationsCursor(conversationsResource.data.nextCursor);
+  }, [conversationsResource.data]);
 
   useEffect(() => {
     if (!drawerInteractive) drawerX.value = -drawerWidth;
@@ -483,8 +522,11 @@ export function MobileChatScreen() {
       runOnJS(setDrawerInteractive)(false);
     });
 
-  async function refreshConversations(): Promise<ConversationSummary[]> {
-    const page = await queryClient.fetchQuery({ ...conversationsPageQueryOptions(), staleTime: 0 });
+  async function refreshConversations(accountId = authUser?.id): Promise<ConversationSummary[]> {
+    const page = accountId === authUser?.id
+      ? (await conversationsResource.refetch()).data
+      : await queryClient.fetchQuery({ ...conversationsPageQueryOptions(undefined, undefined, accountId), staleTime: 0 });
+    if (!page) return [];
     const sorted = [...page.conversations].sort(sortConversationSummaries);
     setConversations(sorted);
     setConversationsCursor(page.nextCursor);
@@ -495,7 +537,7 @@ export function MobileChatScreen() {
     if (!conversationsCursor || conversationsRefreshing) return;
     setConversationsRefreshing(true);
     try {
-      const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationsCursor));
+      const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationsCursor, undefined, authUser?.id));
       setConversations((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationsCursor(page.nextCursor);
     } catch (loadError) {
@@ -523,7 +565,7 @@ export function MobileChatScreen() {
       conversationSearchTimerRef.current = undefined;
       void (async () => {
         try {
-          const page = await queryClient.fetchQuery(conversationsPageQueryOptions(undefined, normalizedQuery));
+          const page = await queryClient.fetchQuery(conversationsPageQueryOptions(undefined, normalizedQuery, authUser?.id));
           if (generation !== conversationSearchGenerationRef.current) return;
           setConversationSearchResults(page.conversations);
           setConversationSearchCursor(page.nextCursor);
@@ -545,7 +587,7 @@ export function MobileChatScreen() {
     const generation = conversationSearchGenerationRef.current;
     setConversationSearching(true);
     try {
-      const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationSearchCursor, normalizedQuery));
+      const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationSearchCursor, normalizedQuery, authUser?.id));
       if (generation !== conversationSearchGenerationRef.current) return;
       setConversationSearchResults((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationSearchCursor(page.nextCursor);
@@ -567,7 +609,7 @@ export function MobileChatScreen() {
     const generation = ++conversationSearchGenerationRef.current;
     setConversationSearching(true);
     try {
-      const page = await queryClient.fetchQuery({ ...conversationsPageQueryOptions(undefined, normalizedQuery), staleTime: 0 });
+      const page = await queryClient.fetchQuery({ ...conversationsPageQueryOptions(undefined, normalizedQuery, authUser?.id), staleTime: 0 });
       if (generation !== conversationSearchGenerationRef.current) return;
       setConversationSearchResults(page.conversations);
       setConversationSearchCursor(page.nextCursor);
@@ -616,10 +658,10 @@ export function MobileChatScreen() {
           setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
         }
         if (user) {
-          const nextConversations = await refreshConversations();
+          const nextConversations = await refreshConversations(user.id);
           const savedConversationId = await getSelectedConversationId();
           if (!conversationId && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
-            await selectConversation(savedConversationId, { keepDrawerOpen: true });
+            await selectConversation(savedConversationId, { keepDrawerOpen: true, accountId: user.id });
           }
         }
       } catch (retryError) {
@@ -1182,7 +1224,7 @@ export function MobileChatScreen() {
     setIdentifier("");
     setDisplayName("");
     try {
-      await refreshConversations();
+      await refreshConversations(user.id);
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : "Signed in, but could not load your chat history.");
     }
@@ -1214,10 +1256,10 @@ export function MobileChatScreen() {
           if (mounted) setPersona(detail);
         }
         if (user && mounted) {
-          const nextConversations = await refreshConversations();
+          const nextConversations = await refreshConversations(user.id);
           const savedConversationId = await getSelectedConversationId();
           if (savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
-            await selectConversation(savedConversationId, { keepDrawerOpen: true });
+            await selectConversation(savedConversationId, { keepDrawerOpen: true, accountId: user.id });
           }
         }
       } catch (loadError) {
@@ -1274,13 +1316,13 @@ export function MobileChatScreen() {
     }
   }
 
-  async function selectConversation(nextConversationId: string, options?: { keepDrawerOpen?: boolean }): Promise<void> {
+  async function selectConversation(nextConversationId: string, options?: { keepDrawerOpen?: boolean; accountId?: string }): Promise<void> {
     cancelActiveChatRequest();
     const selectionGeneration = ++selectionGenerationRef.current;
     try {
       setLoading(true);
       setError(undefined);
-      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(nextConversationId));
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(nextConversationId, undefined, options?.accountId ?? authUser?.id));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setConversationId(page.conversation.id);
       await setSelectedConversationId(page.conversation.id);
@@ -1300,7 +1342,7 @@ export function MobileChatScreen() {
     const selectionGeneration = selectionGenerationRef.current;
     setLoadingEarlierTurns(true);
     try {
-      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(conversationId, turnsCursor));
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(conversationId, turnsCursor, authUser?.id));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setTurns((current) => [...turnsFromConversationTurns(page.turns), ...current]);
       setTurnsCursor(page.nextCursor);
@@ -1352,7 +1394,7 @@ export function MobileChatScreen() {
     const title = renameTitle.trim();
     if (!renameTarget || !title) return;
     try {
-      const renamed = await api.renameConversation(renameTarget.id, title);
+      const renamed = await renameConversationMutation.mutateAsync({ id: renameTarget.id, title });
       setConversations((current) => current.map((conversation) => (
         conversation.id === renamed.id ? renamed : conversation
       )).sort(sortConversationSummaries));
@@ -1365,7 +1407,7 @@ export function MobileChatScreen() {
 
   async function pinConversation(conversation: ConversationSummary): Promise<void> {
     try {
-      const updated = await api.pinConversation(conversation.id, !conversation.pinned);
+      const updated = await pinConversationMutation.mutateAsync({ id: conversation.id, pinned: !conversation.pinned });
       setConversations((current) => current.map((item) => (
         item.id === updated.id ? updated : item
       )).sort(sortConversationSummaries));
@@ -1388,7 +1430,7 @@ export function MobileChatScreen() {
   async function deleteConversation(nextConversationId: string): Promise<void> {
     if (conversationId === nextConversationId) cancelActiveChatRequest();
     try {
-      await api.deleteConversation(nextConversationId);
+      await deleteConversationMutation.mutateAsync(nextConversationId);
       setConversations((current) => current.filter((conversation) => conversation.id !== nextConversationId));
       if (conversationId === nextConversationId) {
         selectionGenerationRef.current += 1;

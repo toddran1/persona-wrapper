@@ -2,6 +2,7 @@ import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlo
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRef } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "./lib/api.js";
 import { queryClient } from "./lib/queryClient.js";
 import { conversationsPageQueryOptions, conversationTurnsQueryOptions, personaQueryOptions, personasQueryOptions } from "./lib/chatQueries.js";
@@ -179,9 +180,9 @@ function storedConversationId(): string | undefined {
   }
 }
 
-export function App() {
+export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const testModeEnabled = import.meta.env.VITE_TEST_MODE === "true";
-  const reviewPageEnabled = testModeEnabled && window.location.pathname.replace(/\/$/, "") === "/review";
+  const reviewPageEnabled = testModeEnabled && reviewPage;
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
   const [personaDetail, setPersonaDetail] = useState<PersonaDefinition | undefined>();
   const [provider, setProvider] = useState<ProviderId>("openai_persona");
@@ -222,6 +223,33 @@ export function App() {
   const suppressAudioVisualForCurrentTurnRef = useRef(false);
   const suppressPersonaVisualTransitionsRef = useRef(false);
   const nonAudioVisualTimeoutRef = useRef<number | undefined>(undefined);
+  const personasResource = useQuery({
+    ...personasQueryOptions(),
+    retry: (failureCount, queryError) => failureCount < 12 && isTransientApiBootError(queryError)
+  });
+  const primaryPersonaId = personasResource.data?.[0]?.id;
+  const personaResource = useQuery({
+    ...personaQueryOptions(primaryPersonaId ?? ""),
+    enabled: Boolean(primaryPersonaId),
+    retry: (failureCount, queryError) => failureCount < 12 && isTransientApiBootError(queryError)
+  });
+  const conversationsResource = useQuery({
+    ...conversationsPageQueryOptions(undefined, undefined, authUser?.id),
+    enabled: Boolean(authUser),
+    staleTime: 15_000
+  });
+  const deleteConversationMutation = useMutation({
+    mutationFn: api.deleteConversation,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["conversations", authUser?.id] })
+  });
+  const renameConversationMutation = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) => api.renameConversation(id, title),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["conversations", authUser?.id] })
+  });
+  const pinConversationMutation = useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => api.pinConversation(id, pinned),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["conversations", authUser?.id] })
+  });
 
   useEffect(() => {
     const desktopQuery = window.matchMedia("(min-width: 1180px)");
@@ -303,27 +331,20 @@ export function App() {
   }
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const loadedPersonas = await retryWithBackoff(
-          () => queryClient.fetchQuery(personasQueryOptions()),
-          { shouldRetry: isTransientApiBootError }
-        );
-        setPersonas(loadedPersonas);
+    if (personasResource.data) setPersonas(personasResource.data);
+    if (personasResource.error) setError(personasResource.error.message);
+  }, [personasResource.data, personasResource.error]);
 
-        const firstPersona = loadedPersonas[0];
-        if (firstPersona) {
-          const detail = await retryWithBackoff(
-            () => queryClient.fetchQuery(personaQueryOptions(firstPersona.id)),
-            { shouldRetry: isTransientApiBootError }
-          );
-          setPersonaDetail(detail);
-        }
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to load personas");
-      }
-    })();
-  }, []);
+  useEffect(() => {
+    if (personaResource.data) setPersonaDetail(personaResource.data);
+    if (personaResource.error) setError(personaResource.error.message);
+  }, [personaResource.data, personaResource.error]);
+
+  useEffect(() => {
+    if (!conversationsResource.data) return;
+    setConversationList(conversationsResource.data.conversations);
+    setConversationListCursor(conversationsResource.data.nextCursor);
+  }, [conversationsResource.data]);
 
   useEffect(() => {
     let cancelled = false;
@@ -331,6 +352,7 @@ export function App() {
     void (async () => {
       setAuthLoading(true);
       let authenticated = false;
+      let authenticatedUserId: string | undefined;
 
       try {
         const providers = await retryWithBackoff(
@@ -345,6 +367,7 @@ export function App() {
       try {
         const me = await api.getCurrentUser();
         authenticated = true;
+        authenticatedUserId = me.user.id;
         if (!cancelled) {
           setAuthUser(me.user);
           setAuthError(undefined);
@@ -361,8 +384,8 @@ export function App() {
           if (!selectedConversationId) setConversationId(undefined);
           if (authenticated) {
             void (async () => {
-              await refreshConversationList(selectedConversationId, true);
-              if (selectedConversationId) await loadConversation(selectedConversationId);
+              await refreshConversationList(selectedConversationId, true, authenticatedUserId);
+              if (selectedConversationId) await loadConversation(selectedConversationId, authenticatedUserId);
             })();
           }
         }
@@ -562,15 +585,13 @@ export function App() {
     });
   }
 
-  async function refreshConversationList(preferConversationId?: string, retryOnStartup = false): Promise<void> {
+  async function refreshConversationList(preferConversationId?: string, retryOnStartup = false, accountId = authUser?.id): Promise<void> {
     setConversationListLoading(true);
     try {
-      const page = retryOnStartup
-        ? await retryWithBackoff(
-            () => queryClient.fetchQuery({ ...conversationsPageQueryOptions(), staleTime: 0 }),
-            { shouldRetry: isTransientApiBootError }
-          )
-        : await queryClient.fetchQuery({ ...conversationsPageQueryOptions(), staleTime: 0 });
+      const page = accountId === authUser?.id
+        ? (await conversationsResource.refetch()).data
+        : await queryClient.fetchQuery({ ...conversationsPageQueryOptions(undefined, undefined, accountId), staleTime: 0 });
+      if (!page) return;
       setConversationList(page.conversations);
       setConversationListCursor(page.nextCursor);
       if (preferConversationId) {
@@ -590,7 +611,7 @@ export function App() {
     setConversationListCursor(null);
   }
 
-  async function loadConversation(nextConversationId: string): Promise<void> {
+  async function loadConversation(nextConversationId: string, accountId = authUser?.id): Promise<void> {
     abandonActiveRequest();
     const selectionGeneration = ++selectionGenerationRef.current;
     holdPersonaVisualIdleForCurrentMutation();
@@ -602,7 +623,7 @@ export function App() {
     setPersonaAudioPlaying(false);
     setAutoPlayAudioTurnIndex(undefined);
     try {
-      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(nextConversationId));
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(nextConversationId, undefined, accountId));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       const nextTurns = renderTurnsFromConversationTurns(page.turns);
       setConversationId(page.conversation.id);
@@ -629,7 +650,7 @@ export function App() {
     const selectionGeneration = selectionGenerationRef.current;
     setLoadingEarlierTurns(true);
     try {
-      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(conversationId, turnsCursor));
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(conversationId, turnsCursor, authUser?.id));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setRenderedTurns((current) => [...renderTurnsFromConversationTurns(page.turns), ...current]);
       setTurnsCursor(page.nextCursor);
@@ -644,7 +665,7 @@ export function App() {
     if (!conversationListCursor || conversationListLoading) return;
     setConversationListLoading(true);
     try {
-      const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationListCursor));
+      const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationListCursor, undefined, authUser?.id));
       setConversationList((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationListCursor(page.nextCursor);
     } catch (loadError) {
@@ -656,7 +677,7 @@ export function App() {
 
   async function deleteConversationFromHistory(nextConversationId: string): Promise<void> {
     try {
-      await api.deleteConversation(nextConversationId);
+      await deleteConversationMutation.mutateAsync(nextConversationId);
       setConversationList((current) => current.filter((conversation) => conversation.id !== nextConversationId));
       if (conversationId === nextConversationId) {
         resetConversation();
@@ -668,7 +689,7 @@ export function App() {
 
   async function renameConversationFromHistory(nextConversationId: string, title: string): Promise<void> {
     try {
-      const renamed = await api.renameConversation(nextConversationId, title);
+      const renamed = await renameConversationMutation.mutateAsync({ id: nextConversationId, title });
       setConversationList((current) => current.map((conversation) => (
         conversation.id === renamed.id ? renamed : conversation
       )).sort(sortConversationSummaries));
@@ -679,7 +700,7 @@ export function App() {
 
   async function pinConversationFromHistory(nextConversationId: string, pinned: boolean): Promise<void> {
     try {
-      const updated = await api.pinConversation(nextConversationId, pinned);
+      const updated = await pinConversationMutation.mutateAsync({ id: nextConversationId, pinned });
       setConversationList((current) => current.map((conversation) => (
         conversation.id === updated.id ? updated : conversation
       )).sort(sortConversationSummaries));
@@ -1014,7 +1035,7 @@ export function App() {
       const auth = await api.login({ identifier, password, clientType: "web" });
       setAuthUser(auth.user);
       resetConversation();
-      await refreshConversationList(undefined, true);
+      await refreshConversationList(undefined, true, auth.user.id);
     } catch (loginError) {
       const message = loginError instanceof Error ? loginError.message : "Login failed.";
       setAuthError(message);
@@ -1031,7 +1052,7 @@ export function App() {
       const auth = await api.register({ ...payload, clientType: "web" });
       setAuthUser(auth.user);
       resetConversation();
-      await refreshConversationList(undefined, true);
+      await refreshConversationList(undefined, true, auth.user.id);
     } catch (registerError) {
       const message = registerError instanceof Error ? registerError.message : "Registration failed.";
       setAuthError(message);
@@ -1048,7 +1069,7 @@ export function App() {
       const auth = await api.restoreAccount({ identifier, password, clientType: "web" });
       setAuthUser(auth.user);
       resetConversation();
-      await refreshConversationList(undefined, true);
+      await refreshConversationList(undefined, true, auth.user.id);
     } catch (restoreError) {
       setAuthError(restoreError instanceof Error ? restoreError.message : "Account restoration failed.");
       throw restoreError;
