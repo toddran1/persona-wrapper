@@ -1,7 +1,6 @@
 import type { ContentBlock } from "@persona/shared";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { AudioBlock } from "./output/AudioBlock.js";
-import { ChartBlock } from "./output/ChartBlock.js";
 import { FileBlock } from "./output/FileBlock.js";
 import { ImageBlock } from "./output/ImageBlock.js";
 import { JsonBlock } from "./output/JsonBlock.js";
@@ -13,6 +12,11 @@ import { TableBlock } from "./output/TableBlock.js";
 import { CodeBlock } from "./output/CodeBlock.js";
 import { StatusBlock } from "./output/StatusBlock.js";
 import { VideoBlock } from "./output/VideoBlock.js";
+
+const ChartBlock = lazy(async () => {
+  const module = await import("./output/ChartBlock.js");
+  return { default: module.ChartBlock };
+});
 
 function ActionBlock({
   output,
@@ -72,7 +76,11 @@ export function OutputRenderer({
     case "video":
       return <VideoBlock {...output} />;
     case "chart":
-      return <ChartBlock title={output.title} chartType={output.chartType} series={output.series} />;
+      return (
+        <Suspense fallback={<StatusBlock status="in_progress" message="Loading chart…" />}>
+          <ChartBlock title={output.title} chartType={output.chartType} series={output.series} />
+        </Suspense>
+      );
     case "file":
       return <FileBlock {...output} />;
     case "tool_call":

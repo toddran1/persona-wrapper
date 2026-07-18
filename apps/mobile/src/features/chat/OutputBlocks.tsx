@@ -8,6 +8,7 @@ import { stripGeneratedFileDownloadPrompt, type ContentBlock } from "@persona/sh
 import { Ionicons } from "@expo/vector-icons";
 import { EnrichedMarkdownText, type MarkdownStyle } from "react-native-enriched-markdown";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BarChart, LineChart, PieChart } from "react-native-gifted-charts";
 import { api } from "../../api/client";
 import type { MobileTheme } from "../../theme/personaTheme";
 
@@ -41,9 +42,6 @@ function showOpenError(error: unknown): void {
 export function OutputBlocks({ outputs, theme, onAction }: OutputBlocksProps) {
   const hasFileOutput = outputs.some((output) => output.type === "file");
   const visible = outputs.filter((output) =>
-    output.type !== "source_list" &&
-    output.type !== "tool_call" &&
-    output.type !== "tool_result" &&
     (output.type !== "text" || (hasFileOutput ? stripGeneratedFileDownloadPrompt(output.text) : output.text).trim().length > 0)
   );
   if (visible.length === 0) return null;
@@ -199,6 +197,44 @@ function MobileMarkdownText({ text, theme }: { text: string; theme: MobileTheme 
   );
 }
 
+function MobileChartBlock({ output, theme }: { output: Extract<ContentBlock, { type: "chart" }>; theme: MobileTheme }) {
+  const colors = [theme.accent2, theme.accent, "#e06f9f", "#69c4b1", "#ef8d5b", "#7899e8"];
+  const data = output.series.map((point, index) => ({
+    value: point.value,
+    label: point.label,
+    text: point.label,
+    color: colors[index % colors.length] ?? theme.accent2,
+    frontColor: colors[index % colors.length] ?? theme.accent2
+  }));
+  const axisTextStyle = { color: theme.muted, fontSize: 10 };
+
+  return (
+    <View accessibilityLabel={`${output.title}, ${output.chartType} chart`} style={[styles.dataCard, { borderColor: theme.border }]}>
+      <Text style={[styles.dataEyebrow, { color: theme.accent2 }]}>{output.chartType} chart</Text>
+      <Text style={[styles.dataTitle, { color: theme.text }]}>{output.title}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chartScroll}>
+        {output.chartType === "pie" ? (
+          <PieChart data={data} donut showText textColor={theme.text} radius={92} innerRadius={48} />
+        ) : output.chartType === "line" ? (
+          <LineChart data={data} color={theme.accent2} dataPointsColor={theme.accent} thickness={3} yAxisTextStyle={axisTextStyle} xAxisLabelTextStyle={axisTextStyle} rulesColor="rgba(255,255,255,0.08)" hideDataPoints={false} />
+        ) : (
+          <BarChart data={data} barWidth={28} spacing={24} yAxisTextStyle={axisTextStyle} xAxisLabelTextStyle={axisTextStyle} rulesColor="rgba(255,255,255,0.08)" />
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+function JsonCard({ title, value, theme }: { title: string; value: unknown; theme: MobileTheme }) {
+  const text = JSON.stringify(value, null, 2) ?? String(value);
+  return (
+    <View style={[styles.dataCard, { borderColor: theme.border }]}>
+      <Text style={[styles.dataEyebrow, { color: theme.accent2 }]}>{title}</Text>
+      <MobileCodeBlock code={text} language="json" theme={theme} />
+    </View>
+  );
+}
+
 function OutputBlock({
   output,
   theme,
@@ -210,6 +246,54 @@ function OutputBlock({
 }) {
   if (output.type === "text") {
     return <MobileMarkdownText text={output.text} theme={theme} />;
+  }
+  if (output.type === "json") {
+    return <JsonCard title="JSON" value={output.data} theme={theme} />;
+  }
+  if (output.type === "chart") {
+    return <MobileChartBlock output={output} theme={theme} />;
+  }
+  if (output.type === "table") {
+    return (
+      <View style={[styles.dataCard, { borderColor: theme.border }]}>
+        {output.title ? <Text style={[styles.dataTitle, { color: theme.text }]}>{output.title}</Text> : null}
+        <ScrollView horizontal showsHorizontalScrollIndicator>
+          <View>
+            <View style={[styles.tableRow, styles.tableHeader, { borderColor: theme.border }]}>
+              {output.columns.map((column) => <Text key={column} style={[styles.tableCell, styles.tableHeaderText, { color: theme.text }]}>{column}</Text>)}
+            </View>
+            {output.rows.map((row, rowIndex) => (
+              <View key={`row-${rowIndex}`} style={[styles.tableRow, { borderColor: theme.border }]}>
+                {row.map((cell, cellIndex) => <Text key={`${rowIndex}-${cellIndex}`} style={[styles.tableCell, { color: theme.muted }]}>{cell === null ? "—" : String(cell)}</Text>)}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+  if (output.type === "tool_call") {
+    return <JsonCard title={`${output.toolName.replace(/_/g, " ")} · ${output.status}`} value={output.arguments} theme={theme} />;
+  }
+  if (output.type === "tool_result") {
+    return <JsonCard title={`${output.toolName.replace(/_/g, " ")} · ${output.status}`} value={output.result ?? {}} theme={theme} />;
+  }
+  if (output.type === "source_list") {
+    return (
+      <View style={[styles.dataCard, { borderColor: theme.border }]}>
+        <Text style={[styles.dataTitle, { color: theme.text }]}>Sources</Text>
+        {output.sources.map((source, index) => (
+          <Pressable key={`${source.url}-${index}`} accessibilityRole="link" onPress={() => void openExternalUrl(source.url).catch(showOpenError)} style={styles.sourceRow}>
+            <Text style={[styles.sourceIndex, { color: theme.accent2 }]}>{index + 1}</Text>
+            <View style={styles.sourceCopy}>
+              <Text style={[styles.sourceTitle, { color: theme.text }]}>{source.title}</Text>
+              {source.snippet ? <Text numberOfLines={3} style={[styles.caption, { color: theme.muted }]}>{source.snippet}</Text> : null}
+            </View>
+            <Ionicons name="open-outline" size={15} color={theme.muted} />
+          </Pressable>
+        ))}
+      </View>
+    );
   }
   if (output.type === "image") {
     return <ImageOutputBlock output={output} theme={theme} />;
@@ -278,20 +362,9 @@ function OutputBlock({
     );
   }
   if (output.type === "code") {
-    return (
-      <View style={[styles.codeBlock, { borderColor: theme.border }]}>
-        {output.title ? <Text style={[styles.codeTitle, { color: theme.accent2 }]}>{output.title}</Text> : null}
-        <Text style={[styles.codeText, { color: theme.text }]}>{output.code}</Text>
-      </View>
-    );
+    return <MobileCodeBlock code={output.code} language={output.language ?? output.title ?? "text"} theme={theme} />;
   }
-  if (output.type !== "audio") {
-    return (
-      <View style={[styles.status, { borderColor: theme.border }]}>
-        <Text style={[styles.statusText, { color: theme.muted }]}>{output.type.replace(/_/g, " ")}</Text>
-      </View>
-    );
-  }
+  return null;
 }
 
 function ImageOutputBlock({
@@ -531,6 +604,29 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     textTransform: "uppercase"
   },
+  chartScroll: {
+    minHeight: 220,
+    paddingHorizontal: 4,
+    paddingVertical: 10
+  },
+  dataCard: {
+    backgroundColor: "rgba(8,6,14,0.42)",
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 9,
+    overflow: "hidden",
+    padding: 12
+  },
+  dataEyebrow: {
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase"
+  },
+  dataTitle: {
+    fontSize: 16,
+    fontWeight: "800"
+  },
   image: {
     aspectRatio: 1,
     borderRadius: 16,
@@ -637,6 +733,25 @@ const styles = StyleSheet.create({
   stack: {
     gap: 10
   },
+  sourceCopy: {
+    flex: 1,
+    gap: 3
+  },
+  sourceIndex: {
+    fontSize: 12,
+    fontWeight: "900",
+    width: 18
+  },
+  sourceRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 7
+  },
+  sourceTitle: {
+    fontSize: 13,
+    fontWeight: "800"
+  },
   status: {
     borderRadius: 16,
     borderWidth: 1,
@@ -645,6 +760,23 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 13,
     lineHeight: 18
+  },
+  tableCell: {
+    fontSize: 12,
+    lineHeight: 17,
+    minWidth: 120,
+    paddingHorizontal: 10,
+    paddingVertical: 9
+  },
+  tableHeader: {
+    backgroundColor: "rgba(255,255,255,0.055)"
+  },
+  tableHeaderText: {
+    fontWeight: "800"
+  },
+  tableRow: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row"
   },
   thinkingBubble: {
     alignSelf: "flex-start",

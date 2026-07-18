@@ -12,7 +12,7 @@
     "db:studio": "drizzle-kit studio --config drizzle.config.ts",
     "accounts:purge-deleted": "tsx src/scripts/purgeDeletedAccounts.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome lint src drizzle.config.ts",
     "test": "NODE_ENV=test DATABASE_URL= AUTH_REQUIRED=false AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false OBSERVABILITY_DASHBOARD_TOKEN= OTEL_EXPORTER_OTLP_ENDPOINT= OTEL_EXPORTER_OTLP_HEADERS= STYLE_TRANSFER_PROVIDER=stub vitest run",
     "test:integration:openai": "DATABASE_URL= OPENAI_RUN_INTEGRATION_TESTS=true STYLE_TRANSFER_PROVIDER=stub vitest run src/test/openai.integration.test.ts"
   },
@@ -27,23 +27,27 @@
     "@opentelemetry/sdk-metrics": "^2.9.0",
     "@opentelemetry/sdk-node": "^0.220.0",
     "@persona/shared": "*",
+    "@ts-rest/core": "^3.52.1",
+    "@ts-rest/express": "^3.52.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.45.2",
     "express": "^4.21.1",
+    "file-type": "^22.0.1",
     "multer": "^2.2.0",
     "openai": "^6.42.0",
+    "pg-boss": "^12.26.1",
     "postgres": "^3.4.9",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.0",
-    "@types/multer": "^2.1.0",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
     "@types/node": "^22.8.1",
-    "drizzle-kit": "^0.18.1",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.1",
-    "typescript": "^5.6.3",
+    "typescript": "~6.0.3",
     "vitest": "^3.2.7"
   }
 }

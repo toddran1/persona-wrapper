@@ -11,8 +11,9 @@ import { eq, lte } from "drizzle-orm";
 import { getDatabase } from "../db/client.js";
 import { backgroundJobs } from "../db/schema.js";
 import { logger } from "../utils/logger.js";
+import { jobQueueService } from "./jobQueueService.js";
 
-type BackgroundChatJob = {
+export type BackgroundChatJob = {
   id: string;
   status: ChatJobResponse["status"];
   createdAt: string;
@@ -26,6 +27,17 @@ type BackgroundChatJob = {
   providerStatus?: string;
 };
 
+type BackgroundChatExecutor = (request: ChatRequest, job: BackgroundChatJob) => Promise<ChatResponse>;
+
+type QueuedChatJob = {
+  appJobId: string;
+  request: ChatRequest;
+  ownerId?: string;
+  provider?: ChatRequest["provider"];
+  conversationId?: string;
+  createdAt: string;
+};
+
 type BackgroundChatJobStartOptions = {
   ownerId?: string;
   provider?: ChatRequest["provider"];
@@ -34,6 +46,7 @@ type BackgroundChatJobStartOptions = {
 };
 
 const JOB_TTL_MS = 60 * 60 * 1000;
+const CHAT_QUEUE = "background-chat";
 
 function now(): string {
   return new Date().toISOString();
@@ -41,10 +54,24 @@ function now(): string {
 
 export class BackgroundChatJobService {
   private readonly jobs = new Map<string, BackgroundChatJob>();
+  private readonly queueJobIds = new Map<string, string>();
+  private executor: BackgroundChatExecutor | undefined;
+
+  setExecutor(executor: BackgroundChatExecutor): void {
+    this.executor = executor;
+  }
+
+  async startWorker(): Promise<void> {
+    if (!jobQueueService.enabled) return;
+    await jobQueueService.work<QueuedChatJob>(CHAT_QUEUE, async (queueJob) => {
+      this.queueJobIds.set(queueJob.data.appJobId, queueJob.id);
+      await this.executeQueuedJob(queueJob.data, queueJob.signal);
+    });
+  }
 
   async start(
     options: BackgroundChatJobStartOptions,
-    executor: (job: BackgroundChatJob) => Promise<ChatResponse>
+    inlineExecutor?: (job: BackgroundChatJob) => Promise<ChatResponse>
   ): Promise<BackgroundChatJob> {
     await this.prune();
     const timestamp = now();
@@ -59,33 +86,23 @@ export class BackgroundChatJobService {
     this.jobs.set(job.id, job);
     await this.insertJobRecord(job, options);
 
-    void (async () => {
-      await this.update(job.id, { status: "running" });
-      try {
-        const response = await executor(job);
-        const latest = this.jobs.get(job.id);
-        if (latest?.status === "cancelled") return;
-        await this.update(job.id, {
-          status: "completed",
-          response
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const latest = this.jobs.get(job.id);
-        if (latest?.status === "cancelled") return;
-        const failureReason = classifyFailureReason(message);
-        await this.update(job.id, {
-          status: "failed",
-          error: message,
-          failureReason
-        });
-        logger.warn("Background chat job failed", {
-          jobId: job.id,
-          error: message,
-          failureReason
-        });
-      }
-    })();
+    if (jobQueueService.enabled && options.request) {
+      const queueJobId = await jobQueueService.send<QueuedChatJob>(CHAT_QUEUE, {
+        appJobId: job.id,
+        request: options.request,
+        ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+        ...(options.provider ? { provider: options.provider } : {}),
+        ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+        createdAt: job.createdAt
+      });
+      this.queueJobIds.set(job.id, queueJobId);
+    } else if (inlineExecutor) {
+      void this.execute(job, () => inlineExecutor(job)).catch(() => undefined);
+    } else if (options.request && this.executor) {
+      void this.execute(job, () => this.executor?.(options.request as ChatRequest, job) as Promise<ChatResponse>).catch(() => undefined);
+    } else {
+      throw new Error("No background chat executor is configured.");
+    }
 
     return job;
   }
@@ -127,21 +144,62 @@ export class BackgroundChatJobService {
   async cancel(id: string, error = "Request cancelled.", ownerId?: string): Promise<ChatJobResponse | undefined> {
     const job = this.jobs.get(id);
     if (ownerId && job?.ownerId && job.ownerId !== ownerId) return undefined;
-    job?.abortController.abort(new Error(error));
     await this.update(id, {
       status: "cancelled",
       error,
       failureReason: "manual_cancel",
       providerStatus: "cancelled"
     });
+    job?.abortController.abort(new Error(error));
+    const queueJobId = this.queueJobIds.get(id) ?? await jobQueueService.findQueueJobId(CHAT_QUEUE, id);
+    if (queueJobId) await jobQueueService.cancel(CHAT_QUEUE, queueJobId);
     return this.get(id, ownerId);
   }
 
   async cancelForOwner(ownerId: string, error = "Account deletion cancelled this request."): Promise<void> {
-    const ownedJobIds = [...this.jobs.values()]
+    const ownedJobIds = new Set([...this.jobs.values()]
       .filter((job) => job.ownerId === ownerId && (job.status === "queued" || job.status === "running"))
-      .map((job) => job.id);
-    await Promise.all(ownedJobIds.map((id) => this.cancel(id, error, ownerId)));
+      .map((job) => job.id));
+    const db = getDatabase();
+    if (db) {
+      const persisted = await db.query.backgroundJobs.findMany({ where: eq(backgroundJobs.ownerId, ownerId) });
+      for (const job of persisted) {
+        if (job.status === "queued" || job.status === "running") ownedJobIds.add(job.id);
+      }
+    }
+    await Promise.all([...ownedJobIds].map((id) => this.cancel(id, error, ownerId)));
+  }
+
+  private async executeQueuedJob(payload: QueuedChatJob, queueSignal: AbortSignal): Promise<void> {
+    if (!this.executor) throw new Error("Background chat worker has no executor configured.");
+    const timestamp = now();
+    const job: BackgroundChatJob = this.jobs.get(payload.appJobId) ?? {
+      id: payload.appJobId,
+      status: "queued",
+      createdAt: payload.createdAt,
+      updatedAt: timestamp,
+      ...(payload.ownerId ? { ownerId: payload.ownerId } : {}),
+      abortController: new AbortController()
+    };
+    this.jobs.set(job.id, job);
+    queueSignal.addEventListener("abort", () => job.abortController.abort(queueSignal.reason), { once: true });
+    await this.execute(job, () => this.executor?.(payload.request, job) as Promise<ChatResponse>);
+  }
+
+  private async execute(job: BackgroundChatJob, executor: () => Promise<ChatResponse>): Promise<void> {
+    await this.update(job.id, { status: "running" });
+    try {
+      const response = await executor();
+      if (this.jobs.get(job.id)?.status === "cancelled") return;
+      await this.update(job.id, { status: "completed", response });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (this.jobs.get(job.id)?.status === "cancelled") return;
+      const failureReason = classifyFailureReason(message);
+      await this.update(job.id, { status: "failed", error: message, failureReason });
+      logger.warn("Background chat job failed", { jobId: job.id, error: message, failureReason });
+      throw error;
+    }
   }
 
   private async update(

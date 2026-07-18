@@ -53,14 +53,6 @@ function pickStateClip(profile: PersonaVisualStageProfile, state: PersonaVisualS
   };
 }
 
-function StageIcon({ direction }: { direction: "hide" | "show" }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      {direction === "hide" ? <path d="m6 9 6 6 6-6" /> : <path d="m6 15 6-6 6 6" />}
-    </svg>
-  );
-}
-
 export function PersonaVisualStage({ state, personaName, profile, hidden = false, onHide }: PersonaVisualStageProps) {
   const [activeClip, setActiveClip] = useState<PersonaVisualClip>(() => pickStateClip(profile, state));
   const [previousClip, setPreviousClip] = useState<PersonaVisualClip | null>(null);

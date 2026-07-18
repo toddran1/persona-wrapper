@@ -5,12 +5,22 @@ import { generatedMediaService } from "./generatedMediaService.js";
 import { openAIArtifactService } from "./openAIArtifactService.js";
 import { uploadService } from "./uploadService.js";
 import { accountDeletionService } from "./accountDeletionService.js";
+import { jobQueueService } from "./jobQueueService.js";
+
+const CLEANUP_QUEUE = "storage-cleanup";
 
 export class BackgroundCleanupService {
   private interval: NodeJS.Timeout | undefined;
   private running = false;
 
-  start(): void {
+  async start(): Promise<void> {
+    if (jobQueueService.enabled) {
+      await jobQueueService.work(CLEANUP_QUEUE, async () => this.runOnce());
+      await jobQueueService.schedule(CLEANUP_QUEUE, env.STORAGE_CLEANUP_CRON);
+      await jobQueueService.send(CLEANUP_QUEUE, {}, { singletonKey: "startup-cleanup" });
+      logger.info("Storage cleanup job scheduled", { cron: env.STORAGE_CLEANUP_CRON });
+      return;
+    }
     if (this.interval || env.STORAGE_CLEANUP_INTERVAL_MS <= 0) return;
     void this.runOnce();
     this.interval = setInterval(() => void this.runOnce(), env.STORAGE_CLEANUP_INTERVAL_MS);

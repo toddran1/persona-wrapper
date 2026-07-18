@@ -1,4 +1,5 @@
 import NetInfo, { type NetInfoState } from "@react-native-community/netinfo";
+import { onlineManager } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
 
 export type NetworkStatus = "checking" | "online" | "offline";
@@ -38,6 +39,7 @@ export function NetworkProvider({ children }: PropsWithChildren) {
     }
     previousStatusRef.current = nextStatus;
     setStatus(nextStatus);
+    onlineManager.setOnline(nextStatus === "online");
   }, []);
 
   useEffect(() => {

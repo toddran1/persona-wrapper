@@ -1,8 +1,10 @@
-import type { AuthUser, ChatJobResponse, ChatMessage, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
+import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRef } from "react";
 import { api, authTokens, clearAuthTokens, consumeOAuthCallbackResult } from "./lib/api.js";
+import { queryClient } from "./lib/queryClient.js";
+import { conversationsPageQueryOptions, conversationTurnsQueryOptions, personaQueryOptions, personasQueryOptions } from "./lib/chatQueries.js";
 import { ChatComposer } from "./components/ChatComposer.js";
 import { ConversationSidebar } from "./components/ConversationSidebar.js";
 import { ConversationHistory, type RenderedTurn, type UserPromptAsset } from "./components/ConversationHistory.js";
@@ -32,34 +34,6 @@ function sortConversationSummaries(left: ConversationSummary, right: Conversatio
   const pinnedDelta = Number(right.pinned) - Number(left.pinned);
   if (pinnedDelta !== 0) return pinnedDelta;
   return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
-}
-
-function renderTurnsFromHistory(history: ChatMessage[]): RenderedTurn[] {
-  const turns: RenderedTurn[] = [];
-  for (let index = 0; index < history.length; index += 1) {
-    const message = history[index];
-    if (!message || message.role !== "user") continue;
-    let assistant: ChatMessage | undefined;
-    for (let nextIndex = index + 1; nextIndex < history.length; nextIndex += 1) {
-      const candidate = history[nextIndex];
-      if (!candidate || candidate.role === "user") break;
-      if (candidate.role === "assistant") {
-        assistant = candidate;
-        break;
-      }
-    }
-    turns.push({
-      userMessage: message.content,
-      assistantText: assistant?.content ?? "",
-      outputs: assistant?.content
-        ? [{
-            type: "text",
-            text: assistant.content
-          }]
-        : []
-    });
-  }
-  return turns;
 }
 
 function renderTurnsFromConversationTurns(turns: ConversationTurn[]): RenderedTurn[] {
@@ -332,7 +306,7 @@ export function App() {
     void (async () => {
       try {
         const loadedPersonas = await retryWithBackoff(
-          () => api.getPersonas(),
+          () => queryClient.fetchQuery(personasQueryOptions()),
           { shouldRetry: isTransientApiBootError }
         );
         setPersonas(loadedPersonas);
@@ -340,7 +314,7 @@ export function App() {
         const firstPersona = loadedPersonas[0];
         if (firstPersona) {
           const detail = await retryWithBackoff(
-            () => api.getPersona(firstPersona.id),
+            () => queryClient.fetchQuery(personaQueryOptions(firstPersona.id)),
             { shouldRetry: isTransientApiBootError }
           );
           setPersonaDetail(detail);
@@ -606,10 +580,10 @@ export function App() {
     try {
       const page = retryOnStartup
         ? await retryWithBackoff(
-            () => api.listConversationsPage(),
+            () => queryClient.fetchQuery({ ...conversationsPageQueryOptions(), staleTime: 0 }),
             { shouldRetry: isTransientApiBootError }
           )
-        : await api.listConversationsPage();
+        : await queryClient.fetchQuery({ ...conversationsPageQueryOptions(), staleTime: 0 });
       setConversationList(page.conversations);
       setConversationListCursor(page.nextCursor);
       if (preferConversationId) {
@@ -634,7 +608,7 @@ export function App() {
     setPersonaAudioPlaying(false);
     setAutoPlayAudioTurnIndex(undefined);
     try {
-      const page = await api.getConversationTurnsPage(nextConversationId);
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(nextConversationId));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       const nextTurns = renderTurnsFromConversationTurns(page.turns);
       setConversationId(page.conversation.id);
@@ -661,7 +635,7 @@ export function App() {
     const selectionGeneration = selectionGenerationRef.current;
     setLoadingEarlierTurns(true);
     try {
-      const page = await api.getConversationTurnsPage(conversationId, turnsCursor);
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(conversationId, turnsCursor));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setRenderedTurns((current) => [...renderTurnsFromConversationTurns(page.turns), ...current]);
       setTurnsCursor(page.nextCursor);
@@ -676,7 +650,7 @@ export function App() {
     if (!conversationListCursor || conversationListLoading) return;
     setConversationListLoading(true);
     try {
-      const page = await api.listConversationsPage(conversationListCursor);
+      const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationListCursor));
       setConversationList((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationListCursor(page.nextCursor);
     } catch (loadError) {

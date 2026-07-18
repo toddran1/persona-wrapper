@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { basename, extname } from "node:path";
 import OpenAI, { toFile } from "openai";
+import { fileTypeFromBuffer } from "file-type";
 import type { UploadedAsset } from "@persona/shared";
 import { and, eq, lte } from "drizzle-orm";
 import { env } from "../config/env.js";
@@ -44,7 +45,7 @@ export class UploadService {
     if (!IMAGE_MIME_TYPES.has(file.mimetype) && !FILE_MIME_TYPES.has(file.mimetype)) {
       throw new HttpError(`Unsupported upload type: ${file.mimetype}`, 415);
     }
-    validateFileContents(file);
+    await validateFileContents(file);
 
     const id = `asset_${randomUUID()}`;
     const safeExtension = extname(basename(file.originalname)).slice(0, 12);
@@ -352,20 +353,21 @@ function uploadExpiresAt(): Date {
   return new Date(Date.now() + env.UPLOAD_TTL_HOURS * 60 * 60 * 1000);
 }
 
-function validateFileContents(file: Express.Multer.File): void {
+export async function validateFileContents(file: Express.Multer.File): Promise<void> {
   const buffer = file.buffer;
-  const startsWith = (...bytes: number[]) => bytes.every((byte, index) => buffer[index] === byte);
-  const valid =
-    file.mimetype === "image/png" ? startsWith(0x89, 0x50, 0x4e, 0x47) :
-    file.mimetype === "image/jpeg" ? startsWith(0xff, 0xd8, 0xff) :
-    file.mimetype === "image/gif" ? buffer.subarray(0, 6).toString("ascii").startsWith("GIF8") :
-    file.mimetype === "image/webp" ? buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP" :
-    file.mimetype === "application/pdf" ? buffer.subarray(0, 5).toString("ascii") === "%PDF-" :
-    file.mimetype.startsWith("application/vnd.openxmlformats") ? startsWith(0x50, 0x4b) :
-    file.mimetype === "application/json" ? isJson(buffer) :
-    file.mimetype.startsWith("text/") ? !buffer.includes(0) :
-    true;
-  if (!valid) throw new HttpError(`File contents do not match declared type: ${file.mimetype}`, 415);
+  if (file.mimetype === "application/json") {
+    if (!isJson(buffer)) throw new HttpError(`File contents do not match declared type: ${file.mimetype}`, 415);
+    return;
+  }
+  if (file.mimetype.startsWith("text/")) {
+    if (buffer.includes(0)) throw new HttpError(`File contents do not match declared type: ${file.mimetype}`, 415);
+    return;
+  }
+
+  const detected = await fileTypeFromBuffer(buffer);
+  if (detected?.mime !== file.mimetype) {
+    throw new HttpError(`File contents do not match declared type: ${file.mimetype}`, 415);
+  }
 }
 
 function isJson(buffer: Buffer): boolean {

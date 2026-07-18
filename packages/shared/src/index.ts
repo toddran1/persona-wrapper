@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { initContract } from "@ts-rest/core";
 
 export const providerSchema = z.enum(["openai", "openai_persona", "claude", "local"]);
 export type ProviderId = z.infer<typeof providerSchema>;
@@ -699,3 +700,93 @@ export const dataImportResultSchema = z.object({
   conversations: z.array(conversationSummarySchema)
 });
 export type DataImportResult = z.infer<typeof dataImportResultSchema>;
+
+const contract = initContract();
+const apiErrorSchema = z.object({
+  error: z.string(),
+  code: z.string().optional(),
+  requestId: z.string().optional()
+});
+const pageQuerySchema = z.object({
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  query: z.string().max(120).optional()
+});
+
+/** Shared runtime contract for the endpoints used by both first-party clients. */
+export const apiContract = contract.router({
+  personas: contract.router({
+    list: {
+      method: "GET",
+      path: "/api/personas",
+      responses: { 200: z.object({ personas: z.array(personaSummarySchema) }) }
+    },
+    get: {
+      method: "GET",
+      path: "/api/personas/:id",
+      pathParams: z.object({ id: z.string().min(1) }),
+      responses: {
+        200: z.object({ persona: personaDefinitionSchema }),
+        404: apiErrorSchema
+      }
+    }
+  }),
+  chat: contract.router({
+    create: {
+      method: "POST",
+      path: "/api/chat",
+      body: chatRequestSchema,
+      responses: { 200: chatResponseSchema, 202: chatResponseSchema, 400: apiErrorSchema }
+    },
+    getJob: {
+      method: "GET",
+      path: "/api/chat/jobs/:jobId",
+      pathParams: z.object({ jobId: z.string().min(1) }),
+      responses: { 200: chatJobResponseSchema, 404: apiErrorSchema }
+    },
+    cancelJob: {
+      method: "POST",
+      path: "/api/chat/jobs/:jobId/cancel",
+      pathParams: z.object({ jobId: z.string().min(1) }),
+      body: contract.noBody(),
+      responses: { 200: chatJobResponseSchema, 404: apiErrorSchema }
+    }
+  }),
+  conversations: contract.router({
+    list: {
+      method: "GET",
+      path: "/api/chat/conversations",
+      query: pageQuerySchema,
+      responses: { 200: conversationListPageSchema, 400: apiErrorSchema }
+    },
+    turns: {
+      method: "GET",
+      path: "/api/chat/conversations/:conversationId/turns",
+      pathParams: z.object({ conversationId: z.string().min(1) }),
+      query: pageQuerySchema.omit({ query: true }),
+      responses: { 200: conversationTurnsPageSchema, 404: apiErrorSchema }
+    },
+    get: {
+      method: "GET",
+      path: "/api/chat/conversations/:conversationId",
+      pathParams: z.object({ conversationId: z.string().min(1) }),
+      responses: { 200: z.object({ conversation: conversationDetailSchema }), 404: apiErrorSchema }
+    },
+    update: {
+      method: "PATCH",
+      path: "/api/chat/conversations/:conversationId",
+      pathParams: z.object({ conversationId: z.string().min(1) }),
+      body: z.object({ title: z.string().trim().min(1).max(120).optional(), pinned: z.boolean().optional() }),
+      responses: { 200: z.object({ conversation: conversationSummarySchema }), 404: apiErrorSchema }
+    },
+    remove: {
+      method: "DELETE",
+      path: "/api/chat/conversations/:conversationId",
+      pathParams: z.object({ conversationId: z.string().min(1) }),
+      body: contract.noBody(),
+      responses: { 204: contract.noBody(), 404: apiErrorSchema }
+    }
+  })
+});
+
+export type ApiContract = typeof apiContract;

@@ -21,17 +21,18 @@
     "test:e2e:mobile": "maestro test e2e/mobile",
     "build": "npm run build -w @persona/shared && npm run build -w @persona/api && npm run build -w @persona/web && npm run build -w @persona/mobile",
     "typecheck": "npm run build -w @persona/shared && npm run typecheck -w @persona/api && npm run typecheck -w @persona/web && npm run typecheck -w @persona/mobile",
-    "lint": "npm run lint -w @persona/shared && npm run lint -w @persona/api && npm run lint -w @persona/web && npm run lint -w @persona/mobile",
-    "test": "npm run build -w @persona/shared && npm run test -w @persona/api && npm run test -w @persona/web"
+    "lint": "biome lint .",
+    "test": "npm run build -w @persona/shared && npm run test -w @persona/api && npm run test -w @persona/web",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "engines": {
-    "node": "^20.19.4 || ^22.13.0 || ^24.3.0 || >=25.0.0"
+    "node": "^22.13.0 || >=24.3.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.4",
     "@playwright/test": "^1.57.0",
     "@types/react": "19.2.4",
-    "concurrently": "^9.1.2",
-    "drizzle-orm": "^0.45.2"
+    "concurrently": "^9.1.2"
   },
   "overrides": {
     "react": "19.2.3",
@@ -42,11 +43,9 @@
     "expo-constants": "57.0.5"
   },
   "dependencies": {
-    "@types/jszip": "^3.4.0",
-    "jszip": "^3.10.1",
-    "react": "19.2.3",
     "expo": "~57.0.6",
+    "react": "19.2.3",
     "react-native": "0.86.0"
   },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  "packageManager": "npm@11.16.0"
 }

@@ -6,10 +6,12 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import multer from "multer";
 import { ZodError } from "zod";
+import { apiContract } from "@persona/shared";
+import { createExpressEndpoints } from "@ts-rest/express";
 import { authenticateRequest } from "./middleware/authMiddleware.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { chatRouter } from "./routes/chat.routes.js";
-import { personaRouter } from "./routes/persona.routes.js";
+import { personaContractRouter } from "./routes/contract.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
 import { dataTransferRouter } from "./routes/dataTransfer.routes.js";
 import { observabilityRouter } from "./routes/observability.routes.js";
@@ -237,7 +239,7 @@ export function createApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/observability", observabilityRouter);
   app.use("/api/chat", chatRouter);
-  app.use("/api/personas", personaRouter);
+  createExpressEndpoints(apiContract.personas, personaContractRouter, app);
   app.use("/api/uploads", uploadRouter);
   app.get("/api/generated-audio/:token", (request, response, next) => {
     getGeneratedAudio(request, response).catch(next);

@@ -1,3 +1,4 @@
+import { apiContract } from "@persona/shared";
 import type {
   AuthResponse,
   AccountDeletionResponse,
@@ -24,6 +25,7 @@ import type {
   ToolOptions,
   UploadedAsset
 } from "@persona/shared";
+import { initClient } from "@ts-rest/core";
 import { logClientEvent, newClientTraceId } from "./telemetry.js";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
@@ -272,6 +274,26 @@ function requestHeaders(includeJson: boolean, headers?: HeadersInit): HeadersIni
   return { ...next, ...(headers ?? {}) };
 }
 
+const contractClient = initClient(apiContract, {
+  baseUrl: API_BASE_URL,
+  baseHeaders: {},
+  api: async ({ path, method, headers, body, fetchOptions }) => {
+    const response = await fetchWithTimeout(path, {
+      ...fetchOptions,
+      method,
+      headers: requestHeaders(false, headers),
+      ...(body !== undefined ? { body } : {})
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    const responseBody = response.status === 204
+      ? undefined
+      : contentType.includes("application/json")
+        ? await response.json()
+        : await response.text();
+    return { status: response.status, body: responseBody, headers: response.headers };
+  }
+});
+
 async function performStoredAuthRefresh(): Promise<boolean> {
   const refreshToken = authTokens()?.refreshToken;
   if (!refreshToken) return false;
@@ -482,12 +504,16 @@ export const api = {
   },
   oauthStartUrl,
   getPersonas: async (): Promise<PersonaSummary[]> => {
-    const payload = await requestJson<{ personas: PersonaSummary[] }>("/api/personas");
-    return payload.personas;
+    const response = await contractClient.personas.list();
+    if (response.status !== 200) throw new Error("Could not load personas.");
+    return response.body.personas;
   },
   getPersona: async (id: string): Promise<PersonaDefinition> => {
-    const payload = await requestJson<{ persona: PersonaDefinition }>(`/api/personas/${id}`);
-    return payload.persona;
+    const response = await contractClient.personas.get({ params: { id } });
+    if (response.status !== 200) {
+      throw new Error(response.status === 404 ? response.body.error : "Could not load persona.");
+    }
+    return response.body.persona;
   },
   sendChat: async (payload: ChatPayload, signal?: AbortSignal): Promise<ChatResponse> =>
     requestJson<ChatResponse>("/api/chat", {

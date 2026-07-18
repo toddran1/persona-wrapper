@@ -46,6 +46,21 @@ const patchConversationSchema = z.object({
   message: "At least one conversation field must be provided."
 });
 
+backgroundChatJobService.setExecutor(async (payload, backgroundJob) => {
+  if (!backgroundJob.ownerId) throw new Error("Background chat job is missing its owner.");
+  const result = await chatService.handleChat(payload, undefined, backgroundJob.abortController.signal, {
+    onProviderResponse: (event) => {
+      void backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
+    }
+  }, { ownerId: backgroundJob.ownerId });
+  await usageControlService.recordUsage(
+    backgroundJob.ownerId,
+    result.usage?.totalTokens,
+    result.usage?.estimatedCostUsd
+  );
+  return result;
+});
+
 export async function postChat(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
   await usageControlService.check(identity);
@@ -76,14 +91,6 @@ export async function postChat(request: Request, response: Response): Promise<vo
       provider: backgroundPayload.provider,
       conversationId,
       request: backgroundPayload
-    }, async (backgroundJob) => {
-      const result = await chatService.handleChat(backgroundPayload, undefined, backgroundJob.abortController.signal, {
-        onProviderResponse: (event) => {
-          void backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
-        }
-      }, { ownerId: identity });
-      await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd);
-      return result;
     });
     response.status(202).json(createPendingChatResponse(backgroundPayload, job.id));
     return;

@@ -2,6 +2,8 @@ import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { closeDatabase } from "./db/client.js";
 import { backgroundCleanupService } from "./services/backgroundCleanupService.js";
+import { backgroundChatJobService } from "./services/backgroundChatJobService.js";
+import { jobQueueService } from "./services/jobQueueService.js";
 import { logger } from "./utils/logger.js";
 import { initializeTelemetry, shutdownTelemetry } from "./utils/telemetry.js";
 
@@ -9,8 +11,9 @@ initializeTelemetry({ endpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT, serviceName: en
 const app = createApp();
 let shuttingDown = false;
 
+await backgroundChatJobService.startWorker();
+await backgroundCleanupService.start();
 const server = app.listen(env.PORT, () => {
-  backgroundCleanupService.start();
   logger.info("API server started", {
     port: env.PORT,
     nodeEnv: env.NODE_ENV
@@ -36,6 +39,7 @@ const shutdown = (reason: string, exitCode = 0): void => {
   server.close(async () => {
     let shutdownFailed = false;
     try {
+      await jobQueueService.stop();
       await closeDatabase();
     } catch (error) {
       shutdownFailed = true;

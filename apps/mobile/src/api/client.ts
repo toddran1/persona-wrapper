@@ -1,5 +1,7 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
+import { apiContract } from "@persona/shared";
+import { initClient } from "@ts-rest/core";
 import type {
   ActiveSession,
   ActiveSessionsResponse,
@@ -144,6 +146,35 @@ async function requestHeaders(includeJson: boolean, headers?: HeadersInit): Prom
   }
   return { ...next, ...(headers as Record<string, string> | undefined ?? {}) };
 }
+
+const contractClient = initClient(apiContract, {
+  baseUrl: API_BASE_URL,
+  baseHeaders: {},
+  api: async ({ path, method, headers, body, fetchOptions }) => {
+    const timeout = createRequestTimeout(fetchOptions?.signal, DEFAULT_REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(path, {
+        ...fetchOptions,
+        method,
+        headers: await requestHeaders(false, headers),
+        signal: timeout.signal,
+        ...(body !== undefined ? { body } : {})
+      });
+      const contentType = response.headers.get("content-type") ?? "";
+      const responseBody = response.status === 204
+        ? undefined
+        : contentType.includes("application/json")
+          ? await response.json()
+          : await response.text();
+      return { status: response.status, body: responseBody, headers: response.headers };
+    } catch (error) {
+      if (timeout.didTimeout()) throw new Error("The app server took too long to respond. Please try again.");
+      throw error;
+    } finally {
+      timeout.dispose();
+    }
+  }
+});
 
 async function performStoredAuthRefresh(): Promise<boolean> {
   const refreshToken = (await getAuthTokens())?.refreshToken;
@@ -386,12 +417,16 @@ export const api = {
     return payload.providers;
   },
   getPersonas: async (): Promise<PersonaSummary[]> => {
-    const payload = await requestJson<{ personas: PersonaSummary[] }>("/api/personas");
-    return payload.personas;
+    const response = await contractClient.personas.list();
+    if (response.status !== 200) throw new Error("Could not load personas.");
+    return response.body.personas;
   },
   getPersona: async (id: string): Promise<PersonaDefinition> => {
-    const payload = await requestJson<{ persona: PersonaDefinition }>(`/api/personas/${id}`);
-    return payload.persona;
+    const response = await contractClient.personas.get({ params: { id } });
+    if (response.status !== 200) {
+      throw new Error(response.status === 404 ? response.body.error : "Could not load persona.");
+    }
+    return response.body.persona;
   },
   sendChat: (payload: MobileChatPayload, signal?: AbortSignal): Promise<ChatResponse> =>
     requestJson<ChatResponse>("/api/chat", {

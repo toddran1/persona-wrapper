@@ -12,7 +12,7 @@ import { getDatabase } from "../db/client.js";
 import { generatedAudio, generatedMedia, openAIArtifacts, uploads, users } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
-import { ConversationStore } from "./conversationStore.js";
+import type { ConversationStore } from "./conversationStore.js";
 
 const MAX_IMPORT_CONVERSATIONS = 100;
 const EXPORT_READ_CONCURRENCY = 10;

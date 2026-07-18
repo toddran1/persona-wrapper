@@ -28,6 +28,7 @@ import * as WebBrowser from "expo-web-browser";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
 import type { ActiveSession, AuthResponse, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -41,6 +42,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
+import { queryClient } from "../../api/queryClient";
+import { conversationsPageQueryOptions, conversationTurnsQueryOptions, personaQueryOptions, personasQueryOptions } from "../../api/chatQueries";
 import { IconButton } from "../../components/IconButton";
 import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
 import { useLocalization } from "../../localization/LocalizationProvider";
@@ -282,7 +285,7 @@ export function MobileChatScreen() {
   const [authBusy, setAuthBusy] = useState(false);
   const [drawerInteractive, setDrawerInteractive] = useState(false);
   const drawerX = useSharedValue(-drawerWidth);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlashListRef<RenderedTurn>>(null);
   const visualStateTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scrollButtonTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const conversationSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -550,7 +553,7 @@ export function MobileChatScreen() {
     });
 
   async function refreshConversations(): Promise<ConversationSummary[]> {
-    const page = await api.listConversationsPage();
+    const page = await queryClient.fetchQuery({ ...conversationsPageQueryOptions(), staleTime: 0 });
     const sorted = [...page.conversations].sort(sortConversationSummaries);
     setConversations(sorted);
     setConversationsCursor(page.nextCursor);
@@ -561,7 +564,7 @@ export function MobileChatScreen() {
     if (!conversationsCursor || conversationsRefreshing) return;
     setConversationsRefreshing(true);
     try {
-      const page = await api.listConversationsPage(conversationsCursor);
+      const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationsCursor));
       setConversations((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationsCursor(page.nextCursor);
     } catch (loadError) {
@@ -589,7 +592,7 @@ export function MobileChatScreen() {
       conversationSearchTimerRef.current = undefined;
       void (async () => {
         try {
-          const page = await api.listConversationsPage(undefined, 50, normalizedQuery);
+          const page = await queryClient.fetchQuery(conversationsPageQueryOptions(undefined, normalizedQuery));
           if (generation !== conversationSearchGenerationRef.current) return;
           setConversationSearchResults(page.conversations);
           setConversationSearchCursor(page.nextCursor);
@@ -611,7 +614,7 @@ export function MobileChatScreen() {
     const generation = conversationSearchGenerationRef.current;
     setConversationSearching(true);
     try {
-      const page = await api.listConversationsPage(conversationSearchCursor, 50, normalizedQuery);
+      const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationSearchCursor, normalizedQuery));
       if (generation !== conversationSearchGenerationRef.current) return;
       setConversationSearchResults((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationSearchCursor(page.nextCursor);
@@ -633,7 +636,7 @@ export function MobileChatScreen() {
     const generation = ++conversationSearchGenerationRef.current;
     setConversationSearching(true);
     try {
-      const page = await api.listConversationsPage(undefined, 50, normalizedQuery);
+      const page = await queryClient.fetchQuery({ ...conversationsPageQueryOptions(undefined, normalizedQuery), staleTime: 0 });
       if (generation !== conversationSearchGenerationRef.current) return;
       setConversationSearchResults(page.conversations);
       setConversationSearchCursor(page.nextCursor);
@@ -673,11 +676,11 @@ export function MobileChatScreen() {
         setAuthUser(user);
         setOAuthProviders(providers);
 
-        const personaList = await api.getPersonas();
+        const personaList = await queryClient.fetchQuery(personasQueryOptions());
         setPersonas(personaList);
         const selected = persona ?? personaList[0];
         if (selected) {
-          const detail = await api.getPersona(selected.id);
+          const detail = await queryClient.fetchQuery(personaQueryOptions(selected.id));
           setPersona(detail);
           setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
         }
@@ -1331,13 +1334,13 @@ export function MobileChatScreen() {
         if (!mounted) return;
         setOAuthProviders(providers);
 
-        const personaList = await api.getPersonas();
+        const personaList = await queryClient.fetchQuery(personasQueryOptions());
         if (!mounted) return;
         setPersonas(personaList);
         const selected = personaList[0];
         if (selected) {
           setProvider(selected.supportedProviders.includes("openai_persona") ? "openai_persona" : selected.supportedProviders[0] ?? "openai");
-          const detail = await api.getPersona(selected.id);
+          const detail = await queryClient.fetchQuery(personaQueryOptions(selected.id));
           if (mounted) setPersona(detail);
         }
         if (user && mounted) {
@@ -1404,7 +1407,7 @@ export function MobileChatScreen() {
     const selectionGeneration = ++selectionGenerationRef.current;
     try {
       setLoading(true);
-      const detail = await api.getPersona(personaId);
+      const detail = await queryClient.fetchQuery(personaQueryOptions(personaId));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setPersona(detail);
       setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
@@ -1426,7 +1429,7 @@ export function MobileChatScreen() {
     try {
       setLoading(true);
       setError(undefined);
-      const page = await api.getConversationTurnsPage(nextConversationId);
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(nextConversationId));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setConversationId(page.conversation.id);
       await setSelectedConversationId(page.conversation.id);
@@ -1446,7 +1449,7 @@ export function MobileChatScreen() {
     const selectionGeneration = selectionGenerationRef.current;
     setLoadingEarlierTurns(true);
     try {
-      const page = await api.getConversationTurnsPage(conversationId, turnsCursor);
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(conversationId, turnsCursor));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setTurns((current) => [...turnsFromConversationTurns(page.turns), ...current]);
       setTurnsCursor(page.nextCursor);
@@ -1931,7 +1934,6 @@ export function MobileChatScreen() {
   const hasConversationSearch = conversationSearchQuery.trim().length > 0;
   const drawerConversations = hasConversationSearch ? conversationSearchResults : conversations;
   const drawerHasMoreConversations = hasConversationSearch ? Boolean(conversationSearchCursor) : Boolean(conversationsCursor);
-  const visualStateLabel = personaVisualState[0]?.toUpperCase() + personaVisualState.slice(1);
   const assistantActionAudio = assistantActionTurn?.outputs.find(
     (output): output is Extract<RenderedTurn["outputs"][number], { type: "audio" }> => output.type === "audio"
   );
@@ -2056,21 +2058,28 @@ export function MobileChatScreen() {
             </View>
           ) : null}
 
-          <ScrollView
+          <FlashList
             ref={scrollRef}
+            data={turns}
+            keyExtractor={(turn) => turn.id}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={[styles.history, compactLayout ? styles.historyCompact : null]}
-            style={[styles.conversationScroll, personaCardExpanded ? styles.layerAbovePersonaBackground : null]}
+            style={StyleSheet.flatten([styles.conversationScroll, personaCardExpanded ? styles.layerAbovePersonaBackground : undefined])}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={80}
             onScroll={handleConversationScroll}
-          >
-            {loading && turns.length === 0 ? (
+            maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 0.15 }}
+            ListHeaderComponent={turnsCursor ? (
+              <Pressable accessibilityRole="button" accessibilityLabel={t("chat.loadEarlier")} disabled={!isOnline || loadingEarlierTurns} onPress={() => void loadEarlierTurns()} style={[styles.loadEarlierButton, { borderColor: theme.border, opacity: isOnline ? 1 : 0.45 }]}>
+                {loadingEarlierTurns ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.loadEarlierText, { color: theme.text }]}>{t("chat.loadEarlier")}</Text>}
+              </Pressable>
+            ) : null}
+            ListEmptyComponent={loading ? (
               <View accessibilityLiveRegion="polite" accessibilityLabel={t("chat.loadingPersonas")} style={styles.loadingState}>
                 <ActivityIndicator color={theme.accent2} />
                 <Text style={[styles.loadingText, { color: theme.muted }]}>{t("chat.loadingPersonas")}</Text>
               </View>
-            ) : turns.length === 0 ? (
+            ) : (
               <View style={[styles.emptyState, compactLayout ? styles.emptyStateCompact : null]}>
                 <View
                   style={[
@@ -2112,14 +2121,8 @@ export function MobileChatScreen() {
                   ))}
                 </View>
               </View>
-            ) : (
-              <>
-              {turnsCursor ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={t("chat.loadEarlier")} disabled={!isOnline || loadingEarlierTurns} onPress={() => void loadEarlierTurns()} style={[styles.loadEarlierButton, { borderColor: theme.border, opacity: isOnline ? 1 : 0.45 }]}>
-                  {loadingEarlierTurns ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.loadEarlierText, { color: theme.text }]}>{t("chat.loadEarlier")}</Text>}
-                </Pressable>
-              ) : null}
-              {turns.map((turn) => (
+            )}
+            renderItem={({ item: turn }) => (
                 <View key={turn.id} style={styles.turn}>
                   <View
                     style={[
@@ -2188,10 +2191,8 @@ export function MobileChatScreen() {
                     </View>
                   </View>
                 </View>
-              ))}
-              </>
             )}
-          </ScrollView>
+          />
 
           {showScrollToBottom && turns.length > 0 ? (
             <Pressable

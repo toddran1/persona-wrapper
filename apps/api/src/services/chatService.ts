@@ -45,10 +45,6 @@ function insertToolContext(input: ChatMessage[], toolContext: ToolContext | unde
   return messages;
 }
 
-function isOpenAIProvider(provider: ChatRequest["provider"]): boolean {
-  return provider === "openai" || provider === "openai_persona";
-}
-
 function shouldUseStyleTransfer(provider: ChatRequest["provider"]): boolean {
   return provider !== "openai_persona";
 }
@@ -224,19 +220,8 @@ export class ChatService {
       conversationId: conversation.id,
       history: this.conversationStore.getPromptContext(conversation)
     });
-    const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext, isOpenAIProvider(request.provider));
+    const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext);
     if (toolContext) {
-      if (isOpenAIProvider(request.provider) && toolContext.results.some((result) => result.name === "web_search")) {
-        llmInput.toolOptions = {
-          webSearch: true,
-          fileSearch: llmInput.toolOptions?.fileSearch ?? false,
-          codeInterpreter: llmInput.toolOptions?.codeInterpreter ?? false,
-          imageGeneration: llmInput.toolOptions?.imageGeneration ?? false,
-          appFunctions: llmInput.toolOptions?.appFunctions ?? true,
-          background: llmInput.toolOptions?.background ?? false,
-          vectorStoreIds: llmInput.toolOptions?.vectorStoreIds ?? []
-        };
-      }
       llmInput.messages = insertToolContext(llmInput.messages, toolContext);
       llmInput.baseMessages = insertToolContext(llmInput.baseMessages ?? llmInput.messages, toolContext);
       if (testMode) {
