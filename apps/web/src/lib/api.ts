@@ -259,6 +259,16 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
   };
 }
 
+async function requirePersistedAuthUser(): Promise<AuthUser> {
+  const session = await authClient.getSession();
+  if (session.error || !session.data?.user) {
+    throw new Error(
+      "Sign-in succeeded, but your browser did not retain the session. Please enable cross-site cookies or try again."
+    );
+  }
+  return toAuthUser(session.data.user as unknown as Record<string, unknown>);
+}
+
 function toAuthSession(session: Record<string, unknown>): AuthSession {
   const value = session.clientType;
   const clientType = value === "web" || value === "desktop" || value === "ios" || value === "android" ? value : "unknown";
@@ -405,7 +415,7 @@ export const api = {
       ...(payload.username ? { username: payload.username, displayUsername: payload.username } : {})
     });
     if (result.error || !result.data?.user) throw authError(result.error);
-    return { user: toAuthUser(result.data.user as unknown as Record<string, unknown>) };
+    return { user: await requirePersistedAuthUser() };
   },
   login: async (payload: LoginRequest): Promise<{ user: AuthUser }> => {
     const identifier = payload.identifier.trim().toLowerCase();
@@ -413,7 +423,7 @@ export const api = {
       ? await authClient.signIn.email({ email: identifier, password: payload.password })
       : await authClient.signIn.username({ username: identifier, password: payload.password });
     if (result.error || !result.data?.user) throw authError(result.error);
-    return { user: toAuthUser(result.data.user as unknown as Record<string, unknown>) };
+    return { user: await requirePersistedAuthUser() };
   },
   restoreAccount: async (payload: RestoreAccountRequest): Promise<{ user: AuthUser }> => {
     await requestJson<{ restored: true }>("/api/account/restore", {

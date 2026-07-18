@@ -16,11 +16,10 @@ export function requestAuthenticatedOwnerId(request: Request): string {
 
 export function optionalRequestOwnerId(request: Request): string | undefined {
   if (request.auth?.userId) return request.auth.userId;
+  if (env.AUTH_REQUIRED) throw new HttpError("Authentication required.", 401);
+
   const value = request.header("x-owner-id");
-  if (!value) {
-    if (env.AUTH_REQUIRED) throw new HttpError("Authentication required.", 401);
-    return undefined;
-  }
+  if (!value) return undefined;
   if (value.length > 200) throw new HttpError("A valid x-owner-id header is required.", 400);
   return value;
 }

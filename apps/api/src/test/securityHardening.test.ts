@@ -2,7 +2,9 @@ import type { NextFunction, Request, Response } from "express";
 import { describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
 import { authRateLimit } from "../middleware/authRateLimit.js";
+import { authCookieAttributes } from "../utils/authCookieConfig.js";
 import { contentDisposition } from "../utils/httpHeaders.js";
+import { optionalRequestOwnerId } from "../utils/requestIdentity.js";
 
 describe("security hardening", () => {
   it("removes path and control characters from download filenames", () => {
@@ -37,5 +39,26 @@ describe("security hardening", () => {
     }
 
     expect(next).toHaveBeenCalledTimes(env.AUTH_RATE_LIMIT_REQUESTS);
+  });
+
+  it("uses cross-site compatible cookies in production", () => {
+    expect(authCookieAttributes("production")).toEqual({ sameSite: "none", secure: true });
+    expect(authCookieAttributes("development")).toEqual({ sameSite: "lax", secure: false });
+  });
+
+  it("does not accept the legacy owner header when authentication is required", () => {
+    const originalAuthRequired = env.AUTH_REQUIRED;
+    env.AUTH_REQUIRED = true;
+    const request = {
+      auth: undefined,
+      header: vi.fn().mockReturnValue("known-user-id")
+    } as unknown as Request;
+
+    try {
+      expect(() => optionalRequestOwnerId(request)).toThrow("Authentication required.");
+      expect(request.header).not.toHaveBeenCalled();
+    } finally {
+      env.AUTH_REQUIRED = originalAuthRequired;
+    }
   });
 });

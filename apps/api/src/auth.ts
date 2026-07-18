@@ -8,6 +8,7 @@ import { env } from "./config/env.js";
 import { getDatabase } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { hashPassword, verifyPassword } from "./services/passwordService.js";
+import { authCookieAttributes } from "./utils/authCookieConfig.js";
 
 const database = getDatabase();
 const apiOrigin = env.BETTER_AUTH_URL ?? `http://localhost:${env.PORT}`;
@@ -118,6 +119,7 @@ export const auth = database ? betterAuth({
   trustedOrigins: [env.WEB_APP_URL, "personawrapper://", "exp://**", "http://localhost:**"],
   advanced: {
     cookiePrefix: "for-the-baddiez",
+    defaultCookieAttributes: authCookieAttributes(env.NODE_ENV),
     database: {
       generateId: ({ model }) => `${model === "user" || model === "users" ? "user" : "auth"}_${randomUUID()}`
     }
