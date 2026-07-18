@@ -458,7 +458,10 @@ export const api = {
     return payload.providers;
   },
   oauthLogin: async (provider: OAuthProvider): Promise<void> => {
-    const result = await authClient.signIn.social({ provider, callbackURL: "/" });
+    const result = await authClient.signIn.social({
+      provider,
+      callbackURL: new URL("/", window.location.origin).toString()
+    });
     if (result.error) throw authError(result.error);
   },
   getPersonas: async (): Promise<PersonaSummary[]> => {

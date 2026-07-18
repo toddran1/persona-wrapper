@@ -221,6 +221,13 @@ export function createApp() {
   app.use(express.json({ limit: env.API_JSON_MAX_BYTES }));
   app.use(authenticateRequest);
 
+  // OAuth state created by older clients may still contain `/` as its final
+  // callback. Send those completed flows back to the web app instead of
+  // exposing the API's JSON 404 page.
+  app.get("/", (_request, response) => {
+    response.redirect(302, env.WEB_APP_URL);
+  });
+
   app.get("/health", (_request, response) => {
     response.status(200).json({ status: "ok" });
   });
