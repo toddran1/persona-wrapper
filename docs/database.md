@@ -73,35 +73,33 @@ Active OpenAI background polling and cancel controllers are still runtime proces
 
 ## Auth
 
-The local app can still use the `x-owner-id` header for quick persistence when auth is not required. Once users log in, request identity should come from the bearer token middleware instead. Authenticated requests set `request.auth.userId`, and persistence helpers prefer that authenticated user ID over `x-owner-id`. Media, audio, artifact, and upload download routes require authenticated bearer identity in production; `x-owner-id` remains a dev/test fallback only.
+The local app can still use the `x-owner-id` header for quick persistence when auth is not required. Once users log in, request identity comes from the Better Auth session cookie. Authenticated requests set `request.auth.userId`, and persistence helpers prefer that authenticated user ID over `x-owner-id`. Media, audio, artifact, and upload download routes require an authenticated session in production; `x-owner-id` remains a dev/test fallback only.
 
 Recommended local auth defaults:
 
 ```env
 AUTH_REQUIRED=false
-AUTH_ACCESS_TOKEN_TTL_MINUTES=15
 AUTH_REFRESH_TOKEN_TTL_DAYS=30
 AUTH_PASSWORD_MIN_LENGTH=8
 AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false
 WEB_APP_URL=http://localhost:5173
-IOS_OAUTH_REDIRECT_URL=personawrapper://auth/callback
-ANDROID_OAUTH_REDIRECT_URL=personawrapper://auth/callback
-OAUTH_REDIRECT_BASE_URL=http://localhost:4000
+BETTER_AUTH_URL=http://localhost:4000
+BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
 GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
 FACEBOOK_OAUTH_CLIENT_ID=
 FACEBOOK_OAUTH_CLIENT_SECRET=
 ```
 
-Password auth stores only password hashes. Access and refresh tokens are opaque random tokens; only token hashes are stored in Postgres. Sessions include a client type so web, desktop, iOS, and Android clients can be tracked independently.
+Better Auth owns password identities, social accounts, verification records, and database sessions. Existing scrypt password hashes are migrated without forcing password resets. Web uses secure HTTP-only cookies; the Expo client stores its cookie in SecureStore and attaches it to API requests.
 
-OAuth provider tables and state storage are included in the schema for Google/Facebook sign-in. Provider callbacks return to the API at `/api/auth/oauth/:provider/callback`; after a successful web callback the API redirects the browser to `${WEB_APP_URL}/auth/callback` with the short-lived access/refresh tokens in the URL fragment so the web client can consume them without sending them back to the server in a query string. Mobile clients start OAuth with `clientType=ios` or `clientType=android`; the API returns a short-lived one-time code to the configured mobile callback and the app exchanges it at `POST /api/auth/oauth/mobile-exchange` for access/refresh tokens stored in Keychain/Keystore. For hosted Android builds, configure `ANDROID_OAUTH_REDIRECT_URL` as the verified HTTPS App Link (`${WEB_APP_URL}/auth/mobile-callback`), not as a custom scheme.
+Google and Facebook callbacks are handled by Better Auth at `/api/auth/callback/google` and `/api/auth/callback/facebook`. Register those exact URLs in each provider dashboard. Mobile social sign-in uses the Better Auth Expo authorization proxy and the `personawrapper://` app scheme; no app-maintained polling or one-time exchange-code endpoint is required.
 
 For production:
 
 - Set `AUTH_REQUIRED=true` so unauthenticated requests cannot create or read owned data.
 - Keep media, upload, generated audio, and generated file downloads behind authenticated API requests.
-- Use TLS only and store client tokens in platform-appropriate secure storage.
+- Use TLS only; keep browser sessions in HTTP-only cookies and native session cookies in SecureStore.
 - Use signed URLs, authenticated download routes, or short-lived cookies for generated media/audio instead of long-lived bearer-style browser URLs.
 
 ## Production

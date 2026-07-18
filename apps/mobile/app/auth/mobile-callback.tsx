@@ -1,16 +1,15 @@
 import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
-import { markPendingMobileOAuthCallbackReceived } from "../../src/storage/secureTokens";
 
 // Android App Links resolve this HTTPS callback into the installed app. OAuth
-// completion is finalized by the in-flight one-time-code poll in the chat
-// screen, so this route only restores the normal application surface.
+// Better Auth's Expo plugin completes OAuth inside its auth-session browser.
+// This legacy App Link now only returns older links to the main app surface.
 export default function MobileOAuthAppLinkCallbackScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    void markPendingMobileOAuthCallbackReceived().finally(() => router.replace("/"));
+    router.replace("/");
   }, [router]);
 
   return <View style={styles.screen}><ActivityIndicator color="#d6b55e" /></View>;

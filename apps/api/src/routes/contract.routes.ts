@@ -9,7 +9,7 @@ export const personaContractRouter = server.router(apiContract.personas, {
     status: 200,
     body: { personas: listPersonas() }
   }),
-  get: async ({ params }) => {
+  get: async ({ params }: { params: { id: string } }) => {
     const persona = getPersonaById(params.id);
     if (!persona) {
       return { status: 404, body: { error: "Persona not found" } };

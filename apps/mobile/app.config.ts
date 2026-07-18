@@ -1,7 +1,5 @@
 import type { ExpoConfig } from "expo/config";
 
-const androidAppLinkHost = process.env.EXPO_PUBLIC_ANDROID_APP_LINK_HOST ?? "for-the-baddiez-web-dev.onrender.com";
-
 const config: ExpoConfig = {
   name: "For the Baddiez",
   slug: "persona-wrapper",
@@ -21,15 +19,7 @@ const config: ExpoConfig = {
     adaptiveIcon: {
       foregroundImage: "./assets/branding/FTB_Logo_120x120_adaptive.png",
       backgroundColor: "#09060f"
-    },
-    intentFilters: [
-      {
-        action: "VIEW",
-        autoVerify: true,
-        category: ["BROWSABLE", "DEFAULT"],
-        data: [{ scheme: "https", host: androidAppLinkHost, pathPrefix: "/auth/mobile-callback" }]
-      }
-    ]
+    }
   },
   plugins: [
     "expo-router",

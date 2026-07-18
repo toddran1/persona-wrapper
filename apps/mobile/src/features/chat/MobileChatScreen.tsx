@@ -25,12 +25,11 @@ import * as Sharing from "expo-sharing";
 import JSZip from "jszip";
 import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
-import { useLocalSearchParams, useRouter } from "expo-router";
 import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import type { ActiveSession, AuthResponse, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
+import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -49,12 +48,8 @@ import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
 import { useLocalization } from "../../localization/LocalizationProvider";
 import { useNetwork } from "../../network/NetworkProvider";
 import {
-  clearPendingMobileOAuth,
   clearSelectedConversationId,
-  getAuthTokens,
-  getPendingMobileOAuth,
   getSelectedConversationId,
-  setPendingMobileOAuth,
   setSelectedConversationId
 } from "../../storage/secureTokens";
 import { defaultPersonaTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
@@ -75,9 +70,6 @@ import type { MobilePickedFile, RenderedTurn } from "./types";
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
-const MOBILE_OAUTH_COMPLETION_TIMEOUT_MS = 10 * 60 * 1000;
-const MOBILE_OAUTH_CALLBACK_RESUME_TIMEOUT_MS = 20 * 1000;
-const MOBILE_OAUTH_POLL_INTERVAL_MS = 5000;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 // Keep this aligned with `scheme` in app.config.ts. OAuth must not depend on
 // Expo Constants because the native manifest can be unavailable during startup.
@@ -86,59 +78,6 @@ const MOBILE_APP_SCHEME = "personawrapper";
 function mobileAppUrl(path = ""): string {
   const normalizedPath = path.replace(/^\/+/, "");
   return normalizedPath ? `${MOBILE_APP_SCHEME}://${normalizedPath}` : `${MOBILE_APP_SCHEME}://`;
-}
-
-function mobileOAuthReturnUrl(): string {
-  if (Platform.OS !== "android") return mobileAppUrl("auth/callback");
-
-  try {
-    const webUrl = new URL(PUBLIC_WEB_BASE_URL);
-    // App Links cannot be verified for a local Vite host, so preserve the
-    // custom scheme when developing against localhost.
-    if (["localhost", "127.0.0.1"].includes(webUrl.hostname)) return mobileAppUrl("auth/callback");
-    webUrl.pathname = "/auth/mobile-callback";
-    webUrl.search = "";
-    webUrl.hash = "";
-    return webUrl.toString();
-  } catch {
-    return mobileAppUrl("auth/callback");
-  }
-}
-
-function wait(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-async function waitForMobileOAuthExchange(code: string, timeoutMs = MOBILE_OAUTH_COMPLETION_TIMEOUT_MS): Promise<AuthResponse> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const auth = await api.pollMobileOAuthCode({ code });
-    if (auth) return auth;
-    await wait(MOBILE_OAUTH_POLL_INTERVAL_MS);
-  }
-  throw new Error("Sign in completed in the browser, but the app could not finish it. Please try again.");
-}
-
-async function resumePendingMobileOAuth(): Promise<AuthResponse | undefined> {
-  const pending = await getPendingMobileOAuth();
-  if (!pending) return undefined;
-  if (Date.now() - pending.startedAt >= MOBILE_OAUTH_COMPLETION_TIMEOUT_MS) {
-    await clearPendingMobileOAuth();
-    return undefined;
-  }
-
-  try {
-    const auth = pending.callbackReceivedAt
-      ? await waitForMobileOAuthExchange(pending.exchangeCode, MOBILE_OAUTH_CALLBACK_RESUME_TIMEOUT_MS)
-      : await api.pollMobileOAuthCode({ code: pending.exchangeCode });
-    if (auth) await clearPendingMobileOAuth();
-    return auth;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (message.includes("invalid or expired")) await clearPendingMobileOAuth();
-    if (pending.callbackReceivedAt) throw error;
-    return undefined;
-  }
 }
 
 function assistantTextForDisplay(turn: Pick<RenderedTurn, "assistantText" | "outputs">): string {
@@ -164,8 +103,7 @@ function assertSupportedImportSize(size: number | undefined): void {
 async function loadAuthenticatedUser(): Promise<AuthUser | undefined> {
   try {
     return (await api.getCurrentUser()).user;
-  } catch (error) {
-    if (await getAuthTokens()) throw error;
+  } catch {
     return undefined;
   }
 }
@@ -219,12 +157,6 @@ function formatSessionActivity(value: string): string {
 }
 
 export function MobileChatScreen() {
-  const router = useRouter();
-  const { oauthCode, oauthProvider, oauthError } = useLocalSearchParams<{
-    oauthCode?: string | string[];
-    oauthProvider?: string | string[];
-    oauthError?: string | string[];
-  }>();
   const { t } = useLocalization();
   const { isOnline, recentlyRestored } = useNetwork();
   const insets = useSafeAreaInsets();
@@ -299,7 +231,6 @@ export function MobileChatScreen() {
   const audioPlaybackUriRef = useRef<string | undefined>(undefined);
   const audioPlaybackSubscriptionRef = useRef<AudioPlaybackSubscription | undefined>(undefined);
   const audioPlaybackGenerationRef = useRef(0);
-  const exchangedOAuthCodesRef = useRef(new Set<string>());
   const activeChatAbortControllerRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
@@ -1257,56 +1188,6 @@ export function MobileChatScreen() {
     }
   }
 
-  async function handleOAuthCallback(url: string | null): Promise<void> {
-    if (!url) return;
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return;
-    }
-    const isOAuthCallback =
-      (parsed.hostname === "auth" && parsed.pathname === "/callback") ||
-      parsed.pathname.endsWith("/auth/callback") ||
-      parsed.pathname === "/auth/mobile-callback";
-    if (!isOAuthCallback) return;
-    const errorMessage = parsed.searchParams.get("error");
-    if (errorMessage) {
-      setAuthError(errorMessage);
-      return;
-    }
-    const code = parsed.searchParams.get("code");
-    if (!code) return;
-    if (exchangedOAuthCodesRef.current.has(code)) return;
-    exchangedOAuthCodesRef.current.add(code);
-    setAuthBusy(true);
-    try {
-      const auth = await api.exchangeOAuthCode({ code });
-      await clearPendingMobileOAuth();
-      await finishAuth(auth.user);
-      closeDrawer();
-    } catch (exchangeError) {
-      exchangedOAuthCodesRef.current.delete(code);
-      setAuthError(exchangeError instanceof Error ? exchangeError.message : "Could not finish sign in.");
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    const code = typeof oauthCode === "string" ? oauthCode : undefined;
-    const provider = typeof oauthProvider === "string" ? oauthProvider : undefined;
-    const callbackError = typeof oauthError === "string" ? oauthError : undefined;
-    if (!code && !callbackError) return;
-
-    const callbackUrl = new URL(mobileAppUrl("auth/callback"));
-    if (code) callbackUrl.searchParams.set("code", code);
-    if (provider) callbackUrl.searchParams.set("provider", provider);
-    if (callbackError) callbackUrl.searchParams.set("error", callbackError);
-    void handleOAuthCallback(callbackUrl.toString());
-    router.replace("/");
-  }, [oauthCode, oauthError, oauthProvider, router]);
-
   useEffect(() => {
     let mounted = true;
     async function loadInitial(): Promise<void> {
@@ -1314,18 +1195,7 @@ export function MobileChatScreen() {
       setError(undefined);
       setAuthError(undefined);
       try {
-        let resumedAuth: AuthResponse | undefined;
-        try {
-          resumedAuth = await resumePendingMobileOAuth();
-        } catch (resumeError) {
-          await clearPendingMobileOAuth().catch(() => undefined);
-          if (mounted) {
-            setAuthError(resumeError instanceof Error
-              ? resumeError.message
-              : "Could not finish the previous sign-in attempt. Please try again.");
-          }
-        }
-        const user = resumedAuth?.user ?? await loadAuthenticatedUser();
+        const user = await loadAuthenticatedUser();
         if (!mounted) return;
         setAuthUser(user);
         setAuthChecked(true);
@@ -1362,25 +1232,6 @@ export function MobileChatScreen() {
     void loadInitial();
     return () => {
       mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    void Linking.getInitialURL()
-      .then((url) => {
-        if (active) return handleOAuthCallback(url);
-        return undefined;
-      })
-      .catch(() => {
-        if (active) setAuthError("Could not complete the sign-in callback. Please try again.");
-      });
-    const subscription = Linking.addEventListener("url", (event) => {
-      if (active) void handleOAuthCallback(event.url);
-    });
-    return () => {
-      active = false;
-      subscription.remove();
     };
   }, []);
 
@@ -1701,55 +1552,10 @@ export function MobileChatScreen() {
     setAuthBusy(true);
     setAuthError(undefined);
     try {
-      const returnUrl = mobileOAuthReturnUrl();
-      const { authorizationUrl, exchangeCode } = await api.startMobileOAuth(provider, returnUrl);
-      await setPendingMobileOAuth(exchangeCode);
-      const browserResultPromise = WebBrowser.openAuthSessionAsync(authorizationUrl, returnUrl);
-      const exchangeResultPromise = waitForMobileOAuthExchange(exchangeCode);
-      const firstResult = await Promise.race([
-        browserResultPromise.then((result) => ({ type: "browser" as const, result })),
-        exchangeResultPromise.then((auth) => ({ type: "auth" as const, auth }))
-      ]);
-
-      if (firstResult.type === "auth") {
-        await clearPendingMobileOAuth();
-        try {
-          WebBrowser.dismissAuthSession();
-        } catch {
-          // Android closes its custom tab when the app returns to the foreground.
-        }
-        await finishAuth(firstResult.auth.user);
-        closeDrawer();
-        return;
-      }
-
-      if (firstResult.result.type === "success") {
-        const callbackCode = new URL(firstResult.result.url).searchParams.get("code");
-        if (callbackCode) {
-          await handleOAuthCallback(firstResult.result.url);
-          return;
-        }
-      }
-      if (firstResult.result.type === "cancel" || firstResult.result.type === "dismiss") {
-        // Android can report a dismissal while an App Link is transferring
-        // focus. Keep the pending exchange so the App Link route (or the next
-        // app activation) can finish authentication if the callback arrives
-        // after the browser result.
-        const auth = await api.pollMobileOAuthCode({ code: exchangeCode });
-        if (!auth) {
-          return;
-        }
-        await clearPendingMobileOAuth();
-        await finishAuth(auth.user);
-        closeDrawer();
-        return;
-      }
-      const auth = await exchangeResultPromise;
-      await clearPendingMobileOAuth();
+      const auth = await api.oauthLogin(provider);
       await finishAuth(auth.user);
       closeDrawer();
     } catch (oauthError) {
-      await clearPendingMobileOAuth().catch(() => undefined);
       setAuthError(oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
     } finally {
       setAuthBusy(false);

@@ -41,7 +41,7 @@ export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export const toolDefinitionSchema = z.object({
   name: toolNameSchema,
   description: z.string(),
-  inputSchema: z.record(z.unknown()),
+  inputSchema: z.record(z.string(), z.unknown()),
   owner: z.enum(["openai", "application"]).default("application")
 });
 export type ToolDefinition = z.infer<typeof toolDefinitionSchema>;
@@ -59,7 +59,7 @@ export const textOutputSchema = z.object({
 
 export const jsonOutputSchema = z.object({
   type: z.literal("json"),
-  data: z.record(z.unknown())
+  data: z.record(z.string(), z.unknown())
 });
 
 export const audioOutputSchema = z.object({
@@ -76,7 +76,7 @@ export const imageOutputSchema = z.object({
   prompt: z.string().optional(),
   mimeType: z.string().optional(),
   fileId: z.string().optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 
 export const videoOutputSchema = z.object({
@@ -86,7 +86,7 @@ export const videoOutputSchema = z.object({
   title: z.string().optional(),
   fileName: z.string().optional(),
   fileId: z.string().optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 
 export const chartOutputSchema = z.object({
@@ -103,7 +103,7 @@ export const fileOutputSchema = z.object({
   mimeType: z.string(),
   description: z.string().optional(),
   fileId: z.string().optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 
 // File artifacts already provide a download control in the client. Some model
@@ -121,7 +121,7 @@ export function stripGeneratedFileDownloadPrompt(text: string): string {
 export const toolCallOutputSchema = z.object({
   type: z.literal("tool_call"),
   toolName: toolNameSchema,
-  arguments: z.record(z.unknown()),
+  arguments: z.record(z.string(), z.unknown()),
   status: z.enum(["planned", "completed", "failed"])
 });
 
@@ -172,7 +172,7 @@ export const actionOutputSchema = z.object({
   id: z.string(),
   label: z.string(),
   action: z.string(),
-  arguments: z.record(z.unknown()).optional(),
+  arguments: z.record(z.string(), z.unknown()).optional(),
   style: z.enum(["primary", "secondary", "danger"]).optional()
 });
 
@@ -258,7 +258,10 @@ export const authSessionSchema = z.object({
   userId: z.string(),
   clientType: authClientTypeSchema,
   expiresAt: z.string(),
-  refreshExpiresAt: z.string()
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  userAgent: z.string().nullable().optional(),
+  ipAddress: z.string().nullable().optional()
 });
 export type AuthSession = z.infer<typeof authSessionSchema>;
 
@@ -283,15 +286,6 @@ export const revokeOtherSessionsResponseSchema = z.object({
   revoked: z.number().int().nonnegative()
 });
 export type RevokeOtherSessionsResponse = z.infer<typeof revokeOtherSessionsResponseSchema>;
-
-export const authTokensSchema = z.object({
-  accessToken: z.string(),
-  refreshToken: z.string(),
-  tokenType: z.literal("Bearer"),
-  expiresAt: z.string(),
-  refreshExpiresAt: z.string()
-});
-export type AuthTokens = z.infer<typeof authTokensSchema>;
 
 export const registerRequestSchema = z.object({
   email: z.string().email().optional(),
@@ -329,32 +323,6 @@ export const accountDeletionResponseSchema = z.object({
   deletionScheduledFor: z.string()
 });
 export type AccountDeletionResponse = z.infer<typeof accountDeletionResponseSchema>;
-
-export const refreshAuthRequestSchema = z.object({
-  refreshToken: z.string().min(1),
-  clientType: authClientTypeSchema.default("web"),
-  deviceId: z.string().max(200).optional()
-});
-export type RefreshAuthRequest = z.infer<typeof refreshAuthRequestSchema>;
-
-export const oauthExchangeRequestSchema = z.object({
-  code: z.string().min(1).max(256),
-  clientType: authClientTypeSchema.default("unknown"),
-  deviceId: z.string().max(200).optional()
-});
-export type OAuthExchangeRequest = z.infer<typeof oauthExchangeRequestSchema>;
-
-export const logoutRequestSchema = z.object({
-  refreshToken: z.string().min(1).optional()
-});
-export type LogoutRequest = z.infer<typeof logoutRequestSchema>;
-
-export const authResponseSchema = z.object({
-  user: authUserSchema,
-  session: authSessionSchema,
-  tokens: authTokensSchema
-});
-export type AuthResponse = z.infer<typeof authResponseSchema>;
 
 export const meResponseSchema = z.object({
   user: authUserSchema,
@@ -405,7 +373,7 @@ export const personaVisualStageSchema = z.object({
     thinking: z.array(z.string()),
     speaking: z.array(z.string())
   }),
-  transitions: z.record(z.string()).default({}),
+  transitions: z.record(z.string(), z.string()).default({}),
   fallbackImages: z.object({
     idle: z.string(),
     thinking: z.string(),
@@ -494,7 +462,7 @@ export const llmOutputSchema = z.object({
     reasoningTokens: z.number().int().nonnegative().optional(),
     estimatedCostUsd: z.number().nonnegative().optional()
   }).optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 export type LLMOutput = z.infer<typeof llmOutputSchema>;
 
@@ -510,7 +478,7 @@ export type StyleTransferInput = z.infer<typeof styleTransferInputSchema>;
 export const styleTransferOutputSchema = z.object({
   provider: z.enum(["stub_style_transfer", "local_style_transfer", "remote_style_transfer"]),
   styledText: z.string(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 });
 export type StyleTransferOutput = z.infer<typeof styleTransferOutputSchema>;
 

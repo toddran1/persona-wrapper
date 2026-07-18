@@ -2,7 +2,7 @@ import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlo
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useRef } from "react";
-import { api, authTokens, clearAuthTokens, consumeOAuthCallbackResult } from "./lib/api.js";
+import { api } from "./lib/api.js";
 import { queryClient } from "./lib/queryClient.js";
 import { conversationsPageQueryOptions, conversationTurnsQueryOptions, personaQueryOptions, personasQueryOptions } from "./lib/chatQueries.js";
 import { ChatComposer } from "./components/ChatComposer.js";
@@ -330,10 +330,7 @@ export function App() {
 
     void (async () => {
       setAuthLoading(true);
-      const callbackResult = consumeOAuthCallbackResult();
-      if (callbackResult?.error && !cancelled) {
-        setAuthError(callbackResult.error);
-      }
+      let authenticated = false;
 
       try {
         const providers = await retryWithBackoff(
@@ -346,33 +343,20 @@ export function App() {
       }
 
       try {
-        if (authTokens()) {
-          try {
-            const me = await api.getCurrentUser();
-            if (!cancelled) {
-              setAuthUser(me.user);
-              setAuthError(undefined);
-            }
-          } catch {
-            const refreshed = await api.refreshAuth({ clientType: "web" });
-            if (!cancelled) {
-              setAuthUser(refreshed.user);
-              setAuthError(undefined);
-            }
-          }
+        const me = await api.getCurrentUser();
+        authenticated = true;
+        if (!cancelled) {
+          setAuthUser(me.user);
+          setAuthError(undefined);
         }
-      } catch (authLoadError) {
-        clearAuthTokens();
+      } catch {
         if (!cancelled) {
           setAuthUser(undefined);
-          if (!callbackResult?.error) {
-            setAuthError(authLoadError instanceof Error ? authLoadError.message : "Session expired.");
-          }
         }
       } finally {
         if (!cancelled) {
           setAuthLoading(false);
-          const selectedConversationId = authTokens() ? storedConversationId() : undefined;
+          const selectedConversationId = authenticated ? storedConversationId() : undefined;
           if (!selectedConversationId) setConversationId(undefined);
           void (async () => {
             await refreshConversationList(selectedConversationId, true);
@@ -1068,7 +1052,6 @@ export function App() {
     setAuthError(undefined);
     try {
       const result = await api.deleteAccount(payload);
-      clearAuthTokens();
       setAuthUser(undefined);
       resetConversation();
       await refreshConversationList(undefined, true);
@@ -1117,7 +1100,6 @@ export function App() {
     try {
       await api.logout();
     } finally {
-      clearAuthTokens();
       setAuthUser(undefined);
       resetConversation();
       await refreshConversationList(undefined, true);
@@ -1126,7 +1108,9 @@ export function App() {
   }
 
   function handleOAuthLogin(providerName: OAuthProvider): void {
-    window.location.href = api.oauthStartUrl(providerName, "web");
+    void api.oauthLogin(providerName).catch((oauthError) => {
+      setAuthError(oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
+    });
   }
 
   async function saveEvalCapture(idealStyledText: string, notes: string, tags: string[]): Promise<void> {

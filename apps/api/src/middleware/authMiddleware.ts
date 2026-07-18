@@ -1,54 +1,31 @@
 import type { NextFunction, Request, Response } from "express";
-import { authService } from "../services/authService.js";
-import { HttpError } from "../utils/httpError.js";
-
-function bearerToken(request: Request): string | undefined {
-  const value = request.header("authorization");
-  if (!value) return undefined;
-  const match = /^Bearer\s+(.+)$/i.exec(value.trim());
-  return match?.[1]?.trim();
-}
-
-function allowsAnonymousAuthRequest(request: Request): boolean {
-  if (/^\/api\/auth\/oauth\/(google|facebook)\/(start|callback)$/.test(request.path)) return true;
-  return [
-    "/api/auth/login",
-    "/api/auth/register",
-    "/api/auth/restore",
-    "/api/auth/refresh",
-    "/api/auth/oauth/exchange",
-    "/api/auth/oauth/providers"
-  ].includes(request.path);
-}
+import { fromNodeHeaders } from "better-auth/node";
+import { auth } from "../auth.js";
 
 export async function authenticateRequest(request: Request, _response: Response, next: NextFunction): Promise<void> {
   try {
-    const token = bearerToken(request);
-    if (!token) {
+    if (!auth) {
       next();
       return;
     }
-
-    const authenticated = await authService.authenticate(token);
-    if (!authenticated) {
-      if (allowsAnonymousAuthRequest(request)) {
-        next();
-        return;
-      }
-      throw new HttpError("Authentication token is invalid or expired.", 401);
+    const authenticated = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
+    if (!authenticated || authenticated.user.status !== "active") {
+      next();
+      return;
     }
 
     request.auth = {
       userId: authenticated.user.id,
       sessionId: authenticated.session.id,
-      clientType: authenticated.session.clientType
+      clientType: authenticated.session.clientType === "web"
+        || authenticated.session.clientType === "desktop"
+        || authenticated.session.clientType === "ios"
+        || authenticated.session.clientType === "android"
+        ? authenticated.session.clientType
+        : "unknown"
     };
     next();
   } catch (error) {
     next(error);
   }
-}
-
-export function requestBearerToken(request: Request): string | undefined {
-  return bearerToken(request);
 }

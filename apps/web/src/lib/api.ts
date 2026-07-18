@@ -1,8 +1,8 @@
 import { apiContract } from "@persona/shared";
 import type {
-  AuthResponse,
+  AuthUser,
+  AuthSession,
   AccountDeletionResponse,
-  AuthTokens,
   ChatResponse,
   ChatJobResponse,
   ClientContext,
@@ -19,7 +19,6 @@ import type {
   PersonaDefinition,
   PersonaSummary,
   ProviderId,
-  RefreshAuthRequest,
   RegisterRequest,
   RestoreAccountRequest,
   ToolOptions,
@@ -27,12 +26,13 @@ import type {
 } from "@persona/shared";
 import { initClient } from "@ts-rest/core";
 import { logClientEvent, newClientTraceId } from "./telemetry.js";
+import { authClient } from "./authClient.js";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
 const configuredApiBaseUrl = typeof import.meta.env.VITE_API_URL === "string" ? import.meta.env.VITE_API_URL.trim() : "";
 export const API_BASE_URL = configuredApiBaseUrl || DEFAULT_API_BASE_URL;
 const OWNER_ID_KEY = "persona-wrapper-owner-id";
-const AUTH_TOKENS_KEY = "persona-wrapper-auth-tokens";
+const LEGACY_AUTH_TOKENS_KEY = "persona-wrapper-auth-tokens";
 let fallbackOwnerId: string | undefined;
 let authRefreshInFlight: Promise<boolean> | undefined;
 const API_REQUEST_TIMEOUT_MS = 130_000;
@@ -66,7 +66,7 @@ async function fetchWithTimeout(
   }, timeoutMs);
 
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await fetch(input, { credentials: "include", ...init, signal: controller.signal });
   } catch (error) {
     if (timedOut && isAbortError(error)) throw new RequestTimeoutError();
     throw error;
@@ -93,67 +93,8 @@ export function ownerId(): string {
   }
 }
 
-export function authTokens(): AuthTokens | undefined {
-  try {
-    const value = localStorage.getItem(AUTH_TOKENS_KEY);
-    if (!value) return undefined;
-    return JSON.parse(value) as AuthTokens;
-  } catch {
-    try { localStorage.removeItem(AUTH_TOKENS_KEY); } catch { /* Storage is unavailable. */ }
-    return undefined;
-  }
-}
-
-export function setAuthTokens(tokens: AuthTokens): void {
-  try {
-    localStorage.setItem(AUTH_TOKENS_KEY, JSON.stringify(tokens));
-  } catch {
-    throw new Error("Your browser could not securely save the sign-in session. Check storage permissions and try again.");
-  }
-}
-
-export function clearAuthTokens(): void {
-  try { localStorage.removeItem(AUTH_TOKENS_KEY); } catch { /* Storage is unavailable. */ }
-}
-
-export type OAuthCallbackResult = {
-  tokens?: AuthTokens;
-  error?: string;
-};
-
-export function oauthStartUrl(provider: OAuthProvider, clientType = "web", deviceId?: string): string {
-  const url = new URL(`/api/auth/oauth/${provider}/start`, API_BASE_URL);
-  url.searchParams.set("clientType", clientType);
-  if (deviceId) url.searchParams.set("deviceId", deviceId);
-  return url.toString();
-}
-
-export function consumeOAuthCallbackResult(): OAuthCallbackResult | undefined {
-  if (typeof window === "undefined") return undefined;
-  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-  const isOAuthCallback = window.location.pathname === "/auth/callback"
-    || params.has("accessToken")
-    || params.has("refreshToken")
-    || params.has("error");
-  if (!isOAuthCallback) return undefined;
-  const error = params.get("error") ?? undefined;
-  const accessToken = params.get("accessToken");
-  const refreshToken = params.get("refreshToken");
-  const expiresAt = params.get("expiresAt");
-  const refreshExpiresAt = params.get("refreshExpiresAt");
-  const tokenType = "Bearer";
-  window.history.replaceState(null, document.title, "/");
-  if (error) return { error };
-  if (!accessToken || !refreshToken || !expiresAt || !refreshExpiresAt) return undefined;
-  const tokens: AuthTokens = {
-    accessToken,
-    refreshToken,
-    expiresAt,
-    refreshExpiresAt,
-    tokenType
-  };
-  setAuthTokens(tokens);
-  return { tokens };
+function clearLegacyAuthTokens(): void {
+  try { localStorage.removeItem(LEGACY_AUTH_TOKENS_KEY); } catch { /* Storage is unavailable. */ }
 }
 
 export type ChatPayload = {
@@ -254,12 +195,7 @@ function requestHeaders(includeJson: boolean, headers?: HeadersInit): HeadersIni
   const next: Record<string, string> = {};
   if (includeJson) next["Content-Type"] = "application/json";
   next["x-client-trace-id"] = newClientTraceId();
-  const token = authTokens()?.accessToken;
-  if (token) {
-    next.Authorization = `Bearer ${token}`;
-  } else {
-    next["x-owner-id"] = ownerId();
-  }
+  next["x-owner-id"] = ownerId();
 
   if (headers instanceof Headers) {
     headers.forEach((value, key) => {
@@ -295,29 +231,47 @@ const contractClient = initClient(apiContract, {
 });
 
 async function performStoredAuthRefresh(): Promise<boolean> {
-  const refreshToken = authTokens()?.refreshToken;
-  if (!refreshToken) return false;
-  let response: Response;
   try {
-    response = await fetchWithTimeout(`${API_BASE_URL}/api/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-client-type": "web" },
-      body: JSON.stringify({ refreshToken, clientType: "web" })
-    }, AUTH_REFRESH_TIMEOUT_MS);
+    const session = await authClient.getSession({ fetchOptions: { signal: AbortSignal.timeout(AUTH_REFRESH_TIMEOUT_MS) } });
+    return Boolean(session.data);
   } catch {
     return false;
   }
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) clearAuthTokens();
-    return false;
-  }
-  try {
-    const auth = await response.json() as AuthResponse;
-    setAuthTokens(auth.tokens);
-    return true;
-  } catch {
-    return false;
-  }
+}
+
+function authError(error: { message?: string | undefined } | null): Error {
+  return new Error(error?.message || "Authentication failed. Please try again.");
+}
+
+function toAuthUser(user: Record<string, unknown>): AuthUser {
+  const email = typeof user.email === "string" && !user.email.endsWith("@users.invalid") ? user.email : null;
+  return {
+    id: String(user.id),
+    email,
+    username: typeof user.username === "string" ? user.username : null,
+    displayName: typeof user.name === "string" ? user.name : null,
+    avatarUrl: typeof user.image === "string" ? user.image : null,
+    status: typeof user.status === "string" ? user.status : "active",
+    deletionRequestedAt: user.deletionRequestedAt ? new Date(user.deletionRequestedAt as string | Date).toISOString() : null,
+    deletionScheduledFor: user.deletionScheduledFor ? new Date(user.deletionScheduledFor as string | Date).toISOString() : null,
+    createdAt: new Date(user.createdAt as string | Date).toISOString(),
+    updatedAt: new Date(user.updatedAt as string | Date).toISOString()
+  };
+}
+
+function toAuthSession(session: Record<string, unknown>): AuthSession {
+  const value = session.clientType;
+  const clientType = value === "web" || value === "desktop" || value === "ios" || value === "android" ? value : "unknown";
+  return {
+    id: String(session.id),
+    userId: String(session.userId),
+    clientType,
+    expiresAt: new Date(session.expiresAt as string | Date).toISOString(),
+    createdAt: new Date(session.createdAt as string | Date).toISOString(),
+    updatedAt: new Date(session.updatedAt as string | Date).toISOString(),
+    userAgent: typeof session.userAgent === "string" ? session.userAgent : null,
+    ipAddress: typeof session.ipAddress === "string" ? session.ipAddress : null
+  };
 }
 
 async function refreshStoredAuth(): Promise<boolean> {
@@ -442,67 +396,61 @@ export const api = {
   deleteVectorStore: async (vectorStoreId: string): Promise<void> => {
     await requestNoContent(`/api/uploads/vector-stores/${vectorStoreId}`, { method: "DELETE" });
   },
-  register: async (payload: RegisterRequest): Promise<AuthResponse> => {
-    const response = await requestJson<AuthResponse>("/api/auth/register", {
-      method: "POST",
-      body: JSON.stringify(payload)
+  register: async (payload: RegisterRequest): Promise<{ user: AuthUser }> => {
+    const email = payload.email?.trim().toLowerCase() ?? `${payload.username?.trim().toLowerCase()}@users.invalid`;
+    const result = await authClient.signUp.email({
+      email,
+      password: payload.password,
+      name: payload.displayName?.trim() || payload.username?.trim() || email,
+      ...(payload.username ? { username: payload.username, displayUsername: payload.username } : {})
     });
-    setAuthTokens(response.tokens);
-    return response;
+    if (result.error || !result.data?.user) throw authError(result.error);
+    return { user: toAuthUser(result.data.user as unknown as Record<string, unknown>) };
   },
-  login: async (payload: LoginRequest): Promise<AuthResponse> => {
-    const response = await requestJson<AuthResponse>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-    setAuthTokens(response.tokens);
-    return response;
+  login: async (payload: LoginRequest): Promise<{ user: AuthUser }> => {
+    const identifier = payload.identifier.trim().toLowerCase();
+    const result = identifier.includes("@")
+      ? await authClient.signIn.email({ email: identifier, password: payload.password })
+      : await authClient.signIn.username({ username: identifier, password: payload.password });
+    if (result.error || !result.data?.user) throw authError(result.error);
+    return { user: toAuthUser(result.data.user as unknown as Record<string, unknown>) };
   },
-  restoreAccount: async (payload: RestoreAccountRequest): Promise<AuthResponse> => {
-    const response = await requestJson<AuthResponse>("/api/auth/restore", {
+  restoreAccount: async (payload: RestoreAccountRequest): Promise<{ user: AuthUser }> => {
+    await requestJson<{ restored: true }>("/api/account/restore", {
       method: "POST",
       body: JSON.stringify(payload)
-    });
-    setAuthTokens(response.tokens);
-    return response;
+    }, { skipAuthRefresh: true });
+    return api.login(payload);
   },
   deleteAccount: async (payload: { confirmation: "DELETE"; password?: string }): Promise<AccountDeletionResponse> => {
-    const response = await requestJson<AccountDeletionResponse>("/api/auth/account", {
+    const response = await requestJson<AccountDeletionResponse>("/api/account", {
       method: "DELETE",
       body: JSON.stringify(payload)
     });
-    clearAuthTokens();
-    return response;
-  },
-  refreshAuth: async (payload?: Partial<RefreshAuthRequest>): Promise<AuthResponse> => {
-    const refreshToken = payload?.refreshToken ?? authTokens()?.refreshToken;
-    if (!refreshToken) throw new Error("No refresh token available.");
-    const response = await requestJson<AuthResponse>("/api/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ ...payload, refreshToken })
-    }, { skipAuthRefresh: true });
-    setAuthTokens(response.tokens);
+    clearLegacyAuthTokens();
     return response;
   },
   logout: async (): Promise<void> => {
-    const refreshToken = authTokens()?.refreshToken;
-    try {
-      await requestNoContent("/api/auth/logout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(refreshToken ? { refreshToken } : {})
-      });
-    } finally {
-      clearAuthTokens();
-    }
+    const result = await authClient.signOut();
+    if (result.error) throw authError(result.error);
+    clearLegacyAuthTokens();
   },
-  getCurrentUser: async (): Promise<MeResponse> =>
-    requestJson<MeResponse>("/api/auth/me"),
+  getCurrentUser: async (): Promise<MeResponse> => {
+    const result = await authClient.getSession();
+    if (result.error || !result.data?.user) throw authError(result.error ?? { message: "Not authenticated." });
+    return {
+      user: toAuthUser(result.data.user as unknown as Record<string, unknown>),
+      session: toAuthSession(result.data.session as unknown as Record<string, unknown>)
+    };
+  },
   getOAuthProviders: async (): Promise<OAuthProviderStatus[]> => {
-    const payload = await requestJson<{ providers: OAuthProviderStatus[] }>("/api/auth/oauth/providers");
+    const payload = await requestJson<{ providers: OAuthProviderStatus[] }>("/api/account/oauth/providers");
     return payload.providers;
   },
-  oauthStartUrl,
+  oauthLogin: async (provider: OAuthProvider): Promise<void> => {
+    const result = await authClient.signIn.social({ provider, callbackURL: "/" });
+    if (result.error) throw authError(result.error);
+  },
   getPersonas: async (): Promise<PersonaSummary[]> => {
     const response = await contractClient.personas.list();
     if (response.status !== 200) throw new Error("Could not load personas.");

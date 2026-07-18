@@ -1,12 +1,14 @@
 import { relations } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
-  email: text("email"),
+  email: text("email").notNull(),
   username: text("username"),
-  displayName: text("display_name"),
+  displayUsername: text("display_username"),
+  displayName: text("display_name").notNull(),
   avatarUrl: text("avatar_url"),
+  emailVerified: boolean("email_verified").notNull().default(false),
   status: text("status").notNull().default("active"),
   deletionRequestedAt: timestamp("deletion_requested_at", { withTimezone: true }),
   deletionScheduledFor: timestamp("deletion_scheduled_for", { withTimezone: true }),
@@ -21,84 +23,51 @@ export const users = pgTable("users", {
   deletionScheduledForIdx: index("users_deletion_scheduled_for_idx").on(table.deletionScheduledFor)
 }));
 
-export const userPasswordCredentials = pgTable("user_password_credentials", {
-  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
-  passwordHash: text("password_hash").notNull(),
-  algorithm: text("algorithm").notNull().default("scrypt"),
-  passwordUpdatedAt: timestamp("password_updated_at", { withTimezone: true }).notNull().defaultNow(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
-});
-
-export const userOAuthAccounts = pgTable("user_oauth_accounts", {
+export const betterAuthAccounts = pgTable("better_auth_accounts", {
   id: text("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  provider: text("provider").notNull(),
-  providerAccountId: text("provider_account_id").notNull(),
-  email: text("email"),
-  displayName: text("display_name"),
-  avatarUrl: text("avatar_url"),
-  accessTokenHash: text("access_token_hash"),
-  refreshTokenHash: text("refresh_token_hash"),
-  scopes: jsonb("scopes").$type<string[]>().notNull().default([]),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+  scope: text("scope"),
+  password: text("password"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => ({
-  userIdIdx: index("user_oauth_accounts_user_id_idx").on(table.userId),
-  providerAccountUnique: uniqueIndex("user_oauth_accounts_provider_account_unique").on(table.provider, table.providerAccountId)
+  userIdIdx: index("better_auth_accounts_user_id_idx").on(table.userId),
+  providerAccountUnique: uniqueIndex("better_auth_accounts_provider_account_unique").on(table.providerId, table.accountId)
 }));
 
-export const authSessions = pgTable("auth_sessions", {
+export const betterAuthSessions = pgTable("better_auth_sessions", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  accessTokenHash: text("access_token_hash").notNull(),
-  refreshTokenHash: text("refresh_token_hash").notNull(),
-  clientType: text("client_type").notNull().default("web"),
-  deviceId: text("device_id"),
-  userAgent: text("user_agent"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  token: text("token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  clientType: text("client_type").notNull().default("unknown")
+}, (table) => ({
+  tokenUnique: uniqueIndex("better_auth_sessions_token_unique").on(table.token),
+  userIdIdx: index("better_auth_sessions_user_id_idx").on(table.userId),
+  expiresAtIdx: index("better_auth_sessions_expires_at_idx").on(table.expiresAt)
+}));
+
+export const betterAuthVerifications = pgTable("better_auth_verifications", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  refreshExpiresAt: timestamp("refresh_expires_at", { withTimezone: true }).notNull(),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => ({
-  userIdIdx: index("auth_sessions_user_id_idx").on(table.userId),
-  accessTokenHashUnique: uniqueIndex("auth_sessions_access_token_hash_unique").on(table.accessTokenHash),
-  refreshTokenHashUnique: uniqueIndex("auth_sessions_refresh_token_hash_unique").on(table.refreshTokenHash),
-  expiresAtIdx: index("auth_sessions_expires_at_idx").on(table.expiresAt),
-  refreshExpiresAtIdx: index("auth_sessions_refresh_expires_at_idx").on(table.refreshExpiresAt)
-}));
-
-export const oauthStates = pgTable("oauth_states", {
-  id: text("id").primaryKey(),
-  stateHash: text("state_hash").notNull(),
-  provider: text("provider").notNull(),
-  redirectUri: text("redirect_uri"),
-  codeVerifier: text("code_verifier"),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => ({
-  stateHashUnique: uniqueIndex("oauth_states_state_hash_unique").on(table.stateHash),
-  expiresAtIdx: index("oauth_states_expires_at_idx").on(table.expiresAt)
-}));
-
-export const oauthExchangeCodes = pgTable("oauth_exchange_codes", {
-  id: text("id").primaryKey(),
-  codeHash: text("code_hash").notNull(),
-  sessionId: text("session_id").notNull().references(() => authSessions.id, { onDelete: "cascade" }),
-  clientType: text("client_type").notNull().default("unknown"),
-  deviceId: text("device_id"),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  consumedAt: timestamp("consumed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
-}, (table) => ({
-  codeHashUnique: uniqueIndex("oauth_exchange_codes_code_hash_unique").on(table.codeHash),
-  sessionIdIdx: index("oauth_exchange_codes_session_id_idx").on(table.sessionId),
-  expiresAtIdx: index("oauth_exchange_codes_expires_at_idx").on(table.expiresAt)
+  identifierIdx: index("better_auth_verifications_identifier_idx").on(table.identifier),
+  expiresAtIdx: index("better_auth_verifications_expires_at_idx").on(table.expiresAt)
 }));
 
 export const conversations = pgTable("conversations", {
@@ -267,36 +236,21 @@ export const messageRelations = relations(messages, ({ one }) => ({
   })
 }));
 
-export const userRelations = relations(users, ({ many, one }) => ({
-  passwordCredential: one(userPasswordCredentials),
-  oauthAccounts: many(userOAuthAccounts),
-  sessions: many(authSessions)
+export const userRelations = relations(users, ({ many }) => ({
+  accounts: many(betterAuthAccounts),
+  sessions: many(betterAuthSessions)
 }));
 
-export const userPasswordCredentialRelations = relations(userPasswordCredentials, ({ one }) => ({
+export const betterAuthAccountRelations = relations(betterAuthAccounts, ({ one }) => ({
   user: one(users, {
-    fields: [userPasswordCredentials.userId],
+    fields: [betterAuthAccounts.userId],
     references: [users.id]
   })
 }));
 
-export const userOAuthAccountRelations = relations(userOAuthAccounts, ({ one }) => ({
+export const betterAuthSessionRelations = relations(betterAuthSessions, ({ one }) => ({
   user: one(users, {
-    fields: [userOAuthAccounts.userId],
+    fields: [betterAuthSessions.userId],
     references: [users.id]
-  })
-}));
-
-export const authSessionRelations = relations(authSessions, ({ one }) => ({
-  user: one(users, {
-    fields: [authSessions.userId],
-    references: [users.id]
-  })
-}));
-
-export const oauthExchangeCodeRelations = relations(oauthExchangeCodes, ({ one }) => ({
-  session: one(authSessions, {
-    fields: [oauthExchangeCodes.sessionId],
-    references: [authSessions.id]
   })
 }));

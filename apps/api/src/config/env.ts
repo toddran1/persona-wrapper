@@ -102,15 +102,13 @@ const envSchema = z.object({
   DATA_TRANSFER_MAX_BYTES: z.coerce.number().int().min(1024 * 1024).max(25 * 1024 * 1024).default(25 * 1024 * 1024),
   DATABASE_URL: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   AUTH_REQUIRED: z.preprocess(stringToBoolean, z.boolean().default(false)),
-  AUTH_ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(60),
   AUTH_REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   AUTH_PASSWORD_MIN_LENGTH: z.coerce.number().int().min(8).max(128).default(10),
+  BETTER_AUTH_SECRET: z.preprocess(optionalTrimmedString, z.string().min(32).optional()),
   AUTH_ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   AUTH_REQUIRE_OWNED_MEDIA_ACCESS: z.preprocess(stringToBoolean, z.boolean().default(false)),
   WEB_APP_URL: z.preprocess(optionalTrimmedString, z.string().url().default("http://localhost:5173")),
-  IOS_OAUTH_REDIRECT_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),
-  ANDROID_OAUTH_REDIRECT_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),
-  OAUTH_REDIRECT_BASE_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),
+  BETTER_AUTH_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),
   GOOGLE_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   GOOGLE_OAUTH_CLIENT_SECRET: z.preprocess(optionalTrimmedString, z.string().optional()),
   FACEBOOK_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
@@ -213,11 +211,11 @@ const envSchema = z.object({
       message: "WEB_APP_URL must use HTTPS in production."
     });
   }
-  if (value.NODE_ENV === "production" && value.OAUTH_REDIRECT_BASE_URL && new URL(value.OAUTH_REDIRECT_BASE_URL).protocol !== "https:") {
+  if (value.NODE_ENV === "production" && value.BETTER_AUTH_URL && new URL(value.BETTER_AUTH_URL).protocol !== "https:") {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ["OAUTH_REDIRECT_BASE_URL"],
-      message: "OAUTH_REDIRECT_BASE_URL must use HTTPS in production."
+      path: ["BETTER_AUTH_URL"],
+      message: "BETTER_AUTH_URL must use HTTPS in production."
     });
   }
   if (value.AUTH_REQUIRED && !value.DATABASE_URL) {
@@ -225,6 +223,13 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["DATABASE_URL"],
       message: "DATABASE_URL is required when AUTH_REQUIRED=true."
+    });
+  }
+  if (value.NODE_ENV === "production" && !value.BETTER_AUTH_SECRET) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["BETTER_AUTH_SECRET"],
+      message: "BETTER_AUTH_SECRET is required in production and must be at least 32 characters."
     });
   }
   if (Boolean(value.GOOGLE_OAUTH_CLIENT_ID) !== Boolean(value.GOOGLE_OAUTH_CLIENT_SECRET)) {

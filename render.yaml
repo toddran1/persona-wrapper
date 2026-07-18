@@ -61,19 +61,15 @@ services:
         value: parentbased_traceidratio
       - key: OTEL_TRACES_SAMPLER_ARG
         value: "0.25"
-      - key: OAUTH_REDIRECT_BASE_URL
+      - key: BETTER_AUTH_URL
         value: https://for-the-baddiez-api-dev.onrender.com
-      - key: IOS_OAUTH_REDIRECT_URL
-        value: personawrapper://auth/callback
-      - key: ANDROID_OAUTH_REDIRECT_URL
-        value: https://for-the-baddiez-web-dev.onrender.com/auth/mobile-callback
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
 
       - key: AUTH_REQUIRED
         value: "true"
       - key: AUTH_REQUIRE_OWNED_MEDIA_ACCESS
         value: "true"
-      - key: AUTH_ACCESS_TOKEN_TTL_MINUTES
-        value: "15"
       - key: AUTH_REFRESH_TOKEN_TTL_DAYS
         value: "30"
       - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS

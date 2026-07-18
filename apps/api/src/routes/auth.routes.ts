@@ -1,86 +1,15 @@
 import { Router } from "express";
-import { authRateLimit, mobileOAuthPollRateLimit } from "../middleware/authRateLimit.js";
-import {
-  deleteAccount,
-  deleteActiveSession,
-  deleteOtherSessions,
-  getActiveSessions,
-  getMe,
-  getOAuthCallback,
-  getOAuthProviders,
-  getMobileOAuthStart,
-  getOAuthStart,
-  postLogin,
-  postLogout,
-  postOAuthExchange,
-  postMobileOAuthExchange,
-  postRefresh,
-  postRegister,
-  postRestoreAccount
-} from "../controllers/auth.controller.js";
+import { deleteAccount, getOAuthProviders, restoreAccount } from "../controllers/account.controller.js";
+import { authRateLimit } from "../middleware/authRateLimit.js";
 
 export const authRouter = Router();
 
-authRouter.use(["/login", "/register", "/restore", "/refresh", "/oauth/exchange", "/oauth/:provider/start", "/oauth/:provider/mobile-start", "/account"], authRateLimit);
-
-authRouter.post("/register", (request, response, next) => {
-  postRegister(request, response).catch(next);
+authRouter.post("/restore", authRateLimit, (request, response, next) => {
+  restoreAccount(request, response).catch(next);
 });
 
-authRouter.post("/login", (request, response, next) => {
-  postLogin(request, response).catch(next);
-});
-
-authRouter.post("/restore", (request, response, next) => {
-  postRestoreAccount(request, response).catch(next);
-});
-
-authRouter.delete("/account", (request, response, next) => {
+authRouter.delete("/", authRateLimit, (request, response, next) => {
   deleteAccount(request, response).catch(next);
 });
 
-authRouter.post("/refresh", (request, response, next) => {
-  postRefresh(request, response).catch(next);
-});
-
-authRouter.post("/oauth/exchange", (request, response, next) => {
-  postOAuthExchange(request, response).catch(next);
-});
-
-authRouter.post("/oauth/mobile-exchange", mobileOAuthPollRateLimit, (request, response, next) => {
-  postMobileOAuthExchange(request, response).catch(next);
-});
-
-authRouter.post("/logout", (request, response, next) => {
-  postLogout(request, response).catch(next);
-});
-
-authRouter.get("/me", (request, response, next) => {
-  getMe(request, response).catch(next);
-});
-
-authRouter.get("/sessions", (request, response, next) => {
-  getActiveSessions(request, response).catch(next);
-});
-
-authRouter.delete("/sessions/others", authRateLimit, (request, response, next) => {
-  deleteOtherSessions(request, response).catch(next);
-});
-
-authRouter.delete("/sessions/:sessionId", authRateLimit, (request, response, next) => {
-  deleteActiveSession(request, response).catch(next);
-});
-
 authRouter.get("/oauth/providers", getOAuthProviders);
-
-authRouter.get("/oauth/:provider/start", (request, response, next) => {
-  getOAuthStart(request, response).catch(next);
-});
-
-authRouter.get("/oauth/:provider/mobile-start", (request, response, next) => {
-  getMobileOAuthStart(request, response).catch(next);
-});
-
-authRouter.get("/oauth/:provider/callback", (request, response, next) => {
-  getOAuthCallback(request, response).catch(next);
-});

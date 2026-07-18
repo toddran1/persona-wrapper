@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, setAuthTokens } from "../lib/api.js";
+import { api } from "../lib/api.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -19,34 +19,14 @@ describe("web API authentication refresh", () => {
     localStorage.clear();
   });
 
-  it("refreshes an expired access token and retries the original request", async () => {
-    setAuthTokens({
-      accessToken: "expired-access",
-      refreshToken: "valid-refresh",
-      tokenType: "Bearer",
-      expiresAt: "2026-07-12T00:00:00.000Z",
-      refreshExpiresAt: "2026-08-12T00:00:00.000Z"
-    });
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ error: "Authentication token is invalid or expired." }, 401))
-      .mockResolvedValueOnce(jsonResponse({
-        user: { id: "user_1" },
-        session: { id: "session_1" },
-        tokens: {
-          accessToken: "fresh-access",
-          refreshToken: "fresh-refresh",
-          tokenType: "Bearer",
-          expiresAt: "2026-07-12T01:00:00.000Z",
-          refreshExpiresAt: "2026-08-12T00:00:00.000Z"
-        }
-      }))
-      .mockResolvedValueOnce(jsonResponse({ conversations: [] }));
+  it("uses the Better Auth cookie session for API requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ conversations: [] }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(api.listConversations()).resolves.toEqual([]);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock.mock.calls[1]?.[0]).toBe("http://localhost:4000/api/auth/refresh");
-    expect(new Headers(fetchMock.mock.calls[2]?.[1]?.headers).get("Authorization")).toBe("Bearer fresh-access");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.credentials).toBe("include");
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has("Authorization")).toBe(false);
   });
 
   it("preserves the API's authentication message when no refresh token exists", async () => {

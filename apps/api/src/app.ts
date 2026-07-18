@@ -8,6 +8,8 @@ import multer from "multer";
 import { ZodError } from "zod";
 import { apiContract } from "@persona/shared";
 import { createExpressEndpoints } from "@ts-rest/express";
+import { toNodeHandler } from "better-auth/node";
+import { auth } from "./auth.js";
 import { authenticateRequest } from "./middleware/authMiddleware.js";
 import { authRouter } from "./routes/auth.routes.js";
 import { chatRouter } from "./routes/chat.routes.js";
@@ -164,6 +166,7 @@ export function createApp() {
     // Keep it in the preflight allow-list or browsers reject requests before
     // they reach the API.
     allowedHeaders: ["Authorization", "Content-Type", "x-client-type", "x-owner-id", "x-client-trace-id"],
+    credentials: true,
     optionsSuccessStatus: 204
   };
   app.disable("x-powered-by");
@@ -211,6 +214,9 @@ export function createApp() {
   });
   app.use(cors(corsOptions));
   app.options("*", cors(corsOptions));
+  if (auth) {
+    app.all("/api/auth/*", toNodeHandler(auth));
+  }
   app.use("/api/data", authenticateRequest, requireAuthenticatedRequest, express.json({ limit: env.DATA_TRANSFER_MAX_BYTES }), dataTransferRouter);
   app.use(express.json({ limit: env.API_JSON_MAX_BYTES }));
   app.use(authenticateRequest);
@@ -236,7 +242,7 @@ export function createApp() {
       .catch(next);
   });
 
-  app.use("/api/auth", authRouter);
+  app.use("/api/account", authRouter);
   app.use("/api/observability", observabilityRouter);
   app.use("/api/chat", chatRouter);
   createExpressEndpoints(apiContract.personas, personaContractRouter, app);

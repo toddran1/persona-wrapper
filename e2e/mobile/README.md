@@ -2,7 +2,7 @@
 
 These Maestro flows drive the installed Android and iOS app, not a React Native mock.
 
-1. Start the API in explicit test mode using a LAN-reachable host and an isolated database. Set `APP_TEST_MODE=true`, `TTS_PROVIDER=local`, `AUTH_REQUIRED=true`, `DATABASE_URL` to a local database ending in `_e2e`, `OAUTH_REDIRECT_BASE_URL` to the API's LAN URL, and `WEB_APP_URL` to the web test URL. Test mode also forces the local speech provider as a server-side safeguard, so it must not use ElevenLabs.
+1. Start the API in explicit test mode using a LAN-reachable host and an isolated database. Set `APP_TEST_MODE=true`, `TTS_PROVIDER=local`, `AUTH_REQUIRED=true`, `DATABASE_URL` to a local database ending in `_e2e`, `BETTER_AUTH_URL` to the API's LAN URL, `BETTER_AUTH_SECRET` to a 32+ character test secret, and `WEB_APP_URL` to the web test URL. Test mode also forces the local speech provider as a server-side safeguard, so it must not use ElevenLabs.
 2. Build or run the mobile app with `EXPO_PUBLIC_API_URL` set to that same LAN API URL.
 3. Connect an Android device with USB debugging or boot an iOS simulator.
 4. Run `npm run test:e2e:mobile`.

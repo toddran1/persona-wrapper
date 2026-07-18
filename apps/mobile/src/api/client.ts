@@ -4,8 +4,8 @@ import { apiContract } from "@persona/shared";
 import { initClient } from "@ts-rest/core";
 import type {
   ActiveSession,
-  ActiveSessionsResponse,
-  AuthResponse,
+  AuthUser,
+  AuthSession,
   AccountDeletionResponse,
   ChatJobResponse,
   ChatResponse,
@@ -18,20 +18,19 @@ import type {
   ForTheBaddiezArchive,
   LoginRequest,
   MeResponse,
-  OAuthExchangeRequest,
   OAuthProvider,
   OAuthProviderStatus,
   PersonaDefinition,
   PersonaSummary,
   ProviderId,
-  RefreshAuthRequest,
   RegisterRequest,
   RevokeOtherSessionsResponse,
   RestoreAccountRequest,
   ToolOptions,
   UploadedAsset
 } from "@persona/shared";
-import { clearAuthTokens, getAuthTokens, getDeviceId, getOwnerId, setAuthTokens } from "../storage/secureTokens";
+import { getOwnerId } from "../storage/secureTokens";
+import { authClient } from "./authClient";
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL || Constants.expoConfig?.extra?.apiUrl;
 export const API_BASE_URL = String(configuredApiUrl || "http://localhost:4000").replace(/\/$/, "");
@@ -57,15 +56,6 @@ export type MobileUploadFile = {
 type MobileRegisterRequest = Omit<RegisterRequest, "clientType" | "deviceId">;
 type MobileLoginRequest = Omit<LoginRequest, "clientType" | "deviceId">;
 type MobileRestoreAccountRequest = Omit<RestoreAccountRequest, "clientType" | "deviceId">;
-type MobileOAuthExchangeRequest = Omit<OAuthExchangeRequest, "clientType" | "deviceId">;
-type MobileOAuthStartResponse = {
-  authorizationUrl: string;
-  exchangeCode: string;
-};
-type MobileOAuthPollResponse =
-  | { status: "pending" }
-  | { status: "complete"; auth: AuthResponse };
-
 type ApiErrorPayload = {
   error?: string;
   message?: string;
@@ -138,12 +128,9 @@ async function requestHeaders(includeJson: boolean, headers?: HeadersInit): Prom
     "x-client-type": clientType()
   };
   if (includeJson) next["Content-Type"] = "application/json";
-  const tokens = await getAuthTokens();
-  if (tokens?.accessToken) {
-    next.Authorization = `Bearer ${tokens.accessToken}`;
-  } else {
-    next["x-owner-id"] = await getOwnerId();
-  }
+  const cookie = authClient.getCookie();
+  if (cookie) next.Cookie = cookie;
+  next["x-owner-id"] = await getOwnerId();
   return { ...next, ...(headers as Record<string, string> | undefined ?? {}) };
 }
 
@@ -177,22 +164,46 @@ const contractClient = initClient(apiContract, {
 });
 
 async function performStoredAuthRefresh(): Promise<boolean> {
-  const refreshToken = (await getAuthTokens())?.refreshToken;
-  if (!refreshToken) return false;
   try {
-    const response = await requestJson<AuthResponse>("/api/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ refreshToken, clientType: clientType(), deviceId: await getDeviceId() })
-    }, { skipAuthRefresh: true });
-    await setAuthTokens(response.tokens);
-    return true;
-  } catch (error) {
-    if (error instanceof ApiResponseError && (error.status === 401 || error.status === 403)) {
-      await clearAuthTokens();
-      return false;
-    }
-    throw error;
+    return Boolean((await authClient.getSession()).data);
+  } catch {
+    return false;
   }
+}
+
+function authError(error: { message?: string | undefined } | null): Error {
+  return new Error(error?.message || "Authentication failed. Please try again.");
+}
+
+function toAuthUser(user: Record<string, unknown>): AuthUser {
+  const email = typeof user.email === "string" && !user.email.endsWith("@users.invalid") ? user.email : null;
+  return {
+    id: String(user.id),
+    email,
+    username: typeof user.username === "string" ? user.username : null,
+    displayName: typeof user.name === "string" ? user.name : null,
+    avatarUrl: typeof user.image === "string" ? user.image : null,
+    status: typeof user.status === "string" ? user.status : "active",
+    deletionRequestedAt: user.deletionRequestedAt ? new Date(user.deletionRequestedAt as string | Date).toISOString() : null,
+    deletionScheduledFor: user.deletionScheduledFor ? new Date(user.deletionScheduledFor as string | Date).toISOString() : null,
+    createdAt: new Date(user.createdAt as string | Date).toISOString(),
+    updatedAt: new Date(user.updatedAt as string | Date).toISOString()
+  };
+}
+
+function toAuthSession(session: Record<string, unknown>): AuthSession {
+  const value = session.clientType;
+  const sessionClientType = value === "web" || value === "desktop" || value === "ios" || value === "android" ? value : "unknown";
+  return {
+    id: String(session.id),
+    userId: String(session.userId),
+    clientType: sessionClientType,
+    expiresAt: new Date(session.expiresAt as string | Date).toISOString(),
+    createdAt: new Date(session.createdAt as string | Date).toISOString(),
+    updatedAt: new Date(session.updatedAt as string | Date).toISOString(),
+    userAgent: typeof session.userAgent === "string" ? session.userAgent : null,
+    ipAddress: typeof session.ipAddress === "string" ? session.ipAddress : null
+  };
 }
 
 async function refreshStoredAuth(): Promise<boolean> {
@@ -272,7 +283,6 @@ async function requestNoContent(
 export const api = {
   resolveUrl: (pathOrUrl: string): string => pathOrUrl.startsWith("/") ? `${API_BASE_URL}${pathOrUrl}` : pathOrUrl,
   mediaHeaders: (): Promise<Record<string, string>> => requestHeaders(false),
-  getDeviceId,
   uploadFiles: async (
     files: MobileUploadFile[],
     options?: { skipAuthRefresh?: boolean; signal?: AbortSignal }
@@ -318,103 +328,88 @@ export const api = {
       timeout.dispose();
     }
   },
-  oauthStartUrl: async (provider: OAuthProvider, returnUrl?: string): Promise<string> => {
-    const url = new URL(`/api/auth/oauth/${provider}/start`, API_BASE_URL);
-    url.searchParams.set("clientType", clientType());
-    url.searchParams.set("deviceId", await getDeviceId());
-    if (returnUrl) url.searchParams.set("returnUrl", returnUrl);
-    return url.toString();
-  },
-  startMobileOAuth: async (provider: OAuthProvider, returnUrl: string): Promise<MobileOAuthStartResponse> => {
-    const url = new URL(`/api/auth/oauth/${provider}/mobile-start`, API_BASE_URL);
-    url.searchParams.set("clientType", clientType());
-    url.searchParams.set("deviceId", await getDeviceId());
-    url.searchParams.set("returnUrl", returnUrl);
-    return requestJson<MobileOAuthStartResponse>(`${url.pathname}${url.search}`, { method: "GET" }, { skipAuthRefresh: true });
-  },
-  register: async (payload: MobileRegisterRequest): Promise<AuthResponse> => {
-    const response = await requestJson<AuthResponse>("/api/auth/register", {
-      method: "POST",
-      body: JSON.stringify({ ...payload, clientType: clientType(), deviceId: await getDeviceId() })
+  register: async (payload: MobileRegisterRequest): Promise<{ user: AuthUser }> => {
+    const email = payload.email?.trim().toLowerCase() ?? `${payload.username?.trim().toLowerCase()}@users.invalid`;
+    const result = await authClient.signUp.email({
+      email,
+      password: payload.password,
+      name: payload.displayName?.trim() || payload.username?.trim() || email,
+      ...(payload.username ? { username: payload.username, displayUsername: payload.username } : {})
     });
-    await setAuthTokens(response.tokens);
-    return response;
+    if (result.error || !result.data?.user) throw authError(result.error);
+    return { user: toAuthUser(result.data.user as unknown as Record<string, unknown>) };
   },
-  login: async (payload: MobileLoginRequest): Promise<AuthResponse> => {
-    const response = await requestJson<AuthResponse>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ ...payload, clientType: clientType(), deviceId: await getDeviceId() })
-    });
-    await setAuthTokens(response.tokens);
-    return response;
+  login: async (payload: MobileLoginRequest): Promise<{ user: AuthUser }> => {
+    const identifier = payload.identifier.trim().toLowerCase();
+    const result = identifier.includes("@")
+      ? await authClient.signIn.email({ email: identifier, password: payload.password })
+      : await authClient.signIn.username({ username: identifier, password: payload.password });
+    if (result.error || !result.data?.user) throw authError(result.error);
+    return { user: toAuthUser(result.data.user as unknown as Record<string, unknown>) };
   },
-  restoreAccount: async (payload: MobileRestoreAccountRequest): Promise<AuthResponse> => {
-    const response = await requestJson<AuthResponse>("/api/auth/restore", {
+  restoreAccount: async (payload: MobileRestoreAccountRequest): Promise<{ user: AuthUser }> => {
+    await requestJson<{ restored: true }>("/api/account/restore", {
       method: "POST",
-      body: JSON.stringify({ ...payload, clientType: clientType(), deviceId: await getDeviceId() })
+      body: JSON.stringify(payload)
     }, { skipAuthRefresh: true });
-    await setAuthTokens(response.tokens);
-    return response;
+    return api.login(payload);
   },
   deleteAccount: async (payload: { confirmation: "DELETE"; password?: string }): Promise<AccountDeletionResponse> => {
-    const response = await requestJson<AccountDeletionResponse>("/api/auth/account", {
+    const response = await requestJson<AccountDeletionResponse>("/api/account", {
       method: "DELETE",
       body: JSON.stringify(payload)
     });
-    await clearAuthTokens();
-    return response;
-  },
-  exchangeOAuthCode: async (payload: MobileOAuthExchangeRequest): Promise<AuthResponse> => {
-    const response = await requestJson<AuthResponse>("/api/auth/oauth/exchange", {
-      method: "POST",
-      body: JSON.stringify({ ...payload, clientType: clientType(), deviceId: await getDeviceId() })
-    }, { skipAuthRefresh: true });
-    await setAuthTokens(response.tokens);
-    return response;
-  },
-  pollMobileOAuthCode: async (payload: MobileOAuthExchangeRequest): Promise<AuthResponse | undefined> => {
-    const response = await requestJson<MobileOAuthPollResponse>("/api/auth/oauth/mobile-exchange", {
-      method: "POST",
-      body: JSON.stringify({ ...payload, clientType: clientType(), deviceId: await getDeviceId() })
-    }, { skipAuthRefresh: true });
-    if (response.status === "pending") return undefined;
-    await setAuthTokens(response.auth.tokens);
-    return response.auth;
-  },
-  refreshAuth: async (payload?: Partial<RefreshAuthRequest>): Promise<AuthResponse> => {
-    const refreshToken = payload?.refreshToken ?? (await getAuthTokens())?.refreshToken;
-    if (!refreshToken) throw new Error("No refresh token available.");
-    const response = await requestJson<AuthResponse>("/api/auth/refresh", {
-      method: "POST",
-      body: JSON.stringify({ clientType: clientType(), deviceId: await getDeviceId(), ...payload, refreshToken })
-    }, { skipAuthRefresh: true });
-    await setAuthTokens(response.tokens);
+    await authClient.signOut();
     return response;
   },
   logout: async (): Promise<void> => {
-    const refreshToken = (await getAuthTokens())?.refreshToken;
-    try {
-      await requestNoContent("/api/auth/logout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(refreshToken ? { refreshToken } : {})
-      });
-    } finally {
-      await clearAuthTokens();
-    }
+    const result = await authClient.signOut();
+    if (result.error) throw authError(result.error);
   },
-  getCurrentUser: (): Promise<MeResponse> => requestJson<MeResponse>("/api/auth/me"),
+  getCurrentUser: async (): Promise<MeResponse> => {
+    const result = await authClient.getSession();
+    if (result.error || !result.data?.user) throw authError(result.error ?? { message: "Not authenticated." });
+    return {
+      user: toAuthUser(result.data.user as unknown as Record<string, unknown>),
+      session: toAuthSession(result.data.session as unknown as Record<string, unknown>)
+    };
+  },
   listActiveSessions: async (): Promise<ActiveSession[]> => {
-    const payload = await requestJson<ActiveSessionsResponse>("/api/auth/sessions");
-    return payload.sessions;
+    const [sessionsResult, currentResult] = await Promise.all([authClient.listSessions(), authClient.getSession()]);
+    if (sessionsResult.error) throw authError(sessionsResult.error);
+    return (sessionsResult.data ?? []).map((value) => {
+      const session = value as unknown as Record<string, unknown>;
+      return {
+        id: String(session.token),
+        clientType: "unknown",
+        deviceId: null,
+        userAgent: typeof session.userAgent === "string" ? session.userAgent : null,
+        createdAt: new Date(session.createdAt as string | Date).toISOString(),
+        lastActiveAt: new Date(session.updatedAt as string | Date).toISOString(),
+        refreshExpiresAt: new Date(session.expiresAt as string | Date).toISOString(),
+        current: session.id === currentResult.data?.session.id
+      };
+    });
   },
-  revokeActiveSession: (sessionId: string): Promise<void> =>
-    requestNoContent(`/api/auth/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }),
-  revokeOtherSessions: (): Promise<RevokeOtherSessionsResponse> =>
-    requestJson<RevokeOtherSessionsResponse>("/api/auth/sessions/others", { method: "DELETE" }),
+  revokeActiveSession: async (sessionToken: string): Promise<void> => {
+    const result = await authClient.revokeSession({ token: sessionToken });
+    if (result.error) throw authError(result.error);
+  },
+  revokeOtherSessions: async (): Promise<RevokeOtherSessionsResponse> => {
+    const result = await authClient.revokeOtherSessions();
+    if (result.error) throw authError(result.error);
+    return { revoked: 0 };
+  },
   getOAuthProviders: async (): Promise<OAuthProviderStatus[]> => {
-    const payload = await requestJson<{ providers: OAuthProviderStatus[] }>("/api/auth/oauth/providers");
+    const payload = await requestJson<{ providers: OAuthProviderStatus[] }>("/api/account/oauth/providers");
     return payload.providers;
+  },
+  oauthLogin: async (provider: OAuthProvider): Promise<{ user: AuthUser }> => {
+    const result = await authClient.signIn.social({ provider, callbackURL: "/" });
+    if (result.error) throw authError(result.error);
+    const session = await authClient.getSession();
+    if (session.error || !session.data?.user) throw authError(session.error ?? { message: "OAuth sign in did not complete." });
+    return { user: toAuthUser(session.data.user as unknown as Record<string, unknown>) };
   },
   getPersonas: async (): Promise<PersonaSummary[]> => {
     const response = await contractClient.personas.list();
