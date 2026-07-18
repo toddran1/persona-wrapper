@@ -352,16 +352,19 @@ export function App() {
       } catch {
         if (!cancelled) {
           setAuthUser(undefined);
+          clearAccountConversationState();
         }
       } finally {
         if (!cancelled) {
           setAuthLoading(false);
           const selectedConversationId = authenticated ? storedConversationId() : undefined;
           if (!selectedConversationId) setConversationId(undefined);
-          void (async () => {
-            await refreshConversationList(selectedConversationId, true);
-            if (selectedConversationId) await loadConversation(selectedConversationId);
-          })();
+          if (authenticated) {
+            void (async () => {
+              await refreshConversationList(selectedConversationId, true);
+              if (selectedConversationId) await loadConversation(selectedConversationId);
+            })();
+          }
         }
       }
     })();
@@ -578,6 +581,13 @@ export function App() {
     } finally {
       setConversationListLoading(false);
     }
+  }
+
+  function clearAccountConversationState(): void {
+    queryClient.removeQueries({ queryKey: ["conversations"] });
+    queryClient.removeQueries({ queryKey: ["conversation-turns"] });
+    setConversationList([]);
+    setConversationListCursor(null);
   }
 
   async function loadConversation(nextConversationId: string): Promise<void> {
@@ -1054,7 +1064,7 @@ export function App() {
       const result = await api.deleteAccount(payload);
       setAuthUser(undefined);
       resetConversation();
-      await refreshConversationList(undefined, true);
+      clearAccountConversationState();
       setAuthError(`Account deletion is scheduled for ${new Date(result.deletionScheduledFor).toLocaleDateString()}. Restore it before then to keep your data.`);
     } catch (deleteError) {
       setAuthError(deleteError instanceof Error ? deleteError.message : "Could not schedule account deletion.");
@@ -1102,7 +1112,7 @@ export function App() {
     } finally {
       setAuthUser(undefined);
       resetConversation();
-      await refreshConversationList(undefined, true);
+      clearAccountConversationState();
       setAuthLoading(false);
     }
   }
