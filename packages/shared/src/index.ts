@@ -817,7 +817,7 @@ export const apiContract = contract.router({
       path: "/api/uploads/:id/complete",
       pathParams: z.object({ id: z.string().min(1) }),
       body: contract.noBody(),
-      responses: { 200: z.object({ asset: uploadedAssetSchema }), 404: apiErrorSchema }
+      responses: { 200: z.object({ asset: uploadedAssetSchema }), 400: apiErrorSchema, 404: apiErrorSchema, 409: apiErrorSchema }
     },
     remove: {
       method: "DELETE",

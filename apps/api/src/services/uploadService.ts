@@ -4,11 +4,12 @@ import { basename, extname } from "node:path";
 import OpenAI, { toFile } from "openai";
 import { fileTypeFromBuffer } from "file-type";
 import type { UploadedAsset } from "@persona/shared";
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, lte, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { uploads, vectorStores } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
+import { logger } from "../utils/logger.js";
 import { storageService } from "./storageService.js";
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
@@ -82,8 +83,30 @@ export class UploadService {
       where: and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))
     });
     if (!row || !row.storageKey) throw new HttpError("Upload not found.", 404);
-    if (row.metadata.uploadStatus !== "pending") return this.publicAsset(this.assetFromDatabase(row));
+    if (row.metadata.uploadStatus === "ready") return this.publicAsset(this.assetFromDatabase(row));
+    if (row.metadata.uploadStatus !== "pending") {
+      throw new HttpError("Upload is already being processed.", 409);
+    }
 
+    const [claimed] = await db.update(uploads).set({
+      metadata: { ...row.metadata, uploadStatus: "processing" },
+      updatedAt: new Date()
+    }).where(and(
+      eq(uploads.id, id),
+      eq(uploads.ownerId, ownerId),
+      sql`${uploads.metadata}->>'uploadStatus' = 'pending'`
+    )).returning({ id: uploads.id });
+    if (!claimed) {
+      const current = await db.query.uploads.findFirst({
+        where: and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))
+      });
+      if (current?.metadata.uploadStatus === "ready") {
+        return this.publicAsset(this.assetFromDatabase(current));
+      }
+      throw new HttpError("Upload is already being processed.", 409);
+    }
+
+    let openaiFileId: string | undefined;
     try {
       const object = await storageService.head(row.storageKey);
       if (object.sizeBytes !== row.sizeBytes || (object.mimeType && object.mimeType !== row.mimeType)) {
@@ -91,7 +114,7 @@ export class UploadService {
       }
       const { buffer } = await storageService.get(row.storageKey);
       await validateUploadBuffer(buffer, row.fileName, row.mimeType, row.sizeBytes);
-      const openaiFileId = await uploadBufferToOpenAI(buffer, row.fileName, row.mimeType);
+      openaiFileId = await uploadBufferToOpenAI(buffer, row.fileName, row.mimeType);
       await db.update(uploads).set({
         openaiFileId,
         metadata: { ...row.metadata, uploadStatus: "ready" },
@@ -104,8 +127,18 @@ export class UploadService {
         updatedAt: new Date()
       }));
     } catch (error) {
-      await db.delete(uploads).where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))).catch(() => undefined);
-      await storageService.delete(row.storageKey).catch(() => undefined);
+      const cleanupTasks: Promise<unknown>[] = [
+        db.delete(uploads).where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))),
+        storageService.delete(row.storageKey)
+      ];
+      if (openaiFileId && env.OPENAI_API_KEY) {
+        cleanupTasks.push(new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS }).files.delete(openaiFileId));
+      }
+      const cleanup = await Promise.allSettled(cleanupTasks);
+      const cleanupFailures = cleanup.filter((result) => result.status === "rejected").length;
+      if (cleanupFailures > 0) {
+        logger.warn("Failed to fully clean up a rejected direct upload", { assetId: id, cleanupFailures });
+      }
       throw error;
     }
   }
@@ -156,23 +189,32 @@ export class UploadService {
       ...(stored.localPath ? { localPath: stored.localPath } : {}),
       storageKey: stored.storageKey
     };
-    const db = getDatabase();
-    if (db) {
-      await db.insert(uploads).values({
-        id,
-        ownerId,
-        kind: asset.kind,
-        fileName: asset.fileName,
-        mimeType: asset.mimeType,
-        sizeBytes: asset.sizeBytes,
-        ...(stored.localPath ? { localPath: stored.localPath } : {}),
-        storageKey: stored.storageKey,
-        publicUrl: asset.url,
-        openaiFileId,
-        expiresAt: new Date(expiresAt)
-      });
-    } else {
-      this.assets.set(id, asset);
+    try {
+      const db = getDatabase();
+      if (db) {
+        await db.insert(uploads).values({
+          id,
+          ownerId,
+          kind: asset.kind,
+          fileName: asset.fileName,
+          mimeType: asset.mimeType,
+          sizeBytes: asset.sizeBytes,
+          ...(stored.localPath ? { localPath: stored.localPath } : {}),
+          storageKey: stored.storageKey,
+          publicUrl: asset.url,
+          openaiFileId,
+          expiresAt: new Date(expiresAt)
+        });
+      } else {
+        this.assets.set(id, asset);
+      }
+    } catch (error) {
+      const cleanupTasks: Promise<unknown>[] = [storageService.delete(stored.storageKey)];
+      if (openaiFileId && env.OPENAI_API_KEY) {
+        cleanupTasks.push(new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS }).files.delete(openaiFileId));
+      }
+      await Promise.allSettled(cleanupTasks);
+      throw error;
     }
     return this.publicAsset(asset);
   }
@@ -248,16 +290,16 @@ export class UploadService {
       ? await this.getFromDatabaseIncludingPending(ownerId, id)
       : this.assets.get(id);
     if (!asset || asset.ownerId !== ownerId) throw new HttpError("Upload not found.", 404);
+    if (asset.storageKey) await storageService.delete(asset.storageKey);
+    else if (asset.localPath) rmSync(asset.localPath, { force: true });
+    if (asset.openaiFileId && env.OPENAI_API_KEY) {
+      const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
+      await ignoreRemoteNotFound(client.files.delete(asset.openaiFileId));
+    }
     if (db) {
       await db.delete(uploads).where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId)));
     } else {
       this.assets.delete(id);
-    }
-    if (asset.storageKey) await storageService.delete(asset.storageKey).catch(() => undefined);
-    else if (asset.localPath) rmSync(asset.localPath, { force: true });
-    if (asset.openaiFileId && env.OPENAI_API_KEY) {
-      const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-      await client.files.delete(asset.openaiFileId).catch(() => undefined);
     }
   }
 
@@ -267,14 +309,14 @@ export class UploadService {
       ? await db.query.vectorStores.findFirst({ where: and(eq(vectorStores.id, id), eq(vectorStores.ownerId, ownerId)) })
       : this.vectorStores.get(id);
     if (!vectorStore || vectorStore.ownerId !== ownerId) throw new HttpError("Vector store not found.", 404);
+    if (env.OPENAI_API_KEY) {
+      const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
+      await ignoreRemoteNotFound(client.vectorStores.delete(id));
+    }
     if (db) {
       await db.delete(vectorStores).where(and(eq(vectorStores.id, id), eq(vectorStores.ownerId, ownerId)));
     } else {
       this.vectorStores.delete(id);
-    }
-    if (env.OPENAI_API_KEY) {
-      const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
-      await client.vectorStores.delete(id).catch(() => undefined);
     }
   }
 
@@ -293,15 +335,25 @@ export class UploadService {
     });
     const expiresAt = new Date((vectorStore.expires_at ?? Math.floor(Date.now() / 1000) + 86400) * 1000).toISOString();
     const db = getDatabase();
-    if (db) {
-      await db.insert(vectorStores).values({
-        id: vectorStore.id,
-        ownerId,
-        name: vectorStore.name ?? name,
-        expiresAt: new Date(expiresAt)
+    try {
+      if (db) {
+        await db.insert(vectorStores).values({
+          id: vectorStore.id,
+          ownerId,
+          name: vectorStore.name ?? name,
+          expiresAt: new Date(expiresAt)
+        });
+      } else {
+        this.vectorStores.set(vectorStore.id, { id: vectorStore.id, ownerId, expiresAt });
+      }
+    } catch (error) {
+      await ignoreRemoteNotFound(client.vectorStores.delete(vectorStore.id)).catch((cleanupError) => {
+        logger.warn("Failed to clean up an untracked vector store", {
+          vectorStoreId: vectorStore.id,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+        });
       });
-    } else {
-      this.vectorStores.set(vectorStore.id, { id: vectorStore.id, ownerId, expiresAt });
+      throw error;
     }
     return { id: vectorStore.id, expiresAt };
   }
@@ -324,18 +376,26 @@ export class UploadService {
       const now = new Date();
       const expiredAssets = await db.select().from(uploads).where(lte(uploads.expiresAt, now));
       const expiredVectorStores = await db.select().from(vectorStores).where(lte(vectorStores.expiresAt, now));
-      if (expiredAssets.length > 0) await db.delete(uploads).where(lte(uploads.expiresAt, now));
-      if (expiredVectorStores.length > 0) await db.delete(vectorStores).where(lte(vectorStores.expiresAt, now));
+      const client = deleteRemote && env.OPENAI_API_KEY
+        ? new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS })
+        : undefined;
       for (const asset of expiredAssets) {
-        if (asset.storageKey) await storageService.delete(asset.storageKey).catch(() => undefined);
-        else if (asset.localPath) rmSync(asset.localPath, { force: true });
+        try {
+          if (asset.storageKey) await storageService.delete(asset.storageKey);
+          else if (asset.localPath) rmSync(asset.localPath, { force: true });
+          if (client && asset.openaiFileId) await ignoreRemoteNotFound(client.files.delete(asset.openaiFileId));
+          await db.delete(uploads).where(eq(uploads.id, asset.id));
+        } catch (error) {
+          logger.warn("Expired upload cleanup will be retried", { assetId: asset.id, error: error instanceof Error ? error.message : String(error) });
+        }
       }
-      if (deleteRemote && env.OPENAI_API_KEY) {
-        const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
-        await Promise.all([
-          ...expiredAssets.flatMap((asset) => asset.openaiFileId ? [client.files.delete(asset.openaiFileId).catch(() => undefined)] : []),
-          ...expiredVectorStores.map((store) => client.vectorStores.delete(store.id).catch(() => undefined))
-        ]);
+      for (const store of expiredVectorStores) {
+        try {
+          if (client) await ignoreRemoteNotFound(client.vectorStores.delete(store.id));
+          await db.delete(vectorStores).where(eq(vectorStores.id, store.id));
+        } catch (error) {
+          logger.warn("Expired vector store cleanup will be retried", { vectorStoreId: store.id, error: error instanceof Error ? error.message : String(error) });
+        }
       }
       return;
     }
@@ -344,35 +404,29 @@ export class UploadService {
     const client = env.OPENAI_API_KEY ? new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS }) : undefined;
     for (const asset of this.assets.values()) {
       if (new Date(asset.expiresAt ?? 0).getTime() > now) continue;
-      this.assets.delete(asset.id);
-      if (asset.storageKey) await storageService.delete(asset.storageKey).catch(() => undefined);
-      else if (asset.localPath) rmSync(asset.localPath, { force: true });
-      if (deleteRemote && client && asset.openaiFileId) void client.files.delete(asset.openaiFileId).catch(() => undefined);
+      try {
+        if (asset.storageKey) await storageService.delete(asset.storageKey);
+        else if (asset.localPath) rmSync(asset.localPath, { force: true });
+        if (deleteRemote && client && asset.openaiFileId) await ignoreRemoteNotFound(client.files.delete(asset.openaiFileId));
+        this.assets.delete(asset.id);
+      } catch (error) {
+        logger.warn("Expired in-memory upload cleanup will be retried", { assetId: asset.id, error: error instanceof Error ? error.message : String(error) });
+      }
     }
     for (const vectorStore of this.vectorStores.values()) {
       if (new Date(vectorStore.expiresAt).getTime() <= now) {
-        this.vectorStores.delete(vectorStore.id);
-        if (deleteRemote && client) void client.vectorStores.delete(vectorStore.id).catch(() => undefined);
+        try {
+          if (deleteRemote && client) await ignoreRemoteNotFound(client.vectorStores.delete(vectorStore.id));
+          this.vectorStores.delete(vectorStore.id);
+        } catch (error) {
+          logger.warn("Expired in-memory vector store cleanup will be retried", { vectorStoreId: vectorStore.id, error: error instanceof Error ? error.message : String(error) });
+        }
       }
     }
   }
 
   private async cleanupExpiredRemote(): Promise<void> {
-    if (getDatabase()) {
-      await this.cleanupExpired(true);
-      return;
-    }
-
-    const now = Date.now();
-    const expiredAssets = [...this.assets.values()].filter((asset) => new Date(asset.expiresAt ?? 0).getTime() <= now);
-    const expiredVectorStores = [...this.vectorStores.values()].filter((store) => new Date(store.expiresAt).getTime() <= now);
-    await this.cleanupExpired(false);
-    if (!env.OPENAI_API_KEY) return;
-    const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
-    await Promise.all([
-      ...expiredAssets.flatMap((asset) => asset.openaiFileId ? [client.files.delete(asset.openaiFileId).catch(() => undefined)] : []),
-      ...expiredVectorStores.map((store) => client.vectorStores.delete(store.id).catch(() => undefined))
-    ]);
+    await this.cleanupExpired(true);
   }
 
   private async cleanupOrphanedDiskFiles(): Promise<void> {
@@ -439,6 +493,16 @@ export class UploadService {
       ...(row.localPath ? { localPath: row.localPath } : {}),
       ...(row.storageKey ? { storageKey: row.storageKey } : {})
     };
+  }
+}
+
+async function ignoreRemoteNotFound<T>(operation: Promise<T>): Promise<T | undefined> {
+  try {
+    return await operation;
+  } catch (error) {
+    const status = typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
+    if (status === 404) return undefined;
+    throw error;
   }
 }
 

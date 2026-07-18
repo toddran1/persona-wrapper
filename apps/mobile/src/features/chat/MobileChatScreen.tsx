@@ -793,10 +793,6 @@ export function MobileChatScreen() {
     return "audio";
   }
 
-  function shouldFetchMediaWithAuth(url: string, resolvedUrl: string): boolean {
-    return url.startsWith("/api/") || resolvedUrl.includes("/api/");
-  }
-
   async function releaseCurrentAudioPlayback(): Promise<void> {
     audioPlaybackGenerationRef.current += 1;
     const player = audioPlaybackRef.current;
@@ -825,8 +821,12 @@ export function MobileChatScreen() {
     if (!FileSystem.cacheDirectory) return audioUrl;
 
     const destination = `${FileSystem.cacheDirectory}persona-audio-${Date.now()}.${audioFileExtension(output.mimeType)}`;
-    const downloadOptions = shouldFetchMediaWithAuth(output.url, audioUrl) ? { headers: await api.mediaHeaders() } : undefined;
+    const downloadOptions = api.isProtectedMediaUrl(output.url) ? { headers: await api.mediaHeaders() } : undefined;
     const result = await FileSystem.downloadAsync(audioUrl, destination, downloadOptions);
+    if (result.status < 200 || result.status >= 300) {
+      await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
+      throw new Error(`Audio download failed with status ${result.status}.`);
+    }
     const info = await FileSystem.getInfoAsync(result.uri);
     if (!info.exists || info.size === 0) {
       await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);

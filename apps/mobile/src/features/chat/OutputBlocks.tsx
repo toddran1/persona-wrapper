@@ -39,6 +39,13 @@ function showOpenError(error: unknown): void {
   Alert.alert("Open failed", error instanceof Error ? error.message : "Could not open this link.");
 }
 
+function assertSuccessfulDownload(result: FileSystem.FileSystemDownloadResult): void {
+  if (result.status < 200 || result.status >= 300) {
+    void FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
+    throw new Error(`The download failed with status ${result.status}.`);
+  }
+}
+
 export function OutputBlocks({ outputs, theme, onAction }: OutputBlocksProps) {
   const hasFileOutput = outputs.some((output) => output.type === "file");
   const visible = outputs.filter((output) =>
@@ -309,9 +316,13 @@ function OutputBlock({
       if (!FileSystem.cacheDirectory) throw new Error("File downloads are unavailable on this device.");
       const safeFileName = output.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
       const destination = `${FileSystem.cacheDirectory}download-${Date.now().toString(36)}-${safeFileName}`;
-      const result = await FileSystem.downloadAsync(api.resolveUrl(output.url), destination, {
-        headers: await api.mediaHeaders()
-      });
+      const resolvedUrl = api.resolveUrl(output.url);
+      const result = await FileSystem.downloadAsync(
+        resolvedUrl,
+        destination,
+        api.isProtectedMediaUrl(output.url) ? { headers: await api.mediaHeaders() } : undefined
+      );
+      assertSuccessfulDownload(result);
       if (!await Sharing.isAvailableAsync()) {
         throw new Error("No compatible app is available to save or open this file.");
       }
@@ -381,7 +392,7 @@ function ImageOutputBlock({
   const cacheKeyRef = useRef(`persona-image-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`);
   const imageUrl = api.resolveUrl(output.url);
   const promptText = output.prompt ?? output.alt;
-  const usesProtectedFetch = shouldFetchWithAuth(output.url);
+  const usesProtectedFetch = api.isProtectedMediaUrl(output.url);
   const displayImageUri = usesProtectedFetch ? localImageUri : imageUrl;
 
   useEffect(() => {
@@ -398,6 +409,7 @@ function ImageOutputBlock({
         const result = await FileSystem.downloadAsync(imageUrl, destination, {
           headers: await api.mediaHeaders()
         });
+        assertSuccessfulDownload(result);
         downloadedUri = result.uri;
         if (!cancelled) setLocalImageUri(result.uri);
       } catch (loadError) {
@@ -414,10 +426,6 @@ function ImageOutputBlock({
       if (downloadedUri) void FileSystem.deleteAsync(downloadedUri, { idempotent: true }).catch(() => undefined);
     };
   }, [imageUrl, output.url, usesProtectedFetch]);
-
-  function shouldFetchWithAuth(url: string): boolean {
-    return url.startsWith("/api/") || imageUrl.includes("/api/");
-  }
 
   function extensionForMimeType(mimeType?: string): string {
     if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "jpg";
@@ -468,8 +476,9 @@ function ImageOutputBlock({
         await MediaLibrary.saveToLibraryAsync(localImageUri);
       } else {
         const destination = `${FileSystem.cacheDirectory}download-${Date.now().toString(36)}-${fileNameFromUrl(imageUrl, output.mimeType)}`;
-        const downloadOptions = shouldFetchWithAuth(output.url) ? { headers: await api.mediaHeaders() } : undefined;
+        const downloadOptions = api.isProtectedMediaUrl(output.url) ? { headers: await api.mediaHeaders() } : undefined;
         const result = await FileSystem.downloadAsync(imageUrl, destination, downloadOptions);
+        assertSuccessfulDownload(result);
         temporaryUri = result.uri;
         await MediaLibrary.saveToLibraryAsync(result.uri);
       }

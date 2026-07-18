@@ -41,17 +41,22 @@ export class BackgroundCleanupService {
     if (this.running) return;
     this.running = true;
     try {
-      await Promise.all([
-        uploadService.cleanupExpiredNow(),
-        generatedMediaService.cleanupExpiredNow(),
-        generatedAudioService.cleanupExpiredNow(),
-        openAIArtifactService.cleanupExpiredNow(),
-        usageControlService.cleanupExpiredNow(),
-        accountDeletionService.purgeDueAccounts()
-      ]);
-    } catch (error) {
-      logger.warn("Storage cleanup job failed", {
-        error: error instanceof Error ? error.message : String(error)
+      const tasks = [
+        ["uploads", uploadService.cleanupExpiredNow()],
+        ["generated media", generatedMediaService.cleanupExpiredNow()],
+        ["generated audio", generatedAudioService.cleanupExpiredNow()],
+        ["OpenAI artifacts", openAIArtifactService.cleanupExpiredNow()],
+        ["usage reservations", usageControlService.cleanupExpiredNow()],
+        ["scheduled accounts", accountDeletionService.purgeDueAccounts()]
+      ] as const;
+      const results = await Promise.allSettled(tasks.map(([, task]) => task));
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          logger.warn("Storage cleanup task failed", {
+            task: tasks[index]?.[0] ?? "unknown",
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason)
+          });
+        }
       });
     } finally {
       this.running = false;

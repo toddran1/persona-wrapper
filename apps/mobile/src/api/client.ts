@@ -85,6 +85,7 @@ function isServerResponseError(error: unknown): boolean {
 let authRefreshInFlight: Promise<boolean> | undefined;
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 const UPLOAD_REQUEST_TIMEOUT_MS = 90_000;
+const CHAT_REQUEST_TIMEOUT_MS = 130_000;
 
 type RequestTimeout = {
   signal: AbortSignal;
@@ -114,6 +115,18 @@ function createRequestTimeout(externalSignal: AbortSignal | null | undefined, ti
       externalSignal?.removeEventListener("abort", abortFromCaller);
     }
   };
+}
+
+function contractTimeoutMs(path: string, method: string): number {
+  try {
+    const pathname = new URL(path, API_BASE_URL).pathname;
+    if (method.toUpperCase() === "POST" && pathname === "/api/chat") return CHAT_REQUEST_TIMEOUT_MS;
+    if (pathname.startsWith("/api/data/") || pathname.includes("/complete")) return UPLOAD_REQUEST_TIMEOUT_MS;
+  } catch {
+    // Use the conservative default for malformed paths; fetch will report the
+    // actionable URL error.
+  }
+  return DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
 async function parseApiError(response: Response): Promise<ApiResponseError> {
@@ -146,7 +159,7 @@ const contractClient = initClient(apiContract, {
   baseUrl: API_BASE_URL,
   baseHeaders: {},
   api: async ({ path, method, headers, body, fetchOptions }) => {
-    const timeout = createRequestTimeout(fetchOptions?.signal, DEFAULT_REQUEST_TIMEOUT_MS);
+    const timeout = createRequestTimeout(fetchOptions?.signal, contractTimeoutMs(path, method));
     try {
       const requestInit = {
         ...fetchOptions,
@@ -241,38 +254,64 @@ function rethrowAbort(error: unknown): void {
 
 export const api = {
   resolveUrl: (pathOrUrl: string): string => pathOrUrl.startsWith("/") ? `${API_BASE_URL}${pathOrUrl}` : pathOrUrl,
+  isProtectedMediaUrl: (pathOrUrl: string): boolean => {
+    if (pathOrUrl.startsWith("/api/")) return true;
+    try {
+      const candidate = new URL(pathOrUrl);
+      const apiBase = new URL(API_BASE_URL);
+      return candidate.origin === apiBase.origin && candidate.pathname.startsWith("/api/");
+    } catch {
+      return false;
+    }
+  },
   mediaHeaders: (): Promise<Record<string, string>> => requestHeaders(false),
   uploadFiles: async (
     files: MobileUploadFile[],
     options?: { skipAuthRefresh?: boolean; signal?: AbortSignal }
   ): Promise<UploadedAsset[]> => {
+    const issuedAssetIds: string[] = [];
     try {
-      return await Promise.all(files.map(async (file) => {
-        const source = await fetch(file.uri, options?.signal ? { signal: options.signal } : undefined);
-        if (!source.ok) throw new Error("Could not read the selected file.");
-        const blob = await source.blob();
+      const assets: UploadedAsset[] = [];
+      for (const file of files) {
+        const sourceTimeout = createRequestTimeout(options?.signal, UPLOAD_REQUEST_TIMEOUT_MS);
+        let blob: Blob;
+        try {
+          const source = await fetch(file.uri, { signal: sourceTimeout.signal });
+          if (!source.ok) throw new Error("Could not read the selected file.");
+          blob = await source.blob();
+        } finally {
+          sourceTimeout.dispose();
+        }
         const presigned = await contractClient.uploads.presign({
           body: { fileName: file.name, mimeType: file.mimeType, sizeBytes: blob.size },
           ...(options?.signal ? { fetchOptions: { signal: options.signal } } : {})
         });
         if (presigned.status === 409) throw new Error("DIRECT_UPLOAD_UNAVAILABLE");
-        if (presigned.status !== 201) throw new Error("Could not prepare this upload.");
-        const uploaded = await fetch(presigned.body.uploadUrl, {
-          method: "PUT",
-          headers: presigned.body.headers,
-          body: blob,
-          ...(options?.signal ? { signal: options.signal } : {})
-        });
-        if (!uploaded.ok) throw new Error("The storage service rejected this upload.");
+        if (presigned.status !== 201) throw contractError(presigned.body, "Could not prepare this upload.");
+        issuedAssetIds.push(presigned.body.assetId);
+        const uploadTimeout = createRequestTimeout(options?.signal, UPLOAD_REQUEST_TIMEOUT_MS);
+        try {
+          const uploaded = await fetch(presigned.body.uploadUrl, {
+            method: "PUT",
+            headers: presigned.body.headers,
+            body: blob,
+            signal: uploadTimeout.signal
+          });
+          if (!uploaded.ok) throw new Error("The storage service rejected this upload.");
+        } finally {
+          uploadTimeout.dispose();
+        }
         const completed = await contractClient.uploads.complete({
           params: { id: presigned.body.assetId },
           ...(options?.signal ? { fetchOptions: { signal: options.signal } } : {})
         });
-        if (completed.status !== 200) throw new Error("The app server could not finish this upload.");
-        return completed.body.asset;
-      }));
+        if (completed.status !== 200) throw contractError(completed.body, "The app server could not finish this upload.");
+        assets.push(completed.body.asset);
+      }
+      return assets;
     } catch (error) {
-      if (!(error instanceof Error) || error.message !== "DIRECT_UPLOAD_UNAVAILABLE") throw error;
+      await Promise.allSettled(issuedAssetIds.map((id) => contractClient.uploads.remove({ params: { id } })));
+      if (!(error instanceof Error) || error.message !== "DIRECT_UPLOAD_UNAVAILABLE" || issuedAssetIds.length > 0) throw error;
     }
 
     const body = new FormData();
@@ -386,7 +425,7 @@ export const api = {
   },
   getOAuthProviders: async (): Promise<OAuthProviderStatus[]> => {
     const response = await contractClient.account.oauthProviders();
-    if (response.status !== 200) throw new Error("Could not load sign-in providers.");
+    if (response.status !== 200) throw contractError(response.body, "Could not load sign-in providers.");
     return response.body.providers;
   },
   oauthLogin: async (provider: OAuthProvider): Promise<{ user: AuthUser }> => {
@@ -398,36 +437,36 @@ export const api = {
   },
   getPersonas: async (): Promise<PersonaSummary[]> => {
     const response = await contractClient.personas.list();
-    if (response.status !== 200) throw new Error("Could not load personas.");
+    if (response.status !== 200) throw contractError(response.body, "Could not load personas.");
     return response.body.personas;
   },
   getPersona: async (id: string): Promise<PersonaDefinition> => {
     const response = await contractClient.personas.get({ params: { id } });
     if (response.status !== 200) {
-      throw new Error(response.status === 404 ? response.body.error : "Could not load persona.");
+      throw contractError(response.body, "Could not load persona.");
     }
     return response.body.persona;
   },
   sendChat: async (payload: MobileChatPayload, signal?: AbortSignal): Promise<ChatResponse> => {
     const response = await contractClient.chat.create({ body: payload, ...(signal ? { fetchOptions: { signal } } : {}) });
-    if (response.status !== 200 && response.status !== 202) throw new Error("Chat request failed.");
+    if (response.status !== 200 && response.status !== 202) throw contractError(response.body, "Chat request failed.");
     return response.body;
   },
   getChatJob: async (jobId: string, signal?: AbortSignal): Promise<ChatJobResponse> => {
     const response = await contractClient.chat.getJob({ params: { jobId }, ...(signal ? { fetchOptions: { signal } } : {}) });
-    if (response.status !== 200) throw new Error("Chat job not found.");
+    if (response.status !== 200) throw contractError(response.body, "Chat job not found.");
     return response.body;
   },
   listConversationsPage: async (cursor?: string, limit = 50, query?: string): Promise<ConversationListPage> => {
     const response = await contractClient.conversations.list({ query: { limit, ...(cursor ? { cursor } : {}), ...(query?.trim() ? { query: query.trim() } : {}) } });
-    if (response.status !== 200) throw new Error("Could not load conversations.");
+    if (response.status !== 200) throw contractError(response.body, "Could not load conversations.");
     return response.body;
   },
   listConversations: async (): Promise<ConversationSummary[]> =>
     (await api.listConversationsPage()).conversations,
   getConversationTurnsPage: async (conversationId: string, cursor?: string, limit = 40): Promise<ConversationTurnsPage> => {
     const response = await contractClient.conversations.turns({ params: { conversationId }, query: { limit, ...(cursor ? { cursor } : {}) } });
-    if (response.status !== 200) throw new Error("Conversation not found.");
+    if (response.status !== 200) throw contractError(response.body, "Conversation not found.");
     return response.body;
   },
   getConversation: async (conversationId: string): Promise<ConversationDetail> => {
@@ -440,12 +479,12 @@ export const api = {
       body: { assetIds, ...(name ? { name } : {}) },
       ...(signal ? { fetchOptions: { signal } } : {})
     });
-    if (response.status !== 201) throw new Error("Could not create a vector store.");
+    if (response.status !== 201) throw contractError(response.body, "Could not create a vector store.");
     return response.body.vectorStore;
   },
   deleteVectorStore: (vectorStoreId: string): Promise<void> =>
     contractClient.uploads.removeVectorStore({ params: { id: vectorStoreId } }).then((response) => {
-      if (response.status !== 204) throw new Error("Could not delete this vector store.");
+      if (response.status !== 204) throw contractError(response.body, "Could not delete this vector store.");
     }),
   renameConversation: async (conversationId: string, title: string): Promise<ConversationSummary> => {
     const response = await contractClient.conversations.update({ params: { conversationId }, body: { title } });

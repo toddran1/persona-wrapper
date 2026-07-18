@@ -228,10 +228,15 @@ export class OpenAIArtifactService {
     const db = getDatabase();
     if (db) {
       const expired = await db.select().from(openAIArtifacts).where(lte(openAIArtifacts.expiresAt, new Date()));
-      if (expired.length > 0) {
-        await db.delete(openAIArtifacts).where(lte(openAIArtifacts.expiresAt, new Date()));
-        for (const artifact of expired) {
-          if (artifact.storageKey) await storageService.delete(artifact.storageKey).catch(() => undefined);
+      for (const artifact of expired) {
+        try {
+          if (artifact.storageKey) await storageService.delete(artifact.storageKey);
+          await db.delete(openAIArtifacts).where(eq(openAIArtifacts.id, artifact.id));
+        } catch (error) {
+          logger.warn("Expired OpenAI artifact cleanup will be retried", {
+            artifactId: artifact.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
       }
       return;
@@ -240,8 +245,8 @@ export class OpenAIArtifactService {
     const now = Date.now();
     for (const artifact of this.artifacts.values()) {
       if (artifact.expiresAt <= now) {
+        if (artifact.storageKey) await storageService.delete(artifact.storageKey);
         this.artifacts.delete(artifact.id);
-        if (artifact.storageKey) await storageService.delete(artifact.storageKey).catch(() => undefined);
       }
     }
   }
@@ -316,20 +321,24 @@ export class OpenAIArtifactService {
       buffer
     });
 
-    artifact.storageKey = stored.storageKey;
-    artifact.localPath = stored.localPath ?? null;
-    artifact.sizeBytes = stored.sizeBytes;
-    this.artifacts.set(artifact.id, artifact);
-
-    const db = getDatabase();
-    if (db) {
-      await db.update(openAIArtifacts)
-        .set({
-          storageKey: stored.storageKey,
-          localPath: stored.localPath,
-          sizeBytes: stored.sizeBytes
-        })
-        .where(eq(openAIArtifacts.id, artifact.id));
+    try {
+      const db = getDatabase();
+      if (db) {
+        await db.update(openAIArtifacts)
+          .set({
+            storageKey: stored.storageKey,
+            localPath: stored.localPath,
+            sizeBytes: stored.sizeBytes
+          })
+          .where(eq(openAIArtifacts.id, artifact.id));
+      }
+      artifact.storageKey = stored.storageKey;
+      artifact.localPath = stored.localPath ?? null;
+      artifact.sizeBytes = stored.sizeBytes;
+      this.artifacts.set(artifact.id, artifact);
+    } catch (error) {
+      await storageService.delete(stored.storageKey).catch(() => undefined);
+      throw error;
     }
   }
 }

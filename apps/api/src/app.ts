@@ -74,6 +74,15 @@ function requireAuthenticatedRequest(request: Request, _response: Response, next
   next(new HttpError("Authentication required.", 401));
 }
 
+function rateLimitSensitiveBetterAuthRequest(request: Request, response: Response, next: NextFunction): void {
+  const sensitivePath = /^\/(?:sign-in\/(?:email|username)|sign-up\/email|forget-password|reset-password|change-password)(?:\/|$)/;
+  if (request.method === "POST" && sensitivePath.test(request.path)) {
+    authRateLimit(request, response, next);
+    return;
+  }
+  next();
+}
+
 export function apiErrorHandler(error: unknown, request: Request, response: Response, next: NextFunction): void {
   if (response.headersSent) {
     next(error);
@@ -214,6 +223,9 @@ export function createApp() {
   app.use(cors(corsOptions));
   app.options("*", cors(corsOptions));
   if (auth) {
+    // Better Auth owns these routes, so protect credential-bearing endpoints
+    // before handing the request to its catch-all handler.
+    app.use("/api/auth", rateLimitSensitiveBetterAuthRequest);
     app.all("/api/auth/*", toNodeHandler(auth));
   }
   app.use("/api/data", authenticateRequest, requireAuthenticatedRequest, express.json({ limit: env.DATA_TRANSFER_MAX_BYTES }));
@@ -249,7 +261,10 @@ export function createApp() {
   });
 
   app.use("/api/observability", observabilityRouter);
-  app.use("/api/account", authRateLimit);
+  // Rate-limit account mutations, but not the provider-status read that runs
+  // whenever the sign-in screen mounts.
+  app.post("/api/account/restore", authRateLimit);
+  app.delete("/api/account", authRateLimit);
   createExpressEndpoints(apiContract, apiContractRouter, app);
   app.use("/api/chat", chatRouter);
   app.use("/api/uploads", uploadRouter);

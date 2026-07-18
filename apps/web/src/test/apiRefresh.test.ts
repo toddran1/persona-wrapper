@@ -66,4 +66,38 @@ describe("web API authentication refresh", () => {
 
     await expect(request).rejects.toMatchObject({ name: "AbortError" });
   });
+
+  it("preserves actionable chat limit errors from the API", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      jsonResponse({ error: "Daily chat limit reached. Try again tomorrow." }, 429)
+    ));
+
+    await expect(api.sendChat({
+      personaId: "larae",
+      message: "hello",
+      provider: "openai_persona",
+      audio: false
+    })).rejects.toThrow("Daily chat limit reached. Try again tomorrow.");
+  });
+
+  it("omits app credentials for S3 uploads and rolls back failed batches", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        assetId: "asset_test",
+        uploadUrl: "https://bucket.example.com/uploads/asset_test.png",
+        headers: { "Content-Type": "image/png" },
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      }, 201))
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File([new Uint8Array([1, 2, 3])], "test.png", { type: "image/png" });
+    await expect(api.uploadFiles([file])).rejects.toThrow("storage service rejected");
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://bucket.example.com/uploads/asset_test.png");
+    expect(fetchMock.mock.calls[1]?.[1]?.credentials).toBe("omit");
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/api/uploads/asset_test");
+    expect(fetchMock.mock.calls[2]?.[1]?.method).toBe("DELETE");
+  });
 });

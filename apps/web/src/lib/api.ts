@@ -37,6 +37,7 @@ let fallbackOwnerId: string | undefined;
 let authRefreshInFlight: Promise<boolean> | undefined;
 const API_REQUEST_TIMEOUT_MS = 130_000;
 const AUTH_REFRESH_TIMEOUT_MS = 30_000;
+const UPLOAD_REQUEST_TIMEOUT_MS = 90_000;
 
 class RequestTimeoutError extends Error {
   constructor() {
@@ -357,30 +358,36 @@ export const api = {
     throw new Error("Could not download this file from the app server.");
   },
   uploadFiles: async (files: File[], signal?: AbortSignal): Promise<UploadedAsset[]> => {
+    const issuedAssetIds: string[] = [];
     try {
-      return await Promise.all(files.map(async (file) => {
+      const assets: UploadedAsset[] = [];
+      for (const file of files) {
         const presigned = await contractClient.uploads.presign({
           body: { fileName: file.name, mimeType: file.type, sizeBytes: file.size },
           ...(signal ? { fetchOptions: { signal } } : {})
         });
         if (presigned.status === 409) throw new Error("DIRECT_UPLOAD_UNAVAILABLE");
-        if (presigned.status !== 201) throw new Error("Could not prepare this upload.");
-        const uploaded = await fetch(presigned.body.uploadUrl, {
+        if (presigned.status !== 201) throw contractError(presigned.body, "Could not prepare this upload.");
+        issuedAssetIds.push(presigned.body.assetId);
+        const uploaded = await fetchWithTimeout(presigned.body.uploadUrl, {
           method: "PUT",
           headers: presigned.body.headers,
           body: file,
+          credentials: "omit",
           ...(signal ? { signal } : {})
-        });
+        }, UPLOAD_REQUEST_TIMEOUT_MS);
         if (!uploaded.ok) throw new Error("The storage service rejected this upload.");
         const completed = await contractClient.uploads.complete({
           params: { id: presigned.body.assetId },
           ...(signal ? { fetchOptions: { signal } } : {})
         });
-        if (completed.status !== 200) throw new Error("The app server could not finish this upload.");
-        return completed.body.asset;
-      }));
+        if (completed.status !== 200) throw contractError(completed.body, "The app server could not finish this upload.");
+        assets.push(completed.body.asset);
+      }
+      return assets;
     } catch (error) {
-      if (!(error instanceof Error) || error.message !== "DIRECT_UPLOAD_UNAVAILABLE") throw error;
+      await Promise.allSettled(issuedAssetIds.map((id) => contractClient.uploads.remove({ params: { id } })));
+      if (!(error instanceof Error) || error.message !== "DIRECT_UPLOAD_UNAVAILABLE" || issuedAssetIds.length > 0) throw error;
     }
 
     // Local storage cannot issue S3 URLs, so local development keeps the
@@ -418,16 +425,16 @@ export const api = {
       body: { assetIds, ...(name ? { name } : {}) },
       ...(signal ? { fetchOptions: { signal } } : {})
     });
-    if (response.status !== 201) throw new Error("Could not create a vector store.");
+    if (response.status !== 201) throw contractError(response.body, "Could not create a vector store.");
     return response.body.vectorStore;
   },
   deleteUpload: async (assetId: string): Promise<void> => {
     const response = await contractClient.uploads.remove({ params: { id: assetId } });
-    if (response.status !== 204) throw new Error("Could not delete this upload.");
+    if (response.status !== 204) throw contractError(response.body, "Could not delete this upload.");
   },
   deleteVectorStore: async (vectorStoreId: string): Promise<void> => {
     const response = await contractClient.uploads.removeVectorStore({ params: { id: vectorStoreId } });
-    if (response.status !== 204) throw new Error("Could not delete this vector store.");
+    if (response.status !== 204) throw contractError(response.body, "Could not delete this vector store.");
   },
   register: async (payload: RegisterRequest): Promise<{ user: AuthUser }> => {
     const email = payload.email?.trim().toLowerCase() ?? `${payload.username?.trim().toLowerCase()}@users.invalid`;
@@ -474,7 +481,7 @@ export const api = {
   },
   getOAuthProviders: async (): Promise<OAuthProviderStatus[]> => {
     const response = await contractClient.account.oauthProviders();
-    if (response.status !== 200) throw new Error("Could not load sign-in providers.");
+    if (response.status !== 200) throw contractError(response.body, "Could not load sign-in providers.");
     return response.body.providers;
   },
   oauthLogin: async (provider: OAuthProvider): Promise<void> => {
@@ -486,36 +493,36 @@ export const api = {
   },
   getPersonas: async (): Promise<PersonaSummary[]> => {
     const response = await contractClient.personas.list();
-    if (response.status !== 200) throw new Error("Could not load personas.");
+    if (response.status !== 200) throw contractError(response.body, "Could not load personas.");
     return response.body.personas;
   },
   getPersona: async (id: string): Promise<PersonaDefinition> => {
     const response = await contractClient.personas.get({ params: { id } });
     if (response.status !== 200) {
-      throw new Error(response.status === 404 ? response.body.error : "Could not load persona.");
+      throw contractError(response.body, "Could not load persona.");
     }
     return response.body.persona;
   },
   sendChat: async (payload: ChatPayload, signal?: AbortSignal): Promise<ChatResponse> =>
     contractClient.chat.create({ body: payload, ...(signal ? { fetchOptions: { signal } } : {}) }).then((response) => {
-      if (response.status !== 200 && response.status !== 202) throw new Error("Chat request failed.");
+      if (response.status !== 200 && response.status !== 202) throw contractError(response.body, "Chat request failed.");
       return response.body;
     }),
   getChatJob: async (jobId: string, signal?: AbortSignal): Promise<ChatJobResponse> => {
     const response = await contractClient.chat.getJob({ params: { jobId }, ...(signal ? { fetchOptions: { signal } } : {}) });
-    if (response.status !== 200) throw new Error("Chat job not found.");
+    if (response.status !== 200) throw contractError(response.body, "Chat job not found.");
     return response.body;
   },
   listConversationsPage: async (cursor?: string, limit = 50, query?: string): Promise<ConversationListPage> => {
     const response = await contractClient.conversations.list({ query: { limit, ...(cursor ? { cursor } : {}), ...(query?.trim() ? { query: query.trim() } : {}) } });
-    if (response.status !== 200) throw new Error("Could not load conversations.");
+    if (response.status !== 200) throw contractError(response.body, "Could not load conversations.");
     return response.body;
   },
   listConversations: async (): Promise<ConversationSummary[]> =>
     (await api.listConversationsPage()).conversations,
   getConversationTurnsPage: async (conversationId: string, cursor?: string, limit = 40): Promise<ConversationTurnsPage> => {
     const response = await contractClient.conversations.turns({ params: { conversationId }, query: { limit, ...(cursor ? { cursor } : {}) } });
-    if (response.status !== 200) throw new Error("Conversation not found.");
+    if (response.status !== 200) throw contractError(response.body, "Conversation not found.");
     return response.body;
   },
   getConversation: async (conversationId: string): Promise<ConversationDetail> => {
@@ -554,7 +561,7 @@ export const api = {
   },
   cancelChatJob: async (jobId: string): Promise<ChatJobResponse> =>
     contractClient.chat.cancelJob({ params: { jobId } }).then((response) => {
-      if (response.status !== 200) throw new Error("Chat job not found.");
+      if (response.status !== 200) throw contractError(response.body, "Chat job not found.");
       return response.body;
     }),
   saveStyleTransferEval: async (

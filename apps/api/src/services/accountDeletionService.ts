@@ -102,7 +102,10 @@ export class AccountDeletionService {
   }
 
   async purgeDueAccounts(now = new Date()): Promise<number> {
-    const db = requireDatabase();
+    // Local/in-memory development has no persistent accounts to purge. Cleanup
+    // should remain usable there instead of reporting a failed maintenance job.
+    const db = getDatabase();
+    if (!db) return 0;
     const due = await db.select({ id: users.id }).from(users)
       .where(and(eq(users.status, "pending_deletion"), lte(users.deletionScheduledFor, now)));
     let purged = 0;

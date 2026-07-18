@@ -118,8 +118,9 @@ export class GeneratedMediaService {
     };
 
     const db = getDatabase();
-    if (db) {
-      await db.insert(generatedMedia).values({
+    try {
+      if (db) {
+        await db.insert(generatedMedia).values({
         id,
         ...(options.ownerId ? { ownerId: options.ownerId } : {}),
         ...(options.conversationId ? { conversationId: options.conversationId } : {}),
@@ -132,9 +133,18 @@ export class GeneratedMediaService {
         publicUrl,
         expiresAt,
         metadata: options.metadata ?? {}
+        });
+      } else {
+        this.files.set(id, record);
+      }
+    } catch (error) {
+      await storageService.delete(stored.storageKey).catch((cleanupError) => {
+        logger.warn("Failed to clean up untracked generated media", {
+          mediaId: id,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+        });
       });
-    } else {
-      this.files.set(id, record);
+      throw error;
     }
 
     return {
@@ -236,9 +246,16 @@ export class GeneratedMediaService {
     const db = getDatabase();
     if (db) {
       const expired = await db.select().from(generatedMedia).where(lte(generatedMedia.expiresAt, new Date()));
-      if (expired.length > 0) {
-        await db.delete(generatedMedia).where(lte(generatedMedia.expiresAt, new Date()));
-        await Promise.all(expired.flatMap((file) => file.storageKey ? [storageService.delete(file.storageKey).catch(() => undefined)] : []));
+      for (const file of expired) {
+        try {
+          if (file.storageKey) await storageService.delete(file.storageKey);
+          await db.delete(generatedMedia).where(eq(generatedMedia.id, file.id));
+        } catch (error) {
+          logger.warn("Expired generated media cleanup will be retried", {
+            mediaId: file.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
       }
       return;
     }
@@ -247,8 +264,8 @@ export class GeneratedMediaService {
     for (const file of this.files.values()) {
       const expiresAt = file.expiresAt instanceof Date ? file.expiresAt.getTime() : file.expiresAt;
       if (expiresAt <= now) {
+        if (file.storageKey) await storageService.delete(file.storageKey);
         this.files.delete(file.id);
-        if (file.storageKey) await storageService.delete(file.storageKey).catch(() => undefined);
       }
     }
   }

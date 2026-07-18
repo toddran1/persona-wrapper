@@ -6,6 +6,7 @@ import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { generatedAudio } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
+import { logger } from "../utils/logger.js";
 import { storageService } from "./storageService.js";
 
 type GeneratedAudio = {
@@ -42,8 +43,9 @@ export class GeneratedAudioService {
     const publicUrl = `/api/generated-audio/${token}`;
 
     const db = getDatabase();
-    if (db) {
-      await db.insert(generatedAudio).values({
+    try {
+      if (db) {
+        await db.insert(generatedAudio).values({
         token,
         ...(options.ownerId ? { ownerId: options.ownerId } : {}),
         ...(options.conversationId ? { conversationId: options.conversationId } : {}),
@@ -54,9 +56,9 @@ export class GeneratedAudioService {
         publicUrl,
         mimeType: options.mimeType,
         expiresAt
-      });
-    } else {
-      this.files.set(token, {
+        });
+      } else {
+        this.files.set(token, {
         token,
         ...(options.ownerId ? { ownerId: options.ownerId } : {}),
         fileName,
@@ -64,7 +66,16 @@ export class GeneratedAudioService {
         storageKey: stored.storageKey,
         mimeType: options.mimeType,
         expiresAt: expiresAt.getTime()
+        });
+      }
+    } catch (error) {
+      await storageService.delete(stored.storageKey).catch((cleanupError) => {
+        logger.warn("Failed to clean up untracked generated audio", {
+          token,
+          error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+        });
       });
+      throw error;
     }
 
     return publicUrl;
@@ -107,11 +118,16 @@ export class GeneratedAudioService {
     const db = getDatabase();
     if (db) {
       const expired = await db.select().from(generatedAudio).where(lte(generatedAudio.expiresAt, new Date()));
-      if (expired.length > 0) {
-        await db.delete(generatedAudio).where(lte(generatedAudio.expiresAt, new Date()));
-        for (const file of expired) {
-          if (file.storageKey) await storageService.delete(file.storageKey).catch(() => undefined);
+      for (const file of expired) {
+        try {
+          if (file.storageKey) await storageService.delete(file.storageKey);
           else if (file.localPath) rmSync(file.localPath, { force: true });
+          await db.delete(generatedAudio).where(eq(generatedAudio.token, file.token));
+        } catch (error) {
+          logger.warn("Expired generated audio cleanup will be retried", {
+            token: file.token,
+            error: error instanceof Error ? error.message : String(error)
+          });
         }
       }
       return;
@@ -120,9 +136,9 @@ export class GeneratedAudioService {
     const now = Date.now();
     for (const file of this.files.values()) {
       if (file.expiresAt <= now) {
-        this.files.delete(file.token);
-        if (file.storageKey) await storageService.delete(file.storageKey).catch(() => undefined);
+        if (file.storageKey) await storageService.delete(file.storageKey);
         else if (file.localPath) rmSync(file.localPath, { force: true });
+        this.files.delete(file.token);
       }
     }
   }

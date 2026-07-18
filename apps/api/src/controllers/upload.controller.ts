@@ -8,8 +8,17 @@ import { contentDisposition } from "../utils/httpHeaders.js";
 export async function postUploads(request: Request, response: Response): Promise<void> {
   const files = request.files;
   if (!Array.isArray(files) || files.length === 0) throw new HttpError("At least one file is required.", 400);
-  const assets = await Promise.all(files.map((file) => uploadService.save(requestOwnerId(request), file)));
-  response.status(201).json({ assets });
+  const ownerId = requestOwnerId(request);
+  const assets = [];
+  try {
+    // Process as one logical batch. If a later file fails validation or
+    // persistence, roll back files that already succeeded.
+    for (const file of files) assets.push(await uploadService.save(ownerId, file));
+    response.status(201).json({ assets });
+  } catch (error) {
+    await Promise.allSettled(assets.map((asset) => uploadService.remove(ownerId, asset.id)));
+    throw error;
+  }
 }
 
 export async function getUploads(request: Request, response: Response): Promise<void> {

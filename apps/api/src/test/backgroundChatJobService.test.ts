@@ -61,4 +61,10 @@ describe("BackgroundChatJobService", () => {
     expect((await service.get(other.id, "owner-keep"))?.status).toBe("running");
     await service.cancel(other.id, "Test cleanup.", "owner-keep");
   });
+
+  it("records a failed job when dispatch cannot start", async () => {
+    const service = new BackgroundChatJobService();
+
+    await expect(service.start({})).rejects.toThrow("No background chat executor is configured.");
+  });
 });
