@@ -8,9 +8,25 @@ const podfilePatch = `    installer.pods_project.targets.each do |target|
       target.shell_script_build_phases.each do |phase|
         next unless phase.name == '${phaseName}'
 
-        # Quote the script path and explicitly point Expo Constants at the app root.
-        # Both are needed when the workspace path contains spaces.
-        phase.shell_script = 'bash -l -c \"PROJECT_ROOT=\\\"$PODS_ROOT/../..\\\" \\\"$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh\\\"\"'
+        # Expo's wrapper script reads $PROJECT_DIR without quotes. Invoke the
+        # config generator directly so spaces in the workspace path do not
+        # prevent app.config from being embedded in EXConstants.bundle.
+        phase.shell_script = <<~'SCRIPT'
+          set -e
+
+          PROJECT_ROOT="$PODS_ROOT/../.."
+          if [ "$BUNDLE_FORMAT" = "shallow" ]; then
+            RESOURCE_DEST="$CONFIGURATION_BUILD_DIR/EXConstants.bundle"
+          elif [ "$BUNDLE_FORMAT" = "deep" ]; then
+            RESOURCE_DEST="$CONFIGURATION_BUILD_DIR/EXConstants.bundle/Contents/Resources"
+          else
+            echo "Unsupported bundle format: $BUNDLE_FORMAT"
+            exit 1
+          fi
+
+          mkdir -p "$RESOURCE_DEST"
+          "$PODS_TARGET_SRCROOT/../scripts/with-node.sh" "$PODS_TARGET_SRCROOT/../scripts/getAppConfig.js" "$PROJECT_ROOT" "$RESOURCE_DEST"
+        SCRIPT
       end
     end
 

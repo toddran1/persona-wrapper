@@ -6,6 +6,7 @@ import { usernameClient } from "better-auth/client/plugins";
 import { expoClient } from "@better-auth/expo/client";
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL || Constants.expoConfig?.extra?.apiUrl;
+export const MOBILE_AUTH_CALLBACK_URL = "personawrapper://";
 
 export const authClient = createAuthClient({
   baseURL: String(configuredApiUrl || "http://localhost:4000").replace(/\/$/, ""),
@@ -17,6 +18,7 @@ export const authClient = createAuthClient({
     expoClient({
       scheme: "personawrapper",
       storagePrefix: "for-the-baddiez",
+      cookiePrefix: "for-the-baddiez",
       storage: SecureStore
     })
   ]

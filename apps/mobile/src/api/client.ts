@@ -30,7 +30,7 @@ import type {
   UploadedAsset
 } from "@persona/shared";
 import { getOwnerId } from "../storage/secureTokens";
-import { authClient } from "./authClient";
+import { authClient, MOBILE_AUTH_CALLBACK_URL } from "./authClient";
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL || Constants.expoConfig?.extra?.apiUrl;
 export const API_BASE_URL = String(configuredApiUrl || "http://localhost:4000").replace(/\/$/, "");
@@ -191,6 +191,16 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
   };
 }
 
+async function requirePersistedAuthUser(): Promise<AuthUser> {
+  const session = await authClient.getSession();
+  if (session.error || !session.data?.user) {
+    throw new Error(
+      "Sign-in succeeded, but this device did not retain the session. Please try again."
+    );
+  }
+  return toAuthUser(session.data.user as unknown as Record<string, unknown>);
+}
+
 function toAuthSession(session: Record<string, unknown>): AuthSession {
   const value = session.clientType;
   const sessionClientType = value === "web" || value === "desktop" || value === "ios" || value === "android" ? value : "unknown";
@@ -337,7 +347,7 @@ export const api = {
       ...(payload.username ? { username: payload.username, displayUsername: payload.username } : {})
     });
     if (result.error || !result.data?.user) throw authError(result.error);
-    return { user: toAuthUser(result.data.user as unknown as Record<string, unknown>) };
+    return { user: await requirePersistedAuthUser() };
   },
   login: async (payload: MobileLoginRequest): Promise<{ user: AuthUser }> => {
     const identifier = payload.identifier.trim().toLowerCase();
@@ -345,7 +355,7 @@ export const api = {
       ? await authClient.signIn.email({ email: identifier, password: payload.password })
       : await authClient.signIn.username({ username: identifier, password: payload.password });
     if (result.error || !result.data?.user) throw authError(result.error);
-    return { user: toAuthUser(result.data.user as unknown as Record<string, unknown>) };
+    return { user: await requirePersistedAuthUser() };
   },
   restoreAccount: async (payload: MobileRestoreAccountRequest): Promise<{ user: AuthUser }> => {
     await requestJson<{ restored: true }>("/api/account/restore", {
@@ -405,7 +415,7 @@ export const api = {
     return payload.providers;
   },
   oauthLogin: async (provider: OAuthProvider): Promise<{ user: AuthUser }> => {
-    const result = await authClient.signIn.social({ provider, callbackURL: "/" });
+    const result = await authClient.signIn.social({ provider, callbackURL: MOBILE_AUTH_CALLBACK_URL });
     if (result.error) throw authError(result.error);
     const session = await authClient.getSession();
     if (session.error || !session.data?.user) throw authError(session.error ?? { message: "OAuth sign in did not complete." });
