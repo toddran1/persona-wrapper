@@ -123,7 +123,11 @@ services:
       - key: STORAGE_S3_FORCE_PATH_STYLE
         value: "false"
       - key: DATA_TRANSFER_ARCHIVE_MAX_BYTES
+        value: "5368709120"
+      - key: DATA_TRANSFER_JSON_MAX_BYTES
         value: "134217728"
+      - key: DATA_TRANSFER_PRESIGNED_UPLOAD_TTL_SECONDS
+        value: "18000"
       - key: DATA_TRANSFER_RATE_LIMIT_REQUESTS
         value: "10"
       - key: DATA_TRANSFER_RATE_LIMIT_WINDOW_MS

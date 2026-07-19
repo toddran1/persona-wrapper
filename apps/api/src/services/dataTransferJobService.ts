@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import JSZip from "jszip";
+import { PassThrough, type Readable, Transform } from "node:stream";
+import archiver from "archiver";
+import unzipper from "unzipper";
 import type { DataExportJobRequest, DataImportPresignRequest, DataImportResult, DataTransferJob } from "@persona/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDatabase } from "../db/client.js";
@@ -27,7 +29,8 @@ type TransferRequest = {
 };
 
 type ExportMediaRow = { kind: string; id: string; fileName: string; mimeType: string; storageKey: string };
-type ImportMediaFile = { sourceId?: string; fileName: string; mimeType: string; buffer: Buffer };
+type StagedImportMedia = { id: string; sourceKeys: string[]; fileName: string; mimeType: string; sizeBytes: number; storageKey: string; sha256: string };
+type ExportMedia = ExportMediaRow & { path: string; sizeBytes: number };
 
 type LocalJob = DataTransferJob & { ownerId: string; request: TransferRequest; abortController: AbortController; resultStorageKey?: string };
 
@@ -50,6 +53,26 @@ function parseArchiveJson(text: string, label: string): unknown {
   } catch {
     throw new HttpError(`${label} contains invalid JSON.`, 400);
   }
+}
+
+function archiveSizeError(): HttpError {
+  return new HttpError("Expanded import archive is too large.", 413);
+}
+
+async function readStreamBuffer(stream: Readable, maxBytes: number, onBytes?: (bytes: number) => void): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let sizeBytes = 0;
+  for await (const chunk of stream) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    sizeBytes += buffer.byteLength;
+    if (sizeBytes > maxBytes) {
+      stream.destroy();
+      throw archiveSizeError();
+    }
+    onBytes?.(buffer.byteLength);
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks, sizeBytes);
 }
 
 export class DataTransferJobService {
@@ -181,8 +204,8 @@ export class DataTransferJobService {
     if (job.kind !== "export" || job.status !== "completed" || !job.resultStorageKey || !job.fileName) {
       throw new HttpError("Export archive is not ready.", 409);
     }
-    const stored = await storageService.get(job.resultStorageKey);
-    return { buffer: stored.buffer, fileName: job.fileName, mimeType: "application/zip" };
+    const stored = await storageService.getStream(job.resultStorageKey);
+    return { stream: stored.stream, sizeBytes: stored.sizeBytes, fileName: job.fileName, mimeType: "application/zip" };
   }
 
   async cleanupExpiredNow(now = new Date()): Promise<void> {
@@ -249,23 +272,23 @@ export class DataTransferJobService {
       : await this.transfer.exportAccount(job.ownerId);
     if (job.abortController.signal.aborted) throw job.abortController.signal.reason;
     await this.update(job.id, { phase: "Building archive", progress: 25, processedItems: 0, totalItems: archive.conversations.length });
-    const zip = new JSZip();
     const conversationFiles: string[] = [];
     let expandedBytes = 0;
+    const conversationShards: Array<{ name: string; contents: string }> = [];
     for (let offset = 0; offset < archive.conversations.length; offset += CONVERSATIONS_PER_SHARD) {
       await this.assertActive(job);
       const name = `conversations-${String(offset / CONVERSATIONS_PER_SHARD).padStart(3, "0")}.json`;
       const contents = JSON.stringify(archive.conversations.slice(offset, offset + CONVERSATIONS_PER_SHARD));
       expandedBytes += Buffer.byteLength(contents);
       if (expandedBytes > env.DATA_TRANSFER_ARCHIVE_MAX_BYTES) throw new HttpError("Generated export exceeds the configured archive size limit.", 413);
-      zip.file(name, contents);
+      conversationShards.push({ name, contents });
       conversationFiles.push(name);
       await this.update(job.id, { progress: Math.min(55, 25 + Math.round((offset + CONVERSATIONS_PER_SHARD) / Math.max(1, archive.conversations.length) * 30)), processedItems: Math.min(offset + CONVERSATIONS_PER_SHARD, archive.conversations.length) });
     }
     const accountContents = JSON.stringify(archive.account ?? null);
     expandedBytes += Buffer.byteLength(accountContents);
-    zip.file("account.json", accountContents);
-    const mediaArchive = await this.addMedia(zip, job, expandedBytes);
+    const mediaArchive = await this.collectExportMedia(job, expandedBytes);
+    expandedBytes = mediaArchive.sizeBytes;
     const manifest = {
       format: "for-the-baddiez-export",
       version: 2,
@@ -276,22 +299,46 @@ export class DataTransferJobService {
       media: mediaArchive.manifest,
       ...(mediaArchive.omitted.length ? { omittedMedia: mediaArchive.omitted } : {})
     };
-    zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+    const manifestContents = JSON.stringify(manifest, null, 2);
+    expandedBytes += Buffer.byteLength(manifestContents);
+    if (expandedBytes > env.DATA_TRANSFER_ARCHIVE_MAX_BYTES) throw new HttpError("Generated export exceeds the configured archive size limit.", 413);
     await this.update(job.id, { phase: "Compressing archive", progress: 80 });
-    const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } }, () => {
-      if (job.abortController.signal.aborted) throw job.abortController.signal.reason;
-    });
-    await this.assertActive(job);
-    if (buffer.byteLength > env.DATA_TRANSFER_ARCHIVE_MAX_BYTES) throw new HttpError("Generated export exceeds the configured archive size limit.", 413);
     const fileName = `for-the-baddiez-${archive.scope}-${new Date().toISOString().slice(0, 10)}.zip`;
-    const stored = await storageService.put({ bucket: "uploads", fileName: `data-transfer-${job.id}.zip`, buffer });
-    const completed = await this.update(job.id, { status: "completed", phase: "Ready to download", progress: 100, fileName, sizeBytes: buffer.byteLength, resultStorageKey: stored.storageKey, expiresAt: expiresAt() });
-    if (!completed) await storageService.delete(stored.storageKey).catch(() => undefined);
+    const output = new PassThrough();
+    const zip = archiver("zip", { zlib: { level: 6 } });
+    const abort = () => {
+      const reason = job.abortController.signal.reason instanceof Error ? job.abortController.signal.reason : new Error("Data transfer cancelled.");
+      zip.abort();
+      output.destroy(reason);
+    };
+    job.abortController.signal.addEventListener("abort", abort, { once: true });
+    zip.on("error", (error) => output.destroy(error));
+    zip.pipe(output);
+    const upload = storageService.putStream({ bucket: "uploads", fileName: `data-transfer-${job.id}.zip`, stream: output, mimeType: "application/zip", signal: job.abortController.signal });
+    try {
+      zip.append(manifestContents, { name: "manifest.json" });
+      zip.append(accountContents, { name: "account.json" });
+      conversationShards.forEach((shard) => zip.append(shard.contents, { name: shard.name }));
+      for (let index = 0; index < mediaArchive.media.length; index += 1) {
+        await this.assertActive(job);
+        const media = mediaArchive.media[index]!;
+        const source = await storageService.getStream(media.storageKey);
+        zip.append(source.stream, { name: media.path });
+        await this.update(job.id, { phase: "Adding media", progress: Math.min(95, 80 + Math.round((index + 1) / Math.max(1, mediaArchive.media.length) * 15)) });
+      }
+      await zip.finalize();
+      const stored = await upload;
+      await this.assertActive(job);
+      const completed = await this.update(job.id, { status: "completed", phase: "Ready to download", progress: 100, fileName, sizeBytes: stored.sizeBytes, resultStorageKey: stored.storageKey, expiresAt: expiresAt() });
+      if (!completed) await storageService.delete(stored.storageKey).catch(() => undefined);
+    } finally {
+      job.abortController.signal.removeEventListener("abort", abort);
+    }
   }
 
-  private async addMedia(zip: JSZip, job: LocalJob, initialBytes: number): Promise<{ manifest: Array<Record<string, unknown>>; omitted: Array<Record<string, unknown>>; sizeBytes: number }> {
+  private async collectExportMedia(job: LocalJob, initialBytes: number): Promise<{ media: ExportMedia[]; manifest: Array<Record<string, unknown>>; omitted: Array<Record<string, unknown>>; sizeBytes: number }> {
     const db = getDatabase();
-    if (!db) return { manifest: [], omitted: [], sizeBytes: initialBytes };
+    if (!db) return { media: [], manifest: [], omitted: [], sizeBytes: initialBytes };
     const [uploadRows, mediaRows, audioRows, artifactRows] = await Promise.all([
       db.select().from(uploads).where(eq(uploads.ownerId, job.ownerId)),
       db.select().from(generatedMedia).where(eq(generatedMedia.ownerId, job.ownerId)),
@@ -306,6 +353,7 @@ export class DataTransferJobService {
       ...artifactRows.filter((row) => !selectedIds || (row.conversationId ? selectedIds.has(row.conversationId) : false)).map((row) => ({ kind: "openai_artifact", id: row.id, fileName: row.fileName, mimeType: row.mimeType, storageKey: row.storageKey }))
     ];
     const rows: ExportMediaRow[] = candidates.filter((row): row is ExportMediaRow => Boolean(row.storageKey));
+    const media: ExportMedia[] = [];
     const manifest: Array<Record<string, unknown>> = [];
     const omitted: Array<Record<string, unknown>> = [];
     let sizeBytes = initialBytes;
@@ -314,7 +362,7 @@ export class DataTransferJobService {
       const row = rows[index]!;
       let stored;
       try {
-        stored = await storageService.get(row.storageKey);
+        stored = await storageService.head(row.storageKey);
       } catch (error) {
         if (error instanceof HttpError && error.statusCode === 404) {
           omitted.push({ kind: row.kind, sourceId: row.id, fileName: row.fileName, reason: "stored_object_missing" });
@@ -323,39 +371,35 @@ export class DataTransferJobService {
         }
         throw error;
       }
-      sizeBytes += stored.buffer.byteLength;
+      sizeBytes += stored.sizeBytes;
       if (sizeBytes > env.DATA_TRANSFER_ARCHIVE_MAX_BYTES) throw new HttpError("Generated export exceeds the configured archive size limit.", 413);
       const path = `media/${row.kind}/${row.id}/${row.fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      zip.file(path, stored.buffer);
-      manifest.push({ kind: row.kind, sourceId: row.id, path, fileName: row.fileName, mimeType: row.mimeType, sizeBytes: stored.buffer.byteLength, sha256: sha256(stored.buffer) });
-      await this.update(job.id, { phase: "Adding media", progress: Math.min(78, 55 + Math.round((index + 1) / Math.max(1, rows.length) * 23)) });
+      media.push({ ...row, path, sizeBytes: stored.sizeBytes });
+      manifest.push({ kind: row.kind, sourceId: row.id, path, fileName: row.fileName, mimeType: row.mimeType, sizeBytes: stored.sizeBytes });
+      await this.update(job.id, { phase: "Preparing media", progress: Math.min(78, 55 + Math.round((index + 1) / Math.max(1, rows.length) * 23)) });
     }
-    return { manifest, omitted, sizeBytes };
+    return { media, manifest, omitted, sizeBytes };
   }
 
   private async executeImport(job: LocalJob): Promise<void> {
     if (!job.request.storageKey) throw new HttpError("Import archive is missing.", 404);
-    const stored = await storageService.get(job.request.storageKey);
-    if (stored.buffer.byteLength > env.DATA_TRANSFER_ARCHIVE_MAX_BYTES) throw new HttpError("Import archive is too large.", 413);
-    const digest = sha256(stored.buffer);
+    const stored = await storageService.getStream(job.request.storageKey);
+    if (stored.sizeBytes !== undefined && stored.sizeBytes > env.DATA_TRANSFER_ARCHIVE_MAX_BYTES) throw new HttpError("Import archive is too large.", 413);
+    const archive = job.request.fileName?.toLowerCase().endsWith(".zip")
+      ? await this.readZipArchive(stored.stream, job)
+      : await this.readBufferedArchive(stored.stream, job);
+    const digest = archive.digest;
     if (job.request.declaredSha256 && digest !== job.request.declaredSha256.toLowerCase()) throw new HttpError("Import archive checksum does not match.", 400);
     const duplicate = await this.findCompletedImport(job.ownerId, digest, job.id);
     if (duplicate) {
+      await Promise.allSettled(archive.media.map((media) => storageService.delete(media.storageKey)));
       await this.update(job.id, { status: "completed", phase: "Duplicate archive skipped", progress: 100, source: duplicate.source, result: { source: duplicate.source ?? "for-the-baddiez", importedConversations: 0, skippedConversations: (duplicate.result?.importedConversations ?? 0) + (duplicate.result?.skippedConversations ?? 0), conversations: [] }, archiveSha256: digest, expiresAt: expiresAt() });
       return;
     }
-    const archive = await this.readArchive(stored.buffer, job);
-    const stagedMedia: Array<{ id: string; sourceKeys: string[]; fileName: string; mimeType: string; sizeBytes: number; storageKey: string; sha256: string }> = [];
+    const stagedMedia = archive.media;
     const committedMediaIds = new Set<string>();
     let databaseImportCommitted = false;
     try {
-      for (let index = 0; index < archive.media.length; index += 1) {
-        await this.assertActive(job);
-        const media = archive.media[index]!;
-        const id = `asset_${randomUUID()}`;
-        const storedMedia = await storageService.put({ bucket: "uploads", fileName: `${id}-${media.fileName}`, buffer: media.buffer });
-        stagedMedia.push({ id, sourceKeys: [...new Set([media.fileName, ...(media.sourceId ? [media.sourceId] : [])])], fileName: media.fileName, mimeType: media.mimeType, sizeBytes: media.buffer.byteLength, storageKey: storedMedia.storageKey, sha256: sha256(media.buffer) });
-      }
       const result = await this.transfer.importArchiveAtomically(job.ownerId, archive.value, {
         signal: job.abortController.signal,
         media: stagedMedia,
@@ -376,77 +420,89 @@ export class DataTransferJobService {
     }
   }
 
-  private async readArchive(buffer: Buffer, job: LocalJob): Promise<{ value: unknown; media: ImportMediaFile[] }> {
+  private async readBufferedArchive(stream: Readable, job: LocalJob): Promise<{ value: unknown; media: StagedImportMedia[]; digest: string }> {
+    const buffer = await readStreamBuffer(stream, env.DATA_TRANSFER_JSON_MAX_BYTES);
+    const digest = sha256(buffer);
     const lowerName = job.request.fileName?.toLowerCase();
-    if (lowerName?.endsWith(".json")) return { value: parseArchiveJson(buffer.toString("utf8"), "Import file"), media: [] };
+    if (lowerName?.endsWith(".json")) return { value: parseArchiveJson(buffer.toString("utf8"), "Import file"), media: [], digest };
     if (lowerName?.endsWith(".jsonl")) {
       const values = buffer.toString("utf8").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line, index) => parseArchiveJson(line, `JSONL line ${index + 1}`));
       if (values.length === 0) throw new HttpError("Import JSONL file is empty.", 400);
-      return { value: values, media: [] };
+      return { value: values, media: [], digest };
     }
-    let zip: JSZip;
-    try {
-      zip = await JSZip.loadAsync(buffer, { checkCRC32: true });
-    } catch {
-      throw new HttpError("Import ZIP is invalid or corrupted.", 400);
-    }
-    const entries = Object.values(zip.files).filter((entry) => !entry.dir);
-    if (entries.length > ZIP_ENTRY_LIMIT) throw new HttpError("Import ZIP contains too many files.", 400);
-    const estimatedExpandedBytes = entries.reduce((total, entry) => {
-      const internal = entry as unknown as { _data?: { uncompressedSize?: number } };
-      return total + (internal._data?.uncompressedSize ?? 0);
-    }, 0);
-    if (estimatedExpandedBytes > env.DATA_TRANSFER_ARCHIVE_MAX_BYTES) throw new HttpError("Expanded import archive is too large.", 413);
+    throw new HttpError("Import files must be ZIP, JSON, or JSONL archives.", 400);
+  }
+
+  private async readZipArchive(stream: Readable, job: LocalJob): Promise<{ value: unknown; media: StagedImportMedia[]; digest: string }> {
+    const archiveHash = createHash("sha256");
+    const sourceHash = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        archiveHash.update(chunk);
+        callback(null, chunk);
+      }
+    });
+    const parser = stream.pipe(sourceHash).pipe(unzipper.Parse({ forceStream: true }));
+    let entryCount = 0;
     let expandedBytes = 0;
+    let manifest: { format?: string; version?: number; exportedAt?: string; scope?: "account" | "conversations"; media?: Array<{ sourceId?: string; path?: string; fileName?: string; mimeType?: string }> } | undefined;
+    let exportValue: unknown;
+    let account: unknown;
+    const merged: unknown[] = [];
+    const media: StagedImportMedia[] = [];
     const addExpandedBytes = (bytes: number): void => {
       expandedBytes += bytes;
-      if (expandedBytes > env.DATA_TRANSFER_ARCHIVE_MAX_BYTES) throw new HttpError("Expanded import archive is too large.", 413);
+      if (expandedBytes > env.DATA_TRANSFER_ARCHIVE_MAX_BYTES) throw archiveSizeError();
     };
-    const manifestEntry = zip.file("manifest.json");
-    const manifestText = manifestEntry ? await manifestEntry.async("text") : undefined;
-    if (manifestText) addExpandedBytes(Buffer.byteLength(manifestText));
-    const manifest = manifestText ? parseArchiveJson(manifestText, "Import manifest") as { format?: string; version?: number; exportedAt?: string; scope?: "account" | "conversations"; media?: Array<{ sourceId?: string; path?: string; fileName?: string; mimeType?: string }> } : undefined;
-    const manifestMedia = Array.isArray(manifest?.media) ? manifest.media.slice(0, ZIP_ENTRY_LIMIT) : [];
-    const mediaByPath = new Map(manifestMedia.flatMap((item) => typeof item?.path === "string" ? [[item.path, item] as const] : []));
-    const mediaEntries = entries.filter((entry) => entry.name.startsWith("media/") || /^file_[a-zA-Z0-9]+\.dat$/.test(entry.name));
-    const media: ImportMediaFile[] = [];
-    for (const entry of mediaEntries) {
-      const bytes = await entry.async("nodebuffer");
-      addExpandedBytes(bytes.byteLength);
-      const metadata = mediaByPath.get(entry.name);
-      const sanitizedFileName = (metadata?.fileName ?? entry.name.split("/").pop() ?? "imported-file.dat")
-        .replace(/[^a-zA-Z0-9._-]/g, "_")
-        .slice(0, 500) || "imported-file.dat";
-      media.push({
-        ...(typeof metadata?.sourceId === "string" && metadata.sourceId.length <= 500 ? { sourceId: metadata.sourceId } : {}),
-        fileName: sanitizedFileName,
-        mimeType: typeof metadata?.mimeType === "string" && metadata.mimeType.length <= 200 ? metadata.mimeType : mimeTypeForName(entry.name),
-        buffer: bytes
-      });
+    try {
+      for await (const rawEntry of parser) {
+        await this.assertActive(job);
+        const entry = rawEntry as Readable & { path: string; type?: string; autodrain?: () => void };
+        if (entry.type === "Directory") {
+          entry.autodrain?.();
+          continue;
+        }
+        entryCount += 1;
+        if (entryCount > ZIP_ENTRY_LIMIT) throw new HttpError("Import ZIP contains too many files.", 400);
+        const path = entry.path.replace(/\\/g, "/");
+        if (path === "manifest.json") {
+          const contents = await readStreamBuffer(entry, env.DATA_TRANSFER_JSON_MAX_BYTES, addExpandedBytes);
+          manifest = parseArchiveJson(contents.toString("utf8"), "Import manifest") as typeof manifest;
+          continue;
+        }
+        if (path === "account.json") {
+          const contents = await readStreamBuffer(entry, env.DATA_TRANSFER_JSON_MAX_BYTES, addExpandedBytes);
+          account = parseArchiveJson(contents.toString("utf8"), "Account file");
+          continue;
+        }
+        if (path === "export.json") {
+          const contents = await readStreamBuffer(entry, env.DATA_TRANSFER_JSON_MAX_BYTES, addExpandedBytes);
+          exportValue = parseArchiveJson(contents.toString("utf8"), "Export JSON");
+          continue;
+        }
+        if (path.startsWith("media/") || /^file_[a-zA-Z0-9]+\.dat$/.test(path)) {
+          const metadata = Array.isArray(manifest?.media) ? manifest.media.find((item) => item?.path === path) : undefined;
+          media.push(await this.stageZipMediaEntry(entry, path, metadata, job, addExpandedBytes));
+          continue;
+        }
+        if (/(^|\/)conversations(?:-\d+)?\.json$/i.test(path)) {
+          const contents = await readStreamBuffer(entry, env.DATA_TRANSFER_JSON_MAX_BYTES, addExpandedBytes);
+          const parsed = parseArchiveJson(contents.toString("utf8"), `Conversation file ${path}`);
+          if (Array.isArray(parsed)) merged.push(...parsed);
+          else if (parsed && typeof parsed === "object" && Array.isArray((parsed as { conversations?: unknown[] }).conversations)) merged.push(...(parsed as { conversations: unknown[] }).conversations);
+          await this.update(job.id, { phase: "Reading conversation files", progress: Math.min(45, 5 + entryCount) });
+          continue;
+        }
+        entry.autodrain?.();
+      }
+    } catch (error) {
+      await Promise.allSettled(media.map((item) => storageService.delete(item.storageKey)));
+      if (error instanceof HttpError || job.abortController.signal.aborted) throw error;
+      throw new HttpError("Import ZIP is invalid or corrupted.", 400);
     }
-    const exportEntry = zip.file("export.json");
-    if (exportEntry) {
-      const text = await exportEntry.async("text");
-      addExpandedBytes(Buffer.byteLength(text));
-      return { value: parseArchiveJson(text, "Export JSON"), media };
-    }
-    const conversationEntries = entries.filter((entry) => /(^|\/)conversations(?:-\d+)?\.json$/i.test(entry.name)).sort((a, b) => a.name.localeCompare(b.name));
-    if (conversationEntries.length === 0) throw new HttpError("ZIP does not contain a supported conversations JSON file.", 400);
-    const merged: unknown[] = [];
-    for (let index = 0; index < conversationEntries.length; index += 1) {
-      await this.assertActive(job);
-      const text = await conversationEntries[index]!.async("text");
-      addExpandedBytes(Buffer.byteLength(text));
-      const parsed = parseArchiveJson(text, `Conversation file ${conversationEntries[index]!.name}`);
-      if (Array.isArray(parsed)) merged.push(...parsed);
-      else if (parsed && typeof parsed === "object" && Array.isArray((parsed as { conversations?: unknown[] }).conversations)) merged.push(...(parsed as { conversations: unknown[] }).conversations);
-      await this.update(job.id, { phase: "Reading conversation files", progress: 5 + Math.round((index + 1) / conversationEntries.length * 30) });
-    }
+    const digest = archiveHash.digest("hex");
+    if (exportValue !== undefined) return { value: exportValue, media, digest };
+    if (merged.length === 0) throw new HttpError("ZIP does not contain a supported conversations JSON file.", 400);
     if (manifest?.format === "for-the-baddiez-export" && manifest.version === 2) {
-      const accountEntry = zip.file("account.json");
-      const accountText = accountEntry ? await accountEntry.async("text") : undefined;
-      if (accountText) addExpandedBytes(Buffer.byteLength(accountText));
-      const account = accountText ? parseArchiveJson(accountText, "Account file") : undefined;
       return {
         value: {
           format: "for-the-baddiez-export",
@@ -456,10 +512,48 @@ export class DataTransferJobService {
           ...(account ? { account } : {}),
           conversations: merged
         },
-        media
+        media,
+        digest
       };
     }
-    return { value: merged, media };
+    return { value: merged, media, digest };
+  }
+
+  private async stageZipMediaEntry(
+    entry: Readable,
+    path: string,
+    metadata: { sourceId?: string; fileName?: string; mimeType?: string } | undefined,
+    job: LocalJob,
+    addExpandedBytes: (bytes: number) => void
+  ): Promise<StagedImportMedia> {
+    const fileName = (metadata?.fileName ?? path.split("/").pop() ?? "imported-file.dat").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 500) || "imported-file.dat";
+    const mimeType = typeof metadata?.mimeType === "string" && metadata.mimeType.length <= 200 ? metadata.mimeType : mimeTypeForName(path);
+    const digest = createHash("sha256");
+    let sizeBytes = 0;
+    const accounting = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        sizeBytes += chunk.byteLength;
+        digest.update(chunk);
+        try {
+          addExpandedBytes(chunk.byteLength);
+          callback(null, chunk);
+        } catch (error) {
+          callback(error as Error);
+        }
+      }
+    });
+    entry.pipe(accounting);
+    const id = `asset_${randomUUID()}`;
+    const stored = await storageService.putStream({ bucket: "uploads", fileName: `${id}-${fileName}`, stream: accounting, mimeType, signal: job.abortController.signal });
+    return {
+      id,
+      sourceKeys: [...new Set([fileName, ...(typeof metadata?.sourceId === "string" && metadata.sourceId.length <= 500 ? [metadata.sourceId] : [])])],
+      fileName,
+      mimeType,
+      sizeBytes: stored.sizeBytes || sizeBytes,
+      storageKey: stored.storageKey,
+      sha256: digest.digest("hex")
+    };
   }
 
   private async findCompletedImport(ownerId: string, digest: string, excludeId: string): Promise<DataTransferJob | undefined> {

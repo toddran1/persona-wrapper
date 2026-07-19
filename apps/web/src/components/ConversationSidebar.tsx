@@ -8,11 +8,11 @@ import type {
 import { useMemo, useRef, useState } from "react";
 
 const REGISTER_PASSWORD_MIN_LENGTH = 10;
-const MAX_IMPORT_FILE_BYTES = 128 * 1024 * 1024;
+const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 
 function assertSupportedImportSize(size: number | undefined): void {
   if (size !== undefined && size > MAX_IMPORT_FILE_BYTES) {
-    throw new Error("Import archives must be 128 MB or smaller.");
+    throw new Error("Import archives must be 5 GB or smaller.");
   }
 }
 

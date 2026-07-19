@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { pipeline } from "node:stream/promises";
 import { dataExportJobRequestSchema, dataImportPresignRequestSchema, dataImportRequestSchema, selectedConversationExportSchema } from "@persona/shared";
 import { ConversationStore } from "../services/conversationStore.js";
 import { DataTransferService } from "../services/dataTransferService.js";
@@ -83,6 +84,7 @@ export async function downloadDataExport(request: Request, response: Response): 
   response.setHeader("Content-Disposition", contentDisposition("attachment", archive.fileName));
   response.setHeader("Cache-Control", "private, no-store");
   response.setHeader("Pragma", "no-cache");
-  response.setHeader("Content-Length", String(archive.buffer.byteLength));
-  response.type(archive.mimeType).send(archive.buffer);
+  if (archive.sizeBytes !== undefined) response.setHeader("Content-Length", String(archive.sizeBytes));
+  response.type(archive.mimeType);
+  await pipeline(archive.stream, response);
 }

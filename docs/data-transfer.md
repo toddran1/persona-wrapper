@@ -6,7 +6,7 @@ Large account imports and exports run as durable `pg-boss` jobs. Web and mobile 
 
 For the Baddiez exports use a version 2 ZIP container:
 
-- `manifest.json` identifies the format, scope, conversation shards, checksums, and media paths.
+- `manifest.json` identifies the format, scope, conversation shards, media metadata, and media paths.
 - `account.json` contains the portable account profile when the export scope is the full account.
 - `conversations-000.json`, `conversations-001.json`, and later shards contain up to 250 portable conversations each.
 - `media/<kind>/<source-id>/<file-name>` contains available uploads, generated media, audio, and artifacts.
@@ -28,12 +28,15 @@ Claude currently documents export, but does not support importing a personal Cla
 
 ## Safety and atomicity
 
-- S3 deployments upload archives directly with presigned PUT URLs. Local development falls back to an in-memory multipart endpoint capped at 64 MiB.
-- Compressed and expanded archive sizes are bounded by `DATA_TRANSFER_ARCHIVE_MAX_BYTES`.
-- ZIP entry count, CRC, expanded size, and file names are validated before import.
+- S3 deployments upload source archives directly with presigned PUT URLs (valid for five hours by default). Local development falls back to an in-memory multipart endpoint capped at 64 MiB.
+- Export ZIPs stream directly into S3 multipart upload (8 MiB parts); worker memory does not scale with media size. Authenticated downloads are streamed from storage to the client.
+- ZIP imports stream from S3, decompress entries incrementally, and stream media entries back to storage. Media is never materialized as a whole worker buffer.
+- Compressed and expanded archive sizes are bounded by `DATA_TRANSFER_ARCHIVE_MAX_BYTES` (5 GiB by default, matching the presigned single-PUT upload limit).
+- Conversation/account JSON is separately bounded by `DATA_TRANSFER_JSON_MAX_BYTES` (128 MiB by default), so large media does not turn into unbounded JSON parsing memory.
+- ZIP entry count, expanded size, and file names are validated before import.
 - A SHA-256 digest skips an already completed copy of the same archive.
 - Conversation fingerprints and media SHA-256 values skip duplicates across different archives.
 - Each import uses a per-user PostgreSQL advisory lock and one database transaction. Any conversation or media database failure rolls back the entire import, and staged objects are deleted.
 - Export downloads require the owning authenticated session. Account deletion and scheduled cleanup remove source and result objects.
 
-The current ZIP implementation buffers archives in the worker process. Keep the configured limit below the worker's available memory; introduce streaming ZIP/S3 multipart I/O before raising it into multi-gigabyte territory.
+The ZIP worker uses streaming I/O. Raising source archive capacity beyond 5 GiB requires a client-side S3 multipart upload protocol (presigned part creation, completion, and recovery); do not increase `DATA_TRANSFER_ARCHIVE_MAX_BYTES` above 5 GiB until that protocol is added.

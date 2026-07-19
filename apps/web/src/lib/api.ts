@@ -40,6 +40,7 @@ const API_REQUEST_TIMEOUT_MS = 130_000;
 const AUTH_REFRESH_TIMEOUT_MS = 30_000;
 const UPLOAD_REQUEST_TIMEOUT_MS = 90_000;
 const DATA_TRANSFER_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 5 * 60 * 1000;
+const DATA_TRANSFER_UPLOAD_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 
 class RequestTimeoutError extends Error {
   constructor() {
@@ -579,13 +580,13 @@ export const api = {
         headers: requestHeaders(false),
         body,
         ...(signal ? { signal } : {})
-      }, 10 * 60_000);
+      }, DATA_TRANSFER_UPLOAD_TIMEOUT_MS);
       if (!response.ok) throw new Error(await parseApiError(response));
       return await response.json() as DataTransferJob;
     }
     if (presigned.status !== 201) throw contractError(presigned.body, "Could not prepare data import.");
     try {
-      const uploaded = await fetchWithTimeout(presigned.body.uploadUrl, { method: "PUT", headers: presigned.body.headers, body: file, credentials: "omit", ...(signal ? { signal } : {}) }, 10 * 60_000);
+      const uploaded = await fetchWithTimeout(presigned.body.uploadUrl, { method: "PUT", headers: presigned.body.headers, body: file, credentials: "omit", ...(signal ? { signal } : {}) }, DATA_TRANSFER_UPLOAD_TIMEOUT_MS);
       if (!uploaded.ok) throw new Error("The storage service rejected the import archive.");
       const completed = await contractClient.data.completeImportJob({ params: { jobId: presigned.body.jobId }, ...(signal ? { fetchOptions: { signal } } : {}) });
       if (completed.status !== 202) throw contractError(completed.body, "Could not start data import.");

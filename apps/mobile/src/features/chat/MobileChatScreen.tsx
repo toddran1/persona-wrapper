@@ -69,7 +69,7 @@ import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
-const MAX_IMPORT_FILE_BYTES = 128 * 1024 * 1024;
+const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 // Keep this aligned with `scheme` in app.config.ts. OAuth must not depend on
 // Expo Constants because the native manifest can be unavailable during startup.
@@ -96,7 +96,7 @@ async function openPublicWebPage(path: string): Promise<void> {
 
 function assertSupportedImportSize(size: number | undefined): void {
   if (size !== undefined && size > MAX_IMPORT_FILE_BYTES) {
-    throw new Error("Import archives must be 128 MB or smaller.");
+    throw new Error("Import archives must be 5 GB or smaller.");
   }
 }
 

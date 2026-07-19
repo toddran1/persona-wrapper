@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { DataTransferJobService } from "../services/dataTransferJobService.js";
 
@@ -12,6 +13,19 @@ vi.mock("../services/storageService.js", () => ({
       return { storageKey, sizeBytes: buffer.byteLength };
     },
     get: async (storageKey: string) => ({ buffer: objects.get(storageKey)! }),
+    putStream: async ({ bucket, fileName, stream }: { bucket: string; fileName: string; stream: Readable }) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const buffer = Buffer.concat(chunks);
+      const storageKey = `${bucket}/${fileName}`;
+      objects.set(storageKey, buffer);
+      return { storageKey, sizeBytes: buffer.byteLength };
+    },
+    getStream: async (storageKey: string) => {
+      const buffer = objects.get(storageKey)!;
+      return { stream: Readable.from(buffer), sizeBytes: buffer.byteLength };
+    },
+    head: async (storageKey: string) => ({ sizeBytes: objects.get(storageKey)!.byteLength }),
     delete: async (storageKey: string) => { objects.delete(storageKey); }
   }
 }));
@@ -38,7 +52,9 @@ describe("DataTransferJobService", () => {
 
     expect(job.status).toBe("completed");
     const archive = await service.download(job.id, "user_export_test");
-    const zip = await JSZip.loadAsync(archive.buffer);
+    const chunks: Buffer[] = [];
+    for await (const chunk of archive.stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const zip = await JSZip.loadAsync(Buffer.concat(chunks));
     const manifest = JSON.parse(await zip.file("manifest.json")!.async("text")) as { format: string; version: number };
     expect(manifest).toMatchObject({ format: "for-the-baddiez-export", version: 2 });
     expect(zip.file("account.json")).toBeTruthy();

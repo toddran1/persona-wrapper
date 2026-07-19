@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
 import { apiContract } from "@persona/shared";
 import { initClient } from "@ts-rest/core";
@@ -88,6 +89,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
 const UPLOAD_REQUEST_TIMEOUT_MS = 90_000;
 const CHAT_REQUEST_TIMEOUT_MS = 130_000;
 const DATA_TRANSFER_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 5 * 60 * 1000;
+const DATA_TRANSFER_UPLOAD_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 
 type RequestTimeout = {
   signal: AbortSignal;
@@ -530,7 +532,7 @@ export const api = {
     if (presigned.status === 409) {
       const body = new FormData();
       body.append("archive", { uri: file.uri, name: file.name, type: file.mimeType } as unknown as Blob);
-      const timeout = createRequestTimeout(signal, 10 * 60_000);
+      const timeout = createRequestTimeout(signal, DATA_TRANSFER_UPLOAD_TIMEOUT_MS);
       try {
         const response = await fetch(`${API_BASE_URL}/api/data/jobs/import`, {
           method: "POST",
@@ -546,12 +548,23 @@ export const api = {
     }
     if (presigned.status !== 201) throw contractError(presigned.body, "Could not prepare data import.");
     try {
-      const timeout = createRequestTimeout(signal, 10 * 60_000);
+      const timeout = createRequestTimeout(signal, DATA_TRANSFER_UPLOAD_TIMEOUT_MS);
       try {
-        const source = await fetch(file.uri, { signal: timeout.signal });
-        if (!source.ok) throw new Error("Could not read the selected import archive.");
-        const uploaded = await fetch(presigned.body.uploadUrl, { method: "PUT", headers: presigned.body.headers, body: await source.blob(), signal: timeout.signal });
-        if (!uploaded.ok) throw new Error("The storage service rejected the import archive.");
+        const upload = FileSystem.createUploadTask(presigned.body.uploadUrl, file.uri, {
+          httpMethod: "PUT",
+          headers: presigned.body.headers,
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT
+        });
+        const cancelUpload = () => { void upload.cancelAsync().catch(() => undefined); };
+        timeout.signal.addEventListener("abort", cancelUpload, { once: true });
+        try {
+          const uploaded = await upload.uploadAsync();
+          if (!uploaded || uploaded.status < 200 || uploaded.status >= 300) {
+            throw new Error("The storage service rejected the import archive.");
+          }
+        } finally {
+          timeout.signal.removeEventListener("abort", cancelUpload);
+        }
       } finally {
         timeout.dispose();
       }

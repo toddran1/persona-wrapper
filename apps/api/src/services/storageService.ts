@@ -1,5 +1,8 @@
+import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { type Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -9,6 +12,7 @@ import {
   S3Client,
   S3ServiceException
 } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "../config/env.js";
 import { HttpError } from "../utils/httpError.js";
@@ -23,6 +27,12 @@ export type StoredObject = {
 
 export type StorageDownload = {
   buffer: Buffer;
+  localPath?: string;
+};
+
+export type StorageStreamDownload = {
+  stream: Readable;
+  sizeBytes?: number;
   localPath?: string;
 };
 
@@ -43,6 +53,14 @@ type PutObjectInput = {
   buffer: Buffer;
 };
 
+type PutStreamInput = {
+  bucket: StorageBucket;
+  fileName: string;
+  stream: Readable;
+  mimeType?: string;
+  signal?: AbortSignal;
+};
+
 type StorageHealth = {
   ok: boolean;
   driver: typeof env.STORAGE_DRIVER;
@@ -59,7 +77,9 @@ type ParsedStorageKey = {
 
 interface StorageDriver {
   put(input: PutObjectInput): Promise<StoredObject>;
+  putStream(input: PutStreamInput): Promise<StoredObject>;
   get(storageKey: string): Promise<StorageDownload>;
+  getStream(storageKey: string): Promise<StorageStreamDownload>;
   delete(storageKey: string): Promise<void>;
   cleanupOlderThan(bucket: StorageBucket, cutoffMs: number): Promise<void>;
   healthCheck(): Promise<StorageHealth>;
@@ -116,6 +136,50 @@ class LocalStorageDriver implements StorageDriver {
         buffer: await readFile(localPath),
         localPath
       };
+    } catch {
+      throw new HttpError("Stored object not found.", 404);
+    }
+  }
+
+  async putStream(input: PutStreamInput): Promise<StoredObject> {
+    const fileName = safeFileName(input.fileName);
+    const storageKey = keyFor(input.bucket, fileName);
+    const localPath = this.localPathFor(input.bucket, fileName);
+    await mkdir(dirname(localPath), { recursive: true });
+    let sizeBytes = 0;
+    const counter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        sizeBytes += chunk.byteLength;
+        callback(null, chunk);
+      }
+    });
+    try {
+      await pipeline(input.stream, counter, createWriteStream(localPath, { flags: "wx" }), { signal: input.signal });
+    } catch (error) {
+      await rm(localPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+    return { storageKey, localPath, sizeBytes };
+  }
+
+  async getStream(storageKey: string): Promise<StorageStreamDownload> {
+    const { bucket, fileName } = parseStorageKey(storageKey);
+    const localPath = this.localPathFor(bucket, fileName);
+    if (!this.isInsideBucket(bucket, localPath)) throw new HttpError("Stored object not found.", 404);
+    try {
+      const details = await stat(localPath);
+      return { stream: createReadStream(localPath), sizeBytes: details.size, localPath };
+    } catch {
+      throw new HttpError("Stored object not found.", 404);
+    }
+  }
+
+  async head(storageKey: string): Promise<StoredObjectMetadata> {
+    const { bucket, fileName } = parseStorageKey(storageKey);
+    const localPath = this.localPathFor(bucket, fileName);
+    if (!this.isInsideBucket(bucket, localPath)) throw new HttpError("Stored object not found.", 404);
+    try {
+      return { sizeBytes: (await stat(localPath)).size };
     } catch {
       throw new HttpError("Stored object not found.", 404);
     }
@@ -257,9 +321,54 @@ class S3StorageDriver implements StorageDriver {
     }
   }
 
+  async putStream(input: PutStreamInput): Promise<StoredObject> {
+    const fileName = safeFileName(input.fileName);
+    const storageKey = keyFor(input.bucket, fileName);
+    const upload = new Upload({
+      client: this.client,
+      params: {
+        Bucket: this.bucket,
+        Key: this.objectKey(storageKey),
+        Body: input.stream,
+        ...(input.mimeType ? { ContentType: input.mimeType } : {}),
+        Metadata: { storage_bucket: input.bucket }
+      },
+      queueSize: 4,
+      partSize: 8 * 1024 * 1024,
+      leavePartsOnError: false
+    });
+    const abort = () => void upload.abort();
+    input.signal?.addEventListener("abort", abort, { once: true });
+    try {
+      await upload.done();
+    } finally {
+      input.signal?.removeEventListener("abort", abort);
+    }
+    const metadata = await this.head(storageKey);
+    return { storageKey, sizeBytes: metadata.sizeBytes };
+  }
+
+  async getStream(storageKey: string): Promise<StorageStreamDownload> {
+    parseStorageKey(storageKey);
+    try {
+      const output = await this.client.send(new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: this.objectKey(storageKey)
+      }));
+      if (!output.Body || typeof (output.Body as { pipe?: unknown }).pipe !== "function") {
+        throw new HttpError("Stored object not found.", 404);
+      }
+      return { stream: output.Body as Readable, ...(output.ContentLength !== undefined ? { sizeBytes: output.ContentLength } : {}) };
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      if (isS3NotFound(error)) throw new HttpError("Stored object not found.", 404);
+      throw error;
+    }
+  }
+
   async presignPut(storageKey: string, mimeType: string, sizeBytes: number): Promise<PresignedStorageUpload> {
     parseStorageKey(storageKey);
-    const expiresIn = 10 * 60;
+    const expiresIn = env.DATA_TRANSFER_PRESIGNED_UPLOAD_TTL_SECONDS;
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: this.objectKey(storageKey),
@@ -369,8 +478,16 @@ export class StorageService implements StorageDriver {
     return this.driver.put(input);
   }
 
+  putStream(input: PutStreamInput): Promise<StoredObject> {
+    return this.driver.putStream(input);
+  }
+
   get(storageKey: string): Promise<StorageDownload> {
     return this.driver.get(storageKey);
+  }
+
+  getStream(storageKey: string): Promise<StorageStreamDownload> {
+    return this.driver.getStream(storageKey);
   }
 
   delete(storageKey: string): Promise<void> {
