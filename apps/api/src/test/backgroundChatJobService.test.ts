@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BackgroundChatJobService } from "../services/backgroundChatJobService.js";
+import { jobQueueService } from "../services/jobQueueService.js";
 
 function waitForAbort(signal: AbortSignal): Promise<never> {
   return new Promise((_, reject) => {
@@ -10,7 +11,10 @@ function waitForAbort(signal: AbortSignal): Promise<never> {
 }
 
 describe("BackgroundChatJobService", () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it("marks manual cancellation separately and aborts the running executor", async () => {
     const service = new BackgroundChatJobService();
@@ -36,6 +40,18 @@ describe("BackgroundChatJobService", () => {
 
     expect(failed?.status).toBe("failed");
     expect(failed?.failureReason).toBe("openai_background_timeout");
+  });
+
+  it("does not expose database query text from a failed background job", async () => {
+    const service = new BackgroundChatJobService();
+    const job = await service.start({}, async () => {
+      throw new Error('Failed query: update "openai_artifacts" set "message_id" = $1');
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const failed = await service.get(job.id);
+
+    expect(failed?.error).toBe("The response finished, but we could not save it. Please try again.");
   });
 
   it("does not expose or cancel jobs for another owner", async () => {
@@ -68,6 +84,33 @@ describe("BackgroundChatJobService", () => {
     const service = new BackgroundChatJobService();
 
     await expect(service.start({})).rejects.toThrow("No background chat executor is configured.");
+  });
+
+  it("leaves a job active for a durable retry and completes it when that retry succeeds", async () => {
+    const service = new BackgroundChatJobService();
+    const executor = vi
+      .fn<() => Promise<any>>()
+      .mockRejectedValueOnce(new Error("OpenAI temporarily unavailable."))
+      .mockResolvedValueOnce({ conversationId: "conv_retry" });
+    service.setExecutor(async () => executor());
+    const metadata = vi.spyOn(jobQueueService, "getJobMetadata")
+      .mockResolvedValueOnce({ retryCount: 0, retryLimit: 3 } as any)
+      .mockResolvedValueOnce({ retryCount: 1, retryLimit: 3 } as any);
+    const payload = {
+      appJobId: "chat_job_retry",
+      request: { personaId: "larae", provider: "openai", message: "Hey", audio: false },
+      createdAt: new Date().toISOString()
+    } as any;
+
+    await expect((service as any).executeQueuedJob(payload, "queue_job_retry", new AbortController().signal))
+      .rejects.toThrow("OpenAI temporarily unavailable.");
+    expect((await service.get(payload.appJobId))?.status).toBe("running");
+
+    await expect((service as any).executeQueuedJob(payload, "queue_job_retry", new AbortController().signal))
+      .resolves.toBeUndefined();
+    expect((await service.get(payload.appJobId))?.status).toBe("completed");
+    expect(executor).toHaveBeenCalledTimes(2);
+    expect(metadata).toHaveBeenCalledTimes(2);
   });
 
   it("does not prune an active job merely because it has run for an hour", async () => {

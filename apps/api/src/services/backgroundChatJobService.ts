@@ -69,7 +69,7 @@ export class BackgroundChatJobService {
     if (!jobQueueService.enabled) return;
     await jobQueueService.work<QueuedChatJob>(CHAT_QUEUE, async (queueJob) => {
       this.queueJobIds.set(queueJob.data.appJobId, queueJob.id);
-      await this.executeQueuedJob(queueJob.data, queueJob.signal);
+      await this.executeQueuedJob(queueJob.data, queueJob.id, queueJob.signal);
     });
   }
 
@@ -136,7 +136,7 @@ export class BackgroundChatJobService {
         id: persisted.id,
         status: parseJobStatus(persisted.status),
         ...(persisted.response ? { response: chatResponseSchema.parse(persisted.response) } : {}),
-        ...(persisted.error ? { error: persisted.error } : {}),
+        ...(persisted.error ? { error: publicJobError(persisted.error) } : {}),
         ...(persisted.failureReason ? { failureReason: chatJobFailureReasonSchema.parse(persisted.failureReason) } : {}),
         ...(persisted.providerResponseId ? { providerResponseId: persisted.providerResponseId } : {}),
         ...(persisted.providerStatus ? { providerStatus: persisted.providerStatus } : {}),
@@ -207,7 +207,7 @@ export class BackgroundChatJobService {
     await Promise.all([...ownedJobIds].map((id) => this.cancel(id, error, ownerId)));
   }
 
-  private async executeQueuedJob(payload: QueuedChatJob, queueSignal: AbortSignal): Promise<void> {
+  private async executeQueuedJob(payload: QueuedChatJob, queueJobId: string, queueSignal: AbortSignal): Promise<void> {
     if (!this.executor) throw new Error("Background chat worker has no executor configured.");
     const timestamp = now();
     const job: BackgroundChatJob = this.jobs.get(payload.appJobId) ?? {
@@ -221,10 +221,35 @@ export class BackgroundChatJobService {
     };
     this.jobs.set(job.id, job);
     queueSignal.addEventListener("abort", () => job.abortController.abort(queueSignal.reason), { once: true });
-    await this.execute(job, () => this.executor?.(payload.request, job) as Promise<ChatResponse>);
+    const queueMetadata = await jobQueueService.getJobMetadata<QueuedChatJob>(CHAT_QUEUE, queueJobId).catch((error) => {
+      logger.warn("Could not read background chat retry metadata", {
+        jobId: job.id,
+        queueJobId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return undefined;
+    });
+    // pg-boss invokes this handler again while retries remain. Do not show the
+    // user a failed turn until its final attempt; otherwise a later successful
+    // durable retry is blocked by the app job's terminal state.
+    const terminalAttempt = !queueMetadata || queueMetadata.retryCount >= queueMetadata.retryLimit;
+    try {
+      await this.execute(job, () => this.executor?.(payload.request, job) as Promise<ChatResponse>, terminalAttempt);
+    } catch (error) {
+      if (!terminalAttempt) {
+        logger.warn("Background chat job will be retried", {
+          jobId: job.id,
+          queueJobId,
+          retryCount: queueMetadata.retryCount,
+          retryLimit: queueMetadata.retryLimit,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      throw error;
+    }
   }
 
-  private async execute(job: BackgroundChatJob, executor: () => Promise<ChatResponse>): Promise<void> {
+  private async execute(job: BackgroundChatJob, executor: () => Promise<ChatResponse>, recordTerminalFailure = true): Promise<void> {
     if (!await this.transitionActive(job.id, { status: "running" })) return;
     try {
       const response = await executor();
@@ -233,10 +258,16 @@ export class BackgroundChatJobService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (await this.isCancelled(job.id)) return;
+      if (!recordTerminalFailure) throw error;
       const failureReason = classifyFailureReason(message);
       const failed = await this.transitionActive(job.id, { status: "failed", error: message, failureReason });
       if (!failed) return;
-      logger.warn("Background chat job failed", { jobId: job.id, error: message, failureReason });
+      logger.warn("Background chat job failed", {
+        jobId: job.id,
+        error: message,
+        failureReason,
+        ...(job.providerResponseId ? { providerResponseId: job.providerResponseId } : {})
+      });
       throw error;
     }
   }
@@ -393,12 +424,21 @@ function toChatJobResponse(job: BackgroundChatJob): ChatJobResponse {
     id: job.id,
     status: job.status,
     ...(job.response ? { response: job.response } : {}),
-    ...(job.error ? { error: job.error } : {}),
+    ...(job.error ? { error: publicJobError(job.error) } : {}),
     ...(job.failureReason ? { failureReason: job.failureReason } : {}),
     ...(job.providerResponseId ? { providerResponseId: job.providerResponseId } : {}),
     ...(job.providerStatus ? { providerStatus: job.providerStatus } : {}),
     updatedAt: job.updatedAt
   };
+}
+
+function publicJobError(error: string): string {
+  // The stored error is kept for operator logs, but database-driver messages
+  // can expose SQL, identifiers, and parameter values to the mobile client.
+  if (/failed query:|openai_artifacts|foreign key|violates .*constraint|duplicate key/i.test(error)) {
+    return "The response finished, but we could not save it. Please try again.";
+  }
+  return error;
 }
 
 function classifyFailureReason(message: string): ChatJobFailureReason {

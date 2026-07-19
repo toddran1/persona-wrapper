@@ -1,4 +1,4 @@
-import { PgBoss, type Job, type SendOptions } from "pg-boss";
+import { PgBoss, type Job, type JobWithMetadata, type SendOptions } from "pg-boss";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 
@@ -71,6 +71,12 @@ class JobQueueService {
     if (!boss) return undefined;
     const jobs = await boss.findJobs<{ appJobId: string }>(queue, { data: { appJobId } });
     return jobs[0]?.id;
+  }
+
+  async getJobMetadata<T extends object>(queue: string, queueJobId: string): Promise<JobWithMetadata<T> | undefined> {
+    const boss = await this.start();
+    if (!boss) return undefined;
+    return (await boss.getJobById<T>(queue, queueJobId)) ?? undefined;
   }
 
   async stop(): Promise<void> {

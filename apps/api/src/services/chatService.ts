@@ -395,7 +395,6 @@ export class ChatService {
     const persistedArtifactContent = await openAIArtifactService.assignOwnershipToContentBlocks(persistedMediaContent, {
       ...(options.ownerId ? { ownerId: options.ownerId } : {}),
       conversationId: conversation.id,
-      messageId: assistantMessageId,
       metadata: ownershipMetadata
     });
     const responseLlmOutput = llmOutputSchema.parse({
@@ -638,6 +637,23 @@ export class ChatService {
         }
       }
     ]);
+
+    // `openai_artifacts.message_id` references `messages.id`. The assistant
+    // message must exist before linking the artifact to it, otherwise a
+    // generated file turns an otherwise-complete response into a database
+    // foreign-key failure.
+    await openAIArtifactService.assignOwnershipToContentBlocks(persistedArtifactContent, {
+      ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+      conversationId: updatedConversation.id,
+      messageId: assistantMessageId,
+      metadata: ownershipMetadata
+    }).catch((error) => {
+      logger.warn("OpenAI artifact message ownership update failed after chat persistence", {
+        conversationId: updatedConversation.id,
+        messageId: assistantMessageId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
 
     return this.responseFormatter.format({
       persona,

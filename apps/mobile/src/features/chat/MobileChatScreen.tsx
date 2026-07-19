@@ -52,6 +52,7 @@ import {
   getSelectedConversationId,
   setSelectedConversationId
 } from "../../storage/secureTokens";
+import { saveFileToDevice } from "../../storage/downloadDirectory";
 import { defaultPersonaTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
@@ -1724,6 +1725,16 @@ export function MobileChatScreen() {
     );
   }
 
+  function chooseAndroidArchiveAction(fileName: string): Promise<"save" | "share" | "cancel"> {
+    return new Promise((resolve) => {
+      Alert.alert("Export ready", fileName, [
+        { text: "Save to device", onPress: () => resolve("save") },
+        { text: "Share", onPress: () => resolve("share") },
+        { text: "Cancel", style: "cancel", onPress: () => resolve("cancel") }
+      ]);
+    });
+  }
+
   async function shareDataArchive(scope: "account" | "conversation", selectedConversationId?: string): Promise<void> {
     const controller = new AbortController();
     try {
@@ -1738,18 +1749,27 @@ export function MobileChatScreen() {
       if (!FileSystem.documentDirectory) throw new Error("This device cannot create an export file.");
       const fileName = completed.fileName ?? `for-the-baddiez-${scope}-${new Date().toISOString().slice(0, 10)}.zip`;
       const uri = `${FileSystem.documentDirectory}${fileName}`;
-      let keepSavedExport = false;
       try {
         const downloaded = await FileSystem.downloadAsync(api.resolveUrl(completed.downloadUrl), uri, { headers: await api.mediaHeaders() });
         if (downloaded.status < 200 || downloaded.status >= 300) throw new Error(`Export download failed with status ${downloaded.status}.`);
-        if (await Sharing.isAvailableAsync()) {
+        if (Platform.OS === "android") {
+          const action = await chooseAndroidArchiveAction(fileName);
+          if (action === "save") {
+            const saved = await saveFileToDevice(uri, fileName, "application/zip");
+            if (saved === "saved") {
+              Alert.alert("Export saved", `Saved ${fileName} to your selected device folder.`);
+            }
+          } else if (action === "share") {
+            if (!await Sharing.isAvailableAsync()) throw new Error("No compatible app is available to share this export.");
+            await Sharing.shareAsync(uri, { mimeType: "application/zip", dialogTitle: "Share For the Baddiez data" });
+          }
+        } else if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(uri, { mimeType: "application/zip", dialogTitle: "Export For the Baddiez data" });
         } else {
-          keepSavedExport = true;
           Alert.alert("Export saved", `Saved ${fileName} to the app documents folder.`);
         }
       } finally {
-        if (!keepSavedExport) await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+        await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
       }
     } catch (exportError) {
       if (!isAbortError(exportError)) Alert.alert("Export failed", exportError instanceof Error ? exportError.message : "Could not export your data.");

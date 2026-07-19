@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library/legacy";
@@ -10,6 +10,7 @@ import { EnrichedMarkdownText, type MarkdownStyle } from "react-native-enriched-
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BarChart, LineChart, PieChart } from "react-native-gifted-charts";
 import { api } from "../../api/client";
+import { saveFileToDevice } from "../../storage/downloadDirectory";
 import type { MobileTheme } from "../../theme/personaTheme";
 
 type OutputBlocksProps = {
@@ -313,26 +314,51 @@ function OutputBlock({
   }
   if (output.type === "file" || output.type === "video") {
     const title = output.type === "file" ? output.fileName : output.title ?? "Video";
+    const downloadFile = async (): Promise<{ uri: string; mimeType: string; fileName: string }> => {
+      if (output.type !== "file") throw new Error("Only files can be downloaded to this device.");
+      if (!FileSystem.cacheDirectory) throw new Error("File downloads are unavailable on this device.");
+      const safeFileName = output.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const destination = `${FileSystem.cacheDirectory}download-${Date.now().toString(36)}-${safeFileName}`;
+      const result = await FileSystem.downloadAsync(
+        api.resolveUrl(output.url),
+        destination,
+        api.isProtectedMediaUrl(output.url) ? { headers: await api.mediaHeaders() } : undefined
+      );
+      assertSuccessfulDownload(result);
+      return { uri: result.uri, mimeType: output.mimeType, fileName: output.fileName };
+    };
+    const saveOutputToDevice = async (): Promise<void> => {
+      const downloaded = await downloadFile();
+      try {
+        const saved = await saveFileToDevice(downloaded.uri, downloaded.fileName, downloaded.mimeType);
+        if (saved === "saved") Alert.alert("Downloaded", `Saved ${downloaded.fileName} to your selected device folder.`);
+      } finally {
+        await FileSystem.deleteAsync(downloaded.uri, { idempotent: true }).catch(() => undefined);
+      }
+    };
+    const shareOutput = async (): Promise<void> => {
+      const downloaded = await downloadFile();
+      try {
+        if (!await Sharing.isAvailableAsync()) throw new Error("No compatible app is available to share this file.");
+        await Sharing.shareAsync(downloaded.uri, { mimeType: downloaded.mimeType, dialogTitle: `Share ${downloaded.fileName}` });
+      } finally {
+        await FileSystem.deleteAsync(downloaded.uri, { idempotent: true }).catch(() => undefined);
+      }
+    };
     const openOutput = async (): Promise<void> => {
       if (output.type !== "file") {
         await openExternalUrl(api.resolveUrl(output.url));
         return;
       }
-
-      if (!FileSystem.cacheDirectory) throw new Error("File downloads are unavailable on this device.");
-      const safeFileName = output.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const destination = `${FileSystem.cacheDirectory}download-${Date.now().toString(36)}-${safeFileName}`;
-      const resolvedUrl = api.resolveUrl(output.url);
-      const result = await FileSystem.downloadAsync(
-        resolvedUrl,
-        destination,
-        api.isProtectedMediaUrl(output.url) ? { headers: await api.mediaHeaders() } : undefined
-      );
-      assertSuccessfulDownload(result);
-      if (!await Sharing.isAvailableAsync()) {
-        throw new Error("No compatible app is available to save or open this file.");
+      if (Platform.OS !== "android") {
+        await shareOutput();
+        return;
       }
-      await Sharing.shareAsync(result.uri, { mimeType: output.mimeType, dialogTitle: `Download ${output.fileName}` });
+      Alert.alert("Download file", output.fileName, [
+        { text: "Save to device", onPress: () => void saveOutputToDevice().catch((error) => Alert.alert("Download failed", error instanceof Error ? error.message : "Could not save this file.")) },
+        { text: "Share", onPress: () => void shareOutput().catch((error) => Alert.alert("Share failed", error instanceof Error ? error.message : "Could not share this file.")) },
+        { text: "Cancel", style: "cancel" }
+      ]);
     };
     return (
       <Pressable

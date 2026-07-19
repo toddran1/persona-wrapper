@@ -40,17 +40,14 @@ type PersonaVisualClip = {
 function PersonaVideo({
   source,
   playing,
-  restartToken,
   onEnd,
   onError
 }: {
   source: string;
   playing: boolean;
-  restartToken: number;
   onEnd: (source: string) => void;
   onError: (source: string) => void;
 }) {
-  const lastRestartTokenRef = useRef(restartToken);
   const player = useVideoPlayer({ uri: source, useCaching: true }, (instance) => {
     instance.loop = false;
     instance.muted = true;
@@ -63,18 +60,6 @@ function PersonaVideo({
     if (playing) player.play();
     else player.pause();
   }, [player, playing]);
-
-  useEffect(() => {
-    if (restartToken === lastRestartTokenRef.current) return;
-    lastRestartTokenRef.current = restartToken;
-
-    try {
-      if (playing) player.replay();
-      else player.currentTime = 0;
-    } catch {
-      onError(source);
-    }
-  }, [onError, player, playing, restartToken, source]);
 
   useEventListener(player, "playToEnd", () => onEnd(source));
   useEventListener(player, "statusChange", ({ status }) => {
@@ -138,7 +123,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
   const hiddenTranslate = stageWidth + 24;
   const [activeClip, setActiveClip] = useState<PersonaVisualClip>(() => pickStateClip(profile, state));
   const [mediaUnavailable, setMediaUnavailable] = useState(false);
-  const [playbackGeneration, setPlaybackGeneration] = useState(0);
+  const [playerGeneration, setPlayerGeneration] = useState(0);
   const activeClipRef = useRef<PersonaVisualClip | null>(activeClip);
   const failedSourcesRef = useRef<Set<string>>(new Set());
   const lastPressAtRef = useRef(0);
@@ -164,7 +149,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
 
   useEffect(() => {
     if (visible && !wasVisibleRef.current) {
-      setPlaybackGeneration((generation) => generation + 1);
+      setPlayerGeneration((generation) => generation + 1);
     }
     wasVisibleRef.current = visible;
   }, [visible]);
@@ -176,8 +161,8 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
 
       if (wasBackgrounded && nextAppState === "active") {
         // Native video surfaces may remain paused or frozen after returning from
-        // the background. Restart the existing player and return to idle.
-        setPlaybackGeneration((generation) => generation + 1);
+        // the background. Recreate the player and return to idle.
+        setPlayerGeneration((generation) => generation + 1);
         onAppForegroundRef.current();
       }
     });
@@ -220,6 +205,11 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
     setMediaUnavailable(false);
     activeClipRef.current = clip;
     setActiveClip(clip);
+    // `useVideoPlayer` owns a native player initialized from its first source.
+    // Keying each clip forces that native player to be released and recreated
+    // when a state transition selects another source (or repeats a single
+    // source), preventing an ended player from leaving a frozen frame.
+    setPlayerGeneration((generation) => generation + 1);
   }
 
   function finishClip(source: string): void {
@@ -324,9 +314,9 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
 
     return (
       <PersonaVideo
+        key={`${activeClip.src}:${playerGeneration}`}
         source={source.uri}
         playing={visible && (!hidden || expanded)}
-        restartToken={playbackGeneration}
         onError={handleMediaError}
         onEnd={finishClip}
       />
