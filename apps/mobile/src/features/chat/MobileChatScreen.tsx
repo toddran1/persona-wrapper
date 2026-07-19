@@ -160,6 +160,8 @@ function formatSessionActivity(value: string): string {
   return `Last active ${date.toLocaleString()}`;
 }
 
+type SettingsPanel = "main" | "sessions" | "about" | "data";
+
 export function MobileChatScreen() {
   const { t } = useLocalization();
   const { isOnline, recentlyRestored } = useNetwork();
@@ -193,6 +195,7 @@ export function MobileChatScreen() {
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [settingsPanel, setSettingsPanel] = useState<SettingsPanel>("main");
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
   const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const dataTransferActive = Boolean(dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status));
@@ -406,8 +409,18 @@ export function MobileChatScreen() {
 
   const returnToDrawer = useCallback(() => {
     setSettingsVisible(false);
+    setSettingsPanel("main");
     openDrawer();
   }, [openDrawer]);
+
+  function openSettingsPanel(panel: SettingsPanel): void {
+    setSettingsPanel(panel);
+    if (panel === "sessions") void refreshActiveSessions();
+  }
+
+  const returnToSettingsHome = useCallback(() => {
+    setSettingsPanel("main");
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -468,7 +481,11 @@ export function MobileChatScreen() {
 
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       if (settingsVisible) {
-        returnToDrawer();
+        if (settingsPanel !== "main") {
+          returnToSettingsHome();
+        } else {
+          returnToDrawer();
+        }
         return true;
       }
 
@@ -484,7 +501,7 @@ export function MobileChatScreen() {
     });
 
     return () => subscription.remove();
-  }, [authUser, closeDrawer, drawerInteractive, returnToDrawer, settingsVisible]);
+  }, [authUser, closeDrawer, drawerInteractive, returnToDrawer, returnToSettingsHome, settingsPanel, settingsVisible]);
 
   const drawerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: drawerX.value }]
@@ -1070,6 +1087,7 @@ export function MobileChatScreen() {
 
   async function retryAssistantTurn(turn: RenderedTurn): Promise<void> {
     if (sending) return;
+    if (turns[turns.length - 1]?.id !== turn.id) return;
     setTurns((current) => current.filter((candidate) => candidate.id !== turn.id));
     await submit(turn.userMessage, { files: [] });
   }
@@ -1821,6 +1839,7 @@ export function MobileChatScreen() {
   const assistantActionReferences = assistantActionTurn?.outputs
     .filter((output): output is Extract<RenderedTurn["outputs"][number], { type: "source_list" }> => output.type === "source_list")
     .flatMap((output) => output.sources) ?? [];
+  const canRetryAssistantAction = Boolean(assistantActionTurn && turns[turns.length - 1]?.id === assistantActionTurn.id);
   const handlePersonaExpandedChange = (expanded: boolean): void => {
     setPersonaCardExpanded(expanded);
     if (expanded) setPersonaCardHidden(false);
@@ -2142,7 +2161,10 @@ export function MobileChatScreen() {
             hasMoreConversations={drawerHasMoreConversations}
             onSelectPersona={(id) => void selectPersona(id)}
             onShowLogin={() => undefined}
-            onShowSettings={() => setSettingsVisible(true)}
+            onShowSettings={() => {
+              setSettingsPanel("main");
+              setSettingsVisible(true);
+            }}
           />
         </Animated.View>
       </GestureDetector>
@@ -2159,162 +2181,145 @@ export function MobileChatScreen() {
           <View style={styles.settingsTopBar}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Back to chats"
+              accessibilityLabel={settingsPanel === "main" ? "Back to chats" : "Back to account settings"}
               testID="mobile-settings-back"
-              onPress={returnToDrawer}
+              onPress={settingsPanel === "main" ? returnToDrawer : returnToSettingsHome}
               style={[styles.settingsBackButton, { backgroundColor: "rgba(255,255,255,0.08)" }]}
             >
               <Ionicons name="arrow-back" size={25} color={theme.text} />
             </Pressable>
-          </View>
-          <View style={styles.settingsProfile}>
-            <View style={[styles.settingsAvatar, { backgroundColor: theme.accent }]}>
-              <Text style={[styles.settingsAvatarText, { color: theme.text }]}>
-                {(authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? authUser?.email?.[0] ?? "P").toUpperCase()}
+            {settingsPanel !== "main" ? (
+              <Text style={[styles.settingsPanelTitle, { color: theme.text }]}>
+                {settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "about" ? "About" : "Your data"}
               </Text>
-            </View>
-            <Text style={[styles.settingsName, { color: theme.text }]} numberOfLines={1}>
-              {authUser?.displayName ?? authUser?.username ?? "Account"}
-            </Text>
-            {authUser?.email ? (
-              <Text style={[styles.settingsEmail, { color: theme.muted }]} numberOfLines={1}>{authUser.email}</Text>
             ) : null}
           </View>
-          <View style={styles.settingsSection}>
-            <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Account</Text>
-            <Pressable
-              accessibilityRole="button"
-              testID="mobile-logout"
-              onPress={() => void logout()}
-              style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}
-            >
-              <Ionicons name="log-out-outline" size={22} color={theme.text} />
-              <Text style={[styles.settingsRowText, { color: theme.text }]}>Log out</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              testID="mobile-delete-account"
-              onPress={() => {
-                setDeleteAccountError(undefined);
-                setDeleteAccountVisible(true);
-              }}
-              style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}
-            >
-              <Ionicons name="trash-outline" size={22} color={theme.danger} />
-              <Text style={[styles.settingsRowText, { color: theme.danger }]}>Delete account</Text>
-            </Pressable>
-          </View>
-          <View style={styles.settingsSection}>
-            <View style={styles.settingsSectionHeadingRow}>
-              <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Active sessions</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Refresh active sessions"
-                disabled={sessionsLoading}
-                onPress={() => void refreshActiveSessions()}
-                style={styles.sessionRefreshButton}
-              >
-                {sessionsLoading ? (
-                  <ActivityIndicator size="small" color={theme.accent} />
-                ) : (
-                  <Ionicons name="refresh" size={20} color={theme.accent} />
-                )}
-              </Pressable>
-            </View>
-            {sessionsError ? (
-              <Text style={[styles.sessionErrorText, { color: theme.danger }]}>{sessionsError}</Text>
-            ) : null}
-            {!sessionsLoading && activeSessions.length === 0 && !sessionsError ? (
-              <Text style={[styles.sessionEmptyText, { color: theme.muted }]}>No active sessions found.</Text>
-            ) : null}
-            {activeSessions.map((session) => (
-              <View key={session.id} style={[styles.sessionRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
-                <Ionicons
-                  name={session.clientType === "web" ? "globe-outline" : session.clientType === "desktop" ? "desktop-outline" : "phone-portrait-outline"}
-                  size={22}
-                  color={session.current ? theme.accent : theme.text}
-                />
-                <View style={styles.sessionDetails}>
-                  <Text style={[styles.sessionTitle, { color: theme.text }]}>{activeSessionLabel(session)}</Text>
-                  <Text style={[styles.sessionActivity, { color: theme.muted }]}>{formatSessionActivity(session.lastActiveAt)}</Text>
+          {settingsPanel === "main" ? (
+            <>
+              <View style={styles.settingsProfile}>
+                <View style={[styles.settingsAvatar, { backgroundColor: theme.accent }]}>
+                  <Text style={[styles.settingsAvatarText, { color: theme.text }]}>
+                    {(authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? authUser?.email?.[0] ?? "P").toUpperCase()}
+                  </Text>
                 </View>
-                {!session.current ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Log out ${activeSessionLabel(session)}`}
-                    disabled={Boolean(sessionActionId)}
-                    onPress={() => confirmRevokeSession(session)}
-                    style={styles.sessionRevokeButton}
-                  >
-                    {sessionActionId === session.id ? (
-                      <ActivityIndicator size="small" color={theme.danger} />
-                    ) : (
-                      <Ionicons name="log-out-outline" size={21} color={theme.danger} />
-                    )}
-                  </Pressable>
-                ) : null}
+                <Text style={[styles.settingsName, { color: theme.text }]} numberOfLines={1}>
+                  {authUser?.displayName ?? authUser?.username ?? "Account"}
+                </Text>
+                {authUser?.email ? <Text style={[styles.settingsEmail, { color: theme.muted }]} numberOfLines={1}>{authUser.email}</Text> : null}
               </View>
-            ))}
-            {activeSessions.some((session) => !session.current) ? (
-              <Pressable
-                accessibilityRole="button"
-                disabled={Boolean(sessionActionId)}
-                onPress={confirmRevokeOtherSessions}
-                style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}
-              >
-                {sessionActionId === "others" ? (
-                  <ActivityIndicator size="small" color={theme.danger} />
-                ) : (
-                  <Ionicons name="log-out-outline" size={22} color={theme.danger} />
-                )}
-                <Text style={[styles.settingsRowText, { color: theme.danger }]}>Log out all other devices</Text>
+              <View style={styles.settingsSection}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Account</Text>
+                <Pressable accessibilityRole="button" testID="mobile-logout" onPress={() => void logout()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="log-out-outline" size={22} color={theme.text} />
+                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Log out</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" testID="mobile-delete-account" onPress={() => { setDeleteAccountError(undefined); setDeleteAccountVisible(true); }} style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}>
+                  <Ionicons name="trash-outline" size={22} color={theme.danger} />
+                  <Text style={[styles.settingsRowText, { color: theme.danger }]}>Delete account</Text>
+                </Pressable>
+              </View>
+              <View style={styles.settingsSection}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Manage</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open active sessions" onPress={() => openSettingsPanel("sessions")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="phone-portrait-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Active sessions</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{activeSessions.length ? `${activeSessions.length} signed-in device${activeSessions.length === 1 ? "" : "s"}` : "Review signed-in devices"}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open about links" onPress={() => openSettingsPanel("about")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="information-circle-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>About</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Policies, help, and support</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open your data tools" onPress={() => openSettingsPanel("data")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="folder-open-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Your data</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{dataTransferActive && dataTransferJob ? `${dataTransferJob.progress}% · ${dataTransferJob.phase}` : "Export or import your archive"}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
+              </View>
+            </>
+          ) : null}
+          {settingsPanel === "sessions" ? (
+            <View style={styles.settingsSection}>
+              <View style={styles.settingsSectionHeadingRow}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Signed-in devices</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Refresh active sessions" disabled={sessionsLoading} onPress={() => void refreshActiveSessions()} style={styles.sessionRefreshButton}>
+                  {sessionsLoading ? <ActivityIndicator size="small" color={theme.accent} /> : <Ionicons name="refresh" size={20} color={theme.accent} />}
+                </Pressable>
+              </View>
+              {sessionsError ? <Text style={[styles.sessionErrorText, { color: theme.danger }]}>{sessionsError}</Text> : null}
+              {!sessionsLoading && activeSessions.length === 0 && !sessionsError ? <Text style={[styles.sessionEmptyText, { color: theme.muted }]}>No active sessions found.</Text> : null}
+              {activeSessions.map((session) => (
+                <View key={session.id} style={[styles.sessionRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name={session.clientType === "web" ? "globe-outline" : session.clientType === "desktop" ? "desktop-outline" : "phone-portrait-outline"} size={22} color={session.current ? theme.accent : theme.text} />
+                  <View style={styles.sessionDetails}>
+                    <Text style={[styles.sessionTitle, { color: theme.text }]}>{activeSessionLabel(session)}</Text>
+                    <Text style={[styles.sessionActivity, { color: theme.muted }]}>{formatSessionActivity(session.lastActiveAt)}</Text>
+                  </View>
+                  {!session.current ? (
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Log out ${activeSessionLabel(session)}`} disabled={Boolean(sessionActionId)} onPress={() => confirmRevokeSession(session)} style={styles.sessionRevokeButton}>
+                      {sessionActionId === session.id ? <ActivityIndicator size="small" color={theme.danger} /> : <Ionicons name="log-out-outline" size={21} color={theme.danger} />}
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+              {activeSessions.some((session) => !session.current) ? (
+                <Pressable accessibilityRole="button" disabled={Boolean(sessionActionId)} onPress={confirmRevokeOtherSessions} style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}>
+                  {sessionActionId === "others" ? <ActivityIndicator size="small" color={theme.danger} /> : <Ionicons name="log-out-outline" size={22} color={theme.danger} />}
+                  <Text style={[styles.settingsRowText, { color: theme.danger }]}>Log out all other devices</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+          {settingsPanel === "about" ? (
+            <View style={styles.settingsSection}>
+              <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Help and policies</Text>
+              {([
+                ["Privacy Policy", "shield-checkmark-outline", "/privacy"],
+                ["Terms of Use", "document-text-outline", "/terms"],
+                ["Delete account policy", "person-remove-outline", "/delete-account"],
+                ["Support", "help-circle-outline", "/support"]
+              ] as const).map(([label, icon, path]) => (
+                <Pressable key={path} accessibilityRole="link" onPress={() => void openPublicWebPage(path).catch(() => Alert.alert("Could not open page", "Check your internet connection and try again."))} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name={icon} size={22} color={theme.text} />
+                  <Text style={[styles.settingsRowText, { color: theme.text }]}>{label}</Text>
+                  <Ionicons name="open-outline" size={18} color={theme.muted} />
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          {settingsPanel === "data" ? (
+            <View style={styles.settingsSection}>
+              <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Import and export</Text>
+              {dataTransferJob ? <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>{dataTransferJob.phase} · {dataTransferJob.progress}%</Text> : <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Create a ZIP archive of your account or bring conversations in from another archive.</Text>}
+              {dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status) ? (
+                <Pressable accessibilityRole="button" onPress={() => void cancelDataTransfer().catch((cancelError) => Alert.alert("Cancel failed", cancelError instanceof Error ? cancelError.message : "Could not cancel data transfer."))} style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}>
+                  <Ionicons name="close-circle-outline" size={22} color={theme.danger} />
+                  <Text style={[styles.settingsRowText, { color: theme.danger }]}>Cancel data transfer</Text>
+                </Pressable>
+              ) : null}
+              <Pressable accessibilityRole="button" testID="mobile-export-account" disabled={dataTransferActive} onPress={() => void shareDataArchive("account")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: dataTransferActive ? 0.45 : 1 }]}>
+                <Ionicons name="download-outline" size={22} color={theme.text} />
+                <Text style={[styles.settingsRowText, { color: theme.text }]}>Export account data</Text>
               </Pressable>
-            ) : null}
-          </View>
-          <View style={styles.settingsSection}>
-            <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>About</Text>
-            {([
-              ["Privacy Policy", "shield-checkmark-outline", "/privacy"],
-              ["Terms of Use", "document-text-outline", "/terms"],
-              ["Delete account policy", "person-remove-outline", "/delete-account"],
-              ["Support", "help-circle-outline", "/support"]
-            ] as const).map(([label, icon, path]) => (
-              <Pressable
-                key={path}
-                accessibilityRole="link"
-                onPress={() => void openPublicWebPage(path).catch(() => {
-                  Alert.alert("Could not open page", "Check your internet connection and try again.");
-                })}
-                style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}
-              >
-                <Ionicons name={icon} size={22} color={theme.text} />
-                <Text style={[styles.settingsRowText, { color: theme.text }]}>{label}</Text>
-                <Ionicons name="open-outline" size={18} color={theme.muted} />
+              <Pressable accessibilityRole="button" testID="mobile-export-conversation" disabled={!conversationId || dataTransferActive} onPress={() => void shareDataArchive("conversation")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: conversationId && !dataTransferActive ? 1 : 0.45 }]}>
+                <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.text} />
+                <Text style={[styles.settingsRowText, { color: theme.text }]}>Export current chat</Text>
               </Pressable>
-            ))}
-          </View>
-          <View style={styles.settingsSection}>
-            <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Your data</Text>
-            {dataTransferJob ? <Text style={{ color: theme.muted, fontSize: 12, marginBottom: 4 }}>{dataTransferJob.phase} · {dataTransferJob.progress}%</Text> : null}
-            {dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status) ? (
-              <Pressable accessibilityRole="button" onPress={() => void cancelDataTransfer().catch((cancelError) => Alert.alert("Cancel failed", cancelError instanceof Error ? cancelError.message : "Could not cancel data transfer."))} style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}>
-                <Ionicons name="close-circle-outline" size={22} color={theme.danger} />
-                <Text style={[styles.settingsRowText, { color: theme.danger }]}>Cancel data transfer</Text>
+              <Pressable accessibilityRole="button" testID="mobile-import-conversations" disabled={dataTransferActive} onPress={() => void importConversationArchive()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: dataTransferActive ? 0.45 : 1 }]}>
+                <Ionicons name="cloud-upload-outline" size={22} color={theme.text} />
+                <Text style={[styles.settingsRowText, { color: theme.text }]}>Import conversations</Text>
               </Pressable>
-            ) : null}
-            <Pressable accessibilityRole="button" testID="mobile-export-account" disabled={dataTransferActive} onPress={() => void shareDataArchive("account")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: dataTransferActive ? 0.45 : 1 }]}>
-              <Ionicons name="download-outline" size={22} color={theme.text} />
-              <Text style={[styles.settingsRowText, { color: theme.text }]}>Export account data</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" testID="mobile-export-conversation" disabled={!conversationId || dataTransferActive} onPress={() => void shareDataArchive("conversation")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: conversationId && !dataTransferActive ? 1 : 0.45 }]}>
-              <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.text} />
-              <Text style={[styles.settingsRowText, { color: theme.text }]}>Export current chat</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" testID="mobile-import-conversations" disabled={dataTransferActive} onPress={() => void importConversationArchive()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: dataTransferActive ? 0.45 : 1 }]}>
-              <Ionicons name="cloud-upload-outline" size={22} color={theme.text} />
-              <Text style={[styles.settingsRowText, { color: theme.text }]}>Import conversations</Text>
-            </Pressable>
-          </View>
+            </View>
+          ) : null}
         </ScrollView>
       ) : null}
 
@@ -2468,11 +2473,11 @@ export function MobileChatScreen() {
                 <Text style={[styles.actionSheetText, { color: theme.text }]}>References</Text>
               </Pressable>
             ) : null}
-            {assistantActionTurn ? (
+            {canRetryAssistantAction ? (
               <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
                 const turn = assistantActionTurn;
                 setAssistantActionTurn(undefined);
-                void retryAssistantTurn(turn);
+                if (turn) void retryAssistantTurn(turn);
               }}>
                 <Ionicons name="refresh" size={20} color={theme.text} />
                 <Text style={[styles.actionSheetText, { color: theme.text }]}>Retry</Text>
@@ -3052,6 +3057,20 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     maxWidth: "82%"
   },
+  settingsPanelDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    paddingHorizontal: 4
+  },
+  settingsPanelTitle: {
+    alignSelf: "center",
+    fontSize: 20,
+    fontWeight: "900",
+    left: 72,
+    position: "absolute",
+    right: 72,
+    textAlign: "center"
+  },
   settingsProfile: {
     alignItems: "center",
     gap: 10,
@@ -3065,6 +3084,15 @@ const styles = StyleSheet.create({
     gap: 16,
     minHeight: 64,
     paddingHorizontal: 18
+  },
+  settingsRowCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0
+  },
+  settingsRowHint: {
+    fontSize: 12,
+    fontWeight: "700"
   },
   settingsRowText: {
     flex: 1,
@@ -3087,6 +3115,7 @@ const styles = StyleSheet.create({
   settingsContent: {
     alignSelf: "center",
     flexGrow: 1,
+    gap: 28,
     maxWidth: 640,
     paddingHorizontal: 20,
     width: "100%"

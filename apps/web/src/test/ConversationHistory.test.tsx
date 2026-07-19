@@ -153,6 +153,31 @@ describe("ConversationHistory pending state", () => {
     expect(onRetryAssistantTurn).toHaveBeenCalledWith(turn);
   });
 
+  it("only offers retry for the latest response in the active chat", async () => {
+    const user = userEvent.setup();
+    const onRetryAssistantTurn = vi.fn();
+    const firstTurn = {
+      userMessage: "First prompt.",
+      assistantText: "First response.",
+      outputs: [{ type: "text" as const, text: "First response." }]
+    };
+    const latestTurn = {
+      userMessage: "Latest prompt.",
+      assistantText: "Latest response.",
+      outputs: [{ type: "text" as const, text: "Latest response." }]
+    };
+
+    render(<ConversationHistory turns={[firstTurn, latestTurn]} onRetryAssistantTurn={onRetryAssistantTurn} />);
+
+    const actionButtons = screen.getAllByRole("button", { name: "More response actions" });
+    await user.click(actionButtons[0]!);
+    expect(screen.queryByRole("menuitem", { name: "Retry" })).not.toBeInTheDocument();
+
+    await user.click(actionButtons[1]!);
+    await user.click(screen.getByRole("menuitem", { name: "Retry" }));
+    expect(onRetryAssistantTurn).toHaveBeenCalledWith(latestTurn);
+  });
+
   it("does not expose malformed reference URLs as actions", async () => {
     const user = userEvent.setup();
     render(

@@ -653,7 +653,7 @@ export function ConversationHistory({
                     personaId={personaId}
                     autoPlayAudio={turnIndex === autoPlayAudioTurnIndex}
                     onAudioPlaybackChange={onAudioPlaybackChange}
-                    onRetry={onRetryAssistantTurn ? () => onRetryAssistantTurn(turn) : undefined}
+                    onRetry={onRetryAssistantTurn && turnIndex === turns.length - 1 ? () => onRetryAssistantTurn(turn) : undefined}
                   />
                 </article>
               </div>
