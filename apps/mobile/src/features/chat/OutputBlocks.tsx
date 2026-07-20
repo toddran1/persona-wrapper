@@ -49,9 +49,13 @@ function assertSuccessfulDownload(result: FileSystem.FileSystemDownloadResult): 
 
 export function OutputBlocks({ outputs, theme, onAction }: OutputBlocksProps) {
   const hasFileOutput = outputs.some((output) => output.type === "file");
-  const visible = outputs.filter((output) =>
-    (output.type !== "text" || (hasFileOutput ? stripGeneratedFileDownloadPrompt(output.text) : output.text).trim().length > 0)
-  );
+  const visible = outputs.filter((output) => {
+    // These blocks support response actions and diagnostics. Rendering them
+    // inline duplicates references and exposes provider-internal tool payloads.
+    if (output.type === "source_list" || output.type === "tool_call" || output.type === "tool_result") return false;
+    return output.type !== "text"
+      || (hasFileOutput ? stripGeneratedFileDownloadPrompt(output.text) : output.text).trim().length > 0;
+  });
   if (visible.length === 0) return null;
   return (
     <View style={styles.stack}>

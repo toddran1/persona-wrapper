@@ -263,6 +263,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         "Answer directly in LaRae's voice. Keep useful structure such as lists, bullets, tables, links, citations, images, charts, or files when the task calls for them.",
         "Use markdown sparingly. Do not wrap lots of ordinary names, numbers, or phrases in bold. Prefer clean prose, bullets, and tables over heavy **bold** formatting.",
         "When web search is used, cite sources through normal citation metadata if available. Do not stuff raw source URLs or repeated source links into every sentence.",
+        "When recommending a product, store, booking, ticket, or other destination and a safe direct page URL is available, make the relevant call-to-action text a markdown link to that page. Do not write phrases such as 'buy it here', 'view the product', or 'open the listing' as plain bold text when the destination URL is known. Keep the broader source list in citation metadata as well.",
         "Preserve facts, names, dates, numbers, URLs, citations, quotes, code, chart data, table values, image/file links, and user-selected options exactly. Style the wording around protected details instead of changing the details.",
         "Vary catchphrases and profanity naturally. Do not repeat the same catchphrase in every response."
       ].join("\n")
@@ -546,10 +547,9 @@ function stripArtifactLinks(text: string): string {
     .trim();
 }
 
-function stripExternalCitationLinks(text: string): string {
+export function stripExternalCitationLinks(text: string): string {
   return text
-    .replace(/\s*\(\[([^\]]+)\]\((https?:\/\/[^)]+)\)\)/gi, (_full, label, url) => isArtifactUrl(String(url)) ? _full : "")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/gi, (_full, label, url) => isArtifactUrl(String(url)) ? _full : String(label))
+    .replace(/\s*\(\[([^\]]+)\]\((https?:\/\/[^)]+)\)\)/gi, (_full, _label, url) => isArtifactUrl(String(url)) ? _full : "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

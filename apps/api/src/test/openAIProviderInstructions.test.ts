@@ -7,7 +7,8 @@ import {
   buildOpenAIResponseInstructions,
   buildOpenAITools,
   shouldRetryForImageGeneration,
-  shouldUseDirectImageApi
+  shouldUseDirectImageApi,
+  stripExternalCitationLinks
 } from "../providers/llm/OpenAIProvider.js";
 import { env } from "../config/env.js";
 
@@ -123,6 +124,17 @@ describe("OpenAIProvider instructions", () => {
     };
 
     expect(buildOpenAITools(input)).toContainEqual({ type: "web_search" });
+  });
+
+  it("keeps contextual product links while removing citation-only parentheticals", () => {
+    const text = [
+      "👉 **[Buy the Runcati pants on Amazon](https://www.amazon.com/example)**",
+      "The listing describes the same pleated fit. ([Amazon listing](https://www.amazon.com/source))"
+    ].join("\n\n");
+
+    expect(stripExternalCitationLinks(text)).toBe(
+      "👉 **[Buy the Runcati pants on Amazon](https://www.amazon.com/example)**\n\nThe listing describes the same pleated fit."
+    );
   });
 
   it("does not retry image generation when OpenAI returns a safety refusal", () => {
