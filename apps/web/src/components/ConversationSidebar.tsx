@@ -1,5 +1,6 @@
 import type {
   AuthUser,
+  ConnectedAccount,
   ConversationSummary,
   DataTransferJob,
   OAuthProvider,
@@ -42,6 +43,11 @@ export function ConversationSidebar({
   onLogin,
   onRegister,
   onRestoreAccount,
+  onRequestPasswordReset,
+  onChangePassword,
+  onListConnectedAccounts,
+  onLinkConnectedAccount,
+  onUnlinkConnectedAccount,
   onDeleteAccount,
   onExportAccount,
   onExportConversation,
@@ -74,6 +80,11 @@ export function ConversationSidebar({
     password: string;
   }) => Promise<void>;
   onRestoreAccount: (identifier: string, password: string) => Promise<void>;
+  onRequestPasswordReset: (email: string) => Promise<void>;
+  onChangePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  onListConnectedAccounts: () => Promise<ConnectedAccount[]>;
+  onLinkConnectedAccount: (provider: OAuthProvider) => Promise<void>;
+  onUnlinkConnectedAccount: (providerId: string, accountId?: string) => Promise<void>;
   onDeleteAccount: (payload: { confirmation: "DELETE"; password?: string }) => Promise<void>;
   onExportAccount: () => Promise<void>;
   onExportConversation: (conversationId: string) => Promise<void>;
@@ -91,7 +102,7 @@ export function ConversationSidebar({
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | undefined>();
   const [draftTitle, setDraftTitle] = useState("");
-  const [authMode, setAuthMode] = useState<"login" | "register" | "restore">("login");
+  const [authMode, setAuthMode] = useState<"login" | "register" | "restore" | "forgot">("login");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
@@ -106,6 +117,12 @@ export function ConversationSidebar({
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [securityNotice, setSecurityNotice] = useState<string | undefined>();
   const importInputRef = useRef<HTMLInputElement>(null);
   const dataTransferActive = Boolean(dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status));
   const filteredConversations = useMemo(() => {
@@ -124,9 +141,11 @@ export function ConversationSidebar({
       ? "Pick up where your chats left off."
       : authMode === "restore"
         ? "Cancel a scheduled deletion before the recovery deadline."
+        : authMode === "forgot"
+          ? "We’ll email you a secure link that expires in one hour."
         : "Sign up to save your chats and settings.";
   const primaryAuthText = "Log in | Create account";
-  const busyAuthText = authMode === "login" ? "Logging in..." : authMode === "restore" ? "Restoring..." : "Creating...";
+  const busyAuthText = authMode === "login" ? "Logging in..." : authMode === "restore" ? "Restoring..." : authMode === "forgot" ? "Sending..." : "Creating...";
   const accountName =
     authUser?.displayName ?? authUser?.username ?? authUser?.email ?? "Account";
   const accountDetail =
@@ -233,6 +252,93 @@ export function ConversationSidebar({
       setAuthPanelOpen(false);
     } catch (error) {
       setLocalAuthError(error instanceof Error ? error.message : "Account restoration failed.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function submitForgotPassword(): Promise<void> {
+    const email = identifier.trim();
+    if (!email || !email.includes("@")) {
+      setLocalAuthError("Enter the email address on your account.");
+      return;
+    }
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      await onRequestPasswordReset(email);
+      setSecurityNotice("If that email belongs to an account, a reset link is on the way.");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not request a password reset.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function openSecurity(): Promise<void> {
+    const nextOpen = !securityOpen;
+    setSecurityOpen(nextOpen);
+    setLocalAuthError(undefined);
+    setSecurityNotice(undefined);
+    if (!nextOpen) return;
+    setAuthBusy(true);
+    try {
+      setConnectedAccounts(await onListConnectedAccounts());
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not load connected accounts.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function submitChangePassword(): Promise<void> {
+    if (newPassword.length < REGISTER_PASSWORD_MIN_LENGTH) {
+      setLocalAuthError(`Password must be at least ${REGISTER_PASSWORD_MIN_LENGTH} characters.`);
+      return;
+    }
+    if (newPassword !== passwordConfirmation) {
+      setLocalAuthError("New passwords do not match.");
+      return;
+    }
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      await onChangePassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setPasswordConfirmation("");
+      setSecurityNotice("Password updated. Other devices were logged out.");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not change your password.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function unlinkAccount(account: ConnectedAccount): Promise<void> {
+    const providerLabel = account.providerId === "google" ? "Google" : "Facebook";
+    if (!window.confirm(`Disconnect ${providerLabel}? You will no longer be able to sign in with it.`)) return;
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      await onUnlinkConnectedAccount(account.providerId, account.accountId);
+      setConnectedAccounts(await onListConnectedAccounts());
+      setSecurityNotice(`${providerLabel} disconnected.`);
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not disconnect this account.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function linkAccount(provider: OAuthProvider): Promise<void> {
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      await onLinkConnectedAccount(provider);
+      setConnectedAccounts(await onListConnectedAccounts());
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not connect this account.");
     } finally {
       setAuthBusy(false);
     }
@@ -378,7 +484,7 @@ export function ConversationSidebar({
                   event.preventDefault();
                   void (authMode === "login"
                     ? submitLogin()
-                    : authMode === "restore" ? submitRestore() : submitRegister());
+                    : authMode === "restore" ? submitRestore() : authMode === "forgot" ? submitForgotPassword() : submitRegister());
                 }}
               >
                 {authMode !== "register" ? (
@@ -396,19 +502,21 @@ export function ConversationSidebar({
                       spellCheck={false}
                       disabled={authBusy || authLoading}
                     />
-                    <input
-                      name="persona-login-passcode"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      placeholder="Password"
-                      aria-label="Password"
-                      data-testid="auth-password"
-                      type="password"
-                      autoComplete="new-password"
-                      data-1p-ignore="true"
-                      data-lpignore="true"
-                      disabled={authBusy || authLoading}
-                    />
+                    {authMode !== "forgot" ? (
+                      <input
+                        name="persona-login-passcode"
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        placeholder="Password"
+                        aria-label="Password"
+                        data-testid="auth-password"
+                        type="password"
+                        autoComplete="current-password"
+                        data-1p-ignore="true"
+                        data-lpignore="true"
+                        disabled={authBusy || authLoading}
+                      />
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -447,6 +555,7 @@ export function ConversationSidebar({
                     />
                   </>
                 )}
+                {securityNotice && authMode === "forgot" ? <div className="conversation-auth-copy" role="status">{securityNotice}</div> : null}
                 {localAuthError || authError ? (
                   <div className="conversation-auth-error" role="alert">
                     {localAuthError ?? authError}
@@ -459,11 +568,11 @@ export function ConversationSidebar({
                     data-testid="auth-submit"
                     disabled={authBusy || authLoading}
                   >
-                    {authBusy ? busyAuthText : authMode === "login" ? "Log in" : authMode === "restore" ? "Restore account" : "Create account"}
+                    {authBusy ? busyAuthText : authMode === "login" ? "Log in" : authMode === "restore" ? "Restore account" : authMode === "forgot" ? "Send reset link" : "Create account"}
                   </button>
                 </div>
               </form>
-              {enabledOAuthProviders.length > 0 ? (
+              {enabledOAuthProviders.length > 0 && authMode !== "forgot" ? (
                 <div className="conversation-oauth-row">
                   {enabledOAuthProviders.map((provider) => (
                     <button
@@ -483,6 +592,18 @@ export function ConversationSidebar({
                   ))}
                 </div>
               ) : null}
+              <button
+                type="button"
+                className="conversation-auth-switch"
+                onClick={() => {
+                  setAuthMode(authMode === "forgot" ? "login" : "forgot");
+                  setLocalAuthError(undefined);
+                  setSecurityNotice(undefined);
+                }}
+                disabled={authBusy}
+              >
+                {authMode === "forgot" ? "Back to log in" : "Forgot password?"}
+              </button>
               <button
                 type="button"
                 className="conversation-auth-switch"
@@ -678,6 +799,36 @@ export function ConversationSidebar({
                 {accountDetail}
               </div>
               {localAuthError ? <div className="conversation-auth-error" role="alert">{localAuthError}</div> : null}
+              {securityNotice ? <div className="conversation-auth-copy" role="status">{securityNotice}</div> : null}
+              <div className="conversation-account-menu-divider" />
+              <button type="button" className="conversation-account-menu-button" onClick={() => void openSecurity()} disabled={authBusy} aria-expanded={securityOpen}>
+                Security &amp; sign-in {securityOpen ? "−" : "+"}
+              </button>
+              {securityOpen ? (
+                <div className="conversation-auth-form">
+                  <div className="conversation-account-menu-label">Change password</div>
+                  {connectedAccounts.some((account) => account.providerId === "credential") ? (
+                    <>
+                      <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Current password" aria-label="Current password" disabled={authBusy} />
+                      <input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="New password" aria-label="New password" disabled={authBusy} />
+                      <input type="password" autoComplete="new-password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} placeholder="Confirm new password" aria-label="Confirm new password" disabled={authBusy} />
+                      <button type="button" className="conversation-account-menu-button" onClick={() => void submitChangePassword()} disabled={authBusy || !currentPassword || !newPassword || !passwordConfirmation}>Update password</button>
+                    </>
+                  ) : <p className="conversation-auth-copy">No password is set. Use “Forgot password?” after logging out if you want to add one.</p>}
+                  <div className="conversation-account-menu-label">Connected accounts</div>
+                  {connectedAccounts.map((account) => (
+                    <div className="conversation-connected-account" key={account.id}>
+                      <span>{account.providerId === "credential" ? "Email & password" : account.providerId === "google" ? "Google" : account.providerId === "facebook" ? "Facebook" : account.providerId}</span>
+                      {account.providerId !== "credential" ? <button type="button" onClick={() => void unlinkAccount(account)} disabled={authBusy || connectedAccounts.length <= 1}>Disconnect</button> : null}
+                    </div>
+                  ))}
+                  {enabledOAuthProviders.filter((provider) => !connectedAccounts.some((account) => account.providerId === provider.provider)).map((provider) => (
+                    <button key={provider.provider} type="button" className="conversation-account-menu-button" disabled={authBusy} onClick={() => void linkAccount(provider.provider)}>
+                      Connect {provider.provider === "google" ? "Google" : "Facebook"}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div className="conversation-account-menu-divider" />
               <div className="conversation-account-menu-label">Your data</div>
               {dataTransferJob ? (

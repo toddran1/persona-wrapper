@@ -80,7 +80,15 @@ describe("web API authentication refresh", () => {
     })).rejects.toThrow("Daily chat limit reached. Try again tomorrow.");
   });
 
-  it("omits app credentials for S3 uploads and rolls back failed batches", async () => {
+  it("omits app credentials for S3 uploads and falls back through the API after an S3 rejection", async () => {
+    const fallbackAsset = {
+      id: "asset_fallback",
+      kind: "image",
+      fileName: "test.png",
+      mimeType: "image/png",
+      sizeBytes: 3,
+      url: "/api/uploads/asset_fallback"
+    };
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({
         assetId: "asset_test",
@@ -89,15 +97,18 @@ describe("web API authentication refresh", () => {
         expiresAt: new Date(Date.now() + 60_000).toISOString()
       }, 201))
       .mockResolvedValueOnce(new Response(null, { status: 500 }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse({ assets: [fallbackAsset] }, 201));
     vi.stubGlobal("fetch", fetchMock);
 
     const file = new File([new Uint8Array([1, 2, 3])], "test.png", { type: "image/png" });
-    await expect(api.uploadFiles([file])).rejects.toThrow("storage service rejected");
+    await expect(api.uploadFiles([file])).resolves.toEqual([fallbackAsset]);
 
     expect(fetchMock.mock.calls[1]?.[0]).toBe("https://bucket.example.com/uploads/asset_test.png");
     expect(fetchMock.mock.calls[1]?.[1]?.credentials).toBe("omit");
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/api/uploads/asset_test");
     expect(fetchMock.mock.calls[2]?.[1]?.method).toBe("DELETE");
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain("/api/uploads");
+    expect(fetchMock.mock.calls[3]?.[1]?.method).toBe("POST");
   });
 });

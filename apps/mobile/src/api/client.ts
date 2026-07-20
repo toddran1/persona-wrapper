@@ -11,6 +11,7 @@ import type {
   ChatJobResponse,
   ChatResponse,
   ClientContext,
+  ConnectedAccount,
   ConversationDetail,
   ConversationListPage,
   ConversationSummary,
@@ -36,6 +37,8 @@ import { authClient, MOBILE_AUTH_CALLBACK_URL } from "./authClient";
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL || Constants.expoConfig?.extra?.apiUrl;
 export const API_BASE_URL = String(configuredApiUrl || "http://localhost:4000").replace(/\/$/, "");
+const configuredWebAppUrl = process.env.EXPO_PUBLIC_WEB_APP_URL || Constants.expoConfig?.extra?.webAppUrl;
+const WEB_APP_BASE_URL = String(configuredWebAppUrl || "http://localhost:5173").replace(/\/$/, "");
 
 export type MobileChatPayload = {
   personaId: string;
@@ -256,6 +259,29 @@ function rethrowAbort(error: unknown): void {
   if (error instanceof Error && error.name === "AbortError") throw error;
 }
 
+class DirectStorageUploadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DirectStorageUploadError";
+  }
+}
+
+async function directUploadError(response: Pick<Response, "headers" | "text">, fallback: string): Promise<Error> {
+  const requestId = response.headers.get("x-amz-request-id") ?? response.headers.get("x-amz-id-2");
+  let code: string | undefined;
+  try {
+    const body = await response.text();
+    code = body.match(/<Code>([^<]+)<\/Code>/)?.[1];
+  } catch {
+    // The HTTP status below is still enough to identify the failing storage request.
+  }
+  const suffix = [code, requestId ? `request ${requestId}` : undefined].filter(Boolean).join(", ");
+  if (code === "AccessDenied") {
+    return new DirectStorageUploadError(`Uploads are temporarily unavailable because the storage bucket does not allow uploads.${requestId ? ` (request ${requestId})` : ""}`);
+  }
+  return new DirectStorageUploadError(`${fallback}${suffix ? ` (${suffix})` : ""}`);
+}
+
 export const api = {
   resolveUrl: (pathOrUrl: string): string => pathOrUrl.startsWith("/") ? `${API_BASE_URL}${pathOrUrl}` : pathOrUrl,
   isProtectedMediaUrl: (pathOrUrl: string): boolean => {
@@ -301,7 +327,7 @@ export const api = {
             body: blob,
             signal: uploadTimeout.signal
           });
-          if (!uploaded.ok) throw new Error("The storage service rejected this upload.");
+          if (!uploaded.ok) throw await directUploadError(uploaded, "The storage service rejected this upload.");
         } finally {
           uploadTimeout.dispose();
         }
@@ -315,7 +341,10 @@ export const api = {
       return assets;
     } catch (error) {
       await Promise.allSettled(issuedAssetIds.map((id) => contractClient.uploads.remove({ params: { id } })));
-      if (!(error instanceof Error) || error.message !== "DIRECT_UPLOAD_UNAVAILABLE" || issuedAssetIds.length > 0) throw error;
+      rethrowAbort(error);
+      const canUseApiFallback = error instanceof DirectStorageUploadError
+        || (error instanceof Error && error.message === "DIRECT_UPLOAD_UNAVAILABLE" && issuedAssetIds.length === 0);
+      if (!canUseApiFallback) throw error;
     }
 
     const body = new FormData();
@@ -439,6 +468,40 @@ export const api = {
     if (session.error || !session.data?.user) throw authError(session.error ?? { message: "OAuth sign in did not complete." });
     return { user: toAuthUser(session.data.user as unknown as Record<string, unknown>) };
   },
+  requestPasswordReset: async (email: string): Promise<void> => {
+    const result = await authClient.requestPasswordReset({
+      email: email.trim().toLowerCase(),
+      redirectTo: `${WEB_APP_BASE_URL}/reset-password`
+    });
+    if (result.error) throw authError(result.error);
+  },
+  changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {
+    const result = await authClient.changePassword({
+      currentPassword,
+      newPassword,
+      revokeOtherSessions: true
+    });
+    if (result.error) throw authError(result.error);
+  },
+  listConnectedAccounts: async (): Promise<ConnectedAccount[]> => {
+    const result = await authClient.listAccounts();
+    if (result.error) throw authError(result.error);
+    return (result.data ?? []).map((account) => ({
+      id: account.id,
+      providerId: account.providerId,
+      accountId: account.accountId,
+      createdAt: new Date(account.createdAt).toISOString(),
+      updatedAt: new Date(account.updatedAt).toISOString()
+    }));
+  },
+  linkConnectedAccount: async (provider: OAuthProvider): Promise<void> => {
+    const result = await authClient.linkSocial({ provider, callbackURL: MOBILE_AUTH_CALLBACK_URL });
+    if (result.error) throw authError(result.error);
+  },
+  unlinkConnectedAccount: async (providerId: string, accountId?: string): Promise<void> => {
+    const result = await authClient.unlinkAccount({ providerId, ...(accountId ? { accountId } : {}) });
+    if (result.error) throw authError(result.error);
+  },
   getPersonas: async (): Promise<PersonaSummary[]> => {
     const response = await contractClient.personas.list();
     if (response.status !== 200) throw contractError(response.body, "Could not load personas.");
@@ -560,7 +623,10 @@ export const api = {
         try {
           const uploaded = await upload.uploadAsync();
           if (!uploaded || uploaded.status < 200 || uploaded.status >= 300) {
-            throw new Error("The storage service rejected the import archive.");
+            throw await directUploadError({
+              headers: new Headers(uploaded?.headers),
+              text: async () => uploaded?.body ?? ""
+            }, "The storage service rejected the import archive.");
           }
         } finally {
           timeout.signal.removeEventListener("abort", cancelUpload);

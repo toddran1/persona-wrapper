@@ -112,7 +112,7 @@ export class DataTransferJobService {
     job.request.storageKey = storageKey;
     await this.persistRequest(job);
     try {
-      const presigned = await storageService.presignPut(storageKey, request.mimeType, request.sizeBytes);
+      const presigned = await storageService.presignPut(storageKey, request.mimeType);
       return { jobId: job.id, assetId: job.id, ...presigned };
     } catch (error) {
       await this.update(job.id, { status: "failed", phase: "Upload preparation failed", error: error instanceof Error ? error.message : "Could not prepare import upload." });

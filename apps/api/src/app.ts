@@ -76,7 +76,7 @@ function requireAuthenticatedRequest(request: Request, _response: Response, next
 }
 
 function rateLimitSensitiveBetterAuthRequest(request: Request, response: Response, next: NextFunction): void {
-  const sensitivePath = /^\/(?:sign-in\/(?:email|username)|sign-up\/email|forget-password|reset-password|change-password)(?:\/|$)/;
+  const sensitivePath = /^\/(?:sign-in\/(?:email|username)|sign-up\/email|request-password-reset|forget-password|reset-password|change-password)(?:\/|$)/;
   if (request.method === "POST" && sensitivePath.test(request.path)) {
     authRateLimit(request, response, next);
     return;

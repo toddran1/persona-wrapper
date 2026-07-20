@@ -336,6 +336,15 @@ export const oauthProviderStatusSchema = z.object({
 });
 export type OAuthProviderStatus = z.infer<typeof oauthProviderStatusSchema>;
 
+export const connectedAccountSchema = z.object({
+  id: z.string(),
+  providerId: z.string(),
+  accountId: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
+
 export const chatRequestSchema = z.object({
   personaId: z.string().min(1),
   message: z.string().min(1),

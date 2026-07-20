@@ -23,7 +23,7 @@ import { useNetwork } from "../../network/NetworkProvider";
 
 const APP_LOGO = require("../../../assets/branding/For_the_Baddiez_logo_transparent.png");
 
-export type MobileAuthMode = "login" | "register" | "restore";
+export type MobileAuthMode = "login" | "register" | "restore" | "forgot";
 
 type MobileAuthScreenProps = {
   checkingSession: boolean;
@@ -71,7 +71,7 @@ export function MobileAuthScreen({
   const [passwordVisible, setPasswordVisible] = useState(false);
   const compact = height < 700 || width < 360;
   const enabledProviders = oauthProviders.filter((provider) => provider.enabled);
-  const canSubmit = identifier.trim().length > 0 && password.length > 0 && !busy && isOnline;
+  const canSubmit = identifier.trim().length > 0 && (mode === "forgot" || password.length > 0) && !busy && isOnline;
 
   return (
     <LinearGradient
@@ -126,13 +126,13 @@ export function MobileAuthScreen({
               </View>
 
               <View style={styles.headingBlock}>
-                <Text style={[styles.title, { color: theme.text }]}>{mode === "login" ? t("auth.welcomeBack") : mode === "restore" ? t("auth.restoreAccount") : t("auth.joinConversation")}</Text>
+                <Text style={[styles.title, { color: theme.text }]}>{mode === "login" ? t("auth.welcomeBack") : mode === "restore" ? t("auth.restoreAccount") : mode === "forgot" ? "Reset your password" : t("auth.joinConversation")}</Text>
                 <Text style={[styles.copy, { color: theme.muted }]}>
-                  {mode === "login" ? t("auth.signInDescription") : mode === "restore" ? t("auth.restoreDescription") : t("auth.registerDescription")}
+                  {mode === "login" ? t("auth.signInDescription") : mode === "restore" ? t("auth.restoreDescription") : mode === "forgot" ? "Enter your account email and we’ll send a secure reset link." : t("auth.registerDescription")}
                 </Text>
               </View>
 
-              {enabledProviders.length > 0 ? (
+              {enabledProviders.length > 0 && mode !== "forgot" ? (
                 <View style={styles.oauthStack}>
                   {enabledProviders.map((providerStatus) => (
                     <Pressable
@@ -197,7 +197,7 @@ export function MobileAuthScreen({
                   </View>
                 ) : null}
 
-                <View style={styles.fieldGroup}>
+                {mode !== "forgot" ? <View style={styles.fieldGroup}>
                   <Text style={[styles.fieldLabel, { color: theme.muted }]}>{t("auth.password")}</Text>
                   <View style={[styles.passwordShell, { borderColor: theme.border }]}>
                     <TextInput
@@ -221,7 +221,7 @@ export function MobileAuthScreen({
                       <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={20} color={theme.muted} />
                     </Pressable>
                   </View>
-                </View>
+                </View> : null}
               </View>
 
               {error ? (
@@ -246,7 +246,10 @@ export function MobileAuthScreen({
                   { backgroundColor: theme.accent2, opacity: !canSubmit ? 0.48 : pressed ? 0.84 : 1 }
                 ]}
               >
-                {busy ? <ActivityIndicator color="#170f21" /> : <Text style={styles.primaryText}>{mode === "login" ? t("auth.signIn") : mode === "restore" ? t("auth.restoreAction") : t("auth.createAccount")}</Text>}
+                {busy ? <ActivityIndicator color="#170f21" /> : <Text style={styles.primaryText}>{mode === "login" ? t("auth.signIn") : mode === "restore" ? t("auth.restoreAction") : mode === "forgot" ? "Send reset link" : t("auth.createAccount")}</Text>}
+              </Pressable>
+              <Pressable accessibilityRole="button" disabled={busy} onPress={() => onModeChange(mode === "forgot" ? "login" : "forgot")} style={styles.recoveryLink}>
+                <Text style={[styles.retryText, { color: theme.accent2 }]}>{mode === "forgot" ? t("auth.backToSignIn") : "Forgot password?"}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"

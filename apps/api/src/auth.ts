@@ -8,6 +8,7 @@ import { env } from "./config/env.js";
 import { getDatabase } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { hashPassword, verifyPassword } from "./services/passwordService.js";
+import { passwordResetEmailEnabled, sendPasswordResetEmail } from "./services/authEmailService.js";
 import { authCookieAttributes } from "./utils/authCookieConfig.js";
 
 const database = getDatabase();
@@ -110,6 +111,17 @@ export const auth = database ? betterAuth({
     enabled: true,
     minPasswordLength: env.AUTH_PASSWORD_MIN_LENGTH,
     maxPasswordLength: 128,
+    resetPasswordTokenExpiresIn: 60 * 60,
+    revokeSessionsOnPasswordReset: true,
+    ...(passwordResetEmailEnabled ? {
+      sendResetPassword: async ({ user, url }: { user: { email: string; name: string }; url: string }) => {
+        void sendPasswordResetEmail({
+          email: user.email,
+          displayName: user.name,
+          resetUrl: url
+        }).catch(() => undefined);
+      }
+    } : {}),
     password: {
       hash: hashPassword,
       verify: ({ hash, password }) => verifyPassword(password, hash)

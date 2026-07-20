@@ -65,6 +65,10 @@ services:
         value: https://for-the-baddiez-api-dev.onrender.com
       - key: BETTER_AUTH_SECRET
         generateValue: true
+      - key: GMAIL_SMTP_USER
+        value: ForTheBaddies-chat@gmail.com
+      - key: GMAIL_SMTP_APP_PASSWORD
+        sync: false
 
       - key: AUTH_REQUIRED
         value: "true"

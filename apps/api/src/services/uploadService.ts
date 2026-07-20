@@ -60,7 +60,7 @@ export class UploadService {
     const safeExtension = extname(basename(input.fileName)).slice(0, 12);
     const storageKey = `uploads/${id}${safeExtension.replace(/[^a-zA-Z0-9.]/g, "")}`;
     const expiresAt = uploadExpiresAt();
-    const presigned = await storageService.presignPut(storageKey, input.mimeType, input.sizeBytes);
+    const presigned = await storageService.presignPut(storageKey, input.mimeType);
     await db.insert(uploads).values({
       id,
       ownerId,

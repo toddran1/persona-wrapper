@@ -85,6 +85,8 @@ AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false
 WEB_APP_URL=http://localhost:5173
 BETTER_AUTH_URL=http://localhost:4000
 BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
+GMAIL_SMTP_USER=ForTheBaddies-chat@gmail.com
+GMAIL_SMTP_APP_PASSWORD=
 GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
 FACEBOOK_OAUTH_CLIENT_ID=
@@ -92,6 +94,8 @@ FACEBOOK_OAUTH_CLIENT_SECRET=
 ```
 
 Better Auth owns password identities, social accounts, verification records, and database sessions. Existing scrypt password hashes are migrated without forcing password resets. Web uses secure HTTP-only cookies; the Expo client stores its cookie in SecureStore and attaches it to API requests.
+
+Password reset is enabled only when both `GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD` are configured. Set `GMAIL_SMTP_USER` to the Gmail address that should send reset mail and use a Google App Password—not the normal Gmail password—for `GMAIL_SMTP_APP_PASSWORD`. Spaces in Google’s displayed App Password are accepted and removed automatically. Reset links expire after one hour and a successful reset revokes the user's other sessions. Mobile reset requests deliberately open the shared web reset page from the email so the flow works consistently across native email clients. Email verification and MFA are not enabled yet.
 
 Google and Facebook callbacks are handled by Better Auth at `/api/auth/callback/google` and `/api/auth/callback/facebook`. Register those exact URLs in each provider dashboard. Mobile social sign-in uses the Better Auth Expo authorization proxy and the `personawrapper://` app scheme; no app-maintained polling or one-time exchange-code endpoint is required.
 
@@ -123,6 +127,35 @@ Use the app server IAM role for S3 access in AWS instead of long-lived access ke
 - `s3:DeleteObject`
 - `s3:ListBucket` limited to the configured prefix
 
+For the Render development configuration (`STORAGE_S3_PREFIX=development`), attach this policy to the IAM user or role represented by Render's `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. Replace `YOUR_BUCKET_NAME` if your configured bucket has a different name:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListForTheBaddiezDevelopmentObjects",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": ["development/*"]
+        }
+      }
+    },
+    {
+      "Sid": "ManageForTheBaddiezDevelopmentObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/development/*"
+    }
+  ]
+}
+```
+
+If the bucket uses a customer-managed AWS KMS key with a restrictive key policy, also grant this same IAM principal `kms:Encrypt`, `kms:Decrypt`, and `kms:GenerateDataKey` on that KMS key. S3 default encryption alone does not require those additional grants.
+
 Direct browser and native uploads also require bucket CORS for the deployed web
 origins and the `PUT` method. A minimal rule is:
 
@@ -131,7 +164,7 @@ origins and the `PUT` method. A minimal rule is:
   {
     "AllowedOrigins": ["https://for-the-baddiez-web.onrender.com", "https://for-the-baddiez-web-dev.onrender.com"],
     "AllowedMethods": ["PUT"],
-    "AllowedHeaders": ["content-type", "x-amz-meta-storage_bucket"],
+    "AllowedHeaders": ["content-type"],
     "ExposeHeaders": ["etag"],
     "MaxAgeSeconds": 3600
   }

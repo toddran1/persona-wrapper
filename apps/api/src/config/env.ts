@@ -22,6 +22,12 @@ function optionalTrimmedString(value: unknown): unknown {
   return value;
 }
 
+function optionalWhitespaceFreeSecret(value: unknown): unknown {
+  if (value === "") return undefined;
+  if (typeof value === "string") return value.replaceAll(/\s+/g, "") || undefined;
+  return value;
+}
+
 const reasoningEffortSchema = z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const reasoningSummarySchema = z.enum(["auto", "concise", "detailed"]);
 const textVerbositySchema = z.enum(["low", "medium", "high"]);
@@ -111,6 +117,8 @@ const envSchema = z.object({
   AUTH_REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   AUTH_PASSWORD_MIN_LENGTH: z.coerce.number().int().min(8).max(128).default(10),
   BETTER_AUTH_SECRET: z.preprocess(optionalTrimmedString, z.string().min(32).optional()),
+  GMAIL_SMTP_USER: z.preprocess(optionalTrimmedString, z.string().email().optional()),
+  GMAIL_SMTP_APP_PASSWORD: z.preprocess(optionalWhitespaceFreeSecret, z.string().min(16).optional()),
   AUTH_ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().min(1).max(90).default(30),
   AUTH_REQUIRE_OWNED_MEDIA_ACCESS: z.preprocess(stringToBoolean, z.boolean().default(false)),
   WEB_APP_URL: z.preprocess(optionalTrimmedString, z.string().url().default("http://localhost:5173")),
@@ -250,6 +258,13 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["FACEBOOK_OAUTH_CLIENT_ID"],
       message: "FACEBOOK_OAUTH_CLIENT_ID and FACEBOOK_OAUTH_CLIENT_SECRET must be configured together."
+    });
+  }
+  if (Boolean(value.GMAIL_SMTP_USER) !== Boolean(value.GMAIL_SMTP_APP_PASSWORD)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["GMAIL_SMTP_USER"],
+      message: "GMAIL_SMTP_USER and GMAIL_SMTP_APP_PASSWORD must be configured together."
     });
   }
   if (value.STORAGE_DRIVER === "s3") {

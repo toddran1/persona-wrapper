@@ -29,7 +29,7 @@ import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type Audio
 import { Ionicons } from "@expo/vector-icons";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConversationSummary, DataTransferJob, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
+import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConnectedAccount, ConversationSummary, DataTransferJob, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -161,7 +161,7 @@ function formatSessionActivity(value: string): string {
   return `Last active ${date.toLocaleString()}`;
 }
 
-type SettingsPanel = "main" | "sessions" | "about" | "data";
+type SettingsPanel = "main" | "security" | "sessions" | "about" | "data";
 
 export function MobileChatScreen() {
   const { t } = useLocalization();
@@ -203,6 +203,12 @@ export function MobileChatScreen() {
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | undefined>();
   const [sessionActionId, setSessionActionId] = useState<string | undefined>();
+  const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securityError, setSecurityError] = useState<string | undefined>();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirmation, setNewPasswordConfirmation] = useState("");
   const [authMode, setAuthMode] = useState<MobileAuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [assistantActionTurn, setAssistantActionTurn] = useState<RenderedTurn | undefined>();
@@ -417,6 +423,75 @@ export function MobileChatScreen() {
   function openSettingsPanel(panel: SettingsPanel): void {
     setSettingsPanel(panel);
     if (panel === "sessions") void refreshActiveSessions();
+    if (panel === "security") void refreshConnectedAccounts();
+  }
+
+  async function refreshConnectedAccounts(): Promise<void> {
+    setSecurityLoading(true);
+    setSecurityError(undefined);
+    try {
+      setConnectedAccounts(await api.listConnectedAccounts());
+    } catch (accountError) {
+      setSecurityError(accountError instanceof Error ? accountError.message : "Could not load connected accounts.");
+    } finally {
+      setSecurityLoading(false);
+    }
+  }
+
+  async function linkConnectedAccount(provider: OAuthProvider): Promise<void> {
+    setSecurityLoading(true);
+    setSecurityError(undefined);
+    try {
+      await api.linkConnectedAccount(provider);
+      setConnectedAccounts(await api.listConnectedAccounts());
+    } catch (accountError) {
+      setSecurityError(accountError instanceof Error ? accountError.message : `Could not connect ${provider}.`);
+    } finally {
+      setSecurityLoading(false);
+    }
+  }
+
+  function confirmUnlinkConnectedAccount(account: ConnectedAccount): void {
+    const label = account.providerId === "google" ? "Google" : "Facebook";
+    Alert.alert(`Disconnect ${label}?`, `You will no longer be able to sign in with ${label}.`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Disconnect", style: "destructive", onPress: () => void (async () => {
+        setSecurityLoading(true);
+        setSecurityError(undefined);
+        try {
+          await api.unlinkConnectedAccount(account.providerId, account.accountId);
+          setConnectedAccounts(await api.listConnectedAccounts());
+        } catch (accountError) {
+          setSecurityError(accountError instanceof Error ? accountError.message : `Could not disconnect ${label}.`);
+        } finally {
+          setSecurityLoading(false);
+        }
+      })() }
+    ]);
+  }
+
+  async function changeAccountPassword(): Promise<void> {
+    if (newPassword.length < 10) {
+      setSecurityError("New password must be at least 10 characters.");
+      return;
+    }
+    if (newPassword !== newPasswordConfirmation) {
+      setSecurityError("New passwords do not match.");
+      return;
+    }
+    setSecurityLoading(true);
+    setSecurityError(undefined);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setNewPasswordConfirmation("");
+      Alert.alert("Password updated", "Other signed-in devices have been logged out.");
+    } catch (passwordError) {
+      setSecurityError(passwordError instanceof Error ? passwordError.message : "Could not change your password.");
+    } finally {
+      setSecurityLoading(false);
+    }
   }
 
   const returnToSettingsHome = useCallback(() => {
@@ -1589,8 +1664,12 @@ export function MobileChatScreen() {
   }
 
   async function submitAuth(): Promise<void> {
-    if (!identifier.trim() || !password) {
-      setAuthError("Enter your email or username and password.");
+    if (!identifier.trim() || (authMode !== "forgot" && !password)) {
+      setAuthError(authMode === "forgot" ? "Enter the email address on your account." : "Enter your email or username and password.");
+      return;
+    }
+    if (authMode === "forgot" && !identifier.includes("@")) {
+      setAuthError("Enter the email address on your account.");
       return;
     }
     if (authMode === "register" && password.length < 10) {
@@ -1601,6 +1680,12 @@ export function MobileChatScreen() {
     setAuthError(undefined);
     try {
       const trimmedIdentifier = identifier.trim();
+      if (authMode === "forgot") {
+        await api.requestPasswordReset(trimmedIdentifier);
+        Alert.alert("Check your email", "If that email belongs to an account, a reset link is on the way. The link opens a secure page in your browser.");
+        setAuthMode("login");
+        return;
+      }
       const auth = authMode === "login"
         ? await api.login({ identifier: trimmedIdentifier, password })
         : authMode === "restore"
@@ -2210,7 +2295,7 @@ export function MobileChatScreen() {
             </Pressable>
             {settingsPanel !== "main" ? (
               <Text style={[styles.settingsPanelTitle, { color: theme.text }]}>
-                {settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "about" ? "About" : "Your data"}
+                {settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "about" ? "About" : "Your data"}
               </Text>
             ) : null}
           </View>
@@ -2240,6 +2325,14 @@ export function MobileChatScreen() {
               </View>
               <View style={styles.settingsSection}>
                 <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Manage</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open security and sign-in" onPress={() => openSettingsPanel("security")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="key-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Security &amp; sign-in</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Password and connected accounts</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel="Open active sessions" onPress={() => openSettingsPanel("sessions")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
                   <Ionicons name="phone-portrait-outline" size={22} color={theme.text} />
                   <View style={styles.settingsRowCopy}>
@@ -2297,6 +2390,49 @@ export function MobileChatScreen() {
                   <Text style={[styles.settingsRowText, { color: theme.danger }]}>Log out all other devices</Text>
                 </Pressable>
               ) : null}
+            </View>
+          ) : null}
+          {settingsPanel === "security" ? (
+            <View style={styles.settingsSection}>
+              <View style={styles.settingsSectionHeadingRow}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Connected accounts</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Refresh connected accounts" disabled={securityLoading} onPress={() => void refreshConnectedAccounts()} style={styles.sessionRefreshButton}>
+                  {securityLoading ? <ActivityIndicator size="small" color={theme.accent} /> : <Ionicons name="refresh" size={20} color={theme.accent} />}
+                </Pressable>
+              </View>
+              {securityError ? <Text accessibilityRole="alert" style={[styles.sessionErrorText, { color: theme.danger }]}>{securityError}</Text> : null}
+              {connectedAccounts.map((account) => (
+                <View key={account.id} style={[styles.sessionRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name={account.providerId === "google" ? "logo-google" : account.providerId === "facebook" ? "logo-facebook" : "mail-outline"} size={22} color={theme.text} />
+                  <View style={styles.sessionDetails}>
+                    <Text style={[styles.sessionTitle, { color: theme.text }]}>{account.providerId === "credential" ? "Email & password" : account.providerId === "google" ? "Google" : account.providerId === "facebook" ? "Facebook" : account.providerId}</Text>
+                    <Text style={[styles.sessionActivity, { color: theme.muted }]}>Connected</Text>
+                  </View>
+                  {account.providerId !== "credential" ? (
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Disconnect ${account.providerId}`} disabled={securityLoading || connectedAccounts.length <= 1} onPress={() => confirmUnlinkConnectedAccount(account)} style={styles.sessionRevokeButton}>
+                      <Ionicons name="unlink-outline" size={21} color={theme.danger} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+              {oauthProviders.filter((provider) => provider.enabled && !connectedAccounts.some((account) => account.providerId === provider.provider)).map((provider) => (
+                <Pressable key={provider.provider} accessibilityRole="button" disabled={securityLoading} onPress={() => void linkConnectedAccount(provider.provider)} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name={provider.provider === "google" ? "logo-google" : "logo-facebook"} size={22} color={theme.text} />
+                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Connect {provider.provider === "google" ? "Google" : "Facebook"}</Text>
+                </Pressable>
+              ))}
+              {connectedAccounts.some((account) => account.providerId === "credential") ? (
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Change password</Text>
+                  <TextInput accessibilityLabel="Current password" secureTextEntry autoCapitalize="none" autoComplete="current-password" value={currentPassword} onChangeText={setCurrentPassword} placeholder="Current password" placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
+                  <TextInput accessibilityLabel="New password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={newPassword} onChangeText={setNewPassword} placeholder="New password (10+ characters)" placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
+                  <TextInput accessibilityLabel="Confirm new password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={newPasswordConfirmation} onChangeText={setNewPasswordConfirmation} placeholder="Confirm new password" placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
+                  <Pressable accessibilityRole="button" disabled={securityLoading || !currentPassword || !newPassword || !newPasswordConfirmation} onPress={() => void changeAccountPassword()} style={[styles.settingsRow, { backgroundColor: theme.accent2, opacity: securityLoading || !currentPassword || !newPassword || !newPasswordConfirmation ? 0.45 : 1 }]}>
+                    <Ionicons name="key-outline" size={22} color={theme.background} />
+                    <Text style={[styles.settingsRowText, { color: theme.background }]}>Update password</Text>
+                  </Pressable>
+                </View>
+              ) : <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>To add a password, sign out and use Forgot password with your account email.</Text>}
             </View>
           ) : null}
           {settingsPanel === "about" ? (

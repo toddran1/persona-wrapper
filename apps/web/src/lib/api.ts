@@ -6,6 +6,7 @@ import type {
   ChatResponse,
   ChatJobResponse,
   ClientContext,
+  ConnectedAccount,
   ConversationDetail,
   ConversationListPage,
   ConversationSummary,
@@ -46,6 +47,13 @@ class RequestTimeoutError extends Error {
   constructor() {
     super("The app server took too long to respond. Please try again.");
     this.name = "RequestTimeoutError";
+  }
+}
+
+class DirectStorageUploadError extends Error {
+  constructor() {
+    super("The storage service rejected this upload.");
+    this.name = "DirectStorageUploadError";
   }
 }
 
@@ -379,7 +387,7 @@ export const api = {
           credentials: "omit",
           ...(signal ? { signal } : {})
         }, UPLOAD_REQUEST_TIMEOUT_MS);
-        if (!uploaded.ok) throw new Error("The storage service rejected this upload.");
+        if (!uploaded.ok) throw new DirectStorageUploadError();
         const completed = await contractClient.uploads.complete({
           params: { id: presigned.body.assetId },
           ...(signal ? { fetchOptions: { signal } } : {})
@@ -390,11 +398,14 @@ export const api = {
       return assets;
     } catch (error) {
       await Promise.allSettled(issuedAssetIds.map((id) => contractClient.uploads.remove({ params: { id } })));
-      if (!(error instanceof Error) || error.message !== "DIRECT_UPLOAD_UNAVAILABLE" || issuedAssetIds.length > 0) throw error;
+      if (isAbortError(error) || error instanceof RequestTimeoutError) throw error;
+      const canUseApiFallback = error instanceof DirectStorageUploadError
+        || (error instanceof Error && error.message === "DIRECT_UPLOAD_UNAVAILABLE" && issuedAssetIds.length === 0);
+      if (!canUseApiFallback) throw error;
     }
 
-    // Local storage cannot issue S3 URLs, so local development keeps the
-    // multipart path. Production S3 uploads never proxy file bytes through API memory.
+    // Local storage cannot issue S3 URLs. The API path also serves as a
+    // compatibility fallback when a bucket policy rejects client-originated PUTs.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const body = new FormData();
       files.forEach((file) => body.append("files", file));
@@ -492,6 +503,47 @@ export const api = {
       provider,
       callbackURL: new URL("/", window.location.origin).toString()
     });
+    if (result.error) throw authError(result.error);
+  },
+  requestPasswordReset: async (email: string): Promise<void> => {
+    const result = await authClient.requestPasswordReset({
+      email: email.trim().toLowerCase(),
+      redirectTo: new URL("/reset-password", window.location.origin).toString()
+    });
+    if (result.error) throw authError(result.error);
+  },
+  resetPassword: async (token: string, newPassword: string): Promise<void> => {
+    const result = await authClient.resetPassword({ token, newPassword });
+    if (result.error) throw authError(result.error);
+  },
+  changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {
+    const result = await authClient.changePassword({
+      currentPassword,
+      newPassword,
+      revokeOtherSessions: true
+    });
+    if (result.error) throw authError(result.error);
+  },
+  listConnectedAccounts: async (): Promise<ConnectedAccount[]> => {
+    const result = await authClient.listAccounts();
+    if (result.error) throw authError(result.error);
+    return (result.data ?? []).map((account) => ({
+      id: account.id,
+      providerId: account.providerId,
+      accountId: account.accountId,
+      createdAt: new Date(account.createdAt).toISOString(),
+      updatedAt: new Date(account.updatedAt).toISOString()
+    }));
+  },
+  linkConnectedAccount: async (provider: OAuthProvider): Promise<void> => {
+    const result = await authClient.linkSocial({
+      provider,
+      callbackURL: new URL("/", window.location.origin).toString()
+    });
+    if (result.error) throw authError(result.error);
+  },
+  unlinkConnectedAccount: async (providerId: string, accountId?: string): Promise<void> => {
+    const result = await authClient.unlinkAccount({ providerId, ...(accountId ? { accountId } : {}) });
     if (result.error) throw authError(result.error);
   },
   getPersonas: async (): Promise<PersonaSummary[]> => {

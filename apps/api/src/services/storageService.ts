@@ -83,7 +83,7 @@ interface StorageDriver {
   delete(storageKey: string): Promise<void>;
   cleanupOlderThan(bucket: StorageBucket, cutoffMs: number): Promise<void>;
   healthCheck(): Promise<StorageHealth>;
-  presignPut?(storageKey: string, mimeType: string, sizeBytes: number): Promise<PresignedStorageUpload>;
+  presignPut?(storageKey: string, mimeType: string): Promise<PresignedStorageUpload>;
   head?(storageKey: string): Promise<StoredObjectMetadata>;
 }
 
@@ -366,19 +366,17 @@ class S3StorageDriver implements StorageDriver {
     }
   }
 
-  async presignPut(storageKey: string, mimeType: string, sizeBytes: number): Promise<PresignedStorageUpload> {
+  async presignPut(storageKey: string, mimeType: string): Promise<PresignedStorageUpload> {
     parseStorageKey(storageKey);
     const expiresIn = env.DATA_TRANSFER_PRESIGNED_UPLOAD_TTL_SECONDS;
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: this.objectKey(storageKey),
-      ContentType: mimeType,
-      ContentLength: sizeBytes,
-      Metadata: { storage_bucket: "uploads" }
+      ContentType: mimeType
     });
     return {
       uploadUrl: await getSignedUrl(this.client, command, { expiresIn }),
-      headers: { "Content-Type": mimeType, "x-amz-meta-storage_bucket": "uploads" },
+      headers: { "Content-Type": mimeType },
       expiresAt: new Date(Date.now() + expiresIn * 1000).toISOString()
     };
   }
@@ -506,9 +504,9 @@ export class StorageService implements StorageDriver {
     return Boolean(this.driver.presignPut && this.driver.head);
   }
 
-  presignPut(storageKey: string, mimeType: string, sizeBytes: number): Promise<PresignedStorageUpload> {
+  presignPut(storageKey: string, mimeType: string): Promise<PresignedStorageUpload> {
     if (!this.driver.presignPut) throw new HttpError("Direct uploads are not available for this storage driver.", 409);
-    return this.driver.presignPut(storageKey, mimeType, sizeBytes);
+    return this.driver.presignPut(storageKey, mimeType);
   }
 
   head(storageKey: string): Promise<StoredObjectMetadata> {
