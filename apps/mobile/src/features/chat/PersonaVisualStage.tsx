@@ -48,20 +48,36 @@ function PersonaVideo({
   onEnd: (source: string) => void;
   onError: (source: string) => void;
 }) {
+  const endedRef = useRef(false);
   const player = useVideoPlayer({ uri: source, useCaching: true }, (instance) => {
     instance.loop = false;
     instance.muted = true;
     instance.keepScreenOnWhilePlaying = false;
     instance.staysActiveInBackground = false;
+    instance.timeUpdateEventInterval = 0.25;
     if (playing) instance.play();
   });
+
+  const finishOnce = (): void => {
+    if (endedRef.current) return;
+    endedRef.current = true;
+    onEnd(source);
+  };
 
   useEffect(() => {
     if (playing) player.play();
     else player.pause();
   }, [player, playing]);
 
-  useEventListener(player, "playToEnd", () => onEnd(source));
+  useEventListener(player, "playToEnd", finishOnce);
+  useEventListener(player, "timeUpdate", ({ currentTime }) => {
+    // Some native players have failed to emit playToEnd after the final frame.
+    // Advance shortly before the boundary so an idle sequence cannot freeze.
+    const duration = player.duration;
+    if (playing && Number.isFinite(duration) && duration > 0 && currentTime >= duration - 0.35) {
+      finishOnce();
+    }
+  });
   useEventListener(player, "statusChange", ({ status }) => {
     if (status === "error") onError(source);
     else if (status === "readyToPlay" && playing && !player.playing) {
