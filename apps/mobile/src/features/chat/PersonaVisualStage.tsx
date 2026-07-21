@@ -40,17 +40,21 @@ type PersonaVisualClip = {
 function PersonaVideo({
   source,
   playing,
+  nativeLoop,
   onEnd,
   onError
 }: {
   source: string;
   playing: boolean;
+  nativeLoop: boolean;
   onEnd: (source: string) => void;
   onError: (source: string) => void;
 }) {
   const endedRef = useRef(false);
   const player = useVideoPlayer({ uri: source, useCaching: true }, (instance) => {
-    instance.loop = false;
+    // State clips normally rotate in JS, but native looping guarantees that a
+    // missed end signal can never leave the persona frozen on its final frame.
+    instance.loop = nativeLoop;
     instance.muted = true;
     instance.keepScreenOnWhilePlaying = false;
     instance.staysActiveInBackground = false;
@@ -67,6 +71,18 @@ function PersonaVideo({
   useEffect(() => {
     if (playing) player.play();
     else player.pause();
+  }, [player, playing]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const interval = setInterval(() => {
+      const duration = player.duration;
+      const currentTime = player.currentTime;
+      if (Number.isFinite(duration) && duration > 0 && currentTime >= duration - 0.35) {
+        finishOnce();
+      }
+    }, 250);
+    return () => clearInterval(interval);
   }, [player, playing]);
 
   useEventListener(player, "playToEnd", finishOnce);
@@ -333,6 +349,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
         key={`${activeClip.src}:${playerGeneration}`}
         source={source.uri}
         playing={visible && (!hidden || expanded)}
+        nativeLoop={activeClip.kind === "state"}
         onError={handleMediaError}
         onEnd={finishClip}
       />
