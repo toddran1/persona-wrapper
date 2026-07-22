@@ -169,6 +169,17 @@ function splitFencedCodeBlocks(markdown: string): MarkdownSegment[] {
 
 function mobileMarkdownStyle(theme: MobileTheme): MarkdownStyle {
   const body = { color: theme.text, fontSize: 16, lineHeight: 23, marginBottom: 10 };
+  const tableColors = theme.mode === "dark"
+    ? {
+        header: "#35234c",
+        rowEven: "#1b1328",
+        rowOdd: "#241a34"
+      }
+    : {
+        header: "#e9dbc7",
+        rowEven: "#fffaf4",
+        rowOdd: "#f8efe5"
+      };
   return {
     paragraph: body,
     h1: { color: theme.text, fontSize: 24, lineHeight: 30, fontWeight: "800", marginTop: 12, marginBottom: 8 },
@@ -185,7 +196,21 @@ function mobileMarkdownStyle(theme: MobileTheme): MarkdownStyle {
     blockquote: { color: theme.muted, fontSize: 16, lineHeight: 23, borderColor: theme.accent2, borderWidth: 3, gapWidth: 12, backgroundColor: "transparent", marginBottom: 10 },
     list: { color: theme.text, fontSize: 16, lineHeight: 23, bulletColor: theme.accent2, markerColor: theme.accent2, markerFontWeight: "bold", gapWidth: 8, marginBottom: 10 },
     thematicBreak: { color: theme.border, height: 1, marginTop: 8, marginBottom: 12 },
-    table: { color: theme.muted, fontSize: 13, lineHeight: 19, headerBackgroundColor: "rgba(255,255,255,0.04)", headerTextColor: theme.text, borderColor: theme.border, borderWidth: 1, borderRadius: 12, cellPaddingHorizontal: 11, cellPaddingVertical: 9, marginBottom: 10 },
+    table: {
+      color: theme.text,
+      fontSize: 13,
+      lineHeight: 19,
+      headerBackgroundColor: tableColors.header,
+      headerTextColor: theme.text,
+      rowEvenBackgroundColor: tableColors.rowEven,
+      rowOddBackgroundColor: tableColors.rowOdd,
+      borderColor: theme.border,
+      borderWidth: 1,
+      borderRadius: 12,
+      cellPaddingHorizontal: 11,
+      cellPaddingVertical: 9,
+      marginBottom: 10
+    },
     taskList: { checkedColor: theme.accent2, borderColor: theme.border, checkmarkColor: theme.text, checkedTextColor: theme.muted }
   };
 }
@@ -272,17 +297,20 @@ function OutputBlock({
     return <MobileChartBlock output={output} theme={theme} />;
   }
   if (output.type === "table") {
+    const tableRowColors = theme.mode === "dark"
+      ? ["#1b1328", "#241a34"]
+      : ["#fffaf4", "#f8efe5"];
     return (
       <View style={[styles.dataCard, { borderColor: theme.border }]}>
         {output.title ? <Text style={[styles.dataTitle, { color: theme.text }]}>{output.title}</Text> : null}
         <ScrollView horizontal showsHorizontalScrollIndicator>
           <View>
-            <View style={[styles.tableRow, styles.tableHeader, { borderColor: theme.border }]}>
+            <View style={[styles.tableRow, styles.tableHeader, { borderColor: theme.border, backgroundColor: theme.mode === "dark" ? "#35234c" : "#e9dbc7" }]}> 
               {output.columns.map((column) => <Text key={column} style={[styles.tableCell, styles.tableHeaderText, { color: theme.text }]}>{column}</Text>)}
             </View>
             {output.rows.map((row, rowIndex) => (
-              <View key={`row-${rowIndex}`} style={[styles.tableRow, { borderColor: theme.border }]}>
-                {row.map((cell, cellIndex) => <Text key={`${rowIndex}-${cellIndex}`} style={[styles.tableCell, { color: theme.muted }]}>{cell === null ? "—" : String(cell)}</Text>)}
+              <View key={`row-${rowIndex}`} style={[styles.tableRow, { borderColor: theme.border, backgroundColor: tableRowColors[rowIndex % tableRowColors.length] }]}> 
+                {row.map((cell, cellIndex) => <Text key={`${rowIndex}-${cellIndex}`} style={[styles.tableCell, { color: theme.text }]}>{cell === null ? "—" : String(cell)}</Text>)}
               </View>
             ))}
           </View>
