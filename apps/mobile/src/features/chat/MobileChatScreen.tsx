@@ -2157,11 +2157,7 @@ export function MobileChatScreen() {
             />
           </View>
 
-          {landscapeLayout && !personaCardExpanded ? (
-            <View pointerEvents="none" style={[styles.landscapePersonaRail, { borderColor: theme.border }]} />
-          ) : null}
-
-          <View style={landscapeLayout ? styles.landscapeMainPane : null}>
+          <View>
             <NetworkStatusBanner theme={theme} onRetry={() => void retryLoadAppData()} />
           </View>
 
@@ -2197,7 +2193,7 @@ export function MobileChatScreen() {
           ) : null}
 
           {error ? (
-            <View accessibilityLiveRegion="assertive" accessibilityRole="alert" style={[styles.error, landscapeLayout ? styles.errorLandscape : null, personaCardExpanded ? styles.layerAbovePersonaBackground : null, { borderColor: theme.danger }]}>
+            <View accessibilityLiveRegion="assertive" accessibilityRole="alert" style={[styles.error, personaCardExpanded ? styles.layerAbovePersonaBackground : null, { borderColor: theme.danger }]}>
               <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
               <Pressable
                 accessibilityRole="button"
@@ -2216,7 +2212,7 @@ export function MobileChatScreen() {
             keyExtractor={(turn) => turn.id}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={[styles.history, compactLayout ? styles.historyCompact : null, landscapeLayout ? styles.historyLandscape : null]}
-            style={StyleSheet.flatten([styles.conversationScroll, landscapeLayout ? styles.conversationScrollLandscape : undefined, personaCardExpanded ? styles.layerAbovePersonaBackground : undefined])}
+            style={StyleSheet.flatten([styles.conversationScroll, personaCardExpanded ? styles.layerAbovePersonaBackground : undefined])}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={80}
             onScroll={handleConversationScroll}
@@ -2353,7 +2349,6 @@ export function MobileChatScreen() {
               onPress={scrollConversationToBottom}
               style={[
                 styles.scrollToBottomButton,
-                landscapeLayout ? styles.scrollToBottomButtonLandscape : null,
                 { bottom: composerHeight + Math.max(insets.bottom, 8) + 12 },
                 { backgroundColor: "rgba(255,255,255,0.13)", borderColor: theme.border }
               ]}
@@ -2362,7 +2357,7 @@ export function MobileChatScreen() {
             </Pressable>
           ) : null}
 
-          <View style={landscapeLayout ? styles.composerLandscape : null}>
+          <View>
             <ChatComposer
               theme={theme}
               compact={compactLayout}
@@ -3111,12 +3106,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0
   },
-  conversationScrollLandscape: {
-    marginLeft: 132
-  },
-  composerLandscape: {
-    marginLeft: 132
-  },
   drawerWrap: {
     bottom: 0,
     left: 0,
@@ -3171,9 +3160,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 14,
     marginTop: 8,
     padding: 12
-  },
-  errorLandscape: {
-    marginLeft: 146
   },
   errorRetryButton: {
     alignSelf: "flex-start",
@@ -3236,18 +3222,6 @@ const styles = StyleSheet.create({
   layerAbovePersonaBackground: {
     position: "relative",
     zIndex: 2
-  },
-  landscapeMainPane: {
-    marginLeft: 132
-  },
-  landscapePersonaRail: {
-    borderRightWidth: 1,
-    bottom: 0,
-    left: 0,
-    opacity: 0.7,
-    position: "absolute",
-    top: 56,
-    width: 132
   },
   loadingState: {
     alignItems: "center",
@@ -3505,9 +3479,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: 52,
     zIndex: 2
-  },
-  scrollToBottomButtonLandscape: {
-    marginLeft: 132
   },
   settingsAvatar: {
     alignItems: "center",

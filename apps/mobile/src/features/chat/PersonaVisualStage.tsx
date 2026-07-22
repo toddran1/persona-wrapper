@@ -365,7 +365,6 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
         onPress={() => onHiddenChange(false)}
         style={[
           styles.revealButton,
-          landscape ? styles.revealButtonLandscape : null,
           { top: stageTop + 10, borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.90)" }
         ]}
       >
@@ -394,7 +393,6 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
         accessibilityLabel={`${personaName} visual state: ${stateLabels[state]}`}
         style={[
           styles.stage,
-          landscape ? styles.stageLandscape : null,
           { top: stageTop, width: stageWidth, borderColor: theme.border, backgroundColor: "rgba(7,5,12,0.62)" },
           stageStyle
         ]}
@@ -457,14 +455,6 @@ const styles = StyleSheet.create({
     width: 36,
     zIndex: 4
   },
-  revealButtonLandscape: {
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 16,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 16,
-    left: -1,
-    right: undefined
-  },
   stage: {
     borderRadius: 18,
     borderWidth: 1,
@@ -478,9 +468,5 @@ const styles = StyleSheet.create({
     top: 82,
     width: 104,
     zIndex: 4
-  },
-  stageLandscape: {
-    left: 11,
-    right: undefined
   }
 });
