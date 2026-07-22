@@ -744,6 +744,33 @@ export const selectedConversationExportSchema = z.object({
   conversationIds: z.array(z.string().min(1)).min(1).max(100)
 });
 
+export const unsafeOutputReportCategorySchema = z.enum([
+  "sexual_content",
+  "violence_or_self_harm",
+  "hate_or_harassment",
+  "child_safety",
+  "privacy_or_impersonation",
+  "dangerous_or_illegal",
+  "misinformation",
+  "other"
+]);
+export type UnsafeOutputReportCategory = z.infer<typeof unsafeOutputReportCategorySchema>;
+
+export const unsafeOutputReportRequestSchema = z.object({
+  conversationId: z.string().min(1),
+  category: unsafeOutputReportCategorySchema,
+  outputExcerpt: z.string().trim().min(1).max(4000),
+  details: z.string().trim().max(1000).optional()
+});
+export type UnsafeOutputReportRequest = z.infer<typeof unsafeOutputReportRequestSchema>;
+
+export const unsafeOutputReportReceiptSchema = z.object({
+  id: z.string(),
+  status: z.literal("received"),
+  createdAt: z.string()
+});
+export type UnsafeOutputReportReceipt = z.infer<typeof unsafeOutputReportReceiptSchema>;
+
 const contract = initContract();
 export const apiErrorSchema = z.object({
   error: z.string(),
@@ -828,6 +855,20 @@ export const apiContract = contract.router({
       pathParams: z.object({ conversationId: z.string().min(1) }),
       body: contract.noBody(),
       responses: { 204: contract.noBody(), 404: apiErrorSchema }
+    }
+  }),
+  safety: contract.router({
+    reportOutput: {
+      method: "POST",
+      path: "/api/safety/reports",
+      body: unsafeOutputReportRequestSchema,
+      responses: {
+        201: z.object({ report: unsafeOutputReportReceiptSchema }),
+        401: apiErrorSchema,
+        404: apiErrorSchema,
+        429: apiErrorSchema,
+        503: apiErrorSchema
+      }
     }
   }),
   account: contract.router({

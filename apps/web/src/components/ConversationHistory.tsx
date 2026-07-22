@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { stripGeneratedFileDownloadPrompt, type ChatResponse, type ContentBlock, type UploadedAsset } from "@persona/shared";
+import { stripGeneratedFileDownloadPrompt, type ChatResponse, type ContentBlock, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
 import { useEffect, useId, useRef, useState } from "react";
 import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
@@ -111,7 +111,7 @@ function playAudioElement(audio: HTMLAudioElement): void {
   }
 }
 
-function Icon({ name }: { name: "audio" | "copy" | "check" | "download" | "more" | "sources" | "retry" | "edit" | "file" | "image" }) {
+function Icon({ name }: { name: "audio" | "copy" | "check" | "download" | "more" | "sources" | "retry" | "edit" | "file" | "image" | "flag" }) {
   if (name === "audio") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -166,6 +166,15 @@ function Icon({ name }: { name: "audio" | "copy" | "check" | "download" | "more"
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M21 12a9 9 0 1 1-2.64-6.36" />
         <path d="M21 3v6h-6" />
+      </svg>
+    );
+  }
+
+  if (name === "flag") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 22V4" />
+        <path d="M5 4c5-4 9 4 14 0v11c-5 4-9-4-14 0" />
       </svg>
     );
   }
@@ -302,7 +311,8 @@ function AssistantActions({
   personaId,
   autoPlayAudio = false,
   onAudioPlaybackChange,
-  onRetry
+  onRetry,
+  onReport
 }: {
   text: string;
   sources: Extract<ContentBlock, { type: "source_list" }>[];
@@ -311,6 +321,7 @@ function AssistantActions({
   autoPlayAudio?: boolean;
   onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
   onRetry?: (() => void) | undefined;
+  onReport?: (() => void) | undefined;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -360,7 +371,8 @@ function AssistantActions({
   const downloadAudio = () => {
     if (!primaryAudio) return;
     setAudioOpen(false);
-    void downloadProtectedMedia(primaryAudio.url, `${personaId}-response.${audioFileExtension(primaryAudio.mimeType)}`);
+    void downloadProtectedMedia(primaryAudio.url, `${personaId}-response.${audioFileExtension(primaryAudio.mimeType)}`)
+      .catch((error: unknown) => window.alert(error instanceof Error ? error.message : "Could not download this audio."));
   };
 
   return (
@@ -458,6 +470,15 @@ function AssistantActions({
                 <span>Retry</span>
               </button>
             ) : null}
+            {onReport ? (
+              <button type="button" role="menuitem" onClick={() => {
+                setMenuOpen(false);
+                onReport();
+              }}>
+                <Icon name="flag" />
+                <span>Report unsafe output</span>
+              </button>
+            ) : null}
           </div>
         ) : null}
         {sourcesOpen ? (
@@ -511,6 +532,7 @@ function TokenUsageFooter({ usage }: { usage: ChatResponse["usage"] }) {
 }
 
 export function ConversationHistory({
+  conversationId,
   personaId = "persona",
   personaShortName = "Persona",
   turns,
@@ -524,10 +546,12 @@ export function ConversationHistory({
   onOutputAction,
   onEditUserPrompt,
   onRetryAssistantTurn,
+  onReportAssistantTurn,
   hasEarlierTurns = false,
   loadingEarlierTurns = false,
   onLoadEarlierTurns
 }: {
+  conversationId?: string | undefined;
   personaId?: string;
   personaShortName?: string;
   turns: RenderedTurn[];
@@ -541,14 +565,25 @@ export function ConversationHistory({
   onOutputAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
   onEditUserPrompt?: ((message: string, files: File[]) => void) | undefined;
   onRetryAssistantTurn?: ((turn: RenderedTurn) => void) | undefined;
+  onReportAssistantTurn?: ((turn: RenderedTurn, category: UnsafeOutputReportCategory, details?: string) => Promise<void>) | undefined;
   hasEarlierTurns?: boolean;
   loadingEarlierTurns?: boolean;
   onLoadEarlierTurns?: (() => void) | undefined;
 }) {
+  const [reportTarget, setReportTarget] = useState<RenderedTurn | undefined>();
+  const [reportConversationId, setReportConversationId] = useState<string | undefined>();
+  const [reportCategory, setReportCategory] = useState<UnsafeOutputReportCategory | "">("");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportError, setReportError] = useState<string | undefined>();
+  const [reportSubmitted, setReportSubmitted] = useState(false);
   const messageCount = turns.length * 2 + (pendingPrompt ? 1 : 0) + (thinking ? 1 : 0);
   const historyRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const newestAssistantRef = useRef<HTMLElement>(null);
   const shouldFollowRef = useRef(true);
+  const previousThinkingRef = useRef(thinking);
+  const focusResponseUntilRef = useRef(0);
 
   useEffect(() => {
     const updateFollowState = () => {
@@ -568,14 +603,43 @@ export function ConversationHistory({
   }, []);
 
   useEffect(() => {
+    if (reportTarget && reportConversationId !== conversationId) {
+      setReportTarget(undefined);
+      setReportConversationId(undefined);
+      setReportCategory("");
+      setReportDetails("");
+      setReportError(undefined);
+      setReportSubmitted(false);
+    }
+  }, [conversationId, reportConversationId, reportTarget]);
+
+  useEffect(() => {
+    // A reading position from the previous chat must not suppress positioning
+    // the newly selected conversation. The normal message effect below will
+    // choose the bottom for history or the response start for a fresh reply.
+    shouldFollowRef.current = true;
+    focusResponseUntilRef.current = 0;
+  }, [conversationId]);
+
+  useEffect(() => {
     if (pendingPrompt) {
       shouldFollowRef.current = true;
     }
   }, [pendingPrompt]);
 
   useEffect(() => {
+    const responseJustCompleted = previousThinkingRef.current && !thinking;
+    previousThinkingRef.current = thinking;
     if (!shouldFollowRef.current || messageCount === 0) return;
     const frame = requestAnimationFrame(() => {
+      if (responseJustCompleted && newestAssistantRef.current) {
+        // Keep the start of a fresh response readable, especially when it is
+        // longer than the viewport. The brief resize window also prevents an
+        // image/code block expanding immediately afterward from snapping down.
+        focusResponseUntilRef.current = Date.now() + 1000;
+        newestAssistantRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+        return;
+      }
       bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
     });
 
@@ -587,6 +651,10 @@ export function ConversationHistory({
 
     const observer = new ResizeObserver(() => {
       if (!shouldFollowRef.current || messageCount === 0) return;
+      if (focusResponseUntilRef.current > Date.now() && newestAssistantRef.current) {
+        newestAssistantRef.current.scrollIntoView({ block: "start", behavior: "auto" });
+        return;
+      }
       bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
     });
     observer.observe(historyRef.current);
@@ -630,7 +698,7 @@ export function ConversationHistory({
                   </div>
                   <UserMessageActions message={turn.userMessage} files={turn.userFiles ?? []} onEdit={onEditUserPrompt} />
                 </article>
-                <article className="chat-row chat-row-assistant">
+                <article ref={turnIndex === turns.length - 1 ? newestAssistantRef : undefined} className="chat-row chat-row-assistant">
                   <div className="chat-avatar chat-avatar-assistant">{personaId}</div>
                   <div className="chat-bubble chat-bubble-assistant">
                     <span className="history-role">Reply</span>
@@ -654,6 +722,14 @@ export function ConversationHistory({
                     autoPlayAudio={turnIndex === autoPlayAudioTurnIndex}
                     onAudioPlaybackChange={onAudioPlaybackChange}
                     onRetry={onRetryAssistantTurn && turnIndex === turns.length - 1 ? () => onRetryAssistantTurn(turn) : undefined}
+                    onReport={onReportAssistantTurn ? () => {
+                      setReportTarget(turn);
+                      setReportConversationId(conversationId);
+                      setReportCategory("");
+                      setReportDetails("");
+                      setReportError(undefined);
+                      setReportSubmitted(false);
+                    } : undefined}
                   />
                 </article>
               </div>
@@ -686,6 +762,70 @@ export function ConversationHistory({
           <div ref={bottomRef} className="chat-bottom-sentinel" aria-hidden="true" />
         </div>
       )}
+      {reportTarget ? (
+        <div className="response-report-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !reportSubmitting) setReportTarget(undefined);
+        }}>
+          <div className="response-report-dialog" role="dialog" aria-modal="true" aria-labelledby="response-report-title">
+            {reportSubmitted ? (
+              <div className="response-report-success" role="status">
+                <span className="response-report-mark"><Icon name="check" /></span>
+                <h2 id="response-report-title">Report received</h2>
+                <p>Thank you. Your report was saved for safety review.</p>
+                <button type="button" className="response-report-primary" onClick={() => setReportTarget(undefined)}>Done</button>
+              </div>
+            ) : (
+              <>
+                <div className="response-report-heading">
+                  <div>
+                    <span className="eyebrow">Safety feedback</span>
+                    <h2 id="response-report-title">Report this response</h2>
+                  </div>
+                  <button type="button" className="response-report-close" aria-label="Close report" onClick={() => setReportTarget(undefined)} disabled={reportSubmitting}>×</button>
+                </div>
+                <p className="response-report-copy">Tell us what went wrong. Reports help us investigate unsafe AI output and do not automatically remove your conversation.</p>
+                <fieldset className="response-report-categories">
+                  <legend>What is the issue?</legend>
+                  {REPORT_CATEGORIES.map((option) => (
+                    <label key={option.value} className={reportCategory === option.value ? "selected" : ""}>
+                      <input type="radio" name="report-category" value={option.value} checked={reportCategory === option.value} onChange={() => setReportCategory(option.value)} />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </fieldset>
+                <label className="response-report-details">
+                  <span>Anything else? <small>Optional</small></span>
+                  <textarea value={reportDetails} maxLength={1000} rows={3} onChange={(event) => setReportDetails(event.target.value)} placeholder="Add context that could help our review." />
+                </label>
+                {reportError ? <p className="response-report-error" role="alert">{reportError}</p> : null}
+                <div className="response-report-actions">
+                  <button type="button" className="response-report-secondary" onClick={() => setReportTarget(undefined)} disabled={reportSubmitting}>Cancel</button>
+                  <button type="button" className="response-report-primary" disabled={!reportCategory || reportSubmitting} onClick={() => {
+                    if (!reportCategory || !onReportAssistantTurn) return;
+                    setReportSubmitting(true);
+                    setReportError(undefined);
+                    void onReportAssistantTurn(reportTarget, reportCategory, reportDetails.trim() || undefined)
+                      .then(() => setReportSubmitted(true))
+                      .catch((error: unknown) => setReportError(error instanceof Error ? error.message : "Could not submit this report."))
+                      .finally(() => setReportSubmitting(false));
+                  }}>{reportSubmitting ? "Sending…" : "Send report"}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
+
+const REPORT_CATEGORIES: Array<{ value: UnsafeOutputReportCategory; label: string }> = [
+  { value: "sexual_content", label: "Sexual content" },
+  { value: "violence_or_self_harm", label: "Violence or self-harm" },
+  { value: "hate_or_harassment", label: "Hate or harassment" },
+  { value: "child_safety", label: "Child safety" },
+  { value: "privacy_or_impersonation", label: "Privacy or impersonation" },
+  { value: "dangerous_or_illegal", label: "Dangerous or illegal advice" },
+  { value: "misinformation", label: "False or misleading information" },
+  { value: "other", label: "Something else" }
+];

@@ -13,6 +13,7 @@ import { selectTools } from "../services/toolSelectionService.js";
 import { usageControlService } from "../services/usageControlService.js";
 import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
 import { requestOwnerId } from "../utils/requestIdentity.js";
+import { logger } from "../utils/logger.js";
 
 const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -48,23 +49,18 @@ const patchConversationSchema = z.object({
 
 backgroundChatJobService.setExecutor(async (payload, backgroundJob) => {
   if (!backgroundJob.ownerId) throw new Error("Background chat job is missing its owner.");
-  try {
-    const result = await chatService.handleChat(payload, undefined, backgroundJob.abortController.signal, {
-      onProviderResponse: (event) => {
-        void backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
-      }
-    }, { ownerId: backgroundJob.ownerId });
-    await usageControlService.recordUsage(
-      backgroundJob.ownerId,
-      result.usage?.totalTokens,
-      result.usage?.estimatedCostUsd,
-      backgroundJob.usageReservationId
-    );
-    return result;
-  } catch (error) {
-    await usageControlService.recordUsage(backgroundJob.ownerId, undefined, undefined, backgroundJob.usageReservationId);
-    throw error;
-  }
+  const result = await chatService.handleChat(payload, undefined, backgroundJob.abortController.signal, {
+    onProviderResponse: (event) => {
+      void backgroundChatJobService.trackProviderResponse(backgroundJob.id, event.id, event.status);
+    }
+  }, { ownerId: backgroundJob.ownerId });
+  await usageControlService.recordUsage(
+    backgroundJob.ownerId,
+    result.usage?.totalTokens,
+    result.usage?.estimatedCostUsd,
+    backgroundJob.usageReservationId
+  );
+  return result;
 });
 
 export async function postChat(request: Request, response: Response): Promise<void> {
@@ -111,7 +107,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
     response.status(200).json(result);
   } catch (error) {
     if (!reservationReconciled) {
-      await usageControlService.recordUsage(identity, undefined, undefined, reservationId);
+      await releaseUsageReservation(identity, reservationId, response.locals.requestId);
     }
     throw error;
   }
@@ -171,11 +167,18 @@ export async function postChatStream(request: Request, response: Response): Prom
     response.end();
   } catch (error) {
     if (!reservationReconciled) {
-      await usageControlService.recordUsage(identity, undefined, undefined, reservationId);
+      await releaseUsageReservation(identity, reservationId, response.locals.requestId);
     }
+    logger.warn("Streaming chat request failed", {
+      requestId: response.locals.requestId,
+      error: error instanceof Error ? error.message : String(error)
+    });
     if (!controller.signal.aborted && !response.writableEnded && !response.destroyed) {
       response.write(`event: error\ndata: ${JSON.stringify({
-        message: error instanceof Error ? error.message : "Streaming request failed."
+        // SSE headers are already committed, so this path cannot use the
+        // global error boundary. Preserve intentional client errors while
+        // keeping database/provider internals out of the response stream.
+        message: error instanceof HttpError ? error.message : "The response could not be completed. Please try again."
       })}\n\n`);
       response.end();
     }
@@ -250,6 +253,17 @@ export async function patchConversation(request: Request, response: Response): P
 
 function requestIdentity(request: Request): string {
   return requestOwnerId(request);
+}
+
+async function releaseUsageReservation(identity: string, reservationId: string, requestId?: string): Promise<void> {
+  await usageControlService.recordUsage(identity, undefined, undefined, reservationId).catch((error) => {
+    // Reconciliation is cleanup for a request that already failed. Keep the
+    // original error actionable and let stale-reservation cleanup retry later.
+    logger.warn("Could not release usage reservation after chat failure", {
+      requestId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
 }
 
 function shouldRunInBackground(payload: ChatRequest): boolean {

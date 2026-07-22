@@ -178,6 +178,51 @@ describe("ConversationHistory pending state", () => {
     expect(onRetryAssistantTurn).toHaveBeenCalledWith(latestTurn);
   });
 
+  it("submits an unsafe-output report from the response action menu", async () => {
+    const user = userEvent.setup();
+    const onReportAssistantTurn = vi.fn().mockResolvedValue(undefined);
+    const turn = {
+      userMessage: "Answer this.",
+      assistantText: "Unsafe response text.",
+      outputs: [{ type: "text" as const, text: "Unsafe response text." }]
+    };
+
+    render(<ConversationHistory turns={[turn]} onReportAssistantTurn={onReportAssistantTurn} />);
+    await user.click(screen.getByRole("button", { name: "More response actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Report unsafe output" }));
+    expect(screen.getByRole("dialog", { name: "Report this response" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "Dangerous or illegal advice" }));
+    await user.type(screen.getByLabelText(/Anything else/), "This could cause harm.");
+    await user.click(screen.getByRole("button", { name: "Send report" }));
+
+    await waitFor(() => expect(onReportAssistantTurn).toHaveBeenCalledWith(
+      turn,
+      "dangerous_or_illegal",
+      "This could cause harm."
+    ));
+    expect(await screen.findByText("Report received")).toBeInTheDocument();
+  });
+
+  it("closes an unfinished report when the user switches conversations", async () => {
+    const user = userEvent.setup();
+    const turn = {
+      userMessage: "Answer this.",
+      assistantText: "Response to report.",
+      outputs: [{ type: "text" as const, text: "Response to report." }]
+    };
+    const { rerender } = render(
+      <ConversationHistory conversationId="conv-a" turns={[turn]} onReportAssistantTurn={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "More response actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Report unsafe output" }));
+    expect(screen.getByRole("dialog", { name: "Report this response" })).toBeInTheDocument();
+
+    rerender(<ConversationHistory conversationId="conv-b" turns={[]} onReportAssistantTurn={vi.fn()} />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Report this response" })).not.toBeInTheDocument());
+  });
+
   it("does not expose malformed reference URLs as actions", async () => {
     const user = userEvent.setup();
     render(

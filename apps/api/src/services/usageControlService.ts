@@ -5,7 +5,14 @@ import { getDatabase } from "../db/client.js";
 import { usageEvents } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 
-type UsageRecord = { timestamps: number[]; day: string; spendUsd: number; tokens: number };
+type LocalReservation = { tokens: number; spendUsd: number };
+type UsageRecord = {
+  timestamps: number[];
+  day: string;
+  spendUsd: number;
+  tokens: number;
+  reservations: Map<string, LocalReservation>;
+};
 
 function todayUtcStart(): Date {
   return new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
@@ -90,25 +97,35 @@ export class UsageControlService {
 
     const now = Date.now();
     const day = new Date(now).toISOString().slice(0, 10);
-    const record = this.records.get(identity) ?? { timestamps: [], day, spendUsd: 0, tokens: 0 };
+    const record = this.records.get(identity) ?? { timestamps: [], day, spendUsd: 0, tokens: 0, reservations: new Map() };
     if (record.day !== day) {
       record.day = day;
       record.spendUsd = 0;
       record.tokens = 0;
+      record.reservations.clear();
     }
     record.timestamps = record.timestamps.filter((timestamp) => now - timestamp < env.CHAT_RATE_LIMIT_WINDOW_MS);
     if (record.timestamps.length >= env.CHAT_RATE_LIMIT_REQUESTS) {
       throw new HttpError("Too many requests. Please wait and try again.", 429);
     }
-    if (env.OPENAI_DAILY_SPEND_LIMIT_USD > 0 && record.spendUsd >= env.OPENAI_DAILY_SPEND_LIMIT_USD) {
+    const reservedTokens = env.OPENAI_MAX_CONTEXT_TOKENS + env.OPENAI_MAX_OUTPUT_TOKENS;
+    const reservedSpendUsd = (
+      env.OPENAI_MAX_CONTEXT_TOKENS * env.OPENAI_INPUT_COST_PER_MILLION
+      + env.OPENAI_MAX_OUTPUT_TOKENS * env.OPENAI_OUTPUT_COST_PER_MILLION
+    ) / 1_000_000;
+    const pendingTokens = [...record.reservations.values()].reduce((sum, reservation) => sum + reservation.tokens, 0);
+    const pendingSpendUsd = [...record.reservations.values()].reduce((sum, reservation) => sum + reservation.spendUsd, 0);
+    if (env.OPENAI_DAILY_SPEND_LIMIT_USD > 0 && record.spendUsd + pendingSpendUsd + reservedSpendUsd > env.OPENAI_DAILY_SPEND_LIMIT_USD) {
       throw new HttpError("Daily OpenAI usage limit reached.", 429);
     }
-    if (env.OPENAI_DAILY_TOKEN_LIMIT > 0 && record.tokens >= env.OPENAI_DAILY_TOKEN_LIMIT) {
+    if (env.OPENAI_DAILY_TOKEN_LIMIT > 0 && record.tokens + pendingTokens + reservedTokens > env.OPENAI_DAILY_TOKEN_LIMIT) {
       throw new HttpError("Daily OpenAI token limit reached.", 429);
     }
     record.timestamps.push(now);
+    const reservationId = `local_${randomUUID()}`;
+    record.reservations.set(reservationId, { tokens: reservedTokens, spendUsd: reservedSpendUsd });
     this.records.set(identity, record);
-    return `local_${randomUUID()}`;
+    return reservationId;
   }
 
   async recordUsage(identity: string, tokens?: number, costUsd?: number, reservationId?: string): Promise<void> {
@@ -140,6 +157,7 @@ export class UsageControlService {
 
     const record = this.records.get(identity);
     if (!record) return;
+    if (reservationId) record.reservations.delete(reservationId);
     if (tokens && tokens > 0) record.tokens += tokens;
     if (costUsd && costUsd > 0) record.spendUsd += costUsd;
   }

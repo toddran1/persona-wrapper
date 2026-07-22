@@ -29,6 +29,7 @@ import {
   postVectorStore
 } from "../controllers/upload.controller.js";
 import { getPersonaById, listPersonas } from "../personas/index.js";
+import { postUnsafeOutputReport } from "../controllers/safety.controller.js";
 import { uploadService } from "../services/uploadService.js";
 import { requestOwnerId } from "../utils/requestIdentity.js";
 
@@ -112,6 +113,9 @@ export const apiContractRouter = server.router(apiContract, {
     get: captured(getConversation),
     update: captured(patchConversation),
     remove: captured(deleteConversation)
+  },
+  safety: {
+    reportOutput: captured(postUnsafeOutputReport)
   },
   account: {
     restore: captured(restoreAccount),

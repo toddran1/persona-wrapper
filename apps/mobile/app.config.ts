@@ -5,7 +5,7 @@ const config: ExpoConfig = {
   slug: "persona-wrapper",
   scheme: "personawrapper",
   version: "0.1.0",
-  orientation: "portrait",
+  orientation: "default",
   userInterfaceStyle: "dark",
   ios: {
     supportsTablet: true,
@@ -23,6 +23,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    ["expo-screen-orientation", { initialOrientation: "DEFAULT" }],
     ["expo-localization", { supportedLocales: ["en"] }],
     "./plugins/withQuotedExpoConstantsScript",
     [

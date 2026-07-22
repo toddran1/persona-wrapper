@@ -13,6 +13,7 @@ type RateLimitEntry = {
 const attempts = new Map<string, RateLimitEntry>();
 const oauthPollAttempts = new Map<string, RateLimitEntry>();
 const dataTransferAttempts = new Map<string, RateLimitEntry>();
+const safetyReportAttempts = new Map<string, RateLimitEntry>();
 const MAX_TRACKED_CLIENTS = 10_000;
 
 function pruneExpired(now: number): void {
@@ -126,6 +127,29 @@ export function dataTransferRateLimit(request: Request, response: Response, next
     ? { count: 1, resetAt: now + windowMs }
     : { ...current, count: current.count + 1 };
   dataTransferAttempts.set(key, entry);
+  finishRateLimit(entry, limit, response, next, message);
+}
+
+export function safetyReportRateLimit(request: Request, response: Response, next: NextFunction): void {
+  const identity = request.auth?.userId || request.ip || request.socket.remoteAddress || "unknown";
+  const key = `safety-report:${identity}`;
+  const message = "Too many reports were submitted. Please wait before sending another report.";
+  const limit = 20;
+  const windowMs = 60 * 60 * 1000;
+  if (getDatabase()) {
+    void consumeDistributedLimit(key, "safety_report_request", limit, windowMs)
+      .then((entry) => finishRateLimit(entry, limit, response, next, message))
+      .catch(next);
+    return;
+  }
+
+  const now = Date.now();
+  pruneMap(safetyReportAttempts, now);
+  const current = safetyReportAttempts.get(key);
+  const entry = !current || current.resetAt <= now
+    ? { count: 1, resetAt: now + windowMs }
+    : { ...current, count: current.count + 1 };
+  safetyReportAttempts.set(key, entry);
   finishRateLimit(entry, limit, response, next, message);
 }
 

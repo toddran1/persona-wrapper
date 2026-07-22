@@ -13,7 +13,7 @@
     "accounts:purge-deleted": "tsx src/scripts/purgeDeletedAccounts.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "biome lint src drizzle.config.ts",
-    "test": "NODE_ENV=test DATABASE_URL= AUTH_REQUIRED=false AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false OBSERVABILITY_DASHBOARD_TOKEN= OTEL_EXPORTER_OTLP_ENDPOINT= OTEL_EXPORTER_OTLP_HEADERS= STYLE_TRANSFER_PROVIDER=stub vitest run",
+    "test": "NODE_ENV=test DATABASE_URL= AUTH_REQUIRED=false AUTH_REQUIRE_OWNED_MEDIA_ACCESS=false OBSERVABILITY_DASHBOARD_TOKEN= OTEL_EXPORTER_OTLP_ENDPOINT= OTEL_EXPORTER_OTLP_HEADERS= GMAIL_SMTP_USER= GMAIL_SMTP_APP_PASSWORD= STYLE_TRANSFER_PROVIDER=stub vitest run",
     "test:integration:openai": "DATABASE_URL= OPENAI_RUN_INTEGRATION_TESTS=true STYLE_TRANSFER_PROVIDER=stub vitest run src/test/openai.integration.test.ts"
   },
   "dependencies": {

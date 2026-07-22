@@ -96,6 +96,22 @@ export const messages = pgTable("messages", {
   conversationSequenceIdx: index("messages_conversation_sequence_idx").on(table.conversationId, table.sequence)
 }));
 
+export const unsafeOutputReports = pgTable("unsafe_output_reports", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  category: text("category").notNull(),
+  outputExcerpt: text("output_excerpt").notNull(),
+  details: text("details"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  userIdIdx: index("unsafe_output_reports_user_id_idx").on(table.userId),
+  conversationIdIdx: index("unsafe_output_reports_conversation_id_idx").on(table.conversationId),
+  categoryIdx: index("unsafe_output_reports_category_idx").on(table.category),
+  createdAtIdx: index("unsafe_output_reports_created_at_idx").on(table.createdAt)
+}));
+
 export const uploads = pgTable("uploads", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id").notNull(),

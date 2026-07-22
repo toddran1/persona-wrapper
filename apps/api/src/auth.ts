@@ -128,7 +128,11 @@ export const auth = database ? betterAuth({
     }
   },
   socialProviders,
-  trustedOrigins: [env.WEB_APP_URL, "personawrapper://", "exp://**", "http://localhost:**"],
+  trustedOrigins: [
+    env.WEB_APP_URL,
+    "personawrapper://",
+    ...(env.NODE_ENV === "production" ? [] : ["exp://**", "http://localhost:**"])
+  ],
   advanced: {
     cookiePrefix: "for-the-baddiez",
     defaultCookieAttributes: authCookieAttributes(env.NODE_ENV),

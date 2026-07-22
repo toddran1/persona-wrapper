@@ -12,6 +12,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Switch,
   StyleSheet,
   Text,
   TextInput,
@@ -25,11 +26,12 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from "expo-audio";
 import { Ionicons } from "@expo/vector-icons";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConnectedAccount, ConversationSummary, DataTransferJob, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UploadedAsset } from "@persona/shared";
+import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConnectedAccount, ConversationSummary, DataTransferJob, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UnsafeOutputReportCategory, UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -53,6 +55,7 @@ import {
   setSelectedConversationId
 } from "../../storage/secureTokens";
 import { saveFileToDevice } from "../../storage/downloadDirectory";
+import { getLandscapeLayoutEnabled, setLandscapeLayoutEnabled } from "../../storage/mobilePreferences";
 import { defaultPersonaTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
@@ -75,6 +78,16 @@ const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://loca
 // Keep this aligned with `scheme` in app.config.ts. OAuth must not depend on
 // Expo Constants because the native manifest can be unavailable during startup.
 const MOBILE_APP_SCHEME = "personawrapper";
+const REPORT_CATEGORIES: Array<{ value: UnsafeOutputReportCategory; label: string }> = [
+  { value: "sexual_content", label: "Sexual content" },
+  { value: "violence_or_self_harm", label: "Violence or self-harm" },
+  { value: "hate_or_harassment", label: "Hate or harassment" },
+  { value: "child_safety", label: "Child safety" },
+  { value: "privacy_or_impersonation", label: "Privacy or impersonation" },
+  { value: "dangerous_or_illegal", label: "Dangerous or illegal advice" },
+  { value: "misinformation", label: "False or misleading information" },
+  { value: "other", label: "Something else" }
+];
 
 function mobileAppUrl(path = ""): string {
   const normalizedPath = path.replace(/^\/+/, "");
@@ -103,6 +116,14 @@ function assertSupportedImportSize(size: number | undefined): void {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+async function applyLandscapeLayoutPreference(enabled: boolean): Promise<void> {
+  if (enabled) {
+    await ScreenOrientation.unlockAsync();
+    return;
+  }
+  await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
 }
 
 async function loadAuthenticatedUser(): Promise<AuthUser | undefined> {
@@ -170,7 +191,7 @@ export function MobileChatScreen() {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const drawerWidth = windowWidth;
   const compactLayout = windowWidth < 360 || windowHeight < 700;
-  const tabletLayout = windowWidth >= 768;
+  const tabletLayout = Math.min(windowWidth, windowHeight) >= 600;
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
   const [persona, setPersona] = useState<PersonaDefinition | undefined>();
   const [provider, setProvider] = useState<ProviderId>("openai_persona");
@@ -197,6 +218,8 @@ export function MobileChatScreen() {
   const [error, setError] = useState<string | undefined>();
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [settingsPanel, setSettingsPanel] = useState<SettingsPanel>("main");
+  const [landscapeLayoutEnabled, setLandscapeLayoutEnabledState] = useState(false);
+  const [landscapePreferenceBusy, setLandscapePreferenceBusy] = useState(false);
   const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
   const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const dataTransferActive = Boolean(dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status));
@@ -212,11 +235,17 @@ export function MobileChatScreen() {
   const [authMode, setAuthMode] = useState<MobileAuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [assistantActionTurn, setAssistantActionTurn] = useState<RenderedTurn | undefined>();
+  const [reportTarget, setReportTarget] = useState<RenderedTurn | undefined>();
+  const [reportCategory, setReportCategory] = useState<UnsafeOutputReportCategory | undefined>();
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState<string | undefined>();
   const [referenceSources, setReferenceSources] = useState<Citation[]>([]);
   const [renameTitle, setRenameTitle] = useState("");
   const [composerDraft, setComposerDraft] = useState<string | undefined>();
   const [voiceInputActive, setVoiceInputActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [responseFocusTurnId, setResponseFocusTurnId] = useState<string | undefined>();
   const [composerHeight, setComposerHeight] = useState(62);
   const [personaVisualState, setPersonaVisualState] = useState<PersonaVisualState>("idle");
   const [personaCardExpanded, setPersonaCardExpanded] = useState(false);
@@ -239,6 +268,7 @@ export function MobileChatScreen() {
   const conversationSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const conversationSearchGenerationRef = useRef(0);
   const nearConversationBottomRef = useRef(true);
+  const lastFocusedResponseTurnIdRef = useRef<string | undefined>(undefined);
   const currentComposerDraftRef = useRef("");
   const speechBaseDraftRef = useRef("");
   const speechRuntimeRef = useRef<SpeechRecognitionRuntime | undefined>(undefined);
@@ -253,6 +283,7 @@ export function MobileChatScreen() {
   const appStateRef = useRef(AppState.currentState);
   const sessionValidationInFlightRef = useRef(false);
   const appDataReloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
+  const landscapeLayout = landscapeLayoutEnabled && windowWidth > windowHeight;
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
@@ -280,6 +311,27 @@ export function MobileChatScreen() {
     mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => api.pinConversation(id, pinned),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["conversations", authUser?.id] })
   });
+
+  useEffect(() => {
+    let active = true;
+    void getLandscapeLayoutEnabled()
+      .then(async (enabled) => {
+        await applyLandscapeLayoutPreference(enabled);
+        if (active) setLandscapeLayoutEnabledState(enabled);
+      })
+      .catch(async () => {
+        if (active) setLandscapeLayoutEnabledState(false);
+        try {
+          await setLandscapeLayoutEnabled(false);
+          await applyLandscapeLayoutPreference(false);
+        } catch {
+          // Keep the app usable if orientation APIs or preference storage are unavailable.
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (personasResource.data) setPersonas(personasResource.data);
@@ -332,6 +384,27 @@ export function MobileChatScreen() {
     visualStateTimerRef.current = undefined;
   }
 
+  async function updateLandscapeLayoutPreference(enabled: boolean): Promise<void> {
+    if (landscapePreferenceBusy) return;
+    setLandscapePreferenceBusy(true);
+    setLandscapeLayoutEnabledState(enabled);
+    try {
+      await setLandscapeLayoutEnabled(enabled);
+      await applyLandscapeLayoutPreference(enabled);
+    } catch {
+      setLandscapeLayoutEnabledState(!enabled);
+      try {
+        await setLandscapeLayoutEnabled(!enabled);
+        await applyLandscapeLayoutPreference(!enabled);
+      } catch {
+        // The alert below gives the user a recoverable next step.
+      }
+      Alert.alert("Could not change orientation", "Please restart the app and try the landscape setting again.");
+    } finally {
+      setLandscapePreferenceBusy(false);
+    }
+  }
+
   function clearScrollButtonTimer(): void {
     if (!scrollButtonTimerRef.current) return;
     clearTimeout(scrollButtonTimerRef.current);
@@ -357,6 +430,14 @@ export function MobileChatScreen() {
     nearConversationBottomRef.current = true;
     setShowScrollToBottom(false);
     scrollRef.current?.scrollToEnd({ animated: true });
+  }
+
+  function focusCompletedResponse(turnId: string): void {
+    // Keep manual reading position intact, but follow a response that belongs
+    // to the message the user just sent.
+    if (!nearConversationBottomRef.current && !sending) return;
+    lastFocusedResponseTurnIdRef.current = turnId;
+    setResponseFocusTurnId(turnId);
   }
 
   function handleConversationScroll(event: {
@@ -1029,6 +1110,35 @@ export function MobileChatScreen() {
     setReferenceSources(validReferences);
   }
 
+  function showUnsafeOutputReport(turn: RenderedTurn): void {
+    setAssistantActionTurn(undefined);
+    setReportTarget(turn);
+    setReportCategory(undefined);
+    setReportDetails("");
+    setReportError(undefined);
+  }
+
+  async function submitUnsafeOutputReport(): Promise<void> {
+    if (!reportTarget || !reportCategory || !conversationId || reportBusy) return;
+    setReportBusy(true);
+    setReportError(undefined);
+    try {
+      const excerpt = assistantTextForDisplay(reportTarget).trim() || JSON.stringify(reportTarget.outputs);
+      await api.reportUnsafeOutput({
+        conversationId,
+        category: reportCategory,
+        outputExcerpt: excerpt.slice(0, 4000),
+        ...(reportDetails.trim() ? { details: reportDetails.trim() } : {})
+      });
+      setReportTarget(undefined);
+      Alert.alert("Report received", "Thank you. Your report was saved for safety review.");
+    } catch (reportFailure) {
+      setReportError(reportFailure instanceof Error ? reportFailure.message : "Could not submit this report.");
+    } finally {
+      setReportBusy(false);
+    }
+  }
+
   async function openReference(reference: Citation): Promise<void> {
     try {
       const parsed = new URL(reference.url);
@@ -1196,6 +1306,19 @@ export function MobileChatScreen() {
     const controller = activeChatAbortControllerRef.current;
     activeChatAbortControllerRef.current = undefined;
     controller?.abort();
+    // Response-focus state belongs to the current conversation. Keeping it
+    // across navigation can suppress the initial scroll when a chat is opened
+    // again and leave the list at the previous conversation's offset.
+    lastFocusedResponseTurnIdRef.current = undefined;
+    setResponseFocusTurnId(undefined);
+    nearConversationBottomRef.current = true;
+    setShowScrollToBottom(false);
+    setAssistantActionTurn(undefined);
+    setReferenceSources([]);
+    setReportTarget(undefined);
+    setReportCategory(undefined);
+    setReportDetails("");
+    setReportError(undefined);
     setSending(false);
     setUploadingAttachments(false);
     setResumingJobId(undefined);
@@ -1235,6 +1358,7 @@ export function MobileChatScreen() {
     setTurns((current) => current.map((turn) => (
       turn.id === turnId ? completedTurn : turn
     )));
+    focusCompletedResponse(completedTurn.id);
   }
 
   function isStillRunningTurn(turn: RenderedTurn): boolean {
@@ -1386,6 +1510,20 @@ export function MobileChatScreen() {
   }, [settingsVisible, authUser?.id]);
 
   useEffect(() => {
+    if (!responseFocusTurnId) return;
+    const index = turns.findIndex((turn) => turn.id === responseFocusTurnId);
+    if (index < 0) return;
+    const frame = requestAnimationFrame(() => {
+      // Each list cell contains the prompt followed by its reply. This offset
+      // places the reply at the reading position instead of the cell bottom.
+      scrollRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0, viewOffset: 132 });
+      setResponseFocusTurnId(undefined);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [responseFocusTurnId, turns]);
+
+  useEffect(() => {
+    if (lastFocusedResponseTurnIdRef.current === turns[turns.length - 1]?.id) return;
     requestAnimationFrame(() => {
       if (nearConversationBottomRef.current || sending) {
         scrollRef.current?.scrollToEnd({ animated: true });
@@ -1621,6 +1759,7 @@ export function MobileChatScreen() {
       setTurns((current) => current.map((turn) => (
         turn.id === optimistic?.id ? completedTurn : turn
       )));
+      focusCompletedResponse(completedTurn.id);
       await refreshConversations();
     } catch (sendError) {
       if (isRequestCancellation(sendError)) return;
@@ -1996,10 +2135,11 @@ export function MobileChatScreen() {
               styles.keyboard,
               tabletLayout ? styles.keyboardTablet : null,
               compactLayout ? styles.keyboardCompact : null,
+              landscapeLayout ? styles.keyboardLandscape : null,
               { paddingTop: insets.top + (compactLayout ? 4 : 8), paddingBottom: Math.max(insets.bottom, 8) }
             ]}
           >
-          <View style={[styles.topBar, personaCardExpanded ? styles.layerAbovePersonaBackground : null]}>
+          <View style={[styles.topBar, landscapeLayout ? styles.topBarLandscape : null, personaCardExpanded ? styles.layerAbovePersonaBackground : null]}>
             <IconButton name="menu" label={t("chat.openChats")} theme={theme} onPress={openDrawer} testID="mobile-open-chats" />
             <View style={styles.titleBlock}>
               <Text style={[styles.personaName, { color: theme.text }]} numberOfLines={1}>
@@ -2017,12 +2157,19 @@ export function MobileChatScreen() {
             />
           </View>
 
-          <NetworkStatusBanner theme={theme} onRetry={() => void retryLoadAppData()} />
+          {landscapeLayout && !personaCardExpanded ? (
+            <View pointerEvents="none" style={[styles.landscapePersonaRail, { borderColor: theme.border }]} />
+          ) : null}
+
+          <View style={landscapeLayout ? styles.landscapeMainPane : null}>
+            <NetworkStatusBanner theme={theme} onRetry={() => void retryLoadAppData()} />
+          </View>
 
           {activePersona?.visualStage ? (
             <PersonaVisualStage
               expanded={personaCardExpanded}
               hidden={personaCardHidden}
+              landscape={landscapeLayout}
               personaName={activePersona.name}
               profile={activePersona.visualStage}
               state={personaVisualState}
@@ -2050,7 +2197,7 @@ export function MobileChatScreen() {
           ) : null}
 
           {error ? (
-            <View accessibilityLiveRegion="assertive" accessibilityRole="alert" style={[styles.error, personaCardExpanded ? styles.layerAbovePersonaBackground : null, { borderColor: theme.danger }]}>
+            <View accessibilityLiveRegion="assertive" accessibilityRole="alert" style={[styles.error, landscapeLayout ? styles.errorLandscape : null, personaCardExpanded ? styles.layerAbovePersonaBackground : null, { borderColor: theme.danger }]}>
               <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
               <Pressable
                 accessibilityRole="button"
@@ -2068,8 +2215,8 @@ export function MobileChatScreen() {
             data={turns}
             keyExtractor={(turn) => turn.id}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={[styles.history, compactLayout ? styles.historyCompact : null]}
-            style={StyleSheet.flatten([styles.conversationScroll, personaCardExpanded ? styles.layerAbovePersonaBackground : undefined])}
+            contentContainerStyle={[styles.history, compactLayout ? styles.historyCompact : null, landscapeLayout ? styles.historyLandscape : null]}
+            style={StyleSheet.flatten([styles.conversationScroll, landscapeLayout ? styles.conversationScrollLandscape : undefined, personaCardExpanded ? styles.layerAbovePersonaBackground : undefined])}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={80}
             onScroll={handleConversationScroll}
@@ -2206,6 +2353,7 @@ export function MobileChatScreen() {
               onPress={scrollConversationToBottom}
               style={[
                 styles.scrollToBottomButton,
+                landscapeLayout ? styles.scrollToBottomButtonLandscape : null,
                 { bottom: composerHeight + Math.max(insets.bottom, 8) + 12 },
                 { backgroundColor: "rgba(255,255,255,0.13)", borderColor: theme.border }
               ]}
@@ -2214,23 +2362,25 @@ export function MobileChatScreen() {
             </Pressable>
           ) : null}
 
-          <ChatComposer
-            theme={theme}
-            compact={compactLayout}
-            disabled={sending || !activePersona || !isOnline}
-            uploadingAttachments={uploadingAttachments}
-            voiceInputActive={voiceInputActive}
-            attachments={selectedFiles}
-            draftMessage={composerDraft}
-            placeholder={!isOnline ? t("chat.offlineComposer") : voiceInputActive ? t("chat.listening") : activePersona?.promptPlaceholder ?? t("chat.askAnything")}
-            onAttach={openAttachmentPicker}
-            onAudioMenu={showPersonaAudioMenu}
-            onDraftChange={updateComposerDraft}
-            onMicPress={() => void toggleSpeechToText()}
-            onHeightChange={setComposerHeight}
-            onRemoveAttachment={(id) => setSelectedFiles((current) => current.filter((file) => file.id !== id))}
-            onSubmit={(message) => void submit(message)}
-          />
+          <View style={landscapeLayout ? styles.composerLandscape : null}>
+            <ChatComposer
+              theme={theme}
+              compact={compactLayout}
+              disabled={sending || !activePersona || !isOnline}
+              uploadingAttachments={uploadingAttachments}
+              voiceInputActive={voiceInputActive}
+              attachments={selectedFiles}
+              draftMessage={composerDraft}
+              placeholder={!isOnline ? t("chat.offlineComposer") : voiceInputActive ? t("chat.listening") : activePersona?.promptPlaceholder ?? t("chat.askAnything")}
+              onAttach={openAttachmentPicker}
+              onAudioMenu={showPersonaAudioMenu}
+              onDraftChange={updateComposerDraft}
+              onMicPress={() => void toggleSpeechToText()}
+              onHeightChange={setComposerHeight}
+              onRemoveAttachment={(id) => setSelectedFiles((current) => current.filter((file) => file.id !== id))}
+              onSubmit={(message) => void submit(message)}
+            />
+          </View>
           </KeyboardAvoidingView>
         </Animated.View>
       </GestureDetector>
@@ -2279,6 +2429,7 @@ export function MobileChatScreen() {
           style={[styles.settingsScreen, { backgroundColor: theme.background }]}
           contentContainerStyle={[
             styles.settingsContent,
+            landscapeLayout ? styles.settingsContentLandscape : null,
             { paddingTop: insets.top + 12, paddingBottom: Math.max(insets.bottom, 18) }
           ]}
           showsVerticalScrollIndicator={false}
@@ -2311,6 +2462,24 @@ export function MobileChatScreen() {
                   {authUser?.displayName ?? authUser?.username ?? "Account"}
                 </Text>
                 {authUser?.email ? <Text style={[styles.settingsEmail, { color: theme.muted }]} numberOfLines={1}>{authUser.email}</Text> : null}
+              </View>
+              <View style={styles.settingsSection}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Display</Text>
+                <View style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="phone-landscape-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Landscape layout</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Rotate the interface when your phone turns sideways</Text>
+                  </View>
+                  <Switch
+                    accessibilityLabel="Allow landscape layout"
+                    disabled={landscapePreferenceBusy}
+                    value={landscapeLayoutEnabled}
+                    onValueChange={(enabled) => void updateLandscapeLayoutPreference(enabled)}
+                    trackColor={{ false: "rgba(255,255,255,0.18)", true: theme.accent }}
+                    thumbColor={theme.text}
+                  />
+                </View>
               </View>
               <View style={styles.settingsSection}>
                 <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Account</Text>
@@ -2639,6 +2808,14 @@ export function MobileChatScreen() {
                 <Text style={[styles.actionSheetText, { color: theme.text }]}>Retry</Text>
               </Pressable>
             ) : null}
+            {assistantActionTurn ? (
+              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+                if (assistantActionTurn) showUnsafeOutputReport(assistantActionTurn);
+              }}>
+                <Ionicons name="flag-outline" size={20} color={theme.danger} />
+                <Text style={[styles.actionSheetText, { color: theme.danger }]}>Report unsafe output</Text>
+              </Pressable>
+            ) : null}
             {assistantActionTurn && isStillRunningTurn(assistantActionTurn) ? (
               <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
                 const turn = assistantActionTurn;
@@ -2654,6 +2831,65 @@ export function MobileChatScreen() {
             </Pressable>
           </View>
         </View>
+      </Modal>
+      <Modal
+        accessibilityViewIsModal
+        visible={Boolean(reportTarget)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { if (!reportBusy) setReportTarget(undefined); }}
+      >
+        <KeyboardAvoidingView style={styles.actionSheetScrim} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close report" style={StyleSheet.absoluteFill} onPress={() => { if (!reportBusy) setReportTarget(undefined); }} />
+          <View style={[styles.reportSheet, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 18) }]}>
+            <View style={styles.referenceHeader}>
+              <View style={styles.reportHeadingCopy}>
+                <Text style={[styles.reportEyebrow, { color: theme.accent2 }]}>SAFETY FEEDBACK</Text>
+                <Text style={[styles.loginTitle, { color: theme.text }]}>Report this response</Text>
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close report" disabled={reportBusy} onPress={() => setReportTarget(undefined)}>
+                <Ionicons name="close" size={24} color={theme.text} />
+              </Pressable>
+            </View>
+            <Text style={[styles.reportCopy, { color: theme.muted }]}>Tell us what went wrong. Reports help us investigate unsafe AI output and do not automatically remove your conversation.</Text>
+            <ScrollView style={styles.reportCategoryScroll} contentContainerStyle={styles.reportCategories} keyboardShouldPersistTaps="handled">
+              {REPORT_CATEGORIES.map((option) => {
+                const selected = reportCategory === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
+                    onPress={() => setReportCategory(option.value)}
+                    style={[styles.reportCategory, { borderColor: selected ? theme.accent2 : theme.border, backgroundColor: selected ? "rgba(226,184,75,0.10)" : "rgba(255,255,255,0.025)" }]}
+                  >
+                    <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={18} color={selected ? theme.accent2 : theme.muted} />
+                    <Text style={[styles.reportCategoryText, { color: theme.text }]}>{option.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <TextInput
+              accessibilityLabel="Additional report details"
+              value={reportDetails}
+              onChangeText={setReportDetails}
+              placeholder="Anything else? (optional)"
+              placeholderTextColor={theme.muted}
+              maxLength={1000}
+              multiline
+              style={[styles.reportDetails, { borderColor: theme.border, color: theme.text }]}
+            />
+            {reportError ? <Text accessibilityRole="alert" style={[styles.reportError, { color: theme.danger }]}>{reportError}</Text> : null}
+            <View style={styles.renameActions}>
+              <Pressable accessibilityRole="button" disabled={reportBusy} onPress={() => setReportTarget(undefined)} style={[styles.renameSecondaryButton, { borderColor: theme.border }]}>
+                <Text style={[styles.renameSecondaryText, { color: theme.text }]}>Cancel</Text>
+              </Pressable>
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: !reportCategory || reportBusy }} disabled={!reportCategory || reportBusy} onPress={() => void submitUnsafeOutputReport()} style={[styles.renamePrimaryButton, { backgroundColor: theme.accent2, opacity: reportCategory && !reportBusy ? 1 : 0.45 }]}>
+                {reportBusy ? <ActivityIndicator color={theme.background} /> : <Text style={[styles.renamePrimaryText, { color: theme.background }]}>Send report</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
       <Modal
         accessibilityViewIsModal
@@ -2875,6 +3111,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0
   },
+  conversationScrollLandscape: {
+    marginLeft: 132
+  },
+  composerLandscape: {
+    marginLeft: 132
+  },
   drawerWrap: {
     bottom: 0,
     left: 0,
@@ -2930,6 +3172,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
     padding: 12
   },
+  errorLandscape: {
+    marginLeft: 146
+  },
   errorRetryButton: {
     alignSelf: "flex-start",
     borderRadius: 999,
@@ -2965,6 +3210,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 12
   },
+  historyLandscape: {
+    alignSelf: "center",
+    maxWidth: 900,
+    width: "100%"
+  },
   keyboard: {
     alignSelf: "center",
     flex: 1,
@@ -2976,12 +3226,28 @@ const styles = StyleSheet.create({
   keyboardCompact: {
     paddingHorizontal: 8
   },
+  keyboardLandscape: {
+    maxWidth: "100%",
+    paddingHorizontal: 8
+  },
   keyboardTablet: {
     paddingHorizontal: 20,
   },
   layerAbovePersonaBackground: {
     position: "relative",
     zIndex: 2
+  },
+  landscapeMainPane: {
+    marginLeft: 132
+  },
+  landscapePersonaRail: {
+    borderRightWidth: 1,
+    bottom: 0,
+    left: 0,
+    opacity: 0.7,
+    position: "absolute",
+    top: 56,
+    width: 132
   },
   loadingState: {
     alignItems: "center",
@@ -3117,6 +3383,62 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800"
   },
+  reportCategories: {
+    gap: 8,
+    paddingBottom: 2
+  },
+  reportCategory: {
+    alignItems: "center",
+    borderRadius: 15,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 46,
+    paddingHorizontal: 13
+  },
+  reportCategoryScroll: {
+    maxHeight: 226
+  },
+  reportCategoryText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  reportCopy: {
+    fontSize: 13,
+    lineHeight: 19
+  },
+  reportDetails: {
+    borderRadius: 16,
+    borderWidth: 1,
+    fontSize: 15,
+    minHeight: 82,
+    paddingHorizontal: 13,
+    paddingTop: 12,
+    textAlignVertical: "top"
+  },
+  reportError: {
+    fontSize: 13,
+    lineHeight: 18
+  },
+  reportEyebrow: {
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.2
+  },
+  reportHeadingCopy: {
+    gap: 3
+  },
+  reportSheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    gap: 14,
+    maxHeight: "92%",
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    width: "100%"
+  },
   referenceCard: {
     borderRadius: 24,
     borderWidth: 1,
@@ -3183,6 +3505,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: 52,
     zIndex: 2
+  },
+  scrollToBottomButtonLandscape: {
+    marginLeft: 132
   },
   settingsAvatar: {
     alignItems: "center",
@@ -3276,6 +3601,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     width: "100%"
   },
+  settingsContentLandscape: {
+    maxWidth: 900,
+    paddingHorizontal: 32
+  },
   settingsSection: {
     gap: 12
   },
@@ -3361,6 +3690,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     minHeight: 48
+  },
+  topBarLandscape: {
+    paddingHorizontal: 4
   },
   turn: {
     gap: 14

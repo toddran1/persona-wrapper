@@ -61,5 +61,7 @@ export async function downloadProtectedMedia(url: string, fileName: string): Pro
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  // Revoking synchronously can cancel the download in Safari/WebKit before it
+  // has taken ownership of the blob URL.
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }

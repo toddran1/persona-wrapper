@@ -187,8 +187,14 @@ export class BackgroundChatJobService {
         });
       });
     }
+    this.queueJobIds.delete(id);
     if (ownerId && reservationId) {
-      await usageControlService.recordUsage(ownerId, undefined, undefined, reservationId);
+      await usageControlService.recordUsage(ownerId, undefined, undefined, reservationId).catch((usageError) => {
+        logger.warn("Could not release usage reservation after background job cancellation", {
+          jobId: id,
+          error: usageError instanceof Error ? usageError.message : String(usageError)
+        });
+      });
     }
     return this.get(id, ownerId);
   }
@@ -220,7 +226,9 @@ export class BackgroundChatJobService {
       abortController: new AbortController()
     };
     this.jobs.set(job.id, job);
-    queueSignal.addEventListener("abort", () => job.abortController.abort(queueSignal.reason), { once: true });
+    const abortFromQueue = () => job.abortController.abort(queueSignal.reason);
+    if (queueSignal.aborted) abortFromQueue();
+    else queueSignal.addEventListener("abort", abortFromQueue, { once: true });
     const queueMetadata = await jobQueueService.getJobMetadata<QueuedChatJob>(CHAT_QUEUE, queueJobId).catch((error) => {
       logger.warn("Could not read background chat retry metadata", {
         jobId: job.id,
@@ -246,6 +254,9 @@ export class BackgroundChatJobService {
         });
       }
       throw error;
+    } finally {
+      queueSignal.removeEventListener("abort", abortFromQueue);
+      this.queueJobIds.delete(job.id);
     }
   }
 
@@ -262,6 +273,14 @@ export class BackgroundChatJobService {
       const failureReason = classifyFailureReason(message);
       const failed = await this.transitionActive(job.id, { status: "failed", error: message, failureReason });
       if (!failed) return;
+      if (job.ownerId && job.usageReservationId) {
+        await usageControlService.recordUsage(job.ownerId, undefined, undefined, job.usageReservationId).catch((usageError) => {
+          logger.warn("Could not release usage reservation after background job failure", {
+            jobId: job.id,
+            error: usageError instanceof Error ? usageError.message : String(usageError)
+          });
+        });
+      }
       logger.warn("Background chat job failed", {
         jobId: job.id,
         error: message,
@@ -375,6 +394,7 @@ export class BackgroundChatJobService {
     for (const [id, job] of this.jobs) {
       if (["completed", "failed", "cancelled"].includes(job.status) && Date.parse(job.updatedAt) < cutoff) {
         this.jobs.delete(id);
+        this.queueJobIds.delete(id);
       }
     }
     const db = getDatabase();

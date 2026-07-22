@@ -19,6 +19,7 @@ export type PersonaVisualState = "idle" | "thinking" | "speaking";
 type PersonaVisualStageProps = {
   expanded: boolean;
   hidden: boolean;
+  landscape?: boolean;
   personaName: string;
   profile: PersonaVisualStageProfile;
   state: PersonaVisualState;
@@ -146,12 +147,12 @@ function pickStateClip(profile: PersonaVisualStageProfile, state: PersonaVisualS
   };
 }
 
-export function PersonaVisualStage({ expanded, hidden, personaName, profile, state, theme, visible, onExpandedChange, onHiddenChange, onAppForeground }: PersonaVisualStageProps) {
+export function PersonaVisualStage({ expanded, hidden, landscape = false, personaName, profile, state, theme, visible, onExpandedChange, onHiddenChange, onAppForeground }: PersonaVisualStageProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const compactLayout = windowWidth < 360 || windowHeight < 700;
-  const tabletLayout = windowWidth >= 768;
-  const stageWidth = tabletLayout ? 132 : compactLayout ? 88 : 104;
-  const stageTop = tabletLayout ? 120 : compactLayout ? 100 : 112;
+  const tabletLayout = Math.min(windowWidth, windowHeight) >= 600;
+  const stageWidth = landscape ? 112 : tabletLayout ? 132 : compactLayout ? 88 : 104;
+  const stageTop = landscape ? 68 : tabletLayout ? 120 : compactLayout ? 100 : 112;
   const hiddenTranslate = stageWidth + 24;
   const [activeClip, setActiveClip] = useState<PersonaVisualClip>(() => pickStateClip(profile, state));
   const [mediaUnavailable, setMediaUnavailable] = useState(false);
@@ -362,7 +363,11 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
         accessibilityRole="button"
         accessibilityLabel="Show persona card"
         onPress={() => onHiddenChange(false)}
-        style={[styles.revealButton, { top: stageTop + 10, borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.90)" }]}
+        style={[
+          styles.revealButton,
+          landscape ? styles.revealButtonLandscape : null,
+          { top: stageTop + 10, borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.90)" }
+        ]}
       >
         <Ionicons name="person-circle-outline" size={20} color={theme.accent2} />
       </Pressable>
@@ -389,6 +394,7 @@ export function PersonaVisualStage({ expanded, hidden, personaName, profile, sta
         accessibilityLabel={`${personaName} visual state: ${stateLabels[state]}`}
         style={[
           styles.stage,
+          landscape ? styles.stageLandscape : null,
           { top: stageTop, width: stageWidth, borderColor: theme.border, backgroundColor: "rgba(7,5,12,0.62)" },
           stageStyle
         ]}
@@ -451,6 +457,14 @@ const styles = StyleSheet.create({
     width: 36,
     zIndex: 4
   },
+  revealButtonLandscape: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 16,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 16,
+    left: -1,
+    right: undefined
+  },
   stage: {
     borderRadius: 18,
     borderWidth: 1,
@@ -465,4 +479,8 @@ const styles = StyleSheet.create({
     width: 104,
     zIndex: 4
   },
+  stageLandscape: {
+    left: 11,
+    right: undefined
+  }
 });

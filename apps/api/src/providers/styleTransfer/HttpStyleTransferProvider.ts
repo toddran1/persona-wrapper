@@ -1,4 +1,5 @@
 import type { StyleTransferInput, StyleTransferOutput } from "@persona/shared";
+import { env } from "../../config/env.js";
 import type { StyleTransferProvider } from "./StyleTransferProvider.js";
 
 type HttpStyleTransferProviderId = "local" | "runpod" | "huggingface";
@@ -18,6 +19,9 @@ export class HttpStyleTransferProvider implements StyleTransferProvider {
   constructor(private readonly options: HttpStyleTransferProviderOptions) {}
 
   async transferStyle(input: StyleTransferInput, signal?: AbortSignal): Promise<StyleTransferOutput> {
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(env.API_REQUEST_TIMEOUT_MS)])
+      : AbortSignal.timeout(env.API_REQUEST_TIMEOUT_MS);
     const response = await fetch(this.options.endpoint, {
       method: "POST",
       headers: {
@@ -31,7 +35,7 @@ export class HttpStyleTransferProvider implements StyleTransferProvider {
         sourceProvider: input.provider,
         modelId: this.options.modelId
       }),
-      ...(signal ? { signal } : {})
+      signal: requestSignal
     });
 
     if (!response.ok) {

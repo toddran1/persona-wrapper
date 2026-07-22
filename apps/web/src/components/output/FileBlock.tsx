@@ -18,6 +18,10 @@ function fileKind(fileName: string): string {
 
 export function FileBlock({ fileName, url }: FileBlockProps) {
   const resolvedUrl = useProtectedMediaUrl(url);
+  const download = () => {
+    void downloadProtectedMedia(url, fileName)
+      .catch((error: unknown) => window.alert(error instanceof Error ? error.message : "Could not download this file."));
+  };
   return (
     <div className="output-file">
       <div className="output-file-kind">{fileKind(fileName)}</div>
@@ -28,7 +32,7 @@ export function FileBlock({ fileName, url }: FileBlockProps) {
         className="output-file-name"
         onClick={(event) => {
           event.preventDefault();
-          void downloadProtectedMedia(url, fileName);
+          download();
         }}
       >
         {fileName}
@@ -36,7 +40,7 @@ export function FileBlock({ fileName, url }: FileBlockProps) {
       <button
         type="button"
         className="output-file-download"
-        onClick={() => void downloadProtectedMedia(url, fileName)}
+        onClick={download}
       >
         Download
       </button>

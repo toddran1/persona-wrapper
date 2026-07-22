@@ -446,8 +446,12 @@ function ImageOutputBlock({
           headers: await api.mediaHeaders()
         });
         assertSuccessfulDownload(result);
+        if (cancelled) {
+          await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
+          return;
+        }
         downloadedUri = result.uri;
-        if (!cancelled) setLocalImageUri(result.uri);
+        setLocalImageUri(result.uri);
       } catch (loadError) {
         if (!cancelled) {
           setImageError(loadError instanceof Error ? loadError.message : "Could not load this image.");
@@ -461,7 +465,7 @@ function ImageOutputBlock({
       cancelled = true;
       if (downloadedUri) void FileSystem.deleteAsync(downloadedUri, { idempotent: true }).catch(() => undefined);
     };
-  }, [imageUrl, output.url, usesProtectedFetch]);
+  }, [imageUrl, output.mimeType, output.url, usesProtectedFetch]);
 
   function extensionForMimeType(mimeType?: string): string {
     if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "jpg";

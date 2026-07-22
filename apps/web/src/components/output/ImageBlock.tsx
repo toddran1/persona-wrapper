@@ -90,7 +90,8 @@ export function ImageBlock({ url, alt, prompt, mimeType, metadata }: ImageBlockP
   const resolvedUrl = useProtectedMediaUrl(url);
   const fileName = imageFileName(alt, prompt, mimeType, metadata);
   const downloadImage = () => {
-    void downloadProtectedMedia(url, fileName);
+    void downloadProtectedMedia(url, fileName)
+      .catch((error: unknown) => window.alert(error instanceof Error ? error.message : "Could not download this image."));
   };
 
   useEffect(() => {

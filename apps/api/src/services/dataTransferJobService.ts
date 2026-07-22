@@ -247,9 +247,11 @@ export class DataTransferJobService {
   private async execute(jobId: string, queueSignal?: AbortSignal): Promise<void> {
     const job = await this.load(jobId);
     if (!job || !["queued", "running", "failed"].includes(job.status)) return;
-    if (queueSignal) queueSignal.addEventListener("abort", () => job.abortController.abort(queueSignal.reason), { once: true });
-    if (!await this.update(jobId, { status: "running", phase: job.kind === "export" ? "Reading conversations" : "Reading archive", progress: 1 })) return;
+    const abortFromQueue = () => job.abortController.abort(queueSignal?.reason);
+    if (queueSignal?.aborted) abortFromQueue();
+    else queueSignal?.addEventListener("abort", abortFromQueue, { once: true });
     try {
+      if (!await this.update(jobId, { status: "running", phase: job.kind === "export" ? "Reading conversations" : "Reading archive", progress: 1 })) return;
       if (job.kind === "export") await this.executeExport(job);
       else await this.executeImport(job);
     } catch (error) {
@@ -262,6 +264,7 @@ export class DataTransferJobService {
       logger.warn("Data transfer job failed", { jobId, kind: job.kind, error: message });
       throw error;
     } finally {
+      queueSignal?.removeEventListener("abort", abortFromQueue);
       this.queueIds.delete(jobId);
     }
   }
@@ -306,8 +309,14 @@ export class DataTransferJobService {
     const fileName = `for-the-baddiez-${archive.scope}-${new Date().toISOString().slice(0, 10)}.zip`;
     const output = new PassThrough();
     const zip = archiver("zip", { zlib: { level: 6 } });
+    const activeSources = new Set<Readable>();
+    const destroyActiveSources = (reason: Error) => {
+      for (const source of activeSources) source.destroy(reason);
+      activeSources.clear();
+    };
     const abort = () => {
       const reason = job.abortController.signal.reason instanceof Error ? job.abortController.signal.reason : new Error("Data transfer cancelled.");
+      destroyActiveSources(reason);
       zip.abort();
       output.destroy(reason);
     };
@@ -315,6 +324,10 @@ export class DataTransferJobService {
     zip.on("error", (error) => output.destroy(error));
     zip.pipe(output);
     const upload = storageService.putStream({ bucket: "uploads", fileName: `data-transfer-${job.id}.zip`, stream: output, mimeType: "application/zip", signal: job.abortController.signal });
+    // Attach a rejection handler immediately. Source reads can continue for a
+    // while after the destination fails, and Node would otherwise report the
+    // upload rejection as unhandled before this function reaches `await`.
+    void upload.catch(() => undefined);
     try {
       zip.append(manifestContents, { name: "manifest.json" });
       zip.append(accountContents, { name: "account.json" });
@@ -323,6 +336,11 @@ export class DataTransferJobService {
         await this.assertActive(job);
         const media = mediaArchive.media[index]!;
         const source = await storageService.getStream(media.storageKey);
+        activeSources.add(source.stream);
+        const sourceSettled = () => activeSources.delete(source.stream);
+        source.stream.once("close", sourceSettled);
+        source.stream.once("end", sourceSettled);
+        source.stream.once("error", sourceSettled);
         zip.append(source.stream, { name: media.path });
         await this.update(job.id, { phase: "Adding media", progress: Math.min(95, 80 + Math.round((index + 1) / Math.max(1, mediaArchive.media.length) * 15)) });
       }
@@ -331,6 +349,18 @@ export class DataTransferJobService {
       await this.assertActive(job);
       const completed = await this.update(job.id, { status: "completed", phase: "Ready to download", progress: 100, fileName, sizeBytes: stored.sizeBytes, resultStorageKey: stored.storageKey, expiresAt: expiresAt() });
       if (!completed) await storageService.delete(stored.storageKey).catch(() => undefined);
+    } catch (error) {
+      // Archiver and the destination upload are connected by a live stream.
+      // If reading a source object or finalizing the ZIP fails, close both ends
+      // and wait for the upload to settle so no multipart request is orphaned.
+      const exportError = error instanceof Error ? error : new Error("Data export failed.");
+      destroyActiveSources(exportError);
+      zip.abort();
+      if (!output.destroyed) {
+        output.destroy(exportError);
+      }
+      await upload.catch(() => undefined);
+      throw error;
     } finally {
       job.abortController.signal.removeEventListener("abort", abort);
     }
@@ -389,17 +419,19 @@ export class DataTransferJobService {
       ? await this.readZipArchive(stored.stream, job)
       : await this.readBufferedArchive(stored.stream, job);
     const digest = archive.digest;
-    if (job.request.declaredSha256 && digest !== job.request.declaredSha256.toLowerCase()) throw new HttpError("Import archive checksum does not match.", 400);
-    const duplicate = await this.findCompletedImport(job.ownerId, digest, job.id);
-    if (duplicate) {
-      await Promise.allSettled(archive.media.map((media) => storageService.delete(media.storageKey)));
-      await this.update(job.id, { status: "completed", phase: "Duplicate archive skipped", progress: 100, source: duplicate.source, result: { source: duplicate.source ?? "for-the-baddiez", importedConversations: 0, skippedConversations: (duplicate.result?.importedConversations ?? 0) + (duplicate.result?.skippedConversations ?? 0), conversations: [] }, archiveSha256: digest, expiresAt: expiresAt() });
-      return;
-    }
     const stagedMedia = archive.media;
     const committedMediaIds = new Set<string>();
     let databaseImportCommitted = false;
     try {
+      if (job.request.declaredSha256 && digest !== job.request.declaredSha256.toLowerCase()) {
+        throw new HttpError("Import archive checksum does not match.", 400);
+      }
+      const duplicate = await this.findCompletedImport(job.ownerId, digest, job.id);
+      if (duplicate) {
+        await Promise.allSettled(stagedMedia.map((media) => storageService.delete(media.storageKey)));
+        await this.update(job.id, { status: "completed", phase: "Duplicate archive skipped", progress: 100, source: duplicate.source, result: { source: duplicate.source ?? "for-the-baddiez", importedConversations: 0, skippedConversations: (duplicate.result?.importedConversations ?? 0) + (duplicate.result?.skippedConversations ?? 0), conversations: [] }, archiveSha256: digest, expiresAt: expiresAt() });
+        return;
+      }
       const result = await this.transfer.importArchiveAtomically(job.ownerId, archive.value, {
         signal: job.abortController.signal,
         media: stagedMedia,
@@ -492,7 +524,14 @@ export class DataTransferJobService {
           await this.update(job.id, { phase: "Reading conversation files", progress: Math.min(45, 5 + entryCount) });
           continue;
         }
-        entry.autodrain?.();
+        // Unknown ZIP entries still have to count toward the expanded-size
+        // ceiling. Autodraining without accounting lets a compression bomb hide
+        // in an otherwise ignored file.
+        for await (const chunk of entry) {
+          if (job.abortController.signal.aborted) throw job.abortController.signal.reason;
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          addExpandedBytes(buffer.byteLength);
+        }
       }
     } catch (error) {
       await Promise.allSettled(media.map((item) => storageService.delete(item.storageKey)));

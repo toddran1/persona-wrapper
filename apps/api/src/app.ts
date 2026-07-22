@@ -11,7 +11,7 @@ import { createExpressEndpoints } from "@ts-rest/express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { authenticateRequest } from "./middleware/authMiddleware.js";
-import { authRateLimit, dataTransferRateLimit } from "./middleware/authRateLimit.js";
+import { authRateLimit, dataTransferRateLimit, safetyReportRateLimit } from "./middleware/authRateLimit.js";
 import { chatRouter } from "./routes/chat.routes.js";
 import { apiContractRouter } from "./routes/contract.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
@@ -268,6 +268,7 @@ export function createApp() {
   app.delete("/api/account", authRateLimit);
   app.post("/api/data/jobs/export", dataTransferRateLimit);
   app.post("/api/data/jobs/import/presign", dataTransferRateLimit);
+  app.post("/api/safety/reports", safetyReportRateLimit);
   app.post("/api/data/jobs/import", dataTransferRateLimit, multer({
     storage: multer.memoryStorage(),
     limits: { files: 1, fileSize: Math.min(env.DATA_TRANSFER_ARCHIVE_MAX_BYTES, 64 * 1024 * 1024) },

@@ -108,7 +108,10 @@ export class ElevenLabsTTSProvider implements TTSProvider {
     let lastError: unknown;
     for (let attempt = 0; attempt <= env.ELEVENLABS_MAX_RETRIES; attempt += 1) {
       try {
-        response = await fetch(endpoint, requestInit);
+        response = await fetch(endpoint, {
+          ...requestInit,
+          signal: AbortSignal.timeout(env.API_REQUEST_TIMEOUT_MS)
+        });
         if (response.ok) break;
         const errorText = await readErrorText(response);
         lastError = new HttpError(`ElevenLabs TTS failed: ${errorText || response.statusText}`, response.status);

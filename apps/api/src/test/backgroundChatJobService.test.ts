@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BackgroundChatJobService } from "../services/backgroundChatJobService.js";
 import { jobQueueService } from "../services/jobQueueService.js";
+import { usageControlService } from "../services/usageControlService.js";
 
 function waitForAbort(signal: AbortSignal): Promise<never> {
   return new Promise((_, reject) => {
@@ -111,6 +112,30 @@ describe("BackgroundChatJobService", () => {
     expect((await service.get(payload.appJobId))?.status).toBe("completed");
     expect(executor).toHaveBeenCalledTimes(2);
     expect(metadata).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps usage reserved during retries and releases it after the terminal failure", async () => {
+    const service = new BackgroundChatJobService();
+    service.setExecutor(async () => { throw new Error("Provider unavailable."); });
+    vi.spyOn(jobQueueService, "getJobMetadata")
+      .mockResolvedValueOnce({ retryCount: 0, retryLimit: 3 } as any)
+      .mockResolvedValueOnce({ retryCount: 3, retryLimit: 3 } as any);
+    const recordUsage = vi.spyOn(usageControlService, "recordUsage").mockResolvedValue();
+    const payload = {
+      appJobId: "chat_job_reserved_retry",
+      request: { personaId: "larae", provider: "openai", message: "Hey", audio: false },
+      ownerId: "owner-retry",
+      usageReservationId: "usage-reservation-retry",
+      createdAt: new Date().toISOString()
+    } as any;
+
+    await expect((service as any).executeQueuedJob(payload, "queue_job_reserved_retry", new AbortController().signal))
+      .rejects.toThrow("Provider unavailable.");
+    expect(recordUsage).not.toHaveBeenCalled();
+
+    await expect((service as any).executeQueuedJob(payload, "queue_job_reserved_retry", new AbortController().signal))
+      .rejects.toThrow("Provider unavailable.");
+    expect(recordUsage).toHaveBeenCalledWith("owner-retry", undefined, undefined, "usage-reservation-retry");
   });
 
   it("does not prune an active job merely because it has run for an hour", async () => {

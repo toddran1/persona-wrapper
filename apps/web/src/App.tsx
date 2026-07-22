@@ -71,11 +71,16 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
       reject(signal.reason instanceof Error ? signal.reason : new Error("Request cancelled."));
       return;
     }
-    const timeout = window.setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => {
+    const finish = () => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+    const abort = () => {
       window.clearTimeout(timeout);
-      reject(signal.reason instanceof Error ? signal.reason : new Error("Request cancelled."));
-    }, { once: true });
+      reject(signal?.reason instanceof Error ? signal.reason : new Error("Request cancelled."));
+    };
+    const timeout = window.setTimeout(finish, ms);
+    signal?.addEventListener("abort", abort, { once: true });
   });
 }
 
@@ -1310,6 +1315,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
                   }`}
                 >
             <ConversationHistory
+              conversationId={conversationId}
               personaId={activePersona?.id ?? "persona"}
               personaShortName={activePersona?.shortName ?? activePersona?.name ?? "Persona"}
               turns={renderedTurns}
@@ -1331,6 +1337,16 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
                 setComposerDraftAttachments(files);
               }}
               onRetryAssistantTurn={retryAssistantTurn}
+              onReportAssistantTurn={async (turn, category, details) => {
+                if (!conversationId) throw new Error("Open a saved conversation before reporting this response.");
+                const excerpt = turn.assistantText.trim() || JSON.stringify(turn.outputs);
+                await api.reportUnsafeOutput({
+                  conversationId,
+                  category,
+                  outputExcerpt: excerpt.slice(0, 4000),
+                  ...(details ? { details } : {})
+                });
+              }}
               onOutputAction={async (action) => {
                 if (action.action !== "resume_background_job") return;
                 const jobId = typeof action.arguments?.jobId === "string" ? action.arguments.jobId : undefined;

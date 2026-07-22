@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, llmInputSchema, restoreAccountRequestSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, llmInputSchema, restoreAccountRequestSchema, unsafeOutputReportRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
+  it("validates bounded unsafe-output reports", () => {
+    expect(unsafeOutputReportRequestSchema.parse({
+      conversationId: "conv_1",
+      category: "child_safety",
+      outputExcerpt: "Reported response",
+      details: "The response was inappropriate."
+    }).category).toBe("child_safety");
+    expect(() => unsafeOutputReportRequestSchema.parse({
+      conversationId: "conv_1",
+      category: "unsupported",
+      outputExcerpt: "Reported response"
+    })).toThrow();
+    expect(() => unsafeOutputReportRequestSchema.parse({
+      conversationId: "conv_1",
+      category: "other",
+      outputExcerpt: "x".repeat(4001)
+    })).toThrow();
+  });
   it("validates cancellable data-transfer jobs and selected exports", () => {
     const job = dataTransferJobSchema.parse({
       id: "data_job_test",

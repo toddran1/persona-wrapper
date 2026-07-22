@@ -71,6 +71,13 @@
       "when": 1784361000000,
       "tag": "0009_remove_legacy_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784640000000,
+      "tag": "0010_unsafe_output_reports",
+      "breakpoints": true
     }
   ]
 }

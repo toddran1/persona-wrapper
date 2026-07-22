@@ -13,21 +13,24 @@ interface OllamaChatResponse {
 }
 
 export class LocalModelProvider implements LLMProvider {
-  async generateResponse(input: LLMInput): Promise<LLMOutput> {
+  async generateResponse(input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
     if (env.LOCAL_LLM_ENDPOINT) {
-      return this.generateWithOllama(input);
+      return this.generateWithOllama(input, signal);
     }
 
     return buildStubOutput(input, "local");
   }
 
-  private async generateWithOllama(input: LLMInput): Promise<LLMOutput> {
+  private async generateWithOllama(input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
     const baseMessages = (input.baseMessages ?? input.messages).filter(
       (message) => message.role === "user" || message.role === "assistant"
     );
 
     let response: Response;
     try {
+      const requestSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(env.API_REQUEST_TIMEOUT_MS)])
+        : AbortSignal.timeout(env.API_REQUEST_TIMEOUT_MS);
       response = await fetch(new URL("/api/chat", env.LOCAL_LLM_ENDPOINT), {
         method: "POST",
         headers: {
@@ -54,9 +57,11 @@ export class LocalModelProvider implements LLMProvider {
             num_ctx: env.LOCAL_LLM_NUM_CTX,
             num_predict: env.LOCAL_LLM_NUM_PREDICT
           }
-        })
+        }),
+        signal: requestSignal
       });
     } catch (error) {
+      if (signal?.aborted) throw error;
       const message = error instanceof Error ? error.message : "Unknown network error";
       throw new HttpError(
         `Local LLM connection failed. Check that Ollama is running and reachable at ${env.LOCAL_LLM_ENDPOINT}. ${message}`,
