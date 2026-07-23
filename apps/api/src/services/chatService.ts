@@ -17,6 +17,7 @@ import { ToolContextService, type ToolContext } from "./toolContextService.js";
 import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
 import { CONVERSATION_MEDIA_UNAVAILABLE_TEXT, resolveConversationMediaContext } from "./conversationMediaContext.js";
 import { openAIArtifactService } from "./openAIArtifactService.js";
+import { applyPersonaPhraseReplacements } from "./personaPhraseReplacementService.js";
 
 export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
@@ -368,18 +369,24 @@ export class ChatService {
       });
     }
 
+    const styledTextBeforePhraseReplacements = styleTransferOutput.styledText || neutralText;
+    const phraseReplacementResult = applyPersonaPhraseReplacements(styledTextBeforePhraseReplacements, persona);
     let styledPrimaryText = false;
     const styledLlmOutput = llmOutputSchema.parse({
       ...llmOutput,
-      rawText: styleTransferOutput.styledText || llmOutput.rawText,
+      rawText: phraseReplacementResult.text || llmOutput.rawText,
       content: llmOutput.content.map((block) => {
         if (block.type !== "text" || styledPrimaryText) return block;
         styledPrimaryText = true;
-        return { ...block, text: styleTransferOutput.styledText };
+        return { ...block, text: phraseReplacementResult.text };
       }),
       metadata: {
         ...(llmOutput.metadata ?? {}),
-        styleTransfer: styleTransferOutput
+        styleTransfer: styleTransferOutput,
+        personaPhraseReplacements: {
+          totalReplacements: phraseReplacementResult.totalReplacements,
+          replacementsByRule: phraseReplacementResult.replacementsByRule
+        }
       }
     });
 
@@ -420,7 +427,10 @@ export class ChatService {
       const textBlock = responseLlmOutput.content.find((block) => block.type === "text");
       const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
       if (speechText) {
-        const inlineTtsScript = typeof llmOutput.metadata?.ttsScript === "string" ? llmOutput.metadata.ttsScript.trim() : "";
+        const rawInlineTtsScript = typeof llmOutput.metadata?.ttsScript === "string" ? llmOutput.metadata.ttsScript.trim() : "";
+        const inlineTtsScript = rawInlineTtsScript
+          ? applyPersonaPhraseReplacements(rawInlineTtsScript, persona).text
+          : "";
         let ttsScript = "";
         let ttsScriptMode: "mechanical" | "openai_inline" = inlineTtsScript ? "openai_inline" : "mechanical";
         try {

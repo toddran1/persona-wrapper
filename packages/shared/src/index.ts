@@ -414,6 +414,21 @@ export const personaSummarySchema = z.object({
 });
 export type PersonaSummary = z.infer<typeof personaSummarySchema>;
 
+export const personaPhraseReplacementRuleSchema = z.object({
+  id: z.string().min(1),
+  replaceWith: z.string().min(1),
+  phrases: z.array(z.string().min(1)).min(1),
+  preserveCase: z.boolean().optional(),
+  maxReplacements: z.number().int().positive().max(100).optional()
+});
+export type PersonaPhraseReplacementRule = z.infer<typeof personaPhraseReplacementRuleSchema>;
+
+export const personaResponseStyleSchema = z.object({
+  phraseReplacements: z.array(personaPhraseReplacementRuleSchema).default([]),
+  maxPhraseReplacements: z.number().int().positive().max(200).default(24)
+});
+export type PersonaResponseStyle = z.infer<typeof personaResponseStyleSchema>;
+
 export const personaDefinitionSchema = personaSummarySchema.extend({
   legalName: z.string(),
   age: z.string(),
@@ -425,6 +440,7 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
   catchphrases: z.array(z.string()),
   visualStyle: z.array(z.string()),
   safetyBoundaries: z.array(z.string()),
+  responseStyle: personaResponseStyleSchema.optional(),
   voiceProfile: z.object({
     defaultVoiceId: z.string(),
     speakingStyle: z.string(),
