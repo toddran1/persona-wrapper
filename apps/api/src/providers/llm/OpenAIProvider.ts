@@ -3,12 +3,14 @@ import { createReadStream } from "node:fs";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Citation, ContentBlock, LLMInput, LLMOutput, ProviderId, ToolDefinition } from "@persona/shared";
-import { llmOutputSchema, stripGeneratedFileDownloadPrompt } from "@persona/shared";
+import { llmOutputSchema, MAX_OPENAI_IMAGE_EDIT_BYTES, stripGeneratedFileDownloadPrompt } from "@persona/shared";
 import { env } from "../../config/env.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
 import { openAIArtifactService } from "../../services/openAIArtifactService.js";
 import { buildLaraeStyleReference } from "../../services/laraeStyleReferenceBuilder.js";
 import { buildImageGenerationPrompt, directPersonaVisualReferencePaths } from "../../services/imagePromptBuilder.js";
+import { storageService } from "../../services/storageService.js";
+import { HttpError } from "../../utils/httpError.js";
 import type { LLMProgressCallbacks, LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
 
@@ -27,6 +29,7 @@ const RESPONSE_INCLUDE_FIELDS = [
   "file_search_call.results",
   "code_interpreter_call.outputs"
 ];
+const DIRECT_IMAGE_EDIT_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 function inputContent(input: LLMInput): OpenAIItem[] {
   const promptText = input.toolOptions?.imageGeneration ? buildImageGenerationPrompt(input) : input.userMessage;
@@ -191,6 +194,10 @@ export function buildOpenAITools(input: LLMInput): OpenAIItem[] {
 
 export function shouldUseDirectImageApi(input: LLMInput): boolean {
   const options = input.toolOptions;
+  const attachments = input.attachments ?? [];
+  const hasOnlyImageAttachments = attachments.length > 0 && attachments.every((attachment) =>
+    attachment.kind === "image" && DIRECT_IMAGE_EDIT_MIME_TYPES.has(attachment.mimeType)
+  );
   return Boolean(
     env.OPENAI_DIRECT_IMAGE_API_ENABLED &&
     env.OPENAI_ENABLE_IMAGE_GENERATION &&
@@ -199,17 +206,20 @@ export function shouldUseDirectImageApi(input: LLMInput): boolean {
     !options.fileSearch &&
     !options.codeInterpreter &&
     !wantsGeneratedImageDescription(input.userMessage) &&
-    (input.attachments ?? []).length === 0 &&
-    !IMAGE_EDIT_OR_CONTEXT_PATTERN.test(input.userMessage)
+    (hasOnlyImageAttachments || (attachments.length === 0 && !IMAGE_EDIT_OR_CONTEXT_PATTERN.test(input.userMessage)))
   );
 }
 
 export function buildDirectImageApiParams(input: LLMInput): OpenAIItem {
   const hasPersonaVisualReferences = directPersonaVisualReferencePaths(input).length > 0;
+  const hasUserImageReferences = (input.attachments ?? []).some((attachment) => attachment.kind === "image");
 
   return compactObject({
     model: env.OPENAI_IMAGE_MODEL,
-    prompt: buildImageGenerationPrompt(input, { includePersonaVisualReferences: hasPersonaVisualReferences }),
+    prompt: buildImageGenerationPrompt(input, {
+      includePersonaVisualReferences: hasPersonaVisualReferences,
+      includeUserImageReferences: hasUserImageReferences
+    }),
     moderation: env.OPENAI_IMAGE_MODERATION,
     size: env.OPENAI_IMAGE_SIZE,
     quality: env.OPENAI_IMAGE_QUALITY,
@@ -229,6 +239,46 @@ async function directPersonaVisualReferenceFiles(input: LLMInput) {
       return toFile(createReadStream(localPath), basename(localPath), { type: "image/png" });
     })
   );
+}
+
+type InternalImageAttachment = NonNullable<LLMInput["attachments"]>[number] & {
+  storageKey?: string;
+  localPath?: string;
+};
+
+function fileFromDataUrl(url: string, fileName: string, mimeType: string) {
+  const match = /^data:([^;,]+);base64,([\s\S]+)$/i.exec(url);
+  if (!match) return undefined;
+  const buffer = Buffer.from(match[2]!, "base64");
+  if (buffer.byteLength > MAX_OPENAI_IMAGE_EDIT_BYTES) {
+    throw new HttpError("An attached image is too large for image editing. Images must be smaller than 50 MB.", 413);
+  }
+  return toFile(buffer, basename(fileName), { type: match[1] || mimeType });
+}
+
+async function directUserImageFiles(input: LLMInput) {
+  const images = (input.attachments ?? []).filter((attachment) => attachment.kind === "image") as InternalImageAttachment[];
+  return Promise.all(images.map(async (attachment) => {
+    if (attachment.sizeBytes > MAX_OPENAI_IMAGE_EDIT_BYTES) {
+      throw new HttpError("An attached image is too large for image editing. Images must be smaller than 50 MB.", 413);
+    }
+    if (attachment.storageKey) {
+      const downloaded = await storageService.getStream(attachment.storageKey);
+      if (downloaded.sizeBytes !== undefined && downloaded.sizeBytes > MAX_OPENAI_IMAGE_EDIT_BYTES) {
+        downloaded.stream.destroy();
+        throw new HttpError("An attached image is too large for image editing. Images must be smaller than 50 MB.", 413);
+      }
+      return toFile(downloaded.stream, basename(attachment.fileName), { type: attachment.mimeType });
+    }
+    if (attachment.localPath) {
+      return toFile(createReadStream(attachment.localPath), basename(attachment.fileName), { type: attachment.mimeType });
+    }
+    if (attachment.url) {
+      const file = fileFromDataUrl(attachment.url, attachment.fileName, attachment.mimeType);
+      if (file) return file;
+    }
+    throw new HttpError("An attached image is no longer available. Please re-upload it and try again.", 409);
+  }));
 }
 
 export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: OpenAIPromptMode): string {
@@ -1011,10 +1061,14 @@ export class OpenAIProvider implements LLMProvider {
 
   private async generateDirectImageResponse(client: OpenAI, input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
     const params = buildDirectImageApiParams(input);
-    const personaReferenceFiles = await directPersonaVisualReferenceFiles(input);
-    const usesPersonaVisualReferences = personaReferenceFiles.length > 0;
-    const response = usesPersonaVisualReferences
-      ? await withRetry(() => client.images.edit({ ...params, image: personaReferenceFiles } as any, { signal }))
+    const [userReferenceFiles, personaReferenceFiles] = await Promise.all([
+      directUserImageFiles(input),
+      directPersonaVisualReferenceFiles(input)
+    ]);
+    const imageReferences = [...userReferenceFiles, ...personaReferenceFiles];
+    const usesImageReferences = imageReferences.length > 0;
+    const response = usesImageReferences
+      ? await withRetry(() => client.images.edit({ ...params, image: imageReferences } as any, { signal }))
       : await withRetry(() => client.images.generate(params as any, { signal }));
     const images = (response.data ?? []) as Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
     const content: ContentBlock[] = images.flatMap((image, index) => {
@@ -1027,9 +1081,10 @@ export class OpenAIProvider implements LLMProvider {
         prompt: input.userMessage,
         mimeType: image.b64_json ? "image/png" : undefined,
         metadata: {
-          route: usesPersonaVisualReferences ? "images_api_edit_with_persona_references" : "images_api",
+          route: usesImageReferences ? "images_api_edit" : "images_api",
           imagePrompt: params.prompt,
-          ...(usesPersonaVisualReferences ? { personaVisualReferencePaths: directPersonaVisualReferencePaths(input) } : {}),
+          ...(personaReferenceFiles.length > 0 ? { personaVisualReferencePaths: directPersonaVisualReferencePaths(input) } : {}),
+          ...(userReferenceFiles.length > 0 ? { userImageReferenceCount: userReferenceFiles.length } : {}),
           ...(image.revised_prompt ? { revisedPrompt: image.revised_prompt } : {})
         }
       }];
@@ -1043,9 +1098,9 @@ export class OpenAIProvider implements LLMProvider {
         providerModel: env.OPENAI_IMAGE_MODEL,
         status: "completed",
         background: false,
-        openaiTools: [usesPersonaVisualReferences ? "images.edit" : "images.generate"],
+        openaiTools: [usesImageReferences ? "images.edit" : "images.generate"],
         promptMode: this.promptMode,
-        route: usesPersonaVisualReferences ? "images_api_edit_with_persona_references" : "images_api",
+        route: usesImageReferences ? "images_api_edit" : "images_api",
         imageModeration: env.OPENAI_IMAGE_MODERATION,
         imageSize: env.OPENAI_IMAGE_SIZE,
         imageQuality: env.OPENAI_IMAGE_QUALITY

@@ -97,6 +97,9 @@ services:
         value: "true"
       - key: OPENAI_DIRECT_IMAGE_API_ENABLED
         value: "true"
+      # Kept below the OpenAI Images API 50 MB per-input-image limit.
+      - key: UPLOAD_MAX_BYTES
+        value: "49999999"
 
       - key: TTS_PROVIDER
         value: elevenlabs

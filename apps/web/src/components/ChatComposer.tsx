@@ -1,5 +1,5 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
-import type { ProviderId, ToolOptions } from "@persona/shared";
+import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ProviderId, type ToolOptions } from "@persona/shared";
 import { useEffect, useId, useRef, useState } from "react";
 
 type ChatComposerProps = {
@@ -52,6 +52,7 @@ function ComposerIcon({ name }: { name: "send" | "stop" | "showPersona" }) {
 export function ChatComposer(props: ChatComposerProps) {
   const [message, setMessage] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | undefined>();
   const [toolOptions, setToolOptions] = useState<ToolOptions>({
     webSearch: false,
     fileSearch: false,
@@ -94,17 +95,33 @@ export function ChatComposer(props: ChatComposerProps) {
 
   function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>): void {
     const files = Array.from(event.target.files ?? []);
-    setAttachments(files);
+    const oversized = files.find((file) => file.size > MAX_OPENAI_IMAGE_EDIT_BYTES);
+    const acceptedFiles = files.filter((file) => file.size <= MAX_OPENAI_IMAGE_EDIT_BYTES);
+    const availableSlots = Math.max(0, MAX_CHAT_ATTACHMENTS - attachments.length);
+    if (oversized) {
+      setAttachmentError(`${oversized.name} is too large. Each attachment must be smaller than 50 MB.`);
+    } else if (acceptedFiles.length > availableSlots) {
+      setAttachmentError(`You can attach up to ${MAX_CHAT_ATTACHMENTS} files to one message.`);
+    } else {
+      setAttachmentError(undefined);
+    }
+    setAttachments((currentAttachments) => [
+      ...currentAttachments,
+      ...acceptedFiles.slice(0, Math.max(0, MAX_CHAT_ATTACHMENTS - currentAttachments.length))
+    ]);
+
+    // The selected attachments are kept in React state. Reset the native
+    // input so another picker selection adds to the current list (and so a
+    // user can intentionally pick the same file again after removing it).
+    event.target.value = "";
   }
 
   function handleRemoveAttachment(attachmentIndex: number): void {
     setAttachments((currentAttachments) =>
       currentAttachments.filter((_, index) => index !== attachmentIndex),
     );
+    setAttachmentError(undefined);
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
   }
 
   async function submitCurrentMessage(): Promise<void> {
@@ -330,6 +347,7 @@ export function ChatComposer(props: ChatComposerProps) {
             ))}
           </div>
         ) : null}
+        {attachmentError ? <div className="composer-attachment-error" role="alert">{attachmentError}</div> : null}
         <div className="prompt-toolbar">
           <div className="prompt-toolbar-left">
             <input

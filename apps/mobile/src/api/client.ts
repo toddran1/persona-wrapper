@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
-import { apiContract } from "@persona/shared";
+import { apiContract, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES } from "@persona/shared";
 import { initClient } from "@ts-rest/core";
 import type {
   ActiveSession,
@@ -56,6 +56,7 @@ export type MobileUploadFile = {
   uri: string;
   name: string;
   mimeType: string;
+  sizeBytes?: number;
 };
 
 type MobileRegisterRequest = Omit<RegisterRequest, "clientType" | "deviceId">;
@@ -64,14 +65,22 @@ type MobileRestoreAccountRequest = Omit<RestoreAccountRequest, "clientType" | "d
 type ApiErrorPayload = {
   error?: string;
   message?: string;
+  code?: string;
 };
 
+function isInternalErrorDetail(message: string): boolean {
+  return /failed query|params:|drizzle|postgres|syntax error|violates|duplicate key|relation .* does not exist|insert into|select .* from/i.test(message);
+}
+
+function safeApiErrorMessage(message: string | undefined, fallback: string): string {
+  return message && !isInternalErrorDetail(message) ? message : fallback;
+}
+
 function contractError(body: unknown, fallback: string): Error {
-  return new Error(
-    typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
-      ? body.error
-      : fallback
-  );
+  const message = typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
+    ? body.error
+    : undefined;
+  return new Error(safeApiErrorMessage(message, fallback));
 }
 
 class ApiResponseError extends Error {
@@ -89,7 +98,7 @@ function isServerResponseError(error: unknown): boolean {
 
 let authRefreshInFlight: Promise<boolean> | undefined;
 const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
-const UPLOAD_REQUEST_TIMEOUT_MS = 90_000;
+const UPLOAD_REQUEST_TIMEOUT_MS = 10 * 60_000;
 const CHAT_REQUEST_TIMEOUT_MS = 130_000;
 const DATA_TRANSFER_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 5 * 60 * 1000;
 const DATA_TRANSFER_UPLOAD_TIMEOUT_MS = 4 * 60 * 60 * 1000;
@@ -139,9 +148,24 @@ function contractTimeoutMs(path: string, method: string): number {
 async function parseApiError(response: Response): Promise<ApiResponseError> {
   try {
     const payload = await response.json() as ApiErrorPayload;
-    return new ApiResponseError(response.status, payload.error || payload.message || `Request failed with status ${response.status}.`);
+    if (response.status >= 500 || payload.code === "INTERNAL_SERVER_ERROR") {
+      return new ApiResponseError(response.status, "Something went wrong on the server. Please try again.");
+    }
+    const fallback = `Request failed with status ${response.status}.`;
+    return new ApiResponseError(response.status, safeApiErrorMessage(payload.error || payload.message, fallback));
   } catch {
     return new ApiResponseError(response.status, `Request failed with status ${response.status}.`);
+  }
+}
+
+function validateUploadFiles(files: MobileUploadFile[]): void {
+  if (files.length === 0) throw new Error("Select at least one file to upload.");
+  if (files.length > MAX_CHAT_ATTACHMENTS) {
+    throw new Error(`You can attach up to ${MAX_CHAT_ATTACHMENTS} files to one message.`);
+  }
+  const oversized = files.find((file) => file.sizeBytes !== undefined && file.sizeBytes > MAX_OPENAI_IMAGE_EDIT_BYTES);
+  if (oversized) {
+    throw new Error(`${oversized.name} is too large. Each attachment must be smaller than 50 MB.`);
   }
 }
 
@@ -299,6 +323,7 @@ export const api = {
     files: MobileUploadFile[],
     options?: { skipAuthRefresh?: boolean; signal?: AbortSignal }
   ): Promise<UploadedAsset[]> => {
+    validateUploadFiles(files);
     const issuedAssetIds: string[] = [];
     try {
       const assets: UploadedAsset[] = [];
@@ -309,6 +334,15 @@ export const api = {
           const source = await fetch(file.uri, { signal: sourceTimeout.signal });
           if (!source.ok) throw new Error("Could not read the selected file.");
           blob = await source.blob();
+          if (blob.size > MAX_OPENAI_IMAGE_EDIT_BYTES) {
+            throw new Error(`${file.name} is too large. Each attachment must be smaller than 50 MB.`);
+          }
+        } catch (error) {
+          if (sourceTimeout.didTimeout()) {
+            throw new Error(`Reading ${file.name} took too long. Choose the file again and retry.`);
+          }
+          rethrowAbort(error);
+          throw error;
         } finally {
           sourceTimeout.dispose();
         }
@@ -328,6 +362,12 @@ export const api = {
             signal: uploadTimeout.signal
           });
           if (!uploaded.ok) throw await directUploadError(uploaded, "The storage service rejected this upload.");
+        } catch (error) {
+          if (uploadTimeout.didTimeout()) {
+            throw new Error(`Uploading ${file.name} took too long. Check your connection and try again.`);
+          }
+          rethrowAbort(error);
+          throw error;
         } finally {
           uploadTimeout.dispose();
         }
@@ -347,45 +387,59 @@ export const api = {
       if (!canUseApiFallback) throw error;
     }
 
-    const body = new FormData();
-    for (const file of files) {
-      body.append("files", {
-        uri: file.uri,
-        name: file.name,
-        type: file.mimeType
-      } as unknown as Blob);
-    }
-    const timeout = createRequestTimeout(options?.signal, UPLOAD_REQUEST_TIMEOUT_MS);
+    const fallbackAssets: UploadedAsset[] = [];
     try {
-      const response = await fetch(`${API_BASE_URL}/api/uploads`, {
-        method: "POST",
-        headers: await requestHeaders(false),
-        body,
-        signal: timeout.signal
-      });
-      if (response.status === 401 && !options?.skipAuthRefresh && await refreshStoredAuth()) {
-        return api.uploadFiles(files, { skipAuthRefresh: true, ...(options?.signal ? { signal: options.signal } : {}) });
+      let authRefreshUsed = options?.skipAuthRefresh === true;
+      for (const file of files) {
+        let uploaded = false;
+        for (let attempt = 0; attempt < 2 && !uploaded; attempt += 1) {
+          const body = new FormData();
+          body.append("files", {
+            uri: file.uri,
+            name: file.name,
+            type: file.mimeType
+          } as unknown as Blob);
+          const timeout = createRequestTimeout(options?.signal, UPLOAD_REQUEST_TIMEOUT_MS);
+          try {
+            const response = await fetch(`${API_BASE_URL}/api/uploads`, {
+              method: "POST",
+              headers: await requestHeaders(false),
+              body,
+              signal: timeout.signal
+            });
+            if (response.status === 401 && !authRefreshUsed && await refreshStoredAuth()) {
+              authRefreshUsed = true;
+              continue;
+            }
+            if (!response.ok) throw await parseApiError(response);
+            let payload: { assets?: UploadedAsset[] };
+            try {
+              payload = await response.json() as { assets?: UploadedAsset[] };
+            } catch {
+              throw new Error("The app server returned an invalid upload response. Please try again.");
+            }
+            if (!Array.isArray(payload.assets) || payload.assets.length !== 1) {
+              throw new Error("The app server returned an invalid upload response. Please try again.");
+            }
+            fallbackAssets.push(payload.assets[0]!);
+            uploaded = true;
+          } catch (error) {
+            if (timeout.didTimeout()) {
+              throw new Error("The upload took too long to finish. Check your connection and try again.");
+            }
+            rethrowAbort(error);
+            if (isServerResponseError(error)) throw error;
+            throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
+          } finally {
+            timeout.dispose();
+          }
+        }
+        if (!uploaded) throw new Error("Could not upload files to the app server.");
       }
-      if (!response.ok) throw await parseApiError(response);
-      let payload: { assets?: UploadedAsset[] };
-      try {
-        payload = await response.json() as { assets?: UploadedAsset[] };
-      } catch {
-        throw new Error("The app server returned an invalid upload response. Please try again.");
-      }
-      if (!Array.isArray(payload.assets)) {
-        throw new Error("The app server returned an invalid upload response. Please try again.");
-      }
-      return payload.assets;
+      return fallbackAssets;
     } catch (error) {
-      if (timeout.didTimeout()) {
-        throw new Error("The upload took too long to finish. Check your connection and try again.");
-      }
-      rethrowAbort(error);
-      if (isServerResponseError(error)) throw error;
-      throw new Error(`Could not connect to the app server at ${API_BASE_URL}.`);
-    } finally {
-      timeout.dispose();
+      await Promise.allSettled(fallbackAssets.map((asset) => contractClient.uploads.remove({ params: { id: asset.id } })));
+      throw error;
     }
   },
   register: async (payload: MobileRegisterRequest): Promise<{ user: AuthUser }> => {

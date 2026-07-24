@@ -109,6 +109,27 @@ function personaVisualBrief(persona: PersonaDefinition): string {
   ].join(" ");
 }
 
+function personaCharacterInfluenceVisualBrief(persona: PersonaDefinition): string {
+  const influences = persona.characterInfluences;
+  if (!influences) return "";
+
+  const favorites = influences.favorites;
+  return [
+    "Persona character influences for scene and styling choices:",
+    `Favorite activities: ${sanitizeImageRequest(favorites.activities.join(", "))}.`,
+    `Favorite foods: ${sanitizeImageRequest(favorites.foods.join(", "))}.`,
+    `Favorite colors: ${sanitizeImageRequest(favorites.colors.join(", "))}.`,
+    `Favorite products: ${sanitizeImageRequest(favorites.products.join(", "))}.`,
+    `Favorite music and entertainment: ${sanitizeImageRequest([...favorites.music, ...favorites.entertainment].join(", "))}.`,
+    `Favorite places and fashion: ${sanitizeImageRequest([...favorites.places, ...favorites.fashion].join(", "))}.`,
+    `Interests and background: ${sanitizeImageRequest([...influences.interests, ...influences.backgroundInfluences].join(", "))}.`,
+    `Values and aspirations: ${sanitizeImageRequest([...influences.values, ...influences.aspirations].join(", "))}.`,
+    "Use these only as optional inspiration for the scene, mood, setting, props, palette, wardrobe, or activities when they fit the user's request.",
+    "The user's requested subject, setting, outfit, action, and constraints always take priority. Do not insert products, food, places, or logos unless they fit or the user asks for them.",
+    "Do not add readable brand logos, trademarks, or text solely because they appear in the persona's preferences."
+  ].join(" ");
+}
+
 export function directPersonaVisualReferencePaths(input: LLMInput): string[] {
   if (!isPersonaImageRequest(input.userMessage, input.persona)) return [];
 
@@ -120,20 +141,25 @@ export function directPersonaVisualReferencePaths(input: LLMInput): string[] {
 
 export function buildImageGenerationPrompt(
   input: LLMInput,
-  options: { includePersonaVisualReferences?: boolean } = {}
+  options: { includePersonaVisualReferences?: boolean; includeUserImageReferences?: boolean } = {}
 ): string {
   const sanitizedRequest = sanitizeImageRequest(input.userMessage);
   const request = sanitizedRequest || "Create a stylish, non-explicit image based on the user's request.";
   const includePersonaVisuals = isPersonaImageRequest(input.userMessage, input.persona);
   const includePersonaVisualReferences = includePersonaVisuals && options.includePersonaVisualReferences === true;
+  const includeUserImageReferences = options.includeUserImageReferences === true &&
+    (input.attachments ?? []).some((attachment) => attachment.kind === "image");
 
   return [
     "Image generation prompt for a safe visual tool request.",
     includePersonaVisuals
-      ? personaVisualBrief(input.persona)
+      ? [personaVisualBrief(input.persona), personaCharacterInfluenceVisualBrief(input.persona)].filter(Boolean).join(" ")
       : "This image request is not about the current persona. Do not include persona appearance, biography, body details, voice, slang, or character styling unless the user explicitly asks for it.",
     includePersonaVisualReferences
-      ? "Two attached images are the persona's full-body and face visual references. Use them as the primary visual identity reference for the fictional persona, preserving her recognizable face and overall appearance while following the requested scene. Do not copy their pose, outfit, or background unless the user asks."
+      ? "The separate attached full-body and face images are the persona's visual references. Use them as the primary visual identity reference for the fictional persona, preserving her recognizable face and overall appearance while following the requested scene. Do not copy their pose, outfit, or background unless the user asks."
+      : "",
+    includeUserImageReferences
+      ? "The user's attached image or images are source references for this edit. Use them to preserve or deliberately transform the relevant subjects and visual details according to the user's request. When multiple images are attached, treat them as complementary references; do not invent an extra subject or combine unrelated people unless the user asks."
       : "",
     `User visual request, cleaned for image generation: ${request}`,
     includePersonaVisuals

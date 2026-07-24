@@ -140,7 +140,10 @@ const envSchema = z.object({
   OPENAI_ARTIFACT_TTL_HOURS: z.coerce.number().int().nonnegative().default(0),
   GENERATED_AUDIO_DIR: z.preprocess(emptyStringToUndefined, z.string().optional()),
   GENERATED_AUDIO_TTL_HOURS: z.coerce.number().int().nonnegative().default(236),
-  UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
+  // The Images API edit endpoint requires each input image to be smaller than 50 MB.
+  // Keep this just below the documented decimal-byte ceiling so every accepted image
+  // can also be used as a direct image-edit reference.
+  UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(49_999_999),
   UPLOAD_TTL_HOURS: z.coerce.number().int().nonnegative().default(24),
   STORAGE_CLEANUP_INTERVAL_MS: z.coerce.number().int().nonnegative().default(15 * 60 * 1000),
   STORAGE_CLEANUP_CRON: z.string().min(1).default("*/15 * * * *"),

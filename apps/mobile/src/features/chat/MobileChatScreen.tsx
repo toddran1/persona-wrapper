@@ -31,7 +31,7 @@ import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type Audio
 import { Ionicons } from "@expo/vector-icons";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import type { ActiveSession, AuthUser, ChatJobResponse, ChatResponse, Citation, ConnectedAccount, ConversationSummary, DataTransferJob, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, UnsafeOutputReportCategory, UploadedAsset } from "@persona/shared";
+import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type DataTransferJob, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type PersonaSummary, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -862,7 +862,18 @@ export function MobileChatScreen() {
   }
 
   function appendPickedFiles(files: MobilePickedFile[]): void {
-    setSelectedFiles((current) => [...current, ...files].slice(0, 10));
+    const oversized = files.find((file) => file.size !== undefined && file.size > MAX_OPENAI_IMAGE_EDIT_BYTES);
+    if (oversized) {
+      Alert.alert("File too large", `${oversized.name} must be smaller than 50 MB.`);
+    }
+    const accepted = files.filter((file) => file.size === undefined || file.size <= MAX_OPENAI_IMAGE_EDIT_BYTES);
+    setSelectedFiles((current) => {
+      const availableSlots = Math.max(0, MAX_CHAT_ATTACHMENTS - current.length);
+      if (accepted.length > availableSlots) {
+        Alert.alert("Attachment limit", `You can attach up to ${MAX_CHAT_ATTACHMENTS} files to one message.`);
+      }
+      return [...current, ...accepted.slice(0, availableSlots)];
+    });
   }
 
   function pickedId(prefix: string): string {
@@ -1708,7 +1719,8 @@ export function MobileChatScreen() {
         ? await api.uploadFiles(submittedFiles.map((file) => ({
           uri: file.uri,
           name: file.name,
-          mimeType: file.mimeType
+          mimeType: file.mimeType,
+          ...(file.size !== undefined ? { sizeBytes: file.size } : {})
         })), { signal: controller.signal })
         : [];
       const fileAttachmentIds = attachments

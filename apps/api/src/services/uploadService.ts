@@ -3,7 +3,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { basename, extname } from "node:path";
 import OpenAI, { toFile } from "openai";
 import { fileTypeFromBuffer } from "file-type";
-import type { UploadedAsset } from "@persona/shared";
+import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type UploadedAsset } from "@persona/shared";
 import { and, eq, lte, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
@@ -13,6 +13,10 @@ import { logger } from "../utils/logger.js";
 import { storageService } from "./storageService.js";
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+export const MAX_UPLOAD_FILES = MAX_CHAT_ATTACHMENTS;
+// Ten images at the Images API's <50 MB per-image ceiling remain below the
+// Responses API's documented 512 MB total image-input payload limit.
+export const MAX_UPLOAD_BATCH_BYTES = 500_000_000;
 const FILE_MIME_TYPES = new Set([
   "application/pdf",
   "text/plain",
@@ -26,6 +30,12 @@ const FILE_MIME_TYPES = new Set([
 
 type StoredAsset = UploadedAsset & {
   ownerId: string;
+  localPath?: string;
+  storageKey?: string;
+};
+
+export type ResolvedUploadAsset = UploadedAsset & {
+  /** Server-only storage metadata used by providers; never return this to clients. */
   localPath?: string;
   storageKey?: string;
 };
@@ -266,9 +276,10 @@ export class UploadService {
     return [...this.assets.values()].filter((asset) => asset.ownerId === ownerId).map((asset) => this.publicAsset(asset));
   }
 
-  async resolveAssets(ownerId: string, assetIds: string[]): Promise<UploadedAsset[]> {
+  async resolveAssets(ownerId: string, assetIds: string[]): Promise<ResolvedUploadAsset[]> {
     const assets = await Promise.all(assetIds.map((id) => this.get(ownerId, id)));
-    return assets.map((asset) => this.publicAsset(asset));
+    validateUploadBatch(assets);
+    return assets.map(({ ownerId: _ownerId, ...asset }) => asset);
   }
 
   async validateVectorStores(ownerId: string, vectorStoreIds: string[]): Promise<void> {
@@ -514,6 +525,19 @@ function validateUploadDeclaration(ownerId: string, fileName: string, mimeType: 
   }
   if (!IMAGE_MIME_TYPES.has(mimeType) && !FILE_MIME_TYPES.has(mimeType)) {
     throw new HttpError(`Unsupported upload type: ${mimeType}`, 415);
+  }
+  if (IMAGE_MIME_TYPES.has(mimeType) && sizeBytes > MAX_OPENAI_IMAGE_EDIT_BYTES) {
+    throw new HttpError("Images must be smaller than 50 MB so they can be used for image editing.", 413);
+  }
+}
+
+export function validateUploadBatch(files: ReadonlyArray<Pick<UploadedAsset, "sizeBytes">>): void {
+  if (files.length > MAX_UPLOAD_FILES) {
+    throw new HttpError(`A maximum of ${MAX_UPLOAD_FILES} files can be attached to one message.`, 400);
+  }
+  const totalBytes = files.reduce((sum, file) => sum + file.sizeBytes, 0);
+  if (totalBytes > MAX_UPLOAD_BATCH_BYTES) {
+    throw new HttpError("The combined upload size is too large.", 413);
   }
 }
 

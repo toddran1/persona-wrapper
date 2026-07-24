@@ -13,6 +13,9 @@ describe("PersonaEngine", () => {
 
     expect(prompt).toContain("LaRae the Baddest");
     expect(prompt).toContain("fictional AI persona");
+    expect(prompt).toContain("Character influences and personal taste");
+    expect(prompt).toContain("high-end rooftop brunch party");
+    expect(prompt).toContain("The user's location, budget, dietary needs");
     expect(prompt).toContain("Safety boundaries");
     expect(prompt).toContain("Return multimodal output when useful");
   });
@@ -26,6 +29,8 @@ describe("PersonaEngine", () => {
     const prompt = engine.createBaseSystemPrompt(persona!);
 
     expect(prompt).toContain("light version of this persona");
+    expect(prompt).toContain("Recommendation lens");
+    expect(prompt).toContain("let this taste profile influence what you select");
     expect(prompt).toContain("Do not use catchphrases");
     expect(prompt).not.toContain("Catchphrases:");
     expect(prompt).not.toContain("Clock it.");

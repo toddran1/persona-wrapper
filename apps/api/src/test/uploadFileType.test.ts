@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateFileContents } from "../services/uploadService.js";
+import { MAX_UPLOAD_BATCH_BYTES, MAX_UPLOAD_FILES, validateFileContents, validateUploadBatch } from "../services/uploadService.js";
 
 function upload(mimetype: string, buffer: Buffer): Express.Multer.File {
   return { mimetype, buffer } as Express.Multer.File;
@@ -18,5 +18,11 @@ describe("upload content type validation", () => {
   it("uses file-type detection for binary formats", async () => {
     const gif = Buffer.from("47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b", "hex");
     await expect(validateFileContents(upload("image/gif", gif))).resolves.toBeUndefined();
+  });
+
+  it("enforces the documented aggregate request envelope", () => {
+    expect(() => validateUploadBatch(Array.from({ length: MAX_UPLOAD_FILES }, () => ({ sizeBytes: 1 })))).not.toThrow();
+    expect(() => validateUploadBatch(Array.from({ length: MAX_UPLOAD_FILES + 1 }, () => ({ sizeBytes: 1 })))).toThrow(/maximum/i);
+    expect(() => validateUploadBatch([{ sizeBytes: MAX_UPLOAD_BATCH_BYTES + 1 }])).toThrow(/combined upload size/i);
   });
 });

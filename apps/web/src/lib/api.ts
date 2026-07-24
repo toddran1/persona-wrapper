@@ -1,4 +1,4 @@
-import { apiContract } from "@persona/shared";
+import { apiContract, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES } from "@persona/shared";
 import type {
   AuthUser,
   AuthSession,
@@ -39,7 +39,7 @@ let fallbackOwnerId: string | undefined;
 let authRefreshInFlight: Promise<boolean> | undefined;
 const API_REQUEST_TIMEOUT_MS = 130_000;
 const AUTH_REFRESH_TIMEOUT_MS = 30_000;
-const UPLOAD_REQUEST_TIMEOUT_MS = 90_000;
+const UPLOAD_REQUEST_TIMEOUT_MS = 10 * 60_000;
 const DATA_TRANSFER_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 5 * 60 * 1000;
 const DATA_TRANSFER_UPLOAD_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 
@@ -58,7 +58,18 @@ class DirectStorageUploadError extends Error {
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
+  return typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
+}
+
+function validateUploadFiles(files: File[]): void {
+  if (files.length === 0) throw new Error("Select at least one file to upload.");
+  if (files.length > MAX_CHAT_ATTACHMENTS) {
+    throw new Error(`You can attach up to ${MAX_CHAT_ATTACHMENTS} files to one message.`);
+  }
+  const oversized = files.find((file) => file.size > MAX_OPENAI_IMAGE_EDIT_BYTES);
+  if (oversized) {
+    throw new Error(`${oversized.name} is too large. Each attachment must be smaller than 50 MB.`);
+  }
 }
 
 async function fetchWithTimeout(
@@ -170,11 +181,10 @@ type ApiErrorPayload = {
 };
 
 function contractError(body: unknown, fallback: string): Error {
-  return new Error(
-    typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
-      ? body.error
-      : fallback
-  );
+  const detail = typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
+    ? body.error
+    : "";
+  return new Error(detail && !isInternalErrorDetail(detail) ? detail : fallback);
 }
 
 function firstValidationMessage(payload: ApiErrorPayload): string | undefined {
@@ -200,7 +210,7 @@ async function parseApiError(response: Response): Promise<string> {
   }
 
   if (response.status === 401) return detail || "Your session is no longer valid. Please sign in again.";
-  if (response.status === 409) return "An account with that email or username already exists.";
+  if (response.status === 409) return detail || "The request conflicts with the current server state. Refresh and try again.";
   if (response.status === 429) return detail || "Too many requests. Please wait and try again.";
   if (response.status === 413) return detail || "That file is too large.";
   if (response.status === 415) return detail || "That file type is not supported.";
@@ -369,6 +379,7 @@ export const api = {
     throw new Error("Could not download this file from the app server.");
   },
   uploadFiles: async (files: File[], signal?: AbortSignal): Promise<UploadedAsset[]> => {
+    validateUploadFiles(files);
     const issuedAssetIds: string[] = [];
     try {
       const assets: UploadedAsset[] = [];
@@ -405,34 +416,50 @@ export const api = {
     }
 
     // Local storage cannot issue S3 URLs. The API path also serves as a
-    // compatibility fallback when a bucket policy rejects client-originated PUTs.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const body = new FormData();
-      files.forEach((file) => body.append("files", file));
-      let response: Response;
-      try {
-        response = await fetchWithTimeout(`${API_BASE_URL}/api/uploads`, {
-          method: "POST",
-          headers: requestHeaders(false),
-          body,
-          ...(signal ? { signal } : {})
-        });
-      } catch (error) {
-        if (isAbortError(error) || error instanceof RequestTimeoutError) throw error;
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Could not reach API at ${API_BASE_URL}/api/uploads: ${message}`);
+    // compatibility fallback when a bucket policy rejects client-originated
+    // PUTs. Send one file at a time because this endpoint uses bounded
+    // in-memory multipart parsing.
+    const fallbackAssets: UploadedAsset[] = [];
+    try {
+      for (const file of files) {
+        let uploaded = false;
+        for (let attempt = 0; attempt < 2 && !uploaded; attempt += 1) {
+          const body = new FormData();
+          body.append("files", file);
+          let response: Response;
+          try {
+            response = await fetchWithTimeout(`${API_BASE_URL}/api/uploads`, {
+              method: "POST",
+              headers: requestHeaders(false),
+              body,
+              ...(signal ? { signal } : {})
+            });
+          } catch (error) {
+            if (isAbortError(error) || error instanceof RequestTimeoutError) throw error;
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Could not reach API at ${API_BASE_URL}/api/uploads: ${message}`);
+          }
+          if (response.status === 401 && attempt === 0 && await refreshStoredAuth()) continue;
+          if (!response.ok) throw new Error(await parseApiError(response));
+          let payload: { assets?: UploadedAsset[] };
+          try {
+            payload = await response.json() as { assets?: UploadedAsset[] };
+          } catch {
+            throw new Error("The app server returned an invalid upload response.");
+          }
+          if (!Array.isArray(payload.assets) || payload.assets.length !== 1) {
+            throw new Error("The app server returned an invalid upload response.");
+          }
+          fallbackAssets.push(payload.assets[0]!);
+          uploaded = true;
+        }
+        if (!uploaded) throw new Error("Could not upload files to the app server.");
       }
-      if (response.status === 401 && attempt === 0 && await refreshStoredAuth()) continue;
-      if (!response.ok) throw new Error(await parseApiError(response));
-      try {
-        const payload = await response.json() as { assets?: UploadedAsset[] };
-        if (!Array.isArray(payload.assets)) throw new Error("The app server returned an invalid upload response.");
-        return payload.assets;
-      } catch {
-        throw new Error("The app server returned an invalid upload response.");
-      }
+      return fallbackAssets;
+    } catch (error) {
+      await Promise.allSettled(fallbackAssets.map((asset) => contractClient.uploads.remove({ params: { id: asset.id } })));
+      throw error;
     }
-    throw new Error("Could not upload files to the app server.");
   },
   createVectorStore: async (assetIds: string[], name?: string, signal?: AbortSignal): Promise<{ id: string; expiresAt: string }> => {
     const response = await contractClient.uploads.createVectorStore({

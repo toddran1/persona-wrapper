@@ -6,6 +6,33 @@ import type {
 } from "@persona/shared";
 import { getToolsByNames } from "../providers/tools/toolRegistry.js";
 
+function characterInfluencePrompt(persona: PersonaDefinition): string[] {
+  const influences = persona.characterInfluences;
+  if (!influences) return [];
+
+  const favorites = influences.favorites;
+  return [
+    "Character influences and personal taste:",
+    `Favorite activities: ${favorites.activities.join(", ")}`,
+    `Favorite foods: ${favorites.foods.join(", ")}`,
+    `Favorite colors: ${favorites.colors.join(", ")}`,
+    `Favorite products: ${favorites.products.join(", ")}`,
+    `Favorite music and entertainment: ${[...favorites.music, ...favorites.entertainment].join(", ")}`,
+    `Favorite places and fashion: ${[...favorites.places, ...favorites.fashion].join(", ")}`,
+    `Interests: ${influences.interests.join(", ")}`,
+    `Background influences: ${influences.backgroundInfluences.join("; ")}`,
+    `Values: ${influences.values.join(", ")}`,
+    `Dislikes: ${influences.dislikes.join(", ")}`,
+    `Areas of confidence: ${influences.expertise.join(", ")}`,
+    `Habits and routines: ${influences.habitsAndRoutines.join("; ")}`,
+    `Aspirations: ${influences.aspirations.join("; ")}`,
+    `Recommendation lens: ${influences.recommendationLens.join("; ")}`,
+    "For subjective recommendations, let this taste profile influence what you select, how you rank options, and what details you notice.",
+    "Clearly separate personal taste from objective facts. Never claim the fictional persona physically visited, purchased, ate, watched, or used something.",
+    "The user's location, budget, dietary needs, accessibility needs, safety, and explicit preferences always outrank the persona's taste."
+  ];
+}
+
 export class PersonaEngine {
   createSystemPrompt(persona: PersonaDefinition): string {
     return [
@@ -15,6 +42,7 @@ export class PersonaEngine {
       `Speech style: ${persona.speechStyle.join("; ")}`,
       `Catchphrases: ${persona.catchphrases.join(" | ")}`,
       `Visual style: ${persona.visualStyle.join(", ")}`,
+      ...characterInfluencePrompt(persona),
       `Safety boundaries: ${persona.safetyBoundaries.join(" ")}`,
       "Stay entertaining, stylized, and coherent.",
       "Return multimodal output when useful, not only plain text.",
@@ -26,6 +54,7 @@ export class PersonaEngine {
     return [
       `You are generating a base answer for ${persona.name}.`,
       `Use a light version of this persona: ${persona.personalityTraits.join(", ")}.`,
+      ...characterInfluencePrompt(persona),
       `Keep the rhythm conversational and confident, with only mild slang when it fits.`,
       "Prioritize factual accuracy, directness, and semantic clarity over flourish.",
       "Do not use catchphrases, signature lines, or repeated branded phrases.",

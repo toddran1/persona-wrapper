@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { initContract } from "@ts-rest/core";
 
+export const MAX_CHAT_ATTACHMENTS = 10;
+export const MAX_OPENAI_IMAGE_EDIT_BYTES = 49_999_999;
+
 export const providerSchema = z.enum(["openai", "openai_persona", "claude", "local"]);
 export type ProviderId = z.infer<typeof providerSchema>;
 
@@ -355,7 +358,7 @@ export const chatRequestSchema = z.object({
   history: z.array(chatMessageSchema).default([]),
   requestedOutputs: z.array(outputTypeSchema).optional(),
   clientContext: clientContextSchema.optional(),
-  attachments: z.array(uploadedAssetSchema).max(10).optional(),
+  attachments: z.array(uploadedAssetSchema).max(MAX_CHAT_ATTACHMENTS).optional(),
   toolOptions: toolOptionsSchema.optional()
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
@@ -429,6 +432,28 @@ export const personaResponseStyleSchema = z.object({
 });
 export type PersonaResponseStyle = z.infer<typeof personaResponseStyleSchema>;
 
+export const personaCharacterInfluencesSchema = z.object({
+  favorites: z.object({
+    activities: z.array(z.string()),
+    foods: z.array(z.string()),
+    colors: z.array(z.string()),
+    products: z.array(z.string()),
+    music: z.array(z.string()),
+    entertainment: z.array(z.string()),
+    places: z.array(z.string()),
+    fashion: z.array(z.string())
+  }),
+  interests: z.array(z.string()),
+  backgroundInfluences: z.array(z.string()),
+  values: z.array(z.string()),
+  dislikes: z.array(z.string()),
+  expertise: z.array(z.string()),
+  habitsAndRoutines: z.array(z.string()),
+  aspirations: z.array(z.string()),
+  recommendationLens: z.array(z.string())
+});
+export type PersonaCharacterInfluences = z.infer<typeof personaCharacterInfluencesSchema>;
+
 export const personaDefinitionSchema = personaSummarySchema.extend({
   legalName: z.string(),
   age: z.string(),
@@ -440,6 +465,7 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
   catchphrases: z.array(z.string()),
   visualStyle: z.array(z.string()),
   safetyBoundaries: z.array(z.string()),
+  characterInfluences: personaCharacterInfluencesSchema.optional(),
   responseStyle: personaResponseStyleSchema.optional(),
   voiceProfile: z.object({
     defaultVoiceId: z.string(),

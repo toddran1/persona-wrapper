@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { vectorStoreRequestSchema } from "@persona/shared";
-import { uploadService } from "../services/uploadService.js";
+import { uploadService, validateUploadBatch } from "../services/uploadService.js";
 import { HttpError } from "../utils/httpError.js";
 import { requestAuthenticatedOwnerId, requestOwnerId } from "../utils/requestIdentity.js";
 import { contentDisposition } from "../utils/httpHeaders.js";
@@ -8,6 +8,7 @@ import { contentDisposition } from "../utils/httpHeaders.js";
 export async function postUploads(request: Request, response: Response): Promise<void> {
   const files = request.files;
   if (!Array.isArray(files) || files.length === 0) throw new HttpError("At least one file is required.", 400);
+  validateUploadBatch(files.map((file) => ({ sizeBytes: file.size })));
   const ownerId = requestOwnerId(request);
   const assets = [];
   try {

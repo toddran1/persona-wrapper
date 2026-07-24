@@ -183,6 +183,61 @@ describe("ChatComposer", () => {
     expect(screen.getByText("receipts.pdf")).toBeInTheDocument();
   });
 
+  it("adds a later picker selection instead of replacing existing attachments", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <ChatComposer
+        {...defaultProps}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await user.upload(input, new File(["first"], "first.png", { type: "image/png" }));
+    await user.upload(input, new File(["second"], "second.pdf", { type: "application/pdf" }));
+
+    expect(screen.getByText("first.png")).toBeInTheDocument();
+    expect(screen.getByText("second.pdf")).toBeInTheDocument();
+  });
+
+  it("limits a message to ten attachments and explains the limit", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <ChatComposer
+        {...defaultProps}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const files = Array.from({ length: 11 }, (_, index) =>
+      new File([String(index)], `file-${index + 1}.txt`, { type: "text/plain" })
+    );
+
+    await user.upload(input, files);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("up to 10 files");
+    expect(screen.queryByText("file-11.txt")).not.toBeInTheDocument();
+    expect(screen.getByText("file-10.txt")).toBeInTheDocument();
+  });
+
+  it("rejects an oversized attachment before submit", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <ChatComposer
+        {...defaultProps}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const oversized = new File(["x"], "huge.png", { type: "image/png" });
+    Object.defineProperty(oversized, "size", { value: 50_000_000 });
+
+    await user.upload(input, oversized);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("smaller than 50 MB");
+    expect(screen.queryByText("huge.png")).not.toBeInTheDocument();
+  });
+
   it("rehydrates draft attachments back into the composer", async () => {
     render(
       <ChatComposer

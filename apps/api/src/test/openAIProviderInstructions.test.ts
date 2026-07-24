@@ -200,9 +200,16 @@ describe("OpenAIProvider instructions", () => {
     });
   });
 
-  it("keeps image edits and image-plus-description requests on Responses", () => {
+  it("routes attached images to the direct Images API edit path while retaining conversational generation on Responses", () => {
     const editInput = inputForLaRae();
     editInput.userMessage = "Add sunglasses to her in the previous image.";
+    editInput.attachments = [{
+      id: "asset_1",
+      kind: "image",
+      fileName: "reference.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 123
+    }];
     editInput.toolOptions = {
       webSearch: false,
       fileSearch: false,
@@ -217,7 +224,32 @@ describe("OpenAIProvider instructions", () => {
     describeInput.userMessage = "Generate an image of LaRae and describe it.";
     describeInput.toolOptions = editInput.toolOptions;
 
-    expect(shouldUseDirectImageApi(editInput)).toBe(false);
+    expect(shouldUseDirectImageApi(editInput)).toBe(true);
     expect(shouldUseDirectImageApi(describeInput)).toBe(false);
+  });
+
+  it("supports multiple direct-image references but keeps file attachments on Responses", () => {
+    const imageInput = inputForLaRae();
+    imageInput.userMessage = "Combine these outfits into one polished look.";
+    imageInput.attachments = [
+      { id: "asset_1", kind: "image", fileName: "one.jpg", mimeType: "image/jpeg", sizeBytes: 123 },
+      { id: "asset_2", kind: "image", fileName: "two.webp", mimeType: "image/webp", sizeBytes: 456 }
+    ];
+    imageInput.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: true,
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+
+    const fileInput = { ...imageInput, attachments: [{
+      id: "asset_3", kind: "file" as const, fileName: "notes.pdf", mimeType: "application/pdf", sizeBytes: 123
+    }] };
+
+    expect(shouldUseDirectImageApi(imageInput)).toBe(true);
+    expect(shouldUseDirectImageApi(fileInput)).toBe(false);
   });
 });

@@ -111,4 +111,51 @@ describe("web API authentication refresh", () => {
     expect(String(fetchMock.mock.calls[3]?.[0])).toContain("/api/uploads");
     expect(fetchMock.mock.calls[3]?.[1]?.method).toBe("POST");
   });
+
+  it("sends fallback multipart uploads one file per request", async () => {
+    const firstAsset = {
+      id: "asset_first",
+      kind: "image",
+      fileName: "first.png",
+      mimeType: "image/png",
+      sizeBytes: 1,
+      url: "/api/uploads/asset_first"
+    };
+    const secondAsset = { ...firstAsset, id: "asset_second", fileName: "second.png", url: "/api/uploads/asset_second" };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ error: "Direct upload unavailable." }, 409))
+      .mockResolvedValueOnce(jsonResponse({ assets: [firstAsset] }, 201))
+      .mockResolvedValueOnce(jsonResponse({ assets: [secondAsset] }, 201));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const files = [
+      new File(["1"], "first.png", { type: "image/png" }),
+      new File(["2"], "second.png", { type: "image/png" })
+    ];
+    await expect(api.uploadFiles(files)).resolves.toEqual([firstAsset, secondAsset]);
+
+    const firstBody = fetchMock.mock.calls[1]?.[1]?.body as FormData;
+    const secondBody = fetchMock.mock.calls[2]?.[1]?.body as FormData;
+    expect(firstBody.getAll("files")).toHaveLength(1);
+    expect(secondBody.getAll("files")).toHaveLength(1);
+  });
+
+  it("rejects too many attachments before starting network uploads", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const files = Array.from({ length: 11 }, (_, index) =>
+      new File([String(index)], `file-${index}.txt`, { type: "text/plain" })
+    );
+
+    await expect(api.uploadFiles(files)).rejects.toThrow("up to 10 files");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not expose raw database errors returned by contract endpoints", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      jsonResponse({ error: 'Failed query: select * from "users"' }, 500)
+    ));
+
+    await expect(api.getPersonas()).rejects.toThrow("Could not load personas.");
+  });
 });

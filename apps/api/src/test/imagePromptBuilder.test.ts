@@ -36,6 +36,9 @@ describe("imagePromptBuilder", () => {
 
     expect(prompt).toContain("Fictional persona: LaRae the Baddest");
     expect(prompt).toContain("Use the persona profile only as visual identity guidance");
+    expect(prompt).toContain("Persona character influences for scene and styling choices");
+    expect(prompt).toContain("high-end rooftop brunch party");
+    expect(prompt).toContain("The user's requested subject, setting, outfit, action, and constraints always take priority");
     expect(prompt).toContain("Miami nightlife beauty");
     expect(prompt).toContain("confident glamorous");
     expect(prompt).toContain("confident fashionable woman");
@@ -66,6 +69,7 @@ describe("imagePromptBuilder", () => {
     expect(prompt).toContain("This image request is not about the current persona");
     expect(prompt).toContain("puppy sleeping");
     expect(prompt).not.toContain("LaRae");
+    expect(prompt).not.toContain("Persona character influences for scene and styling choices");
     expect(prompt).not.toContain("Miami nightlife");
     expect(prompt).not.toContain("curvy");
     expect(prompt).not.toContain("Age:");
@@ -97,7 +101,19 @@ describe("imagePromptBuilder", () => {
       { includePersonaVisualReferences: true }
     );
 
-    expect(prompt).toContain("Two attached images are the persona's full-body and face visual references");
+    expect(prompt).toContain("separate attached full-body and face images are the persona's visual references");
+  });
+
+  it("tells the direct image path how to use one or more user image references", () => {
+    const input = imageInput("Turn these reference images into an editorial street-style portrait.");
+    input.attachments = [
+      { id: "asset_1", kind: "image", fileName: "look-one.jpg", mimeType: "image/jpeg", sizeBytes: 123 },
+      { id: "asset_2", kind: "image", fileName: "look-two.jpg", mimeType: "image/jpeg", sizeBytes: 456 }
+    ];
+
+    expect(buildImageGenerationPrompt(input, { includeUserImageReferences: true })).toContain(
+      "The user's attached image or images are source references for this edit"
+    );
   });
 
   it("includes persona profile details for avatar and character image requests", () => {
@@ -110,6 +126,7 @@ describe("imagePromptBuilder", () => {
     for (const prompt of prompts) {
       expect(prompt).toContain("Fictional persona: LaRae the Baddest");
       expect(prompt).toContain("Use the persona profile only as visual identity guidance");
+      expect(prompt).toContain("Persona character influences for scene and styling choices");
     }
   });
 
@@ -121,5 +138,6 @@ describe("imagePromptBuilder", () => {
     expect(prompt).toContain("This image request is not about the current persona");
     expect(prompt).not.toContain("Fictional persona: LaRae");
     expect(prompt).not.toContain("Use the persona profile only as visual identity guidance");
+    expect(prompt).not.toContain("Persona character influences for scene and styling choices");
   });
 });
