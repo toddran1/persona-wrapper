@@ -165,7 +165,7 @@ services:
       - key: VITE_API_URL
         value: https://for-the-baddiez-api-dev.onrender.com
       - key: VITE_SUPPORT_EMAIL
-        value: support@forthebaddiez.com
+        value: forthebaddiez.ai@gmail.com
       - key: VITE_TEST_MODE
         value: "false"
       - key: VITE_TELEMETRY_ENABLED
