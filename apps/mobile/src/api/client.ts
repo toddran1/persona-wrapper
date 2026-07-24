@@ -30,6 +30,7 @@ import type {
   RevokeOtherSessionsResponse,
   RestoreAccountRequest,
   ToolOptions,
+  UpdateUserProfileRequest,
   UploadedAsset
 } from "@persona/shared";
 import { getOwnerId } from "../storage/secureTokens";
@@ -239,6 +240,13 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
     username: typeof user.username === "string" ? user.username : null,
     displayName: typeof user.name === "string" ? user.name : null,
     avatarUrl: typeof user.image === "string" ? user.image : null,
+    preferredName: typeof user.preferredName === "string" ? user.preferredName : null,
+    gender: user.gender === "male" || user.gender === "female" || user.gender === "nonbinary" || user.gender === "other"
+      ? user.gender
+      : null,
+    birthday: typeof user.birthMonth === "number" && typeof user.birthDay === "number"
+      ? { month: user.birthMonth, day: user.birthDay }
+      : null,
     status: typeof user.status === "string" ? user.status : "active",
     deletionRequestedAt: user.deletionRequestedAt ? new Date(user.deletionRequestedAt as string | Date).toISOString() : null,
     deletionScheduledFor: user.deletionScheduledFor ? new Date(user.deletionScheduledFor as string | Date).toISOString() : null,
@@ -483,6 +491,11 @@ export const api = {
       user: toAuthUser(result.data.user as unknown as Record<string, unknown>),
       session: toAuthSession(result.data.session as unknown as Record<string, unknown>)
     };
+  },
+  updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {
+    const response = await contractClient.account.updateProfile({ body: payload });
+    if (response.status !== 200) throw contractError(response.body, "Could not update your profile.");
+    return response.body.user;
   },
   listActiveSessions: async (): Promise<ActiveSession[]> => {
     const [sessionsResult, currentResult] = await Promise.all([authClient.listSessions(), authClient.getSession()]);

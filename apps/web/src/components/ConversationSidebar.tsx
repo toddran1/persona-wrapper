@@ -5,6 +5,7 @@ import type {
   DataTransferJob,
   OAuthProvider,
   OAuthProviderStatus,
+  UpdateUserProfileRequest,
 } from "@persona/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -63,6 +64,7 @@ export function ConversationSidebar({
   onRestoreAccount,
   onRequestPasswordReset,
   onChangePassword,
+  onUpdateProfile,
   onListConnectedAccounts,
   onLinkConnectedAccount,
   onUnlinkConnectedAccount,
@@ -100,6 +102,7 @@ export function ConversationSidebar({
   onRestoreAccount: (identifier: string, password: string) => Promise<void>;
   onRequestPasswordReset: (email: string) => Promise<void>;
   onChangePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  onUpdateProfile: (profile: UpdateUserProfileRequest) => Promise<void>;
   onListConnectedAccounts: () => Promise<ConnectedAccount[]>;
   onLinkConnectedAccount: (provider: OAuthProvider) => Promise<void>;
   onUnlinkConnectedAccount: (providerId: string, accountId?: string) => Promise<void>;
@@ -142,6 +145,13 @@ export function ConversationSidebar({
   const [newPassword, setNewPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [securityNotice, setSecurityNotice] = useState<string | undefined>();
+  const [username, setUsername] = useState("");
+  const [usernameEditing, setUsernameEditing] = useState(false);
+  const [profileNotice, setProfileNotice] = useState<string | undefined>();
+  const [preferredName, setPreferredName] = useState("");
+  const [gender, setGender] = useState<AuthUser["gender"] | "">("");
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthDay, setBirthDay] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
   const settingsDialogRef = useRef<HTMLDivElement>(null);
@@ -168,11 +178,25 @@ export function ConversationSidebar({
   const primaryAuthText = "Log in | Create account";
   const busyAuthText = authMode === "login" ? "Logging in..." : authMode === "restore" ? "Restoring..." : authMode === "forgot" ? "Sending..." : "Creating...";
   const accountName =
-    authUser?.displayName ?? authUser?.username ?? authUser?.email ?? "Account";
+    authUser?.preferredName ?? authUser?.displayName ?? authUser?.username ?? authUser?.email ?? "Account";
   const accountDetail =
     authUser?.email ??
     (authUser?.username ? `@${authUser.username}` : "Signed in");
   const accountInitial = accountName.slice(0, 1).toUpperCase();
+
+  useEffect(() => {
+    setUsername(authUser?.username ?? "");
+    setPreferredName(authUser?.preferredName ?? "");
+    setGender(authUser?.gender ?? "");
+    setBirthMonth(authUser?.birthday?.month.toString() ?? "");
+    setBirthDay(authUser?.birthday?.day.toString() ?? "");
+  }, [authUser?.id, authUser?.username, authUser?.preferredName, authUser?.gender, authUser?.birthday?.month, authUser?.birthday?.day]);
+
+  useEffect(() => {
+    if (!profileNotice) return;
+    const timer = window.setTimeout(() => setProfileNotice(undefined), 2400);
+    return () => window.clearTimeout(timer);
+  }, [profileNotice]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -385,6 +409,67 @@ export function ConversationSidebar({
       setSecurityNotice("Password updated. Other devices were logged out.");
     } catch (error) {
       setLocalAuthError(error instanceof Error ? error.message : "Could not change your password.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function submitProfile(): Promise<void> {
+    const hasPartialBirthday = Boolean(birthMonth) !== Boolean(birthDay);
+    if (hasPartialBirthday) {
+      setLocalAuthError("Choose both a birthday month and day, or leave both blank.");
+      return;
+    }
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    setProfileNotice(undefined);
+    try {
+      await onUpdateProfile({
+        preferredName: preferredName.trim() || null,
+        gender: gender || null,
+        birthday: birthMonth && birthDay
+          ? { month: Number(birthMonth), day: Number(birthDay) }
+          : null
+      });
+      setProfileNotice("Changes saved");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not update your profile.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function saveUsername(): Promise<void> {
+    const nextUsername = username.trim();
+    if (!nextUsername) {
+      setLocalAuthError("A username cannot be blank.");
+      return;
+    }
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    setProfileNotice(undefined);
+    try {
+      await onUpdateProfile({ username: nextUsername });
+      setUsernameEditing(false);
+      setProfileNotice("Username saved");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not update your username.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function removeBirthday(): Promise<void> {
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    setProfileNotice(undefined);
+    try {
+      await onUpdateProfile({ birthday: null });
+      setBirthMonth("");
+      setBirthDay("");
+      setProfileNotice("Birthday removed");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not remove your birthday.");
     } finally {
       setAuthBusy(false);
     }
@@ -994,7 +1079,56 @@ export function ConversationSidebar({
                           </div>
                           <div className="settings-list-row">
                             <span>Username</span>
-                            <strong>{authUser.username ? `@${authUser.username}` : "Not added"}</strong>
+                            <div className="settings-identity-editor">
+                              {usernameEditing ? (
+                                <span className="settings-username-input-wrap">
+                                  <input
+                                    aria-label="Username"
+                                    type="text"
+                                    minLength={3}
+                                    maxLength={64}
+                                    autoCapitalize="none"
+                                    autoComplete="username"
+                                    spellCheck={false}
+                                    value={username}
+                                    onChange={(event) => setUsername(event.target.value)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") void saveUsername();
+                                      if (event.key === "Escape") {
+                                        setUsername(authUser.username ?? "");
+                                        setUsernameEditing(false);
+                                      }
+                                    }}
+                                    autoFocus
+                                    disabled={authBusy}
+                                  />
+                                </span>
+                              ) : (
+                                <strong>{authUser.username ? authUser.username : "Not added"}</strong>
+                              )}
+                              <button
+                                type="button"
+                                className="settings-identity-edit"
+                                aria-label={usernameEditing ? "Save username" : "Edit username"}
+                                title={usernameEditing ? "Save username" : "Edit username"}
+                                disabled={authBusy}
+                                onClick={() => {
+                                  if (usernameEditing) {
+                                    void saveUsername();
+                                  } else {
+                                    setLocalAuthError(undefined);
+                                    setUsername(authUser.username ?? "");
+                                    setUsernameEditing(true);
+                                  }
+                                }}
+                              >
+                                {usernameEditing ? (
+                                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
+                                ) : (
+                                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z" /><path d="m14.7 6.5 2.8 2.8" /></svg>
+                                )}
+                              </button>
+                            </div>
                           </div>
                           <div className="settings-list-row">
                             <span>Display name</span>
@@ -1003,6 +1137,71 @@ export function ConversationSidebar({
                           <div className="settings-list-row">
                             <span>Plan</span>
                             <strong>Free</strong>
+                          </div>
+                        </div>
+                        {profileNotice ? <span className="settings-save-confirmation" role="status">✓ {profileNotice}</span> : null}
+                        <div className="settings-subsection">
+                          <h4>Personalization</h4>
+                          <p className="settings-empty-copy">Optional details the personas can use when addressing you and tailoring answers.</p>
+                          <div className="settings-form-grid">
+                            <label>
+                              Preferred name
+                              <input
+                                type="text"
+                                maxLength={80}
+                                autoComplete="nickname"
+                                value={preferredName}
+                                onChange={(event) => setPreferredName(event.target.value)}
+                                placeholder="What should the personas call you?"
+                                disabled={authBusy}
+                              />
+                            </label>
+                            <label>
+                              Gender
+                              <select value={gender ?? ""} onChange={(event) => setGender(event.target.value as AuthUser["gender"] | "")} disabled={authBusy}>
+                                <option value="">Not specified</option>
+                                <option value="female">Female</option>
+                                <option value="male">Male</option>
+                                <option value="nonbinary">Nonbinary</option>
+                                <option value="other">Other</option>
+                              </select>
+                            </label>
+                            <div className="settings-birthday-fields">
+                              <label>
+                                Birthday month
+                                <select value={birthMonth} onChange={(event) => setBirthMonth(event.target.value)} disabled={authBusy}>
+                                  <option value="">Month</option>
+                                  {Array.from({ length: 12 }, (_, index) => (
+                                    <option key={index + 1} value={index + 1}>
+                                      {new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(2000, index, 1))}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                Birthday day
+                                <select value={birthDay} onChange={(event) => setBirthDay(event.target.value)} disabled={authBusy}>
+                                  <option value="">Day</option>
+                                  {Array.from({ length: 31 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
+                                </select>
+                              </label>
+                            </div>
+                            {birthMonth && birthDay ? (
+                              <button type="button" className="settings-inline-action settings-birthday-remove" onClick={() => void removeBirthday()} disabled={authBusy} aria-label="Remove birthday">
+                                <span aria-hidden="true">×</span> Remove birthday
+                              </button>
+                            ) : null}
+                            <div className="settings-profile-save-row">
+                              <button
+                                type="button"
+                                className="settings-action settings-action-primary"
+                                onClick={() => void submitProfile()}
+                                disabled={authBusy || Boolean(birthMonth) !== Boolean(birthDay)}
+                                title={Boolean(birthMonth) !== Boolean(birthDay) ? "Choose both a birthday month and day to save." : undefined}
+                              >
+                                {authBusy ? "Saving..." : "Save changes"}
+                              </button>
+                            </div>
                           </div>
                         </div>
                         <div className="settings-coming-soon">

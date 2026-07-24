@@ -35,4 +35,22 @@ describe("PersonaEngine", () => {
     expect(prompt).not.toContain("Catchphrases:");
     expect(prompt).not.toContain("Clock it.");
   });
+
+  it("adds optional user personalization without inferring age or pronouns", () => {
+    const persona = getPersonaById("larae");
+    const engine = new PersonaEngine();
+
+    expect(persona).toBeDefined();
+
+    const prompt = engine.createSystemPrompt(persona!, {
+      preferredName: "Reggie",
+      gender: "male",
+      birthday: { month: 2, day: 29 }
+    });
+
+    expect(prompt).toContain("Preferred name: Reggie");
+    expect(prompt).toContain("Gender: male");
+    expect(prompt).toContain("Birthday: February 29");
+    expect(prompt).toContain("do not infer the user's age or pronouns");
+  });
 });

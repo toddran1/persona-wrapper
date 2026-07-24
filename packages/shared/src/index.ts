@@ -242,12 +242,44 @@ export type AuthClientType = z.infer<typeof authClientTypeSchema>;
 export const oauthProviderSchema = z.enum(["google", "facebook"]);
 export type OAuthProvider = z.infer<typeof oauthProviderSchema>;
 
+export const userGenderSchema = z.enum(["male", "female", "nonbinary", "other"]);
+export type UserGender = z.infer<typeof userGenderSchema>;
+
+function isValidMonthDay(value: { month: number; day: number }): boolean {
+  const date = new Date(Date.UTC(2000, value.month - 1, value.day));
+  return date.getUTCMonth() === value.month - 1 && date.getUTCDate() === value.day;
+}
+
+export const userBirthdaySchema = z.object({
+  month: z.number().int().min(1).max(12),
+  day: z.number().int().min(1).max(31)
+}).refine(isValidMonthDay, { message: "Enter a valid month and day." });
+export type UserBirthday = z.infer<typeof userBirthdaySchema>;
+
+export const userPersonalizationProfileSchema = z.object({
+  preferredName: z.string().trim().min(1).max(80).nullable().optional(),
+  gender: userGenderSchema.nullable().optional(),
+  birthday: userBirthdaySchema.nullable().optional()
+});
+export type UserPersonalizationProfile = z.infer<typeof userPersonalizationProfileSchema>;
+
+export const updateUserProfileRequestSchema = userPersonalizationProfileSchema.extend({
+  username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_.]+$/, "Use letters, numbers, periods, or underscores only.").optional()
+}).refine(
+  (value) => value.preferredName !== undefined || value.gender !== undefined || value.birthday !== undefined || value.username !== undefined,
+  { message: "At least one profile field must be provided." }
+);
+export type UpdateUserProfileRequest = z.infer<typeof updateUserProfileRequestSchema>;
+
 export const authUserSchema = z.object({
   id: z.string(),
   email: z.string().email().nullable().optional(),
   username: z.string().nullable().optional(),
   displayName: z.string().nullable().optional(),
   avatarUrl: z.string().nullable().optional(),
+  preferredName: z.string().nullable().optional(),
+  gender: userGenderSchema.nullable().optional(),
+  birthday: userBirthdaySchema.nullable().optional(),
   status: z.string(),
   deletionRequestedAt: z.string().nullable().optional(),
   deletionScheduledFor: z.string().nullable().optional(),
@@ -695,6 +727,9 @@ export const forTheBaddiezArchiveSchema = z.object({
     username: z.string().nullable().optional(),
     displayName: z.string().nullable().optional(),
     avatarUrl: z.string().nullable().optional(),
+    preferredName: z.string().nullable().optional(),
+    gender: userGenderSchema.nullable().optional(),
+    birthday: userBirthdaySchema.nullable().optional(),
     createdAt: z.string().datetime().optional()
   }).optional(),
   conversations: z.array(portableConversationSchema).max(10000),
@@ -914,6 +949,12 @@ export const apiContract = contract.router({
     }
   }),
   account: contract.router({
+    updateProfile: {
+      method: "PATCH",
+      path: "/api/account/profile",
+      body: updateUserProfileRequestSchema,
+      responses: { 200: z.object({ user: authUserSchema }), 400: apiErrorSchema, 401: apiErrorSchema, 404: apiErrorSchema, 409: apiErrorSchema, 503: apiErrorSchema }
+    },
     restore: {
       method: "POST",
       path: "/api/account/restore",

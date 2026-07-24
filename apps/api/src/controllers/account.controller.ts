@@ -1,6 +1,11 @@
 import type { Request, Response } from "express";
 import { and, eq, or } from "drizzle-orm";
-import { deleteAccountRequestSchema, restoreAccountRequestSchema } from "@persona/shared";
+import {
+  deleteAccountRequestSchema,
+  restoreAccountRequestSchema,
+  updateUserProfileRequestSchema,
+  type AuthUser
+} from "@persona/shared";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { betterAuthAccounts, betterAuthSessions, users } from "../db/schema.js";
@@ -14,6 +19,62 @@ function requireDatabase() {
   const db = getDatabase();
   if (!db) throw new HttpError("Authentication requires DATABASE_URL.", 503);
   return db;
+}
+
+function toAuthUser(user: typeof users.$inferSelect): AuthUser {
+  return {
+    id: user.id,
+    email: user.email.endsWith("@users.invalid") ? null : user.email,
+    username: user.username,
+    displayName: user.displayName,
+    avatarUrl: user.avatarUrl,
+    preferredName: user.preferredName,
+    gender: user.gender === "male" || user.gender === "female" || user.gender === "nonbinary" || user.gender === "other"
+      ? user.gender
+      : null,
+    birthday: user.birthMonth !== null && user.birthDay !== null
+      ? { month: user.birthMonth, day: user.birthDay }
+      : null,
+    status: user.status,
+    deletionRequestedAt: user.deletionRequestedAt?.toISOString() ?? null,
+    deletionScheduledFor: user.deletionScheduledFor?.toISOString() ?? null,
+    createdAt: user.createdAt.toISOString(),
+    updatedAt: user.updatedAt.toISOString()
+  };
+}
+
+export async function updateProfile(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  const payload = updateUserProfileRequestSchema.parse(request.body);
+  const db = requireDatabase();
+  const username = payload.username?.toLowerCase();
+  if (username) {
+    const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
+    if (existingUser && existingUser.id !== request.auth.userId) {
+      throw new HttpError("That username is already taken.", 409);
+    }
+  }
+
+  let user: typeof users.$inferSelect | undefined;
+  try {
+    [user] = await db.update(users).set({
+      ...(username !== undefined ? { username, displayUsername: payload.username?.trim() } : {}),
+      ...(payload.preferredName !== undefined ? { preferredName: payload.preferredName } : {}),
+      ...(payload.gender !== undefined ? { gender: payload.gender } : {}),
+      ...(payload.birthday !== undefined ? {
+        birthMonth: payload.birthday?.month ?? null,
+        birthDay: payload.birthday?.day ?? null
+      } : {}),
+      updatedAt: new Date()
+    }).where(and(eq(users.id, request.auth.userId), eq(users.status, "active"))).returning();
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+      throw new HttpError("That username is already taken.", 409);
+    }
+    throw error;
+  }
+  if (!user) throw new HttpError("Account is unavailable.", 404);
+  response.status(200).json({ user: toAuthUser(user) });
 }
 
 export async function restoreAccount(request: Request, response: Response): Promise<void> {

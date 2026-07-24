@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ConversationSidebar } from "../components/ConversationSidebar.js";
@@ -6,7 +6,8 @@ import { ConversationSidebar } from "../components/ConversationSidebar.js";
 const now = "2026-07-24T05:00:00.000Z";
 
 function renderSidebar() {
-  return render(
+  const onUpdateProfile = vi.fn().mockResolvedValue(undefined);
+  const view = render(
     <ConversationSidebar
       personaName="LaRae the Baddest"
       authUser={{
@@ -14,6 +15,7 @@ function renderSidebar() {
         email: "settings@example.com",
         username: "settingsuser",
         displayName: "Settings User",
+        birthday: { month: 12, day: 19 },
         status: "active",
         createdAt: now,
         updatedAt: now,
@@ -28,6 +30,7 @@ function renderSidebar() {
       onRestoreAccount={vi.fn()}
       onRequestPasswordReset={vi.fn()}
       onChangePassword={vi.fn()}
+      onUpdateProfile={onUpdateProfile}
       onListConnectedAccounts={vi.fn().mockResolvedValue([
         {
           id: "account_credential",
@@ -52,12 +55,13 @@ function renderSidebar() {
       onPinConversation={vi.fn()}
     />,
   );
+  return { onUpdateProfile, ...view };
 }
 
 describe("ConversationSidebar settings", () => {
   it("keeps the account menu compact and moves account controls into the settings modal", async () => {
     const user = userEvent.setup();
-    renderSidebar();
+    const { onUpdateProfile } = renderSidebar();
 
     await user.click(screen.getByTestId("account-menu-toggle"));
     const menu = screen.getByRole("menu", { name: "Account menu" });
@@ -68,6 +72,12 @@ describe("ConversationSidebar settings", () => {
     const dialog = screen.getByRole("dialog", { name: "Settings" });
     expect(within(dialog).getByText("settings@example.com")).toBeInTheDocument();
     expect(within(dialog).getByText("Coming soon")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Edit username" }));
+    expect(within(dialog).getByLabelText("Username")).toHaveValue("settingsuser");
+    await user.click(within(dialog).getByRole("button", { name: "Save username" }));
+    await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ username: "settingsuser" }));
+    await user.click(within(dialog).getByRole("button", { name: "Remove birthday" }));
+    await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ birthday: null }));
 
     await user.click(within(dialog).getByRole("button", { name: "Security & sign-in" }));
     expect(await within(dialog).findByRole("heading", { name: "Connected accounts" })).toBeInTheDocument();

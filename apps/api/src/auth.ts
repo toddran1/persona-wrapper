@@ -86,7 +86,11 @@ export const auth = database ? betterAuth({
     additionalFields: {
       status: { type: "string", required: true, defaultValue: "active", input: false },
       deletionRequestedAt: { type: "date", required: false, input: false },
-      deletionScheduledFor: { type: "date", required: false, input: false }
+      deletionScheduledFor: { type: "date", required: false, input: false },
+      preferredName: { type: "string", required: false, input: false },
+      gender: { type: "string", required: false, input: false },
+      birthMonth: { type: "number", required: false, input: false },
+      birthDay: { type: "number", required: false, input: false }
     }
   },
   session: {

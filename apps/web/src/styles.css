@@ -1045,6 +1045,85 @@ textarea {
   white-space: nowrap;
 }
 
+.settings-identity-editor {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 70%;
+}
+
+.settings-username-input-wrap {
+  display: flex;
+  align-items: center;
+  min-width: 132px;
+  border-bottom: 1px solid rgba(188, 135, 255, 0.68);
+  color: rgba(255, 248, 239, 0.75);
+}
+
+.settings-username-input-wrap input {
+  width: min(190px, 24vw);
+  min-width: 90px;
+  border: 0;
+  padding: 4px 2px;
+  color: #fff8ef;
+  background: transparent;
+  font: inherit;
+  font-weight: 780;
+  outline: none;
+}
+
+.settings-identity-edit {
+  display: grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(214, 181, 94, 0.18);
+  border-radius: 8px;
+  color: rgba(255, 231, 164, 0.88);
+  background: rgba(214, 181, 94, 0.07);
+  cursor: pointer;
+}
+
+.settings-identity-edit:hover,
+.settings-identity-edit:focus-visible {
+  border-color: rgba(214, 181, 94, 0.48);
+  background: rgba(214, 181, 94, 0.14);
+  outline: none;
+}
+
+.settings-identity-edit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.settings-identity-edit svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+  margin: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+  transform: translateY(-0.5px);
+}
+
+.settings-save-confirmation {
+  justify-self: start;
+  padding: 5px 8px;
+  border: 1px solid rgba(214, 181, 94, 0.2);
+  border-radius: 999px;
+  color: rgba(255, 238, 185, 0.9);
+  background: rgba(214, 181, 94, 0.08);
+  font-size: 0.62rem;
+  font-weight: 820;
+}
+
 .settings-coming-soon {
   position: relative;
   display: grid;
@@ -1115,6 +1194,7 @@ textarea {
 }
 
 .settings-form-grid input,
+.settings-form-grid select,
 .settings-delete-confirmation input {
   width: 100%;
   min-height: 42px;
@@ -1128,9 +1208,47 @@ textarea {
 }
 
 .settings-form-grid input:focus,
+.settings-form-grid select:focus,
 .settings-delete-confirmation input:focus {
   border-color: rgba(188, 135, 255, 0.56);
   box-shadow: 0 0 0 3px rgba(188, 135, 255, 0.1);
+}
+
+.settings-form-grid select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid rgba(214, 181, 94, 0.16);
+  border-radius: 11px;
+  padding: 0 12px;
+  color: #fff8ef;
+  background: #17111f;
+  font: inherit;
+  outline: none;
+}
+
+.settings-birthday-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(88px, 0.7fr);
+  gap: 10px;
+}
+
+.settings-birthday-remove {
+  justify-self: start;
+}
+
+.settings-birthday-remove span {
+  display: inline-block;
+  margin-right: 3px;
+  font-size: 1rem;
+  line-height: 0.7;
+  vertical-align: -1px;
+}
+
+.settings-profile-save-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .settings-action-row {

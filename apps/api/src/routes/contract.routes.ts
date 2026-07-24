@@ -1,7 +1,7 @@
 import { apiContract, type UploadPresignRequest } from "@persona/shared";
 import { initServer } from "@ts-rest/express";
 import type { Request, Response } from "express";
-import { deleteAccount, getOAuthProviders, restoreAccount } from "../controllers/account.controller.js";
+import { deleteAccount, getOAuthProviders, restoreAccount, updateProfile } from "../controllers/account.controller.js";
 import {
   cancelChatJob,
   deleteConversation,
@@ -118,6 +118,7 @@ export const apiContractRouter = server.router(apiContract, {
     reportOutput: captured(postUnsafeOutputReport)
   },
   account: {
+    updateProfile: captured(updateProfile),
     restore: captured(restoreAccount),
     remove: captured(deleteAccount),
     oauthProviders: captured(getOAuthProviders)

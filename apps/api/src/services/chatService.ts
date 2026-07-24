@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { llmOutputSchema, type ChatMessage, type ChatRequest, type ChatResponse, type ContentBlock } from "@persona/shared";
+import { llmOutputSchema, type ChatMessage, type ChatRequest, type ChatResponse, type ContentBlock, type UserPersonalizationProfile } from "@persona/shared";
+import { eq } from "drizzle-orm";
 import type { TTSOutput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
 import { createLLMProvider } from "../providers/llm/providerFactory.js";
@@ -18,6 +19,8 @@ import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
 import { CONVERSATION_MEDIA_UNAVAILABLE_TEXT, resolveConversationMediaContext } from "./conversationMediaContext.js";
 import { openAIArtifactService } from "./openAIArtifactService.js";
 import { applyPersonaPhraseReplacements } from "./personaPhraseReplacementService.js";
+import { getDatabase } from "../db/client.js";
+import { users } from "../db/schema.js";
 
 export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
@@ -81,6 +84,27 @@ function hasErrorLikeContent(blocks: ContentBlock[], rawText?: string): boolean 
     if (block.type === "text" && isErrorLikeText(block.text)) return true;
     return false;
   });
+}
+
+async function loadUserPersonalizationProfile(ownerId?: string): Promise<UserPersonalizationProfile | undefined> {
+  const db = getDatabase();
+  if (!db || !ownerId) return undefined;
+  const [user] = await db.select({
+    preferredName: users.preferredName,
+    gender: users.gender,
+    birthMonth: users.birthMonth,
+    birthDay: users.birthDay
+  }).from(users).where(eq(users.id, ownerId)).limit(1);
+  if (!user) return undefined;
+  return {
+    preferredName: user.preferredName,
+    gender: user.gender === "male" || user.gender === "female" || user.gender === "nonbinary" || user.gender === "other"
+      ? user.gender
+      : null,
+    birthday: user.birthMonth !== null && user.birthDay !== null
+      ? { month: user.birthMonth, day: user.birthDay }
+      : null
+  };
 }
 
 export class ChatService {
@@ -214,13 +238,14 @@ export class ChatService {
       });
     }
 
+    const userProfile = await loadUserPersonalizationProfile(options.ownerId);
     const llmProvider = createLLMProvider(request.provider);
     const llmInput = this.personaEngine.prepareInput(persona, {
       ...request,
       attachments: [...(request.attachments ?? []), ...conversationMediaAttachments.attachments],
       conversationId: conversation.id,
       history: this.conversationStore.getPromptContext(conversation)
-    });
+    }, userProfile);
     const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext);
     if (toolContext) {
       llmInput.messages = insertToolContext(llmInput.messages, toolContext);

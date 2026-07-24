@@ -234,7 +234,20 @@ export class DataTransferService {
     return forTheBaddiezArchiveSchema.parse({
       ...archive,
       scope: "account",
-      ...(user ? { account: { email: user.email, username: user.username, displayName: user.displayName, avatarUrl: user.avatarUrl, createdAt: user.createdAt.toISOString() } } : {}),
+      ...(user ? {
+        account: {
+          email: user.email,
+          username: user.username,
+          displayName: user.displayName,
+          avatarUrl: user.avatarUrl,
+          preferredName: user.preferredName,
+          gender: user.gender,
+          birthday: user.birthMonth !== null && user.birthDay !== null
+            ? { month: user.birthMonth, day: user.birthDay }
+            : null,
+          createdAt: user.createdAt.toISOString()
+        }
+      } : {}),
       media: [
         ...ownedUploads.map((item) => ({ kind: "upload" as const, fileName: item.fileName, mimeType: item.mimeType, createdAt: item.createdAt.toISOString() })),
         ...media.map((item) => ({ kind: "generated_media" as const, fileName: item.fileName, mimeType: item.mimeType, createdAt: item.createdAt.toISOString() })),

@@ -1278,6 +1278,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           onRestoreAccount={handleRestoreAccount}
           onRequestPasswordReset={api.requestPasswordReset}
           onChangePassword={api.changePassword}
+          onUpdateProfile={async (profile) => {
+            setAuthUser(await api.updateProfile(profile));
+          }}
           onListConnectedAccounts={api.listConnectedAccounts}
           onLinkConnectedAccount={api.linkConnectedAccount}
           onUnlinkConnectedAccount={api.unlinkConnectedAccount}

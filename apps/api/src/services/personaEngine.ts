@@ -2,7 +2,8 @@ import type {
   ChatMessage,
   ChatRequest,
   LLMInput,
-  PersonaDefinition
+  PersonaDefinition,
+  UserPersonalizationProfile
 } from "@persona/shared";
 import { getToolsByNames } from "../providers/tools/toolRegistry.js";
 
@@ -33,8 +34,24 @@ function characterInfluencePrompt(persona: PersonaDefinition): string[] {
   ];
 }
 
+function userPersonalizationPrompt(profile?: UserPersonalizationProfile): string[] {
+  if (!profile?.preferredName && !profile?.gender && !profile?.birthday) return [];
+  const birthday = profile.birthday
+    ? new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", timeZone: "UTC" })
+      .format(new Date(Date.UTC(2000, profile.birthday.month - 1, profile.birthday.day)))
+    : undefined;
+  return [
+    "User-provided personalization profile:",
+    ...(profile.preferredName ? [`Preferred name: ${profile.preferredName}`] : []),
+    ...(profile.gender ? [`Gender: ${profile.gender}`] : []),
+    ...(birthday ? [`Birthday: ${birthday} (year intentionally not provided)`] : []),
+    "Use these details only when they naturally improve how you address or tailor the answer.",
+    "Do not mention that profile data was supplied, do not stereotype based on gender, and do not infer the user's age or pronouns."
+  ];
+}
+
 export class PersonaEngine {
-  createSystemPrompt(persona: PersonaDefinition): string {
+  createSystemPrompt(persona: PersonaDefinition, userProfile?: UserPersonalizationProfile): string {
     return [
       `You are ${persona.name}, a fictional AI persona.`,
       `Biography: ${persona.biography}`,
@@ -43,6 +60,7 @@ export class PersonaEngine {
       `Catchphrases: ${persona.catchphrases.join(" | ")}`,
       `Visual style: ${persona.visualStyle.join(", ")}`,
       ...characterInfluencePrompt(persona),
+      ...userPersonalizationPrompt(userProfile),
       `Safety boundaries: ${persona.safetyBoundaries.join(" ")}`,
       "Stay entertaining, stylized, and coherent.",
       "Return multimodal output when useful, not only plain text.",
@@ -50,11 +68,12 @@ export class PersonaEngine {
     ].join("\n");
   }
 
-  createBaseSystemPrompt(persona: PersonaDefinition): string {
+  createBaseSystemPrompt(persona: PersonaDefinition, userProfile?: UserPersonalizationProfile): string {
     return [
       `You are generating a base answer for ${persona.name}.`,
       `Use a light version of this persona: ${persona.personalityTraits.join(", ")}.`,
       ...characterInfluencePrompt(persona),
+      ...userPersonalizationPrompt(userProfile),
       `Keep the rhythm conversational and confident, with only mild slang when it fits.`,
       "Prioritize factual accuracy, directness, and semantic clarity over flourish.",
       "Do not use catchphrases, signature lines, or repeated branded phrases.",
@@ -78,9 +97,9 @@ export class PersonaEngine {
     ];
   }
 
-  prepareInput(persona: PersonaDefinition, request: ChatRequest): LLMInput {
-    const systemPrompt = this.createSystemPrompt(persona);
-    const baseSystemPrompt = this.createBaseSystemPrompt(persona);
+  prepareInput(persona: PersonaDefinition, request: ChatRequest, userProfile?: UserPersonalizationProfile): LLMInput {
+    const systemPrompt = this.createSystemPrompt(persona, userProfile);
+    const baseSystemPrompt = this.createBaseSystemPrompt(persona, userProfile);
     const messages = this.buildMessages(systemPrompt, request.history, request.message);
     const baseMessages = this.buildMessages(baseSystemPrompt, request.history, request.message);
 

@@ -182,7 +182,26 @@ function formatSessionActivity(value: string): string {
   return `Last active ${date.toLocaleString()}`;
 }
 
-type SettingsPanel = "main" | "security" | "sessions" | "about" | "data";
+type SettingsPanel = "main" | "profile" | "security" | "sessions" | "about" | "data";
+type ProfileSelectionKind = "gender" | "month" | "day";
+
+const PROFILE_GENDER_OPTIONS = [
+  { value: "", label: "Not specified" },
+  { value: "female", label: "Female" },
+  { value: "male", label: "Male" },
+  { value: "nonbinary", label: "Nonbinary" },
+  { value: "other", label: "Other" }
+] as const;
+const PROFILE_MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => ({
+  value: String(index + 1),
+  label: new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(2000, index, 1))
+}));
+
+function profileDaysInMonth(month: string): number {
+  const monthNumber = Number(month);
+  if (!Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) return 31;
+  return new Date(2000, monthNumber, 0).getDate();
+}
 
 export function MobileChatScreen() {
   const { t } = useLocalization();
@@ -232,6 +251,15 @@ export function MobileChatScreen() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirmation, setNewPasswordConfirmation] = useState("");
+  const [profileUsername, setProfileUsername] = useState("");
+  const [preferredName, setPreferredName] = useState("");
+  const [profileGender, setProfileGender] = useState<AuthUser["gender"] | "">("");
+  const [birthMonth, setBirthMonth] = useState("");
+  const [birthDay, setBirthDay] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileError, setProfileError] = useState<string | undefined>();
+  const [profileNotice, setProfileNotice] = useState<string | undefined>();
+  const [profileSelection, setProfileSelection] = useState<ProfileSelectionKind | undefined>();
   const [authMode, setAuthMode] = useState<MobileAuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [assistantActionTurn, setAssistantActionTurn] = useState<RenderedTurn | undefined>();
@@ -505,6 +533,81 @@ export function MobileChatScreen() {
     setSettingsPanel(panel);
     if (panel === "sessions") void refreshActiveSessions();
     if (panel === "security") void refreshConnectedAccounts();
+  }
+
+  useEffect(() => {
+    setProfileUsername(authUser?.username ?? "");
+    setPreferredName(authUser?.preferredName ?? "");
+    setProfileGender(authUser?.gender ?? "");
+    setBirthMonth(authUser?.birthday?.month.toString() ?? "");
+    setBirthDay(authUser?.birthday?.day.toString() ?? "");
+  }, [authUser?.id, authUser?.username, authUser?.preferredName, authUser?.gender, authUser?.birthday?.month, authUser?.birthday?.day]);
+
+  useEffect(() => {
+    if (!profileNotice) return;
+    const timer = setTimeout(() => setProfileNotice(undefined), 2400);
+    return () => clearTimeout(timer);
+  }, [profileNotice]);
+
+  function selectProfileOption(value: string): void {
+    if (profileSelection === "gender") {
+      setProfileGender(value as AuthUser["gender"] | "");
+    } else if (profileSelection === "month") {
+      setBirthMonth(value);
+      if (birthDay && Number(birthDay) > profileDaysInMonth(value)) setBirthDay("");
+    } else if (profileSelection === "day") {
+      setBirthDay(value);
+    }
+    setProfileSelection(undefined);
+    setProfileError(undefined);
+  }
+
+  async function savePersonalizationProfile(): Promise<void> {
+    if (Boolean(birthMonth) !== Boolean(birthDay)) {
+      setProfileError("Enter both a birthday month and day, or leave both blank.");
+      return;
+    }
+    const nextUsername = profileUsername.trim();
+    if (authUser?.username && !nextUsername) {
+      setProfileError("A username cannot be blank. Enter a new username instead.");
+      return;
+    }
+    setProfileBusy(true);
+    setProfileError(undefined);
+    setProfileNotice(undefined);
+    try {
+      const updatedUser = await api.updateProfile({
+        ...(nextUsername ? { username: nextUsername } : {}),
+        preferredName: preferredName.trim() || null,
+        gender: profileGender || null,
+        birthday: birthMonth && birthDay
+          ? { month: Number(birthMonth), day: Number(birthDay) }
+          : null
+      });
+      setAuthUser(updatedUser);
+      setProfileNotice("Changes saved");
+    } catch (profileSaveError) {
+      setProfileError(profileSaveError instanceof Error ? profileSaveError.message : "Could not update your profile.");
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  async function removeBirthday(): Promise<void> {
+    setProfileBusy(true);
+    setProfileError(undefined);
+    setProfileNotice(undefined);
+    try {
+      const updatedUser = await api.updateProfile({ birthday: null });
+      setAuthUser(updatedUser);
+      setBirthMonth("");
+      setBirthDay("");
+      setProfileNotice("Birthday removed");
+    } catch (profileRemoveError) {
+      setProfileError(profileRemoveError instanceof Error ? profileRemoveError.message : "Could not remove your birthday.");
+    } finally {
+      setProfileBusy(false);
+    }
   }
 
   async function refreshConnectedAccounts(): Promise<void> {
@@ -2096,6 +2199,22 @@ export function MobileChatScreen() {
     .filter((output): output is Extract<RenderedTurn["outputs"][number], { type: "source_list" }> => output.type === "source_list")
     .flatMap((output) => output.sources) ?? [];
   const canRetryAssistantAction = Boolean(assistantActionTurn && turns[turns.length - 1]?.id === assistantActionTurn.id);
+  const profileSelectionOptions = profileSelection === "gender"
+    ? PROFILE_GENDER_OPTIONS
+    : profileSelection === "month"
+      ? PROFILE_MONTH_OPTIONS
+      : Array.from({ length: profileDaysInMonth(birthMonth) }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }));
+  const selectedProfileOption = profileSelection === "gender"
+    ? profileGender ?? ""
+    : profileSelection === "month"
+      ? birthMonth
+      : birthDay;
+  const profileBirthdayIncomplete = Boolean(birthMonth) !== Boolean(birthDay);
+  const profileSelectionTitle = profileSelection === "gender"
+    ? "Select gender"
+    : profileSelection === "month"
+      ? "Select birth month"
+      : "Select birth day";
   const handlePersonaExpandedChange = (expanded: boolean): void => {
     setPersonaCardExpanded(expanded);
     if (expanded) setPersonaCardHidden(false);
@@ -2453,7 +2572,7 @@ export function MobileChatScreen() {
             </Pressable>
             {settingsPanel !== "main" ? (
               <Text style={[styles.settingsPanelTitle, { color: theme.text }]}>
-                {settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "about" ? "About" : "Your data"}
+                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "about" ? "About" : "Your data"}
               </Text>
             ) : null}
           </View>
@@ -2462,11 +2581,11 @@ export function MobileChatScreen() {
               <View style={styles.settingsProfile}>
                 <View style={[styles.settingsAvatar, { backgroundColor: theme.accent }]}>
                   <Text style={[styles.settingsAvatarText, { color: theme.text }]}>
-                    {(authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? authUser?.email?.[0] ?? "P").toUpperCase()}
+                    {(authUser?.preferredName?.[0] ?? authUser?.displayName?.[0] ?? authUser?.username?.[0] ?? authUser?.email?.[0] ?? "P").toUpperCase()}
                   </Text>
                 </View>
                 <Text style={[styles.settingsName, { color: theme.text }]} numberOfLines={1}>
-                  {authUser?.displayName ?? authUser?.username ?? "Account"}
+                  {authUser?.preferredName ?? authUser?.displayName ?? authUser?.username ?? "Account"}
                 </Text>
                 {authUser?.email ? <Text style={[styles.settingsEmail, { color: theme.muted }]} numberOfLines={1}>{authUser.email}</Text> : null}
               </View>
@@ -2490,6 +2609,14 @@ export function MobileChatScreen() {
               </View>
               <View style={styles.settingsSection}>
                 <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Account</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open personalization profile" onPress={() => openSettingsPanel("profile")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="person-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Personalization</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Preferred name, gender, and birthday</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
                 <Pressable accessibilityRole="button" testID="mobile-logout" onPress={() => void logout()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
                   <Ionicons name="log-out-outline" size={22} color={theme.text} />
                   <Text style={[styles.settingsRowText, { color: theme.text }]}>Log out</Text>
@@ -2535,6 +2662,103 @@ export function MobileChatScreen() {
                 </Pressable>
               </View>
             </>
+          ) : null}
+          {settingsPanel === "profile" ? (
+            <View style={styles.settingsSection}>
+              <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>
+                These details are optional. Personas use them only when they naturally improve how they address you or tailor an answer.
+              </Text>
+              <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Username</Text>
+              <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Used to sign in. Letters, numbers, periods, and underscores only.</Text>
+              <TextInput
+                accessibilityLabel="Username"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="username"
+                maxLength={64}
+                value={profileUsername}
+                onChangeText={setProfileUsername}
+                placeholder="Choose a username"
+                placeholderTextColor={theme.muted}
+                style={[styles.loginInput, styles.profileTextInput, { borderColor: theme.border, color: theme.text }]}
+              />
+              <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Preferred name</Text>
+              <TextInput
+                accessibilityLabel="Preferred name"
+                autoCapitalize="words"
+                autoComplete="name"
+                maxLength={80}
+                value={preferredName}
+                onChangeText={setPreferredName}
+                placeholder="What should the personas call you?"
+                placeholderTextColor={theme.muted}
+                style={[styles.loginInput, styles.profileTextInput, { borderColor: theme.border, color: theme.text }]}
+              />
+              <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Gender</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Select gender"
+                onPress={() => setProfileSelection("gender")}
+                style={[styles.profileSelectField, { borderColor: theme.border }]}
+              >
+                <Text style={[styles.profileSelectText, { color: theme.text }]}>
+                  {PROFILE_GENDER_OPTIONS.find((option) => option.value === profileGender)?.label ?? "Not specified"}
+                </Text>
+                <Ionicons name="chevron-down" size={20} color={theme.accent2} />
+              </Pressable>
+              <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Birthday</Text>
+              <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Month and day only. We do not ask for the year.</Text>
+              <View style={styles.profileBirthdayRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Select birthday month"
+                  onPress={() => setProfileSelection("month")}
+                  style={[styles.profileSelectField, styles.profileBirthdayInput, { borderColor: theme.border }]}
+                >
+                  <Text numberOfLines={1} style={[styles.profileSelectText, { color: birthMonth ? theme.text : theme.muted }]}>
+                    {PROFILE_MONTH_OPTIONS.find((option) => option.value === birthMonth)?.label ?? "Month"}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color={theme.accent2} />
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Select birthday day"
+                  onPress={() => setProfileSelection("day")}
+                  style={[styles.profileSelectField, styles.profileBirthdayInput, { borderColor: theme.border }]}
+                >
+                  <Text style={[styles.profileSelectText, { color: birthDay ? theme.text : theme.muted }]}>{birthDay || "Day"}</Text>
+                  <Ionicons name="chevron-down" size={20} color={theme.accent2} />
+                </Pressable>
+              </View>
+              {birthMonth && birthDay ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove birthday"
+                  disabled={profileBusy}
+                  onPress={() => void removeBirthday()}
+                  style={[styles.profileBirthdayRemove, { borderColor: "rgba(255,180,192,0.24)", backgroundColor: "rgba(127,31,58,0.12)", opacity: profileBusy ? 0.55 : 1 }]}
+                >
+                  <Ionicons name="close-circle-outline" size={18} color={theme.danger} />
+                  <Text style={{ color: theme.danger, fontWeight: "800" }}>Remove birthday</Text>
+                </Pressable>
+              ) : null}
+              {profileError ? <Text style={[styles.sessionErrorText, { color: theme.danger }]}>{profileError}</Text> : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: profileBusy || profileBirthdayIncomplete }}
+                disabled={profileBusy || profileBirthdayIncomplete}
+                onPress={() => void savePersonalizationProfile()}
+                style={[styles.settingsRow, { justifyContent: "center", backgroundColor: theme.accent2, opacity: profileBusy || profileBirthdayIncomplete ? 0.45 : 1 }]}
+              >
+                {profileBusy ? <ActivityIndicator size="small" color="#170f20" /> : <Text style={{ color: "#170f20", fontWeight: "900" }}>Save changes</Text>}
+              </Pressable>
+              {profileNotice ? (
+                <View accessibilityRole="alert" style={[styles.profileSaveConfirmation, { borderColor: "rgba(214,181,94,0.24)", backgroundColor: "rgba(214,181,94,0.09)" }]}>
+                  <Ionicons name="checkmark-circle" size={18} color={theme.accent2} />
+                  <Text style={{ color: theme.text, fontWeight: "800" }}>{profileNotice}</Text>
+                </View>
+              ) : null}
+            </View>
           ) : null}
           {settingsPanel === "sessions" ? (
             <View style={styles.settingsSection}>
@@ -2654,6 +2878,42 @@ export function MobileChatScreen() {
           ) : null}
         </ScrollView>
       ) : null}
+
+      <Modal
+        accessibilityViewIsModal
+        visible={Boolean(profileSelection)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setProfileSelection(undefined)}
+      >
+        <View style={styles.actionSheetScrim}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close selection menu" style={StyleSheet.absoluteFill} onPress={() => setProfileSelection(undefined)} />
+          <View style={[styles.profileSelectionSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View style={[styles.attachmentSheetHandle, { backgroundColor: theme.border }]} />
+            <Text style={[styles.actionSheetTitle, { color: theme.text }]}>{profileSelectionTitle}</Text>
+            <ScrollView contentContainerStyle={styles.profileSelectionList} showsVerticalScrollIndicator={false}>
+              {profileSelectionOptions.map((option) => {
+                const selected = selectedProfileOption === option.value;
+                return (
+                  <Pressable
+                    key={option.value || "not-specified"}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
+                    onPress={() => selectProfileOption(option.value)}
+                    style={[styles.profileSelectionRow, { borderColor: selected ? theme.accent2 : theme.border, backgroundColor: selected ? "rgba(214,181,94,0.12)" : "rgba(255,255,255,0.025)" }]}
+                  >
+                    <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={21} color={selected ? theme.accent2 : theme.muted} />
+                    <Text style={[styles.profileSelectionText, { color: theme.text }]}>{option.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Pressable accessibilityRole="button" style={styles.actionSheetCancel} onPress={() => setProfileSelection(undefined)}>
+              <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal accessibilityViewIsModal visible={deleteAccountVisible} transparent animationType="fade" onRequestClose={() => setDeleteAccountVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
@@ -3491,6 +3751,81 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: 52,
     zIndex: 2
+  },
+  profileBirthdayInput: {
+    flex: 1
+  },
+  profileBirthdayRow: {
+    flexDirection: "row",
+    gap: 10
+  },
+  profileBirthdayRemove: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    minHeight: 38,
+    paddingHorizontal: 12
+  },
+  profileSaveConfirmation: {
+    alignItems: "center",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: 12
+  },
+  profileSelectField: {
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 58,
+    paddingHorizontal: 16
+  },
+  profileSelectText: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: "800"
+  },
+  profileTextInput: {
+    backgroundColor: "rgba(168,111,232,0.10)",
+    borderColor: "rgba(214,181,94,0.34)",
+    minHeight: 58,
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 8
+  },
+  profileSelectionList: {
+    gap: 7,
+    paddingVertical: 4
+  },
+  profileSelectionRow: {
+    alignItems: "center",
+    borderRadius: 15,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 50,
+    paddingHorizontal: 14
+  },
+  profileSelectionSheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    maxHeight: "72%",
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    width: "100%"
+  },
+  profileSelectionText: {
+    fontSize: 16,
+    fontWeight: "800"
   },
   settingsAvatar: {
     alignItems: "center",
