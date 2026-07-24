@@ -78,6 +78,11 @@ describe("ConversationSidebar settings", () => {
     await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ username: "settingsuser" }));
     await user.click(within(dialog).getByRole("button", { name: "Remove birthday" }));
     await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ birthday: null }));
+    await user.selectOptions(within(dialog).getByLabelText("Birthday month"), "2");
+    expect(within(dialog).getByRole("option", { name: "29" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("option", { name: "30" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save changes" })).toBeDisabled();
+    expect(within(dialog).getByText("Choose both a birthday month and day, or clear both fields.")).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Security & sign-in" }));
     expect(await within(dialog).findByRole("heading", { name: "Connected accounts" })).toBeInTheDocument();

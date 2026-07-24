@@ -1,7 +1,8 @@
-import type { PersonaDefinition } from "@persona/shared";
+import { personaDefinitionSchema, type PersonaDefinition, type PersonaDefinitionInput } from "@persona/shared";
 import { laraePersona } from "./larae.persona.js";
 
-const personas: PersonaDefinition[] = [laraePersona];
+const personaInputs: PersonaDefinitionInput[] = [laraePersona];
+const personas: PersonaDefinition[] = personaInputs.map((persona) => personaDefinitionSchema.parse(persona));
 
 export function listPersonas(): PersonaDefinition[] {
   return personas;
@@ -10,4 +11,3 @@ export function listPersonas(): PersonaDefinition[] {
 export function getPersonaById(id: string): PersonaDefinition | undefined {
   return personas.find((persona) => persona.id === id);
 }
-

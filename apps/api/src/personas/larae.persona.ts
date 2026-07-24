@@ -1,4 +1,4 @@
-import type { PersonaDefinition } from "@persona/shared";
+import type { PersonaDefinitionInput } from "@persona/shared";
 import { env } from "../config/env.js";
 
 function expandReferencePhrases(terms: string[], prefixes: string[] = [], additionalPhrases: string[] = []): string[] {
@@ -9,7 +9,7 @@ function expandReferencePhrases(terms: string[], prefixes: string[] = [], additi
   ])];
 }
 
-export const laraePersona: PersonaDefinition = {
+export const laraePersona: PersonaDefinitionInput = {
   id: "larae",
   name: "LaRae the Baddest",
   shortName: "LaRae",

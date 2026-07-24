@@ -12,7 +12,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { api } from "../../api/client";
 import type { MobileTheme } from "../../theme/personaTheme";
-import type { PersonaVisualStage as PersonaVisualStageProfile } from "@persona/shared";
+import { hasCompletePersonaVisualVideoSet, type PersonaVisualStage as PersonaVisualStageProfile } from "@persona/shared";
 
 export type PersonaVisualState = "idle" | "thinking" | "speaking";
 
@@ -124,6 +124,16 @@ const stateLabels: Record<PersonaVisualState, string> = {
 };
 
 function pickStateClip(profile: PersonaVisualStageProfile, state: PersonaVisualState, previousSrc?: string, failedSources: ReadonlySet<string> = new Set()): PersonaVisualClip {
+  if (!hasCompletePersonaVisualVideoSet(profile, failedSources)) {
+    return {
+      src: profile.fallbackImages[state],
+      label: stateLabels[state],
+      state,
+      kind: "state",
+      media: "image"
+    };
+  }
+
   const sources = profile.loops[state].filter((src) => !failedSources.has(src));
   const fallbackSource = sources[0];
   if (!fallbackSource) {
@@ -224,7 +234,9 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
       return;
     }
 
-    const transitionSrc = profile.transitions[`${fromState}-${state}`];
+    const transitionSrc = hasCompletePersonaVisualVideoSet(profile, failedSourcesRef.current)
+      ? profile.transitions[`${fromState}-${state}`]
+      : undefined;
     if (transitionSrc && !failedSourcesRef.current.has(transitionSrc)) {
       showClip({ src: transitionSrc, label: stateLabels[state], kind: "transition", media: "video", state });
       return;

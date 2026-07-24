@@ -411,11 +411,17 @@ export const personaThemeSchema = z.object({
 });
 export type PersonaTheme = z.infer<typeof personaThemeSchema>;
 
+const personaVisualLoopsSchema = z.object({
+  idle: z.array(z.string()).default([]),
+  thinking: z.array(z.string()).default([]),
+  speaking: z.array(z.string()).default([])
+});
+
 export const personaVisualStageSchema = z.object({
-  loops: z.object({
-    idle: z.array(z.string()),
-    thinking: z.array(z.string()),
-    speaking: z.array(z.string())
+  loops: personaVisualLoopsSchema.default({
+    idle: [],
+    thinking: [],
+    speaking: []
   }),
   transitions: z.record(z.string(), z.string()).default({}),
   fallbackImages: z.object({
@@ -425,6 +431,16 @@ export const personaVisualStageSchema = z.object({
   })
 });
 export type PersonaVisualStage = z.infer<typeof personaVisualStageSchema>;
+export type PersonaVisualStageInput = z.input<typeof personaVisualStageSchema>;
+
+const personaVisualStates = ["idle", "thinking", "speaking"] as const;
+
+export function hasCompletePersonaVisualVideoSet(
+  profile: PersonaVisualStage,
+  failedSources: ReadonlySet<string> = new Set()
+): boolean {
+  return personaVisualStates.every((state) => profile.loops[state].some((source) => !failedSources.has(source)));
+}
 
 export const personaSummarySchema = z.object({
   id: z.string(),
@@ -516,6 +532,7 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
   defaultTools: z.array(toolNameSchema)
 });
 export type PersonaDefinition = z.infer<typeof personaDefinitionSchema>;
+export type PersonaDefinitionInput = z.input<typeof personaDefinitionSchema>;
 
 export const llmInputSchema = z.object({
   persona: personaDefinitionSchema,

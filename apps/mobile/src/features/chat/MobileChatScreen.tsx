@@ -524,18 +524,30 @@ export function MobileChatScreen() {
   }, [drawerWidth, drawerX]);
 
   const returnToDrawer = useCallback(() => {
+    setProfileSelection(undefined);
     setSettingsVisible(false);
     setSettingsPanel("main");
     openDrawer();
   }, [openDrawer]);
 
   function openSettingsPanel(panel: SettingsPanel): void {
+    setProfileSelection(undefined);
+    setProfileError(undefined);
+    setProfileNotice(undefined);
+    if (panel === "profile") {
+      setProfileUsername(authUser?.username ?? "");
+      setPreferredName(authUser?.preferredName ?? "");
+      setProfileGender(authUser?.gender ?? "");
+      setBirthMonth(authUser?.birthday?.month.toString() ?? "");
+      setBirthDay(authUser?.birthday?.day.toString() ?? "");
+    }
     setSettingsPanel(panel);
     if (panel === "sessions") void refreshActiveSessions();
     if (panel === "security") void refreshConnectedAccounts();
   }
 
   useEffect(() => {
+    if (!authUser) setProfileSelection(undefined);
     setProfileUsername(authUser?.username ?? "");
     setPreferredName(authUser?.preferredName ?? "");
     setProfileGender(authUser?.gender ?? "");
@@ -563,6 +575,7 @@ export function MobileChatScreen() {
   }
 
   async function savePersonalizationProfile(): Promise<void> {
+    if (profileBusy) return;
     if (Boolean(birthMonth) !== Boolean(birthDay)) {
       setProfileError("Enter both a birthday month and day, or leave both blank.");
       return;
@@ -594,6 +607,7 @@ export function MobileChatScreen() {
   }
 
   async function removeBirthday(): Promise<void> {
+    if (profileBusy) return;
     setProfileBusy(true);
     setProfileError(undefined);
     setProfileNotice(undefined);
@@ -679,6 +693,7 @@ export function MobileChatScreen() {
   }
 
   const returnToSettingsHome = useCallback(() => {
+    setProfileSelection(undefined);
     setSettingsPanel("main");
   }, []);
 
@@ -2203,18 +2218,24 @@ export function MobileChatScreen() {
     ? PROFILE_GENDER_OPTIONS
     : profileSelection === "month"
       ? PROFILE_MONTH_OPTIONS
-      : Array.from({ length: profileDaysInMonth(birthMonth) }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }));
+      : profileSelection === "day"
+        ? Array.from({ length: profileDaysInMonth(birthMonth) }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }))
+        : [];
   const selectedProfileOption = profileSelection === "gender"
     ? profileGender ?? ""
     : profileSelection === "month"
       ? birthMonth
-      : birthDay;
+      : profileSelection === "day"
+        ? birthDay
+        : "";
   const profileBirthdayIncomplete = Boolean(birthMonth) !== Boolean(birthDay);
   const profileSelectionTitle = profileSelection === "gender"
     ? "Select gender"
     : profileSelection === "month"
       ? "Select birth month"
-      : "Select birth day";
+      : profileSelection === "day"
+        ? "Select birth day"
+        : "";
   const handlePersonaExpandedChange = (expanded: boolean): void => {
     setPersonaCardExpanded(expanded);
     if (expanded) setPersonaCardHidden(false);
@@ -2680,7 +2701,7 @@ export function MobileChatScreen() {
                 onChangeText={setProfileUsername}
                 placeholder="Choose a username"
                 placeholderTextColor={theme.muted}
-                style={[styles.loginInput, styles.profileTextInput, { borderColor: theme.border, color: theme.text }]}
+                style={[styles.loginInput, styles.profileTextInput, { color: theme.text }]}
               />
               <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Preferred name</Text>
               <TextInput
@@ -2692,7 +2713,7 @@ export function MobileChatScreen() {
                 onChangeText={setPreferredName}
                 placeholder="What should the personas call you?"
                 placeholderTextColor={theme.muted}
-                style={[styles.loginInput, styles.profileTextInput, { borderColor: theme.border, color: theme.text }]}
+                style={[styles.loginInput, styles.profileTextInput, { color: theme.text }]}
               />
               <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Gender</Text>
               <Pressable
@@ -2741,6 +2762,11 @@ export function MobileChatScreen() {
                   <Ionicons name="close-circle-outline" size={18} color={theme.danger} />
                   <Text style={{ color: theme.danger, fontWeight: "800" }}>Remove birthday</Text>
                 </Pressable>
+              ) : null}
+              {profileBirthdayIncomplete ? (
+                <Text accessibilityRole="alert" style={[styles.sessionErrorText, { color: theme.danger }]}>
+                  Choose both a birthday month and day, or clear both fields.
+                </Text>
               ) : null}
               {profileError ? <Text style={[styles.sessionErrorText, { color: theme.danger }]}>{profileError}</Text> : null}
               <Pressable

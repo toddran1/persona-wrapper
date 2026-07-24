@@ -1,7 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, llmInputSchema, restoreAccountRequestSchema, unsafeOutputReportRequestSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, hasCompletePersonaVisualVideoSet, llmInputSchema, personaVisualStageSchema, restoreAccountRequestSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
+  it("defaults omitted persona videos to image-only stages", () => {
+    const stage = personaVisualStageSchema.parse({
+      fallbackImages: {
+        idle: "/personas/new/idle.png",
+        thinking: "/personas/new/thinking.png",
+        speaking: "/personas/new/speaking.png"
+      }
+    });
+
+    expect(stage.loops).toEqual({ idle: [], thinking: [], speaking: [] });
+    expect(hasCompletePersonaVisualVideoSet(stage)).toBe(false);
+  });
+
+  it("validates profile updates and real month/day combinations", () => {
+    expect(updateUserProfileRequestSchema.parse({
+      username: "Baddie.Test",
+      birthday: { month: 2, day: 29 }
+    })).toEqual({
+      username: "Baddie.Test",
+      birthday: { month: 2, day: 29 }
+    });
+    expect(() => updateUserProfileRequestSchema.parse({ birthday: { month: 2, day: 30 } })).toThrow();
+    expect(() => updateUserProfileRequestSchema.parse({ username: "not allowed" })).toThrow();
+    expect(() => updateUserProfileRequestSchema.parse({})).toThrow();
+  });
+
   it("validates bounded unsafe-output reports", () => {
     expect(unsafeOutputReportRequestSchema.parse({
       conversationId: "conv_1",

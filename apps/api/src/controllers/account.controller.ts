@@ -14,6 +14,7 @@ import { accountDeletionService } from "../services/accountDeletionService.js";
 import { backgroundChatJobService } from "../services/backgroundChatJobService.js";
 import { dataTransferJobService } from "../services/dataTransferJobService.js";
 import { verifyPassword } from "../services/passwordService.js";
+import { hasDatabaseErrorCode } from "../utils/databaseError.js";
 
 function requireDatabase() {
   const db = getDatabase();
@@ -25,7 +26,7 @@ function toAuthUser(user: typeof users.$inferSelect): AuthUser {
   return {
     id: user.id,
     email: user.email.endsWith("@users.invalid") ? null : user.email,
-    username: user.username,
+    username: user.displayUsername ?? user.username,
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     preferredName: user.preferredName,
@@ -68,7 +69,7 @@ export async function updateProfile(request: Request, response: Response): Promi
       updatedAt: new Date()
     }).where(and(eq(users.id, request.auth.userId), eq(users.status, "active"))).returning();
   } catch (error) {
-    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+    if (hasDatabaseErrorCode(error, "23505")) {
       throw new HttpError("That username is already taken.", 409);
     }
     throw error;

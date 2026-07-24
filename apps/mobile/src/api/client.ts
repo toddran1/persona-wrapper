@@ -237,7 +237,11 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
   return {
     id: String(user.id),
     email,
-    username: typeof user.username === "string" ? user.username : null,
+    username: typeof user.displayUsername === "string"
+      ? user.displayUsername
+      : typeof user.username === "string"
+        ? user.username
+        : null,
     displayName: typeof user.name === "string" ? user.name : null,
     avatarUrl: typeof user.image === "string" ? user.image : null,
     preferredName: typeof user.preferredName === "string" ? user.preferredName : null,

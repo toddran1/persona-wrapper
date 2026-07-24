@@ -206,14 +206,13 @@ export function ConversationSidebar({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setSettingsOpen(false);
-        accountButtonRef.current?.focus();
+        closeSettings();
         return;
       }
       if (event.key !== "Tab" || !settingsDialogRef.current) return;
       const focusable = Array.from(
         settingsDialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
         ),
       ).filter((element) => !element.hasAttribute("hidden"));
       if (focusable.length === 0) {
@@ -362,7 +361,9 @@ export function ConversationSidebar({
 
   function closeSettings(): void {
     setSettingsOpen(false);
+    setUsernameEditing(false);
     setLocalAuthError(undefined);
+    setProfileNotice(undefined);
     setSecurityNotice(undefined);
     accountButtonRef.current?.focus();
   }
@@ -385,7 +386,14 @@ export function ConversationSidebar({
   function openSettings(): void {
     setAccountMenuOpen(false);
     setSettingsSection("account");
+    setUsername(authUser?.username ?? "");
+    setUsernameEditing(false);
+    setPreferredName(authUser?.preferredName ?? "");
+    setGender(authUser?.gender ?? "");
+    setBirthMonth(authUser?.birthday?.month.toString() ?? "");
+    setBirthDay(authUser?.birthday?.day.toString() ?? "");
     setLocalAuthError(undefined);
+    setProfileNotice(undefined);
     setSecurityNotice(undefined);
     setSettingsOpen(true);
   }
@@ -415,6 +423,7 @@ export function ConversationSidebar({
   }
 
   async function submitProfile(): Promise<void> {
+    if (authBusy) return;
     const hasPartialBirthday = Boolean(birthMonth) !== Boolean(birthDay);
     if (hasPartialBirthday) {
       setLocalAuthError("Choose both a birthday month and day, or leave both blank.");
@@ -440,6 +449,7 @@ export function ConversationSidebar({
   }
 
   async function saveUsername(): Promise<void> {
+    if (authBusy) return;
     const nextUsername = username.trim();
     if (!nextUsername) {
       setLocalAuthError("A username cannot be blank.");
@@ -460,6 +470,7 @@ export function ConversationSidebar({
   }
 
   async function removeBirthday(): Promise<void> {
+    if (authBusy) return;
     setAuthBusy(true);
     setLocalAuthError(undefined);
     setProfileNotice(undefined);
@@ -1169,7 +1180,16 @@ export function ConversationSidebar({
                             <div className="settings-birthday-fields">
                               <label>
                                 Birthday month
-                                <select value={birthMonth} onChange={(event) => setBirthMonth(event.target.value)} disabled={authBusy}>
+                                <select
+                                  value={birthMonth}
+                                  onChange={(event) => {
+                                    const nextMonth = event.target.value;
+                                    setBirthMonth(nextMonth);
+                                    const maxDay = nextMonth ? new Date(Date.UTC(2000, Number(nextMonth), 0)).getUTCDate() : 31;
+                                    if (birthDay && Number(birthDay) > maxDay) setBirthDay("");
+                                  }}
+                                  disabled={authBusy}
+                                >
                                   <option value="">Month</option>
                                   {Array.from({ length: 12 }, (_, index) => (
                                     <option key={index + 1} value={index + 1}>
@@ -1182,10 +1202,16 @@ export function ConversationSidebar({
                                 Birthday day
                                 <select value={birthDay} onChange={(event) => setBirthDay(event.target.value)} disabled={authBusy}>
                                   <option value="">Day</option>
-                                  {Array.from({ length: 31 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
+                                  {Array.from(
+                                    { length: birthMonth ? new Date(Date.UTC(2000, Number(birthMonth), 0)).getUTCDate() : 31 },
+                                    (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>,
+                                  )}
                                 </select>
                               </label>
                             </div>
+                            {Boolean(birthMonth) !== Boolean(birthDay) ? (
+                              <p className="settings-field-error" role="alert">Choose both a birthday month and day, or clear both fields.</p>
+                            ) : null}
                             {birthMonth && birthDay ? (
                               <button type="button" className="settings-inline-action settings-birthday-remove" onClick={() => void removeBirthday()} disabled={authBusy} aria-label="Remove birthday">
                                 <span aria-hidden="true">×</span> Remove birthday

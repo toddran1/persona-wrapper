@@ -125,6 +125,28 @@ describe("PersonaVisualStage", () => {
     expect(video).toHaveAttribute("src", "/personas/larae/videos/loops/larae-video-idle-10s-2nd.mp4");
   });
 
+  it("uses stage images for every state when any video stage is missing", () => {
+    const imageOnlyProfile = {
+      ...profile,
+      loops: {
+        ...profile.loops,
+        speaking: []
+      }
+    };
+    const { container, rerender } = render(<PersonaVisualStage state="idle" personaName="LaRae" profile={imageOnlyProfile} />);
+
+    expect(container.querySelector('video[data-active="true"]')).toBeNull();
+    expect(container.querySelector('img[data-active="true"]')).toHaveAttribute("src", profile.fallbackImages.idle);
+
+    rerender(<PersonaVisualStage state="thinking" personaName="LaRae" profile={imageOnlyProfile} />);
+    expect(container.querySelector('video[data-active="true"]')).toBeNull();
+    expect(container.querySelector('img[data-active="true"]')).toHaveAttribute("src", profile.fallbackImages.thinking);
+
+    rerender(<PersonaVisualStage state="speaking" personaName="LaRae" profile={imageOnlyProfile} />);
+    expect(container.querySelector('video[data-active="true"]')).toBeNull();
+    expect(container.querySelector('img[data-active="true"]')).toHaveAttribute("src", profile.fallbackImages.speaking);
+  });
+
   it("renders a hide control when the stage can be collapsed", () => {
     const onHide = vi.fn();
 
