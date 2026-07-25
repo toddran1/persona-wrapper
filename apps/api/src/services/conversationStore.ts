@@ -32,6 +32,7 @@ type ConversationRecord = {
 };
 
 type ConversationMessageMetadata = {
+  personaId?: string;
   outputs?: ConversationTurn["outputs"];
   usage?: ConversationTurn["usage"];
   userAssets?: ConversationTurn["userAssets"];
@@ -67,6 +68,19 @@ export class ConversationStore {
       if (existing) {
         if (options.userId && existing.userId && existing.userId !== options.userId) {
           throw new Error("Conversation belongs to another owner.");
+        }
+        if (options.userId && !existing.userId) existing.userId = options.userId;
+        if (options.personaId && options.personaId !== existing.personaId) {
+          const legacyPersonaId = legacyTurnPersonaId(existing.metadata, existing.personaId);
+          if (legacyPersonaId) {
+            existing.metadata = {
+              ...(existing.metadata ?? {}),
+              legacyPersonaId
+            };
+            existing.turns = (existing.turns ?? buildConversationTurns(existing.messages))
+              .map((turn) => turn.personaId ? turn : { ...turn, personaId: legacyPersonaId });
+          }
+          existing.personaId = options.personaId;
         }
         return existing;
       }
@@ -175,7 +189,14 @@ export class ConversationStore {
         metadata: nextMetadata,
         updatedAt,
         messages: [...record.messages, ...nextMessages],
-        turns: appendRenderedTurns(record.turns ?? buildConversationTurns(record.messages), messages)
+        turns: appendRenderedTurns(
+          record.turns ?? buildConversationTurns(
+            record.messages,
+            [],
+            legacyTurnPersonaId(record.metadata, record.personaId)
+          ),
+          messages
+        )
       };
     }
 
@@ -186,7 +207,14 @@ export class ConversationStore {
       metadata: buildConversationMetadata(record.metadata, [...record.messages, ...nextMessages]),
       updatedAt: new Date(),
       messages: [...record.messages, ...nextMessages],
-      turns: appendRenderedTurns(record.turns ?? buildConversationTurns(record.messages), messages)
+      turns: appendRenderedTurns(
+        record.turns ?? buildConversationTurns(
+          record.messages,
+          [],
+          legacyTurnPersonaId(record.metadata, record.personaId)
+        ),
+        messages
+      )
     };
 
     this.conversations.set(record.id, updated);
@@ -316,14 +344,22 @@ export class ConversationStore {
       const history = pageRows.map(rowToChatMessage);
       return {
         conversation: summary,
-        turns: buildConversationTurns(history, pageRows.map(rowToMessageMetadata)),
+        turns: buildConversationTurns(
+          history,
+          pageRows.map(rowToMessageMetadata),
+          legacyTurnPersonaId(row.metadata, row.personaId)
+        ),
         nextCursor: userRows.length > boundedLimit ? String(lowerSequence) : null
       };
     }
 
     const record = this.conversations.get(conversationId);
     if (!record || (userId && record.userId && record.userId !== userId)) return undefined;
-    const allTurns = record.turns ?? buildConversationTurns(record.messages);
+    const allTurns = record.turns ?? buildConversationTurns(
+      record.messages,
+      [],
+      legacyTurnPersonaId(record.metadata, record.personaId)
+    );
     const end = beforeSequence ?? allTurns.length;
     const start = Math.max(0, end - boundedLimit);
     return {
@@ -366,7 +402,11 @@ export class ConversationStore {
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
         history,
-        turns: buildConversationTurns(history, row.messages.map(rowToMessageMetadata))
+        turns: buildConversationTurns(
+          history,
+          row.messages.map(rowToMessageMetadata),
+          legacyTurnPersonaId(row.metadata, row.personaId)
+        )
       };
     }
 
@@ -382,7 +422,11 @@ export class ConversationStore {
       createdAt: (conversation.createdAt ?? new Date()).toISOString(),
       updatedAt: (conversation.updatedAt ?? new Date()).toISOString(),
       history: conversation.messages,
-      turns: conversation.turns ?? buildConversationTurns(conversation.messages)
+      turns: conversation.turns ?? buildConversationTurns(
+        conversation.messages,
+        [],
+        legacyTurnPersonaId(conversation.metadata, conversation.personaId)
+      )
     };
   }
 
@@ -532,7 +576,12 @@ export class ConversationStore {
       role: message.role,
       content: message.content,
       ...(message.name ? { name: message.name } : {}),
-      ...(message.outputs?.length ? { metadata: { outputs: message.outputs } } : {})
+      ...(message.personaId || message.outputs?.length ? {
+        metadata: {
+          ...(message.personaId ? { personaId: message.personaId } : {}),
+          ...(message.outputs?.length ? { outputs: message.outputs } : {})
+        }
+      } : {})
     }));
     const metadata = {
       ...(conversation.pinned ? { pinned: true } : {}),
@@ -604,21 +653,41 @@ export class ConversationStore {
         }
       });
       if (existing) {
-        if (options.userId && !existing.userId) {
+        const nextUserId = existing.userId ?? options.userId ?? null;
+        const nextPersonaId = options.personaId ?? existing.personaId ?? null;
+        const existingMetadata = metadataRecord(existing.metadata) ?? {};
+        const shouldPreserveLegacyPersona = Boolean(
+          existing.personaId &&
+          nextPersonaId &&
+          nextPersonaId !== existing.personaId &&
+          typeof existingMetadata.legacyPersonaId !== "string"
+        );
+        const nextMetadata = shouldPreserveLegacyPersona
+          ? { ...existingMetadata, legacyPersonaId: existing.personaId }
+          : existingMetadata;
+        if (
+          nextUserId !== existing.userId ||
+          nextPersonaId !== existing.personaId ||
+          shouldPreserveLegacyPersona
+        ) {
           await db.update(conversations)
-            .set({ userId: options.userId, personaId: existing.personaId ?? options.personaId ?? null })
+            .set({ userId: nextUserId, personaId: nextPersonaId, metadata: nextMetadata })
             .where(eq(conversations.id, existing.id));
         }
         return {
           id: existing.id,
-          userId: existing.userId ?? options.userId ?? null,
-          personaId: existing.personaId ?? options.personaId ?? null,
+          userId: nextUserId,
+          personaId: nextPersonaId,
           title: existing.title,
-          metadata: metadataRecord(existing.metadata) ?? {},
+          metadata: nextMetadata,
           createdAt: existing.createdAt,
           updatedAt: existing.updatedAt,
           messages: existing.messages.map(rowToChatMessage),
-          turns: buildConversationTurns(existing.messages.map(rowToChatMessage), existing.messages.map(rowToMessageMetadata))
+          turns: buildConversationTurns(
+            existing.messages.map(rowToChatMessage),
+            existing.messages.map(rowToMessageMetadata),
+            legacyTurnPersonaId(nextMetadata, existing.personaId)
+          )
         };
       }
     }
@@ -786,6 +855,7 @@ function appendRenderedTurns(existingTurns: ConversationTurn[], messages: Conver
   return [
     ...existingTurns,
     {
+      ...(assistantMetadata?.personaId ? { personaId: assistantMetadata.personaId } : {}),
       userMessage: user.content,
       userAssets: userMetadata?.userAssets ?? [],
       assistantText: assistant.content,
@@ -833,6 +903,10 @@ function sanitizeMessageMetadata(metadata: unknown): ConversationMessageMetadata
     normalized.backgroundJobId = raw.backgroundJobId;
   }
 
+  if (typeof raw.personaId === "string" && raw.personaId.trim()) {
+    normalized.personaId = raw.personaId.trim();
+  }
+
   const provider = providerSchema.safeParse(raw.provider);
   if (provider.success) {
     normalized.provider = provider.data;
@@ -853,7 +927,11 @@ function sanitizeMessageMetadata(metadata: unknown): ConversationMessageMetadata
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
-function buildConversationTurns(history: ChatMessage[], metadata: Array<ConversationMessageMetadata | undefined> = []): ConversationTurn[] {
+function buildConversationTurns(
+  history: ChatMessage[],
+  metadata: Array<ConversationMessageMetadata | undefined> = [],
+  fallbackPersonaId?: string
+): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   for (let index = 0; index < history.length; index += 1) {
     const message = history[index];
@@ -871,6 +949,9 @@ function buildConversationTurns(history: ChatMessage[], metadata: Array<Conversa
       }
     }
     turns.push({
+      ...(assistantMetadata?.personaId || fallbackPersonaId
+        ? { personaId: assistantMetadata?.personaId ?? fallbackPersonaId }
+        : {}),
       userMessage: message.content,
       userAssets: userMetadata?.userAssets ?? [],
       assistantText: assistant?.content ?? "",
@@ -884,6 +965,15 @@ function buildConversationTurns(history: ChatMessage[], metadata: Array<Conversa
     });
   }
   return turns;
+}
+
+function legacyTurnPersonaId(
+  metadata: Record<string, unknown> | null | undefined,
+  conversationPersonaId: string | null | undefined
+): string | undefined {
+  const saved = metadata?.legacyPersonaId;
+  if (typeof saved === "string" && saved.trim()) return saved.trim();
+  return conversationPersonaId?.trim() || undefined;
 }
 
 function titleFromMessages(messages: ChatMessage[]): string | undefined {

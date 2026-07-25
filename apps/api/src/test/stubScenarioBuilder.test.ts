@@ -63,7 +63,7 @@ describe("stubScenarioBuilder", () => {
     const textBlock = output.content.find((block) => block.type === "text");
 
     expect(textBlock?.type).toBe("text");
-    expect(textBlock?.type === "text" ? textBlock.text : "").toContain("Clock it");
+    expect(textBlock?.type === "text" ? textBlock.text : "").toContain(persona!.catchphrases[0]);
     expect(output.metadata?.promptTrack).toBe("full");
   });
 

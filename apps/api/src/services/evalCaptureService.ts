@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { resetLaraeStyleReferenceCache } from "./laraeStyleReferenceBuilder.js";
+import { resetPersonaStyleReferenceCache } from "./personaStyleReferenceBuilder.js";
 
 type LlmTurnLog = {
   timestamp?: string;
@@ -164,7 +164,7 @@ function pathForKind(kind: ReviewRecordKind): string {
 
 function invalidateStyleReferenceIfNeeded(kind: ReviewRecordKind): void {
   if (kind === "pairs" || kind === "golden") {
-    resetLaraeStyleReferenceCache();
+    resetPersonaStyleReferenceCache();
   }
 }
 
@@ -356,7 +356,7 @@ export class EvalCaptureService {
 
     syntheticPairs.push(record);
     writeJsonlRecords(syntheticPairsPath, syntheticPairs);
-    resetLaraeStyleReferenceCache();
+    resetPersonaStyleReferenceCache();
 
     return {
       id: String(record.id),

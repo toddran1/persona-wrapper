@@ -399,15 +399,26 @@ export const personaThemeSchema = z.object({
   mode: z.enum(["dark", "light"]),
   themeName: z.string(),
   background: z.string(),
+  backgroundAlt: z.string().default("#170f21"),
   backgroundAccent: z.string(),
   backgroundAccentSecondary: z.string(),
   surface: z.string(),
   surfaceStrong: z.string(),
+  rail: z.string().default("#d6b55e"),
   border: z.string(),
   accent: z.string(),
   accent2: z.string(),
+  danger: z.string().default("#ff6b7a"),
   text: z.string(),
-  muted: z.string()
+  muted: z.string(),
+  chartColors: z.array(z.string()).min(2).max(12).default([
+    "#d6b55e",
+    "#8a5cf6",
+    "#e06f9f",
+    "#69c4b1",
+    "#ef8d5b",
+    "#7899e8"
+  ])
 });
 export type PersonaTheme = z.infer<typeof personaThemeSchema>;
 
@@ -502,6 +513,26 @@ export const personaCharacterInfluencesSchema = z.object({
 });
 export type PersonaCharacterInfluences = z.infer<typeof personaCharacterInfluencesSchema>;
 
+export const personaStyleReferenceSchema = z.object({
+  enabled: z.boolean().default(false),
+  datasetKey: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/i).max(80),
+  syntheticLimit: z.number().int().min(0).max(50).default(20),
+  goldenLimit: z.number().int().min(0).max(50).default(5),
+  maxTokens: z.number().int().positive().max(100_000).optional()
+});
+export type PersonaStyleReference = z.infer<typeof personaStyleReferenceSchema>;
+
+export const personaImagePromptReplacementSchema = z.object({
+  phrases: z.array(z.string().min(1)).min(1),
+  replaceWith: z.string()
+});
+export type PersonaImagePromptReplacement = z.infer<typeof personaImagePromptReplacementSchema>;
+
+export const personaImagePromptSanitizationSchema = z.object({
+  replacements: z.array(personaImagePromptReplacementSchema).default([])
+});
+export type PersonaImagePromptSanitization = z.infer<typeof personaImagePromptSanitizationSchema>;
+
 export const personaDefinitionSchema = personaSummarySchema.extend({
   legalName: z.string(),
   age: z.string(),
@@ -515,11 +546,16 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
   safetyBoundaries: z.array(z.string()),
   characterInfluences: personaCharacterInfluencesSchema.optional(),
   responseStyle: personaResponseStyleSchema.optional(),
+  directResponseInstructions: z.array(z.string().min(1)).default([]),
+  styleReference: personaStyleReferenceSchema.optional(),
+  imagePromptSanitization: personaImagePromptSanitizationSchema.optional(),
   voiceProfile: z.object({
     defaultVoiceId: z.string(),
     speakingStyle: z.string(),
+    performancePreset: z.string().min(1).max(80).default("neutral"),
     elevenLabs: z.object({
       voiceId: z.string().optional(),
+      voiceIdEnvVar: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
       modelId: z.string().optional(),
       outputFormat: z.string().optional(),
       speed: z.number().min(0.7).max(1.2).optional(),
@@ -685,6 +721,7 @@ export const conversationUserAssetSchema = z.object({
 export type ConversationUserAsset = z.infer<typeof conversationUserAssetSchema>;
 
 export const conversationTurnSchema = z.object({
+  personaId: z.string().optional(),
   userMessage: z.string(),
   userAssets: z.array(conversationUserAssetSchema).default([]),
   assistantText: z.string(),
@@ -718,6 +755,7 @@ export const conversationTurnsPageSchema = z.object({
 export type ConversationTurnsPage = z.infer<typeof conversationTurnsPageSchema>;
 
 export const portableConversationMessageSchema = chatMessageSchema.extend({
+  personaId: z.string().min(1).max(120).optional(),
   outputs: z.array(contentBlockSchema).max(100).optional(),
   createdAt: z.string().datetime().optional()
 });

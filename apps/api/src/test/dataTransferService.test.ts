@@ -15,6 +15,69 @@ describe("data transfer import parsing", () => {
     expect(result.conversations[0]?.title).toBe("Hello");
   });
 
+  it("preserves the responding persona for mixed-persona archive messages", () => {
+    const result = parseImportArchive({
+      format: "for-the-baddiez-export",
+      version: 1,
+      exportedAt: "2026-07-12T00:00:00.000Z",
+      scope: "conversations",
+      conversations: [{
+        title: "Mixed personas",
+        messages: [
+          { role: "user", content: "Answer this" },
+          { role: "assistant", content: "First answer", personaId: "larae" },
+          { role: "user", content: "Now you answer" },
+          { role: "assistant", content: "Second answer", personaId: "future-persona" }
+        ]
+      }]
+    });
+
+    expect(result.conversations[0]?.messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.personaId)).toEqual(["larae", "future-persona"]);
+  });
+
+  it("exports the persona attached to each assistant turn", async () => {
+    const store = {
+      list: async () => [{ id: "conv_mixed" }],
+      get: async () => ({
+        id: "conv_mixed",
+        title: "Mixed export",
+        pinned: false,
+        messageCount: 4,
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:01:00.000Z",
+        history: [
+          { role: "user", content: "First" },
+          { role: "assistant", content: "LaRae answer" },
+          { role: "user", content: "Second" },
+          { role: "assistant", content: "Other answer" }
+        ],
+        turns: [
+          {
+            personaId: "larae",
+            userMessage: "First",
+            userAssets: [],
+            assistantText: "LaRae answer",
+            outputs: [{ type: "text", text: "LaRae answer" }]
+          },
+          {
+            personaId: "future-persona",
+            userMessage: "Second",
+            userAssets: [],
+            assistantText: "Other answer",
+            outputs: [{ type: "text", text: "Other answer" }]
+          }
+        ]
+      })
+    } as unknown as ConversationStore;
+
+    const archive = await new DataTransferService(store).exportConversations("user_test");
+    expect(archive.conversations[0]?.messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.personaId)).toEqual(["larae", "future-persona"]);
+  });
+
   it("normalizes a ChatGPT conversations export", () => {
     const result = parseImportArchive([{
       title: "ChatGPT export",

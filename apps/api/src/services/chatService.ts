@@ -219,6 +219,7 @@ export class ChatService {
           role: "assistant",
           content: CONVERSATION_MEDIA_UNAVAILABLE_TEXT,
           metadata: {
+            personaId: persona.id,
             outputs: fallbackOutput.content,
             provider: fallbackOutput.provider
           }
@@ -663,6 +664,7 @@ export class ChatService {
         role: "assistant",
         content: assistantText,
         metadata: {
+          personaId: persona.id,
           outputs: persistedOutputs,
           provider: responseLlmOutput.provider,
           ...(providerModel ? { providerModel } : {}),

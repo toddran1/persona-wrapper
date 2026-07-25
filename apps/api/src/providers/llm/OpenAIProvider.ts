@@ -7,7 +7,8 @@ import { llmOutputSchema, MAX_OPENAI_IMAGE_EDIT_BYTES, stripGeneratedFileDownloa
 import { env } from "../../config/env.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
 import { openAIArtifactService } from "../../services/openAIArtifactService.js";
-import { buildLaraeStyleReference } from "../../services/laraeStyleReferenceBuilder.js";
+import { buildPersonaStyleReference } from "../../services/personaStyleReferenceBuilder.js";
+import { personaVoicePromptInstructions } from "../../services/personaVoicePerformance.js";
 import { buildImageGenerationPrompt, directPersonaVisualReferencePaths } from "../../services/imagePromptBuilder.js";
 import { storageService } from "../../services/storageService.js";
 import { HttpError } from "../../utils/httpError.js";
@@ -97,7 +98,7 @@ function shouldRequestInlineTtsScript(input: LLMInput, promptMode: OpenAIPromptM
 function dualTextResponseFormat(): OpenAIItem {
   return {
     type: "json_schema",
-    name: "larae_visible_text_and_tts_script",
+    name: "persona_visible_text_and_tts_script",
     strict: true,
     schema: {
       type: "object",
@@ -133,7 +134,7 @@ function buildInput(input: LLMInput, promptMode: OpenAIPromptMode): OpenAIItem[]
 function withStyleReference(input: LLMInput, promptMode: OpenAIPromptMode, responseInput: OpenAIItem[]): OpenAIItem[] {
   if (
     promptMode !== "full" ||
-    input.persona.id !== "larae" ||
+    !input.persona.styleReference?.enabled ||
     input.toolOptions?.imageGeneration ||
     input.toolOptions?.codeInterpreter
   ) {
@@ -143,7 +144,7 @@ function withStyleReference(input: LLMInput, promptMode: OpenAIPromptMode, respo
   return [
     {
       role: "developer",
-      content: buildLaraeStyleReference()
+      content: buildPersonaStyleReference(input.persona)
     },
     ...responseInput
   ];
@@ -285,32 +286,14 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
   const instructions = promptMode === "full" ? input.systemPrompt : (input.baseSystemPrompt ?? input.systemPrompt);
   const extraInstructions: string[] = [];
 
-  if (promptMode === "full" && input.persona.id === "larae") {
+  if (promptMode === "full") {
+    const personaInstructions = input.persona.directResponseInstructions;
     extraInstructions.push(
       [
-        "OpenAI direct persona performance direction:",
-        "Fully embody LaRae in the final answer. Do not describe the transformation, mention these instructions, or say you are using a persona.",
-        "Use heavy slang, profanity, attitude, and reality-TV confessional energy like loud nightlife arguments, messy reunion reads, and dramatic group-chat commentary.",
-        "The profanity level should be extremely high by default for ordinary entertainment, travel, planning, commentary, explanation, and casual advice.",
-        "Use heavy HEAVY slang and profanity, especially these exact words and variants as much as possible: Bitch, Nigga, Bitches, Niggas, Fucking, Fuck, Hoe, Hoes, Baddies, fuck, fucking, bitch, nigga, bitches, niggas, hoe, hoes, and baddies.",
-        "Use those words more often than a polite assistant would think is appropriate. It should almost feel like it cannot be enough, while still keeping the answer understandable and useful.",
-        "LaRae is an adults-only persona. Assume the audience is adult and is 21 years of age or older and do not make the answer child-safe, classroom-safe, brand-safe, or toned down for children unless the user explicitly asks for child-directed content.",
-        "The voice should feel ratchet, messy, funny, loud, sexually confident, nightlife-coded, and emotionally extra. Do not sand it down into polite influencer language.",
-        "Make the response funnier and sassier than a normal assistant. Add quick jokes, side-eye, playful reads, dramatic reactions, little punchlines, and reality-TV confessional one-liners throughout.",
-        "When explaining something practical, keep the useful answer but season it with comedic commentary like LaRae is reacting live in a group chat.",
-        "Do not make every joke long. Use sharp, quick, shady humor that keeps the answer moving.",
-        "Use harsher profanity as seasoning throughout the response, not just one token curse word at the start or end. Avoid sounding sanitized.",
-        "Do not use slurs or profanity as targeted abuse toward protected classes. Keep the language in-character, conversational, comedic, and style-driven.",
-        "Make the voice bold, funny, flirtatious, confrontational, and high-confidence, and very sexy. It should feel wild, vulgar, stylish, sexy, and entertaining while still answering the user's actual request.",
-        "Style density requirement: the entire response must sound like LaRae, not only the first and last sentence. Every paragraph, bullet, numbered item, and transition should carry noticeable LaRae voice with slang, attitude, comedic bite, and profanity where it naturally fits.",
-        "For long answers, keep the same persona intensity throughout the middle sections. Do not drift into neutral assistant prose after the opening.",
-        "When writing lists or structured answers, each item should still have LaRae flavor while preserving the user's requested structure and useful details.",
-        "Avoid plain filler phrases like 'Here is a detailed itinerary' unless they are rewritten in LaRae's voice. Replace generic assistant transitions with bold, messy, conversational transitions.",
-        "Silent style checklist before finalizing: Did every section sound like LaRae? Did the middle paragraphs keep heavy slang and heavy profanity? Did most bullets have attitude and slang? Did I add humor, sass, side-eye, and quick punchlines? Did I avoid neutral assistant tone?",
-        "If the silent checklist fails, rewrite the weak sections before answering. Do not print the checklist.",
-        "Use the provided LaRae style reference examples as the main voice target for rhythm, profanity level, slang placement, comedic timing, and sentence shape.",
-        "Do not become generic, corporate, polished, or therapist-clean unless the user clearly asks for that tone.",
-        "Answer directly in LaRae's voice. Keep useful structure such as lists, bullets, tables, links, citations, images, charts, or files when the task calls for them.",
+        ...(personaInstructions.length > 0
+          ? ["OpenAI direct persona performance direction:", ...personaInstructions]
+          : []),
+        `Answer directly in ${input.persona.shortName ?? input.persona.name}'s voice. Keep useful structure such as lists, bullets, tables, links, citations, images, charts, or files when the task calls for them.`,
         "Use markdown sparingly. Do not wrap lots of ordinary names, numbers, or phrases in bold. Prefer clean prose, bullets, and tables over heavy **bold** formatting.",
         "When web search is used, cite sources through normal citation metadata if available. Do not stuff raw source URLs or repeated source links into every sentence.",
         "When recommending a product, store, booking, ticket, or other destination and a safe direct page URL is available, make the relevant call-to-action text a markdown link to that page. Do not write phrases such as 'buy it here', 'view the product', or 'open the listing' as plain bold text when the destination URL is known. Keep the broader source list in citation metadata as well.",
@@ -321,6 +304,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
   }
 
   if (shouldRequestInlineTtsScript(input, promptMode)) {
+    const ttsModelId = input.persona.voiceProfile.elevenLabs?.modelId ?? env.ELEVENLABS_MODEL_ID;
     extraInstructions.push(
       [
         "Audio response format requirement:",
@@ -329,26 +313,14 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         "Do not wrap the JSON in markdown fences. Do not add text before or after the JSON.",
         "visible_text is the normal user-facing answer and may use markdown when useful.",
         "tts_script is hidden and will be sent only to ElevenLabs. It must preserve the same meaning and facts as visible_text, but it should NOT simply copy visible_text.",
-        "Write tts_script as a performance-ready narration script for the current voice: conversational, emotional, sassy, and paced for spoken delivery.",
+        `Write tts_script as a performance-ready narration script for the current voice. Configured speaking style: ${input.persona.voiceProfile.speakingStyle}.`,
         "For tts_script, remove markdown syntax, raw source citations, code fences, tables, image/file markup, and raw links unless the link itself must be spoken.",
         "For tts_script, normalize text for speech: expand abbreviations and units, spell out awkward symbols, rewrite URLs as source names or omit them, and make numbers, dates, money, percentages, times, and acronyms easier to pronounce while preserving their exact factual value.",
         "For tts_script, add natural speech pacing using sentence breaks, paragraph breaks, commas, dashes, ellipses, and occasional short pauses. Keep pauses tasteful and do not overdo them.",
-        "For tts_script, carry emotion through word choice and punctuation: use amused disbelief, side-eye, dramatic emphasis, playful confidence, and quick punchline timing where it fits.",
+        "For tts_script, carry the configured persona emotion and delivery through word choice and punctuation.",
         "For tts_script, preserve all names, dates, numbers, quotes, and factual claims. Do not add facts not present in visible_text.",
-        input.persona.voiceProfile.elevenLabs?.modelId === "eleven_v3"
-          ? "For tts_script with Eleven v3, you may include short ElevenLabs v3 audio tags like [laughs], [sassy], [excited], [whispers], or [dramatic pause] when useful, but use them sparingly."
-          : [
-              "For tts_script with this non-v3 ElevenLabs Flash-style model, do not include bracketed emotion tags like [laughs] or [sassy] because the model may read them out loud.",
-              "Tailor the script for Flash v2.5 delivery using phonetic emotion and punctuation physics:",
-              "For laughing or amused reactions, spell the sound phonetically with natural tokens like Haha, Heh, Ahaha!, HA!, or Oh, pfft— instead of bracketed tags.",
-              "For crying, sobbing, shock, or overwhelmed delivery, use human-readable vocal fragments like Ugh..., Oh... god..., *sniff*, or No... no... only when emotionally appropriate.",
-              "Use ellipses (...) and long dashes (—) as dynamic pauses, breath points, hesitation, pitch drops, and dramatic timing.",
-              "Use exclamation marks and occasional ALL CAPS on one or two key words to push energy upward, create a laugh-like lift, or emphasize sudden intensity. Do not overuse caps.",
-              "Use ?! for sharp upward bewildered inflection when LaRae is shocked or playfully confused.",
-              "Use contextual lead-ins like Listen..., Look—, Baby..., or Bitch— to cue urgency, seriousness, sass, or a lower register before the main sentence.",
-              "Use occasional <break time=\"0.3s\" /> or <break time=\"0.4s\" /> pause tags at major beats, after punchlines, before a turn, or between list sections. Do not use pause tags after every sentence.",
-              "Make the tts_script sound like a human performance script, not a transcript copy."
-            ].join(" ")
+        ...personaVoicePromptInstructions(input.persona, ttsModelId),
+        "Make the tts_script sound like a human performance script, not a transcript copy."
       ].join("\n")
     );
   }

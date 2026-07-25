@@ -45,4 +45,19 @@ describe("buildTtsScript", () => {
     expect(result.mode).toBe("mechanical");
     expect(result.script).toContain("Dallas, Texas");
   });
+
+  it("falls back to neutral delivery for an unregistered persona performance preset", () => {
+    const neutralPersona = {
+      ...larae,
+      id: "future-persona",
+      voiceProfile: {
+        ...larae.voiceProfile,
+        performancePreset: "future-preset"
+      }
+    };
+    const script = buildTtsScript("Baby, keep this clean.", neutralPersona);
+
+    expect(script).toBe("Baby, keep this clean.");
+    expect(script).not.toContain("[sassy");
+  });
 });

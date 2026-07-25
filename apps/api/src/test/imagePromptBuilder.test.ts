@@ -63,6 +63,20 @@ describe("imagePromptBuilder", () => {
     expect(prompt).not.toMatch(/\bhoes?\b/i);
   });
 
+  it("uses image-safe phrase replacements configured by the active persona", () => {
+    const input = imageInput("Create a moon queen portrait.");
+    input.persona = {
+      ...input.persona,
+      imagePromptSanitization: {
+        replacements: [{ phrases: ["moon queen"], replaceWith: "silver celestial leader" }]
+      }
+    };
+
+    const prompt = buildImageGenerationPrompt(input);
+    expect(prompt).toContain("silver celestial leader portrait");
+    expect(prompt).not.toContain("moon queen");
+  });
+
   it("does not include persona profile details for unrelated image requests", () => {
     const prompt = buildImageGenerationPrompt(imageInput("Can you give me a picture of a puppy sleeping?"));
 

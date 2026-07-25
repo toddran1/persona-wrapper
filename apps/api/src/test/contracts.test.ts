@@ -153,6 +153,10 @@ describe("shared schemas", () => {
     });
 
     expect(parsed.history).toHaveLength(2);
+    expect(parsed.persona.theme.backgroundAlt).toBe("#170f21");
+    expect(parsed.persona.theme.rail).toBe("#d6b55e");
+    expect(parsed.persona.theme.danger).toBe("#ff6b7a");
+    expect(parsed.persona.theme.chartColors).toHaveLength(6);
   });
 
   it("accepts separate full-style and base-style llm prompt tracks", () => {
@@ -216,6 +220,8 @@ describe("shared schemas", () => {
 
     expect(parsed.baseSystemPrompt).toBe("Persona-lite prompt");
     expect(parsed.baseMessages).toHaveLength(2);
+    expect(parsed.persona.directResponseInstructions).toEqual([]);
+    expect(parsed.persona.voiceProfile.performancePreset).toBe("neutral");
   });
 
   it("accepts OpenAI artifact blocks and per-request tool options", () => {

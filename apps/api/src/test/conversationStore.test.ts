@@ -203,6 +203,7 @@ describe("ConversationStore prompt context", () => {
         role: "assistant",
         content: "Done.",
         metadata: {
+          personaId: "larae",
           outputs: [{
             type: "image",
             url: "/api/generated/image.png",
@@ -233,6 +234,58 @@ describe("ConversationStore prompt context", () => {
     expect(restored?.turns[0]?.providerModel).toBe("gpt-test");
     expect(restored?.turns[0]?.responseId).toBe("resp_123");
     expect(restored?.turns[0]?.styleTransferProvider).toBe("stub_style_transfer");
+    expect(restored?.turns[0]?.personaId).toBe("larae");
+  });
+
+  it("keeps the same chat history when its active persona changes", async () => {
+    const store = new ConversationStore();
+    const original = await store.getOrCreate("mixed-persona-chat", [], {
+      personaId: "larae",
+      titleSeed: "Keep this conversation"
+    });
+    await store.appendTurn(original, [
+      { role: "user", content: "First question" },
+      { role: "assistant", content: "First answer" }
+    ]);
+
+    const switched = await store.getOrCreate("mixed-persona-chat", [], {
+      personaId: "second-persona"
+    });
+
+    expect(switched.id).toBe("mixed-persona-chat");
+    expect(switched.personaId).toBe("second-persona");
+    expect(switched.messages.map((message) => message.content)).toEqual([
+      "First question",
+      "First answer"
+    ]);
+    expect(switched.turns?.[0]?.personaId).toBe("larae");
+
+    const updated = await store.appendTurn(switched, [
+      { role: "user", content: "Second question" },
+      {
+        role: "assistant",
+        content: "Second answer",
+        metadata: { personaId: "second-persona" }
+      }
+    ]);
+    expect(updated.turns?.map((turn) => turn.personaId)).toEqual(["larae", "second-persona"]);
+  });
+
+  it("restores per-turn personas from a portable mixed-persona conversation", async () => {
+    const store = new ConversationStore();
+    const imported = await store.importPortable({
+      title: "Imported mixed chat",
+      pinned: false,
+      messages: [
+        { role: "user", content: "First" },
+        { role: "assistant", content: "LaRae answer", personaId: "larae" },
+        { role: "user", content: "Second" },
+        { role: "assistant", content: "Other answer", personaId: "future-persona" }
+      ]
+    }, "user_test");
+
+    const restored = await store.get(imported.id, "user_test");
+    expect(restored?.turns.map((turn) => turn.personaId)).toEqual(["larae", "future-persona"]);
   });
 
   it("falls back to plain text when saved render metadata is malformed", async () => {

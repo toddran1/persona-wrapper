@@ -1,11 +1,6 @@
 import type { LLMInput, PersonaDefinition } from "@persona/shared";
 
-const PROMPT_REPLACEMENTS: Array<[RegExp, string]> = [
-  [/\bsexy\b/gi, "confident glamorous"],
-  [/\bhot\b/gi, "stylish attractive"],
-  [/\bbad bitch\b/gi, "confident fashionable woman"],
-  [/\bbaddie\b/gi, "fashion-forward confident woman"],
-  [/\bbaddies\b/gi, "fashion-forward confident women"],
+const SAFETY_PROMPT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bthick\b/gi, "curvy"],
   [/\bbig boobs?\b/gi, "curvy frame"],
   [/\blarge breasts?\b/gi, "curvy frame"],
@@ -15,7 +10,6 @@ const PROMPT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\btopless\b/gi, "wearing a fashionable top"],
   [/\blingerie\b/gi, "fashion outfit"],
   [/\berotic\b|\bpornographic\b/gi, "editorial fashion"],
-  [/\bseductive\b|\bprovocative\b/gi, "confident fashion"],
   [/\bfuck(?:ing)?\b|\bbitch(?:es)?\b|\bnigg(?:a|as)\b|\bhoe(?:s)?\b/gi, ""]
 ];
 
@@ -23,9 +17,20 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim();
 }
 
-function sanitizeImageRequest(message: string): string {
+function phrasePattern(phrase: string): RegExp {
+  const escaped = escapeRegExp(phrase.trim()).replace(/\s+/g, "\\s+");
+  return new RegExp(`\\b${escaped}\\b`, "gi");
+}
+
+function sanitizeImageRequest(message: string, persona?: PersonaDefinition): string {
   let sanitized = message;
-  for (const [pattern, replacement] of PROMPT_REPLACEMENTS) {
+  const personaReplacements = persona?.imagePromptSanitization?.replacements ?? [];
+  for (const rule of personaReplacements) {
+    for (const phrase of [...rule.phrases].sort((left, right) => right.length - left.length)) {
+      sanitized = sanitized.replace(phrasePattern(phrase), rule.replaceWith);
+    }
+  }
+  for (const [pattern, replacement] of SAFETY_PROMPT_REPLACEMENTS) {
     sanitized = sanitized.replace(pattern, replacement);
   }
   return normalizeWhitespace(sanitized);
@@ -98,7 +103,7 @@ function personaVisualBrief(persona: PersonaDefinition): string {
     `Fictional persona: ${persona.name}.`,
     persona.age ? `Age: ${persona.age}.` : "",
     persona.height ? `Height: ${persona.height}.` : "",
-    `Appearance and visual style: ${sanitizeImageRequest(persona.visualStyle.join(", "))}.`
+    `Appearance and visual style: ${sanitizeImageRequest(persona.visualStyle.join(", "), persona)}.`
   ].filter(Boolean);
 
   return [
@@ -116,14 +121,14 @@ function personaCharacterInfluenceVisualBrief(persona: PersonaDefinition): strin
   const favorites = influences.favorites;
   return [
     "Persona character influences for scene and styling choices:",
-    `Favorite activities: ${sanitizeImageRequest(favorites.activities.join(", "))}.`,
-    `Favorite foods: ${sanitizeImageRequest(favorites.foods.join(", "))}.`,
-    `Favorite colors: ${sanitizeImageRequest(favorites.colors.join(", "))}.`,
-    `Favorite products: ${sanitizeImageRequest(favorites.products.join(", "))}.`,
-    `Favorite music and entertainment: ${sanitizeImageRequest([...favorites.music, ...favorites.entertainment].join(", "))}.`,
-    `Favorite places and fashion: ${sanitizeImageRequest([...favorites.places, ...favorites.fashion].join(", "))}.`,
-    `Interests and background: ${sanitizeImageRequest([...influences.interests, ...influences.backgroundInfluences].join(", "))}.`,
-    `Values and aspirations: ${sanitizeImageRequest([...influences.values, ...influences.aspirations].join(", "))}.`,
+    `Favorite activities: ${sanitizeImageRequest(favorites.activities.join(", "), persona)}.`,
+    `Favorite foods: ${sanitizeImageRequest(favorites.foods.join(", "), persona)}.`,
+    `Favorite colors: ${sanitizeImageRequest(favorites.colors.join(", "), persona)}.`,
+    `Favorite products: ${sanitizeImageRequest(favorites.products.join(", "), persona)}.`,
+    `Favorite music and entertainment: ${sanitizeImageRequest([...favorites.music, ...favorites.entertainment].join(", "), persona)}.`,
+    `Favorite places and fashion: ${sanitizeImageRequest([...favorites.places, ...favorites.fashion].join(", "), persona)}.`,
+    `Interests and background: ${sanitizeImageRequest([...influences.interests, ...influences.backgroundInfluences].join(", "), persona)}.`,
+    `Values and aspirations: ${sanitizeImageRequest([...influences.values, ...influences.aspirations].join(", "), persona)}.`,
     "Use these only as optional inspiration for the scene, mood, setting, props, palette, wardrobe, or activities when they fit the user's request.",
     "The user's requested subject, setting, outfit, action, and constraints always take priority. Do not insert products, food, places, or logos unless they fit or the user asks for them.",
     "Do not add readable brand logos, trademarks, or text solely because they appear in the persona's preferences."
@@ -143,7 +148,7 @@ export function buildImageGenerationPrompt(
   input: LLMInput,
   options: { includePersonaVisualReferences?: boolean; includeUserImageReferences?: boolean } = {}
 ): string {
-  const sanitizedRequest = sanitizeImageRequest(input.userMessage);
+  const sanitizedRequest = sanitizeImageRequest(input.userMessage, input.persona);
   const request = sanitizedRequest || "Create a stylish, non-explicit image based on the user's request.";
   const includePersonaVisuals = isPersonaImageRequest(input.userMessage, input.persona);
   const includePersonaVisualReferences = includePersonaVisuals && options.includePersonaVisualReferences === true;

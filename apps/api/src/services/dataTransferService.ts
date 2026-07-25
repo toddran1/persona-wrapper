@@ -150,7 +150,13 @@ function importFingerprint(conversation: PortableConversation): string {
   return createHash("sha256").update(JSON.stringify({
     title: conversation.title.trim(),
     createdAt: conversation.createdAt ?? null,
-    messages: conversation.messages.map((message) => ({ role: message.role, content: message.content, name: message.name ?? null, outputs: message.outputs ?? null }))
+    messages: conversation.messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      name: message.name ?? null,
+      personaId: message.personaId ?? null,
+      outputs: message.outputs ?? null
+    }))
   })).digest("hex");
 }
 
@@ -182,9 +188,13 @@ function portableFromDetail(detail: ConversationDetail): PortableConversation {
     updatedAt: detail.updatedAt,
     messages: detail.history.map((message) => {
       if (message.role !== "assistant") return message;
-      const outputs = detail.turns[assistantTurnIndex]?.outputs;
+      const turn = detail.turns[assistantTurnIndex];
       assistantTurnIndex += 1;
-      return { ...message, ...(outputs?.length ? { outputs } : {}) };
+      return {
+        ...message,
+        ...(turn?.personaId ? { personaId: turn.personaId } : {}),
+        ...(turn?.outputs.length ? { outputs: turn.outputs } : {})
+      };
     })
   });
 }
@@ -361,7 +371,10 @@ export class DataTransferService {
             content: message.content,
             name: message.name,
             sequence: offset + batchIndex,
-            metadata: message.outputs?.length ? { outputs: message.outputs } : {},
+            metadata: {
+              ...(message.personaId ? { personaId: message.personaId } : {}),
+              ...(message.outputs?.length ? { outputs: message.outputs } : {})
+            },
             ...(message.createdAt ? { createdAt: new Date(message.createdAt) } : {})
           })));
         }

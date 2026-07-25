@@ -55,8 +55,12 @@ function getVoiceConfig(input: TTSInput): ElevenLabsVoiceConfig {
     style: personaConfig?.style ?? env.ELEVENLABS_STYLE,
     useSpeakerBoost: personaConfig?.useSpeakerBoost ?? env.ELEVENLABS_USE_SPEAKER_BOOST
   };
-  if (personaConfig?.voiceId) {
-    config.voiceId = personaConfig.voiceId;
+  const personaEnvironmentVoiceId = personaConfig?.voiceIdEnvVar
+    ? process.env[personaConfig.voiceIdEnvVar]?.trim()
+    : undefined;
+  const resolvedVoiceId = personaEnvironmentVoiceId || personaConfig?.voiceId;
+  if (resolvedVoiceId) {
+    config.voiceId = resolvedVoiceId;
   }
   return config;
 }

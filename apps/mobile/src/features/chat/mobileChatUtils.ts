@@ -10,6 +10,7 @@ export function sortConversationSummaries(left: ConversationSummary, right: Conv
 export function turnsFromConversationTurns(turns: ConversationTurn[]): RenderedTurn[] {
   return turns.map((turn, index) => ({
     id: `${index}-${turn.userMessage.slice(0, 16)}`,
+    ...(turn.personaId ? { personaId: turn.personaId } : {}),
     userMessage: turn.userMessage,
     userAssets: turn.userAssets,
     assistantText: turn.assistantText,
@@ -25,6 +26,7 @@ export function turnFromChatResponse(prompt: string, response: ChatResponse): Re
     .join("\n\n");
   return {
     id: `${response.conversationId}-${response.generatedAt}`,
+    personaId: response.persona.id,
     userMessage: prompt,
     assistantText,
     outputs: response.outputs

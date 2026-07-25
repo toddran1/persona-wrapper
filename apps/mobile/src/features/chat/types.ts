@@ -2,6 +2,7 @@ import type { ContentBlock } from "@persona/shared";
 
 export type RenderedTurn = {
   id: string;
+  personaId?: string;
   userMessage: string;
   userAssets?: Array<{
     id: string;

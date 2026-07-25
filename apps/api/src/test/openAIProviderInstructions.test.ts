@@ -57,6 +57,26 @@ describe("OpenAIProvider instructions", () => {
     expect(baseInstructions).not.toContain("Silent style checklist before finalizing");
   });
 
+  it("reads direct performance direction from the active persona profile rather than its id", () => {
+    const input = inputForLaRae();
+    input.persona = {
+      ...input.persona,
+      id: "nova",
+      name: "Nova",
+      shortName: "Nova",
+      directResponseInstructions: ["Use Nova's exact custom cadence in every section."],
+      styleReference: undefined,
+      voiceProfile: {
+        ...input.persona.voiceProfile,
+        performancePreset: "neutral"
+      }
+    };
+
+    const instructions = buildOpenAIResponseInstructions(input, "full");
+    expect(instructions).toContain("Use Nova's exact custom cadence in every section.");
+    expect(instructions).toContain("Answer directly in Nova's voice.");
+  });
+
   it("requests visible text and hidden TTS script in one response when audio mode is enabled", () => {
     const original = env.OPENAI_TTS_SCRIPT_ENABLED;
     env.OPENAI_TTS_SCRIPT_ENABLED = true;
@@ -73,16 +93,15 @@ describe("OpenAIProvider instructions", () => {
     expect(directInstructions).toContain("performance-ready narration script");
     expect(directInstructions).toContain("normalize text for speech");
     expect(directInstructions).toContain("add natural speech pacing");
-    expect(directInstructions).toContain("carry emotion through word choice and punctuation");
-    expect(directInstructions).toContain("non-v3 ElevenLabs Flash-style model");
+    expect(directInstructions).toContain("carry the configured persona emotion and delivery");
+    expect(directInstructions).toContain("Do not include bracketed emotion tags");
     expect(directInstructions).toContain("<break time=\"0.4s\" />");
-    expect(directInstructions).toContain("Flash v2.5 delivery");
-    expect(directInstructions).toContain("phonetic emotion and punctuation physics");
+    expect(directInstructions).toContain("sassy, animated, rapid-fire confessional style");
     expect(directInstructions).toContain("Haha, Heh, Ahaha!, HA!, or Oh, pfft");
     expect(directInstructions).toContain("Ugh..., Oh... god..., *sniff*, or No... no...");
-    expect(directInstructions).toContain("ellipses (...) and long dashes");
+    expect(directInstructions).toContain("ellipses and long dashes");
     expect(directInstructions).toContain("ALL CAPS");
-    expect(directInstructions).toContain("Use ?!");
+    expect(directInstructions).toContain("?! for sharp upward bewildered inflection");
     expect(directInstructions).toContain("Listen..., Look—, Baby..., or Bitch—");
     expect(directInstructions).toContain("<break time=\"0.3s\" />");
 

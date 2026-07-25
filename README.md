@@ -279,8 +279,69 @@ Persona definition fields include:
 - speech style
 - catchphrases
 - visual style
-- preferred voice settings
+- character influences and recommendation preferences
+- per-persona web/mobile theme tokens
+- direct provider response instructions
+- optional OpenAI style-reference dataset settings
+- image-prompt sanitization replacements
+- preferred voice settings and a TTS performance preset
 - safety boundaries
+
+Persona-owned runtime behavior should be declared in the profile instead of
+adding persona ID checks to providers or UI components. The main extension
+points are:
+
+```ts
+{
+  theme: {
+    background: "#0b0611",
+    backgroundAlt: "#160c20",
+    surface: "#21142c",
+    text: "#fff8f3",
+    mutedText: "#cbbbd5",
+    accent: "#e0ba55",
+    accentSecondary: "#6f35d9",
+    border: "#463450",
+    rail: "#12091a",
+    danger: "#ff637d",
+    chartColors: ["#e0ba55", "#8c5de8", "#ff7aa2", "#62c7b5"]
+  },
+  directResponseInstructions: [
+    "Persona-specific model performance direction..."
+  ],
+  styleReference: {
+    enabled: true,
+    datasetKey: "persona-id",
+    syntheticLimit: 8,
+    goldenLimit: 4
+  },
+  imagePromptSanitization: {
+    replacements: [
+      { phrases: ["persona slang"], replaceWith: "image-safe visual wording" }
+    ]
+  },
+  voiceProfile: {
+    defaultVoiceId: "alloy",
+    speakingStyle: "Concise speaking direction.",
+    performancePreset: "neutral",
+    elevenLabs: {
+      // Use either a direct voiceId or an environment-variable name.
+      voiceIdEnvVar: "ELEVENLABS_VOICE_ID_PERSONA"
+    }
+  }
+}
+```
+
+Register named TTS performance presets in
+`apps/api/src/services/personaVoicePerformance.ts`. A missing or unknown preset
+falls back to `neutral`. For stage media, images are required and videos are
+optional; the clients use video stages only when idle, thinking, and talking
+all have at least one video, otherwise they use the required stage images.
+
+The legacy LaRae style dataset remains under `ml/style-transfer/datasets/`.
+Additional persona datasets use
+`ml/style-transfer/personas/<datasetKey>/{processed,curated}/`; see the
+style-transfer README for the expected filenames.
 
 ## Adding a New LLM Provider
 

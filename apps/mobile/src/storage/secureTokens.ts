@@ -1,6 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 const OWNER_ID_KEY = "persona-wrapper-owner-id";
 const SELECTED_CONVERSATION_ID_KEY = "persona-wrapper-selected-conversation-id";
+const SELECTED_PERSONA_ID_KEY = "persona-wrapper-selected-persona-id";
 
 function createLocalId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
@@ -24,4 +25,12 @@ export async function setSelectedConversationId(conversationId: string): Promise
 
 export async function clearSelectedConversationId(): Promise<void> {
   await SecureStore.deleteItemAsync(SELECTED_CONVERSATION_ID_KEY);
+}
+
+export async function getSelectedPersonaId(): Promise<string | undefined> {
+  return await SecureStore.getItemAsync(SELECTED_PERSONA_ID_KEY) ?? undefined;
+}
+
+export async function setSelectedPersonaId(personaId: string): Promise<void> {
+  await SecureStore.setItemAsync(SELECTED_PERSONA_ID_KEY, personaId);
 }

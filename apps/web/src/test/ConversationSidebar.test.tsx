@@ -1,15 +1,42 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { personaSummarySchema } from "@persona/shared";
 import { ConversationSidebar } from "../components/ConversationSidebar.js";
 
 const now = "2026-07-24T05:00:00.000Z";
+const persona = personaSummarySchema.parse({
+  id: "larae",
+  name: "LaRae the Baddest",
+  shortName: "LaRae",
+  tagline: "Clock it",
+  description: "Persona",
+  avatarColor: "#8a5cf6",
+  theme: {
+    mode: "dark",
+    themeName: "Silk Noir",
+    background: "#09060f",
+    backgroundAccent: "#8a5cf6",
+    backgroundAccentSecondary: "#d6b55e",
+    surface: "#110b1c",
+    surfaceStrong: "#211433",
+    border: "#d6b55e",
+    accent: "#8a5cf6",
+    accent2: "#d6b55e",
+    text: "#f7efe8",
+    muted: "#c8bdd8"
+  },
+  supportedProviders: ["openai"]
+});
 
-function renderSidebar() {
+function renderSidebar(options: { showPersona?: boolean; onSelectPersona?: (id: string) => void } = {}) {
   const onUpdateProfile = vi.fn().mockResolvedValue(undefined);
   const view = render(
     <ConversationSidebar
       personaName="LaRae the Baddest"
+      personas={options.showPersona ? [persona] : []}
+      activePersonaId={options.showPersona ? persona.id : undefined}
+      onSelectPersona={options.onSelectPersona ?? vi.fn()}
       authUser={{
         id: "user_settings",
         email: "settings@example.com",
@@ -59,6 +86,17 @@ function renderSidebar() {
 }
 
 describe("ConversationSidebar settings", () => {
+  it("renders persona profiles as selectable themed options", async () => {
+    const user = userEvent.setup();
+    const onSelectPersona = vi.fn();
+    renderSidebar({ showPersona: true, onSelectPersona });
+
+    const option = screen.getByRole("button", { name: "Use LaRae, Silk Noir" });
+    expect(option).toHaveAttribute("aria-current", "true");
+    await user.click(option);
+    expect(onSelectPersona).toHaveBeenCalledWith("larae");
+  });
+
   it("keeps the account menu compact and moves account controls into the settings modal", async () => {
     const user = userEvent.setup();
     const { onUpdateProfile } = renderSidebar();
@@ -74,8 +112,11 @@ describe("ConversationSidebar settings", () => {
     expect(within(dialog).getByText("Coming soon")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Edit username" }));
     expect(within(dialog).getByLabelText("Username")).toHaveValue("settingsuser");
+    expect(within(dialog).getByRole("button", { name: "Save username" })).toBeDisabled();
+    await user.clear(within(dialog).getByLabelText("Username"));
+    await user.type(within(dialog).getByLabelText("Username"), "settingsuser2");
     await user.click(within(dialog).getByRole("button", { name: "Save username" }));
-    await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ username: "settingsuser" }));
+    await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ username: "settingsuser2" }));
     await user.click(within(dialog).getByRole("button", { name: "Remove birthday" }));
     await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ birthday: null }));
     await user.selectOptions(within(dialog).getByLabelText("Birthday month"), "2");

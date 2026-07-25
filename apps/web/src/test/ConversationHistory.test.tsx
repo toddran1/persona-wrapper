@@ -73,6 +73,31 @@ describe("ConversationHistory pending state", () => {
     expect(screen.getByLabelText("LaRae is thinking")).toBeInTheDocument();
   });
 
+  it("keeps mixed-persona responses attributed to the persona that answered", () => {
+    const { container } = render(
+      <ConversationHistory
+        personaId="current-persona"
+        turns={[
+          {
+            personaId: "larae",
+            userMessage: "First question",
+            assistantText: "First answer",
+            outputs: [{ type: "text", text: "First answer" }]
+          },
+          {
+            personaId: "future-persona",
+            userMessage: "Second question",
+            assistantText: "Second answer",
+            outputs: [{ type: "text", text: "Second answer" }]
+          }
+        ]}
+      />
+    );
+
+    expect(Array.from(container.querySelectorAll(".chat-avatar-assistant")).map((node) => node.textContent))
+      .toEqual(["larae", "future-persona"]);
+  });
+
   it("renders markdown text and exposes references from the response action menu", async () => {
     const user = userEvent.setup();
     render(

@@ -8,6 +8,10 @@ This folder contains the style-transfer training workspace for the persona pipel
 datasets/
   raw/          Local unpaired conversation text files. These are gitignored.
   processed/    Generated JSONL datasets for LoRA training.
+personas/
+  <datasetKey>/
+    processed/  Runtime synthetic style references for another persona.
+    curated/    Runtime golden style references for another persona.
 scripts/
   prepare_dataset.py
   curate_training_pairs.py
@@ -18,6 +22,31 @@ configs/
   qwen2p5_7b_uncensored_lora_v1_pairs.yaml
   qwen2p5_14b_uncensored_lora_v1_pairs_newdata.yaml
 ```
+
+## Per-Persona OpenAI Style References
+
+The API can inject a bounded set of style examples into direct OpenAI requests.
+This is controlled by each persona profile's `styleReference` object; providers
+do not contain persona-ID checks.
+
+LaRae keeps the existing dataset layout for backward compatibility:
+
+```text
+datasets/processed/style_transfer.pairs.jsonl
+datasets/curated/golden_style_pairs_seed.jsonl
+```
+
+For another persona with `datasetKey: "new-persona"`, use:
+
+```text
+personas/new-persona/processed/style_transfer.pairs.jsonl
+personas/new-persona/curated/golden_style_pairs_seed.jsonl
+```
+
+Records marked with `"use_for_openai_reference": true` are preferred. If no
+records are marked, the runtime samples from all valid input/output pairs.
+Missing or empty files safely produce no reference section, so a persona can be
+registered before its dataset is ready.
 
 ## Training Data Format
 

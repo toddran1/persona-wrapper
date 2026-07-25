@@ -16,6 +16,7 @@ export type UserPromptAsset = {
 };
 
 export type RenderedTurn = {
+  personaId?: string;
   userMessage: string;
   userAssets?: UserPromptAsset[];
   userFiles?: File[];
@@ -680,6 +681,7 @@ export function ConversationHistory({
             </button>
           ) : null}
           {turns.map((turn, turnIndex) => {
+            const turnPersonaId = turn.personaId ?? personaId;
             const inlineOutputs = turn.outputs.filter(shouldRenderInlineOutput);
             const sources = turn.outputs.filter((output): output is Extract<ContentBlock, { type: "source_list" }> => output.type === "source_list");
             const audioBlocks = turn.outputs.filter((output): output is Extract<ContentBlock, { type: "audio" }> => output.type === "audio");
@@ -699,7 +701,7 @@ export function ConversationHistory({
                   <UserMessageActions message={turn.userMessage} files={turn.userFiles ?? []} onEdit={onEditUserPrompt} />
                 </article>
                 <article ref={turnIndex === turns.length - 1 ? newestAssistantRef : undefined} className="chat-row chat-row-assistant">
-                  <div className="chat-avatar chat-avatar-assistant">{personaId}</div>
+                  <div className="chat-avatar chat-avatar-assistant">{turnPersonaId}</div>
                   <div className="chat-bubble chat-bubble-assistant">
                     <span className="history-role">Reply</span>
                     {assistantText ? <MarkdownText text={assistantText} className="message-text markdown-text" /> : null}
@@ -718,7 +720,7 @@ export function ConversationHistory({
                     text={assistantText}
                     sources={sources}
                     audioBlocks={audioBlocks}
-                    personaId={personaId}
+                    personaId={turnPersonaId}
                     autoPlayAudio={turnIndex === autoPlayAudioTurnIndex}
                     onAudioPlaybackChange={onAudioPlaybackChange}
                     onRetry={onRetryAssistantTurn && turnIndex === turns.length - 1 ? () => onRetryAssistantTurn(turn) : undefined}

@@ -52,7 +52,9 @@ import { useNetwork } from "../../network/NetworkProvider";
 import {
   clearSelectedConversationId,
   getSelectedConversationId,
-  setSelectedConversationId
+  getSelectedPersonaId,
+  setSelectedConversationId,
+  setSelectedPersonaId
 } from "../../storage/secureTokens";
 import { saveFileToDevice } from "../../storage/downloadDirectory";
 import { getLandscapeLayoutEnabled, setLandscapeLayoutEnabled } from "../../storage/mobilePreferences";
@@ -575,7 +577,7 @@ export function MobileChatScreen() {
   }
 
   async function savePersonalizationProfile(): Promise<void> {
-    if (profileBusy) return;
+    if (profileBusy || !profileHasChanges) return;
     if (Boolean(birthMonth) !== Boolean(birthDay)) {
       setProfileError("Enter both a birthday month and day, or leave both blank.");
       return;
@@ -952,11 +954,15 @@ export function MobileChatScreen() {
 
         const personaList = await queryClient.fetchQuery(personasQueryOptions());
         setPersonas(personaList);
-        const selected = persona ?? personaList[0];
+        const savedPersonaId = await getSelectedPersonaId().catch(() => undefined);
+        const selected = personaList.find((candidate) => candidate.id === savedPersonaId)
+          ?? (persona && personaList.some((candidate) => candidate.id === persona.id) ? persona : undefined)
+          ?? personaList[0];
         if (selected) {
           const detail = await queryClient.fetchQuery(personaQueryOptions(selected.id));
           setPersona(detail);
           setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
+          void setSelectedPersonaId(detail.id).catch(() => undefined);
         }
         if (user) {
           const nextConversations = await refreshConversations(user.id);
@@ -1605,11 +1611,15 @@ export function MobileChatScreen() {
         const personaList = await queryClient.fetchQuery(personasQueryOptions());
         if (!mounted) return;
         setPersonas(personaList);
-        const selected = personaList[0];
+        const savedPersonaId = await getSelectedPersonaId().catch(() => undefined);
+        const selected = personaList.find((candidate) => candidate.id === savedPersonaId) ?? personaList[0];
         if (selected) {
           setProvider(selected.supportedProviders.includes("openai_persona") ? "openai_persona" : selected.supportedProviders[0] ?? "openai");
           const detail = await queryClient.fetchQuery(personaQueryOptions(selected.id));
-          if (mounted) setPersona(detail);
+          if (mounted) {
+            setPersona(detail);
+            void setSelectedPersonaId(detail.id).catch(() => undefined);
+          }
         }
         if (user && mounted) {
           const nextConversations = await refreshConversations(user.id);
@@ -1666,7 +1676,15 @@ export function MobileChatScreen() {
   }, []);
 
   async function selectPersona(personaId: string): Promise<void> {
-    cancelActiveChatRequest();
+    if (personaId === activePersona?.id) {
+      closeDrawer();
+      return;
+    }
+    if (sending || uploadingAttachments || resumingJobId) {
+      setError("Wait for the current response to finish or cancel it before switching personas.");
+      closeDrawer();
+      return;
+    }
     const selectionGeneration = ++selectionGenerationRef.current;
     try {
       setLoading(true);
@@ -1674,9 +1692,7 @@ export function MobileChatScreen() {
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setPersona(detail);
       setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
-      setConversationId(undefined);
-      setTurns([]);
-      setTurnsCursor(null);
+      void setSelectedPersonaId(detail.id).catch(() => undefined);
       closeDrawer();
     } catch (selectError) {
       if (selectionGeneration !== selectionGenerationRef.current) return;
@@ -1860,6 +1876,7 @@ export function MobileChatScreen() {
       setUploadingAttachments(false);
       optimistic = {
         id: `pending-${Date.now()}`,
+        personaId: activePersona.id,
         userMessage: message,
         userAssets: mapUploadedAssetsToUserAssets(attachments),
         assistantText: "",
@@ -2229,6 +2246,12 @@ export function MobileChatScreen() {
         ? birthDay
         : "";
   const profileBirthdayIncomplete = Boolean(birthMonth) !== Boolean(birthDay);
+  const profileHasChanges =
+    profileUsername.trim() !== (authUser?.username ?? "") ||
+    preferredName.trim() !== (authUser?.preferredName ?? "").trim() ||
+    profileGender !== (authUser?.gender ?? "") ||
+    birthMonth !== (authUser?.birthday?.month.toString() ?? "") ||
+    birthDay !== (authUser?.birthday?.day.toString() ?? "");
   const profileSelectionTitle = profileSelection === "gender"
     ? "Select gender"
     : profileSelection === "month"
@@ -2422,7 +2445,12 @@ export function MobileChatScreen() {
                 </View>
               </View>
             )}
-            renderItem={({ item: turn }) => (
+            renderItem={({ item: turn }) => {
+              const turnPersona = turn.personaId
+                ? personas.find((candidate) => candidate.id === turn.personaId)
+                : activePersona;
+              const turnPersonaLabel = turnPersona?.shortName ?? turnPersona?.name ?? turn.personaId ?? "P";
+              return (
                 <View key={turn.id} style={styles.turn}>
                   <View
                     style={[
@@ -2452,9 +2480,9 @@ export function MobileChatScreen() {
                     ]}
                   />
                   <View style={styles.assistantRow}>
-                    <View style={[styles.assistantMark, { backgroundColor: theme.accent }]}>
+                    <View style={[styles.assistantMark, { backgroundColor: turnPersona?.theme.accent ?? theme.accent }]}>
                       <Text style={[styles.assistantMarkText, { color: theme.text }]}>
-                        {(activePersona?.shortName ?? activePersona?.name ?? "P")[0]}
+                        {turnPersonaLabel[0]}
                       </Text>
                     </View>
                     <View style={[styles.assistantContent, personaCardExpanded ? styles.expandedAssistantBubble : null]}>
@@ -2491,7 +2519,8 @@ export function MobileChatScreen() {
                     </View>
                   </View>
                 </View>
-            )}
+              );
+            }}
           />
 
           {showScrollToBottom && turns.length > 0 ? (
@@ -2771,10 +2800,10 @@ export function MobileChatScreen() {
               {profileError ? <Text style={[styles.sessionErrorText, { color: theme.danger }]}>{profileError}</Text> : null}
               <Pressable
                 accessibilityRole="button"
-                accessibilityState={{ disabled: profileBusy || profileBirthdayIncomplete }}
-                disabled={profileBusy || profileBirthdayIncomplete}
+                accessibilityState={{ disabled: profileBusy || profileBirthdayIncomplete || !profileHasChanges }}
+                disabled={profileBusy || profileBirthdayIncomplete || !profileHasChanges}
                 onPress={() => void savePersonalizationProfile()}
-                style={[styles.settingsRow, { justifyContent: "center", backgroundColor: theme.accent2, opacity: profileBusy || profileBirthdayIncomplete ? 0.45 : 1 }]}
+                style={[styles.settingsRow, { justifyContent: "center", backgroundColor: theme.accent2, opacity: profileBusy || profileBirthdayIncomplete || !profileHasChanges ? 0.45 : 1 }]}
               >
                 {profileBusy ? <ActivityIndicator size="small" color="#170f20" /> : <Text style={{ color: "#170f20", fontWeight: "900" }}>Save changes</Text>}
               </Pressable>

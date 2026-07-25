@@ -1,33 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { buildLaraeStyleReference, resetLaraeStyleReferenceCache } from "../services/laraeStyleReferenceBuilder.js";
+import { getPersonaById } from "../personas/index.js";
+import { buildPersonaStyleReference, resetPersonaStyleReferenceCache } from "../services/personaStyleReferenceBuilder.js";
 import { estimateTextTokens } from "../utils/tokenBudget.js";
 
-describe("laraeStyleReferenceBuilder", () => {
-  it("builds a style-only reference from synthetic and golden pairs", () => {
-    resetLaraeStyleReferenceCache();
+const larae = getPersonaById("larae")!;
 
-    const reference = buildLaraeStyleReference();
+describe("personaStyleReferenceBuilder", () => {
+  it("builds a style-only reference from synthetic and golden pairs", () => {
+    resetPersonaStyleReferenceCache("larae");
+
+    const reference = buildPersonaStyleReference(larae);
 
     expect(reference).toContain("LaRae style reference examples.");
     expect(reference).toContain("style references only");
-    expect(reference).toContain("high style density across the whole answer");
+    expect(reference).toContain("Keep the target style present across the whole answer");
     expect(reference).toContain("every paragraph, bullet, numbered item, explanation, and transition");
-    expect(reference).toContain("heavy HEAVY slang");
-    expect(reference).toContain("Bitch, Nigga, Bitches, Niggas, Fucking, Fuck, Hoe, Hoes, Baddies");
-    expect(reference).toContain("It should almost feel like it cannot be enough");
-    expect(reference).toContain("ratchet, messy, loud, vulgar, sexy");
+    expect(reference).toContain("Speech style:");
+    expect(reference).toContain("Catchphrases and vocabulary cues:");
     expect(reference).toContain("Synthetic examples:");
     expect(reference).toContain("Golden examples:");
-    expect(reference.match(/INPUT:/g)).toHaveLength(25);
-    expect(reference.match(/OUTPUT:/g)).toHaveLength(25);
+    expect(reference.match(/INPUT:/g)).toHaveLength(12);
+    expect(reference.match(/OUTPUT:/g)).toHaveLength(12);
     expect(reference).not.toContain("Preserve all names, dates, years, numbers");
     expect(reference).not.toContain("\"instruction\"");
   });
 
   it("can bound the reference examples by token budget", () => {
-    resetLaraeStyleReferenceCache();
+    resetPersonaStyleReferenceCache("larae");
 
-    const reference = buildLaraeStyleReference({
+    const reference = buildPersonaStyleReference(larae, {
       syntheticLimit: 20,
       goldenLimit: 5,
       maxTokens: 700
@@ -35,5 +36,25 @@ describe("laraeStyleReferenceBuilder", () => {
 
     expect(estimateTextTokens(reference)).toBeLessThanOrEqual(710);
     expect(reference).toContain("LaRae style reference examples.");
+  });
+
+  it("supports a persona-scoped dataset that has not been populated yet", () => {
+    const futurePersona = {
+      ...larae,
+      id: "future-persona",
+      name: "Future Persona",
+      shortName: "Future",
+      styleReference: {
+        enabled: true,
+        datasetKey: "future-persona",
+        syntheticLimit: 8,
+        goldenLimit: 4
+      }
+    };
+
+    const reference = buildPersonaStyleReference(futurePersona);
+    expect(reference).toContain("Future style reference examples.");
+    expect(reference).not.toContain("Synthetic examples:");
+    expect(reference).not.toContain("Golden examples:");
   });
 });

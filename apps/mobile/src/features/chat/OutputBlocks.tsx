@@ -241,7 +241,8 @@ function MobileMarkdownText({ text, theme }: { text: string; theme: MobileTheme 
 }
 
 function MobileChartBlock({ output, theme }: { output: Extract<ContentBlock, { type: "chart" }>; theme: MobileTheme }) {
-  const colors = [theme.accent2, theme.accent, "#e06f9f", "#69c4b1", "#ef8d5b", "#7899e8"];
+  // Keep charts renderable if a cached persona theme predates chartColors.
+  const colors = theme.chartColors.length > 0 ? theme.chartColors : [theme.accent2];
   const data = output.series.map((point, index) => ({
     value: point.value,
     label: point.label,

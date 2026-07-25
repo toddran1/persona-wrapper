@@ -1,5 +1,6 @@
 import type { PersonaDefinition } from "@persona/shared";
 import { env } from "../config/env.js";
+import { applyPersonaVoicePerformance } from "./personaVoicePerformance.js";
 
 const STATE_NAMES: Record<string, string> = {
   AL: "Alabama",
@@ -108,10 +109,6 @@ function elevenLabsModelId(persona: PersonaDefinition): string {
   return persona.voiceProfile.elevenLabs?.modelId ?? env.ELEVENLABS_MODEL_ID;
 }
 
-function supportsInlineEmotionTags(modelId: string): boolean {
-  return modelId === "eleven_v3";
-}
-
 function stripMarkdownForSpeech(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, " ")
@@ -195,17 +192,8 @@ function addPacing(text: string): string {
 }
 
 function addPersonaPerformanceCues(text: string, persona: PersonaDefinition): string {
-  if (persona.id !== "larae") return text;
-
   const modelId = elevenLabsModelId(persona);
-  if (supportsInlineEmotionTags(modelId)) {
-    return `[sassy, excited]\n${text.replace(/\b(bitch|hoe|clock it|be serious)\b/gi, "$& [laughs]")}`;
-  }
-
-  return text
-    .replace(/\b(baby girl|baby)\b,*\s*/gi, "$1, ")
-    .replace(/,{2,}/g, ",")
-    .trim();
+  return applyPersonaVoicePerformance(text, persona, modelId);
 }
 
 export function buildTtsScript(text: string, persona: PersonaDefinition): string {

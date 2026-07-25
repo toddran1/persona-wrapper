@@ -5,9 +5,10 @@ import type {
   DataTransferJob,
   OAuthProvider,
   OAuthProviderStatus,
+  PersonaSummary,
   UpdateUserProfileRequest,
 } from "@persona/shared";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 const REGISTER_PASSWORD_MIN_LENGTH = 10;
@@ -50,6 +51,9 @@ function formatConversationTime(value: string): string {
 export function ConversationSidebar({
   mobileOpen = false,
   personaName,
+  personas,
+  activePersonaId,
+  onSelectPersona,
   authUser,
   authLoading = false,
   authError,
@@ -84,6 +88,9 @@ export function ConversationSidebar({
 }: {
   mobileOpen?: boolean;
   personaName: string;
+  personas: PersonaSummary[];
+  activePersonaId?: string | undefined;
+  onSelectPersona: (personaId: string) => void;
   authUser?: AuthUser | undefined;
   authLoading?: boolean;
   authError?: string | undefined;
@@ -183,6 +190,13 @@ export function ConversationSidebar({
     authUser?.email ??
     (authUser?.username ? `@${authUser.username}` : "Signed in");
   const accountInitial = accountName.slice(0, 1).toUpperCase();
+  const profileBirthdayIncomplete = Boolean(birthMonth) !== Boolean(birthDay);
+  const profileHasChanges =
+    preferredName.trim() !== (authUser?.preferredName ?? "").trim() ||
+    gender !== (authUser?.gender ?? "") ||
+    birthMonth !== (authUser?.birthday?.month.toString() ?? "") ||
+    birthDay !== (authUser?.birthday?.day.toString() ?? "");
+  const usernameHasChanges = username.trim() !== (authUser?.username ?? "");
 
   useEffect(() => {
     setUsername(authUser?.username ?? "");
@@ -423,9 +437,8 @@ export function ConversationSidebar({
   }
 
   async function submitProfile(): Promise<void> {
-    if (authBusy) return;
-    const hasPartialBirthday = Boolean(birthMonth) !== Boolean(birthDay);
-    if (hasPartialBirthday) {
+    if (authBusy || !profileHasChanges) return;
+    if (profileBirthdayIncomplete) {
       setLocalAuthError("Choose both a birthday month and day, or leave both blank.");
       return;
     }
@@ -449,7 +462,7 @@ export function ConversationSidebar({
   }
 
   async function saveUsername(): Promise<void> {
-    if (authBusy) return;
+    if (authBusy || !usernameHasChanges) return;
     const nextUsername = username.trim();
     if (!nextUsername) {
       setLocalAuthError("A username cannot be blank.");
@@ -836,6 +849,36 @@ export function ConversationSidebar({
         </section>
       ) : null}
 
+      <section className="conversation-persona-picker" aria-labelledby="conversation-persona-picker-label">
+        <div id="conversation-persona-picker-label" className="conversation-sidebar-section-title">Persona</div>
+        <div className="conversation-persona-options" role="list">
+          {personas.map((persona) => {
+            const selected = persona.id === activePersonaId;
+            return (
+              <div key={persona.id} role="listitem">
+                <button
+                  type="button"
+                  className={`conversation-persona-option${selected ? " conversation-persona-option-active" : ""}`}
+                  style={{ "--persona-option-accent": persona.theme.accent, "--persona-option-accent-2": persona.theme.accent2 } as CSSProperties}
+                  aria-current={selected ? "true" : undefined}
+                  aria-label={`Use ${persona.shortName ?? persona.name}, ${persona.theme.themeName}`}
+                  onClick={() => onSelectPersona(persona.id)}
+                >
+                  <span className="conversation-persona-avatar" aria-hidden="true">
+                    {persona.avatarUrl ? <img src={persona.avatarUrl} alt="" /> : (persona.shortName ?? persona.name).slice(0, 1)}
+                  </span>
+                  <span className="conversation-persona-copy">
+                    <span>{persona.shortName ?? persona.name}</span>
+                    <small>{persona.theme.themeName}</small>
+                  </span>
+                  <span className="conversation-persona-indicator" aria-hidden="true" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       <button
         type="button"
         className="conversation-new-chat"
@@ -1122,7 +1165,7 @@ export function ConversationSidebar({
                                 className="settings-identity-edit"
                                 aria-label={usernameEditing ? "Save username" : "Edit username"}
                                 title={usernameEditing ? "Save username" : "Edit username"}
-                                disabled={authBusy}
+                                disabled={authBusy || (usernameEditing && !usernameHasChanges)}
                                 onClick={() => {
                                   if (usernameEditing) {
                                     void saveUsername();
@@ -1209,7 +1252,7 @@ export function ConversationSidebar({
                                 </select>
                               </label>
                             </div>
-                            {Boolean(birthMonth) !== Boolean(birthDay) ? (
+                            {profileBirthdayIncomplete ? (
                               <p className="settings-field-error" role="alert">Choose both a birthday month and day, or clear both fields.</p>
                             ) : null}
                             {birthMonth && birthDay ? (
@@ -1222,8 +1265,8 @@ export function ConversationSidebar({
                                 type="button"
                                 className="settings-action settings-action-primary"
                                 onClick={() => void submitProfile()}
-                                disabled={authBusy || Boolean(birthMonth) !== Boolean(birthDay)}
-                                title={Boolean(birthMonth) !== Boolean(birthDay) ? "Choose both a birthday month and day to save." : undefined}
+                                disabled={authBusy || profileBirthdayIncomplete || !profileHasChanges}
+                                title={profileBirthdayIncomplete ? "Choose both a birthday month and day to save." : !profileHasChanges ? "Make a change to save." : undefined}
                               >
                                 {authBusy ? "Saving..." : "Save changes"}
                               </button>

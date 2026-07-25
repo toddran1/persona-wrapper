@@ -2,7 +2,7 @@ import type { StyleTransferInput, StyleTransferOutput } from "@persona/shared";
 import type { StyleTransferProvider } from "./StyleTransferProvider.js";
 
 function pickCatchphrase(input: StyleTransferInput): string {
-  return input.persona.catchphrases[0] ?? "Clock it.";
+  return input.persona.catchphrases[0] ?? input.persona.tagline;
 }
 
 export class StubStyleTransferProvider implements StyleTransferProvider {

@@ -39,6 +39,7 @@ function sortConversationSummaries(left: ConversationSummary, right: Conversatio
 
 function renderTurnsFromConversationTurns(turns: ConversationTurn[]): RenderedTurn[] {
   return turns.map((turn) => ({
+    ...(turn.personaId ? { personaId: turn.personaId } : {}),
     userMessage: turn.userMessage,
     userAssets: turn.userAssets.map((asset) => ({
       id: asset.id,
@@ -175,6 +176,7 @@ class BackgroundJobStateError extends Error {
 }
 
 const WEB_SELECTED_CONVERSATION_KEY = "for-the-baddiez:selected-conversation";
+const WEB_SELECTED_PERSONA_KEY = "for-the-baddiez:selected-persona";
 
 function storedConversationId(): string | undefined {
   try {
@@ -185,10 +187,19 @@ function storedConversationId(): string | undefined {
   }
 }
 
+function storedPersonaId(): string | undefined {
+  try {
+    return window.localStorage.getItem(WEB_SELECTED_PERSONA_KEY)?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const testModeEnabled = import.meta.env.VITE_TEST_MODE === "true";
   const reviewPageEnabled = testModeEnabled && reviewPage;
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string | undefined>(() => storedPersonaId());
   const [personaDetail, setPersonaDetail] = useState<PersonaDefinition | undefined>();
   const [provider, setProvider] = useState<ProviderId>("openai_persona");
   const [audioEnabled, setAudioEnabled] = useState(false);
@@ -223,6 +234,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const activeRequestRef = useRef<AbortController | undefined>(undefined);
   const activeBackgroundJobIdRef = useRef<string | undefined>(undefined);
+  const personaSelectionGenerationRef = useRef(0);
   const dataTransferAbortRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
   const completedTurnCountRef = useRef(0);
@@ -234,7 +246,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     ...personasQueryOptions(),
     retry: (failureCount, queryError) => failureCount < 12 && isTransientApiBootError(queryError)
   });
-  const primaryPersonaId = personasResource.data?.[0]?.id;
+  const primaryPersonaId = personasResource.data?.some((persona) => persona.id === selectedPersonaId)
+    ? selectedPersonaId
+    : personasResource.data?.[0]?.id;
   const personaResource = useQuery({
     ...personaQueryOptions(primaryPersonaId ?? ""),
     enabled: Boolean(primaryPersonaId),
@@ -338,14 +352,29 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }
 
   useEffect(() => {
-    if (personasResource.data) setPersonas(personasResource.data);
+    if (personasResource.data) {
+      setPersonas(personasResource.data);
+      setSelectedPersonaId((current) => {
+        if (current && personasResource.data.some((persona) => persona.id === current)) return current;
+        return personasResource.data[0]?.id;
+      });
+    }
     if (personasResource.error) setError(personasResource.error.message);
   }, [personasResource.data, personasResource.error]);
 
   useEffect(() => {
-    if (personaResource.data) setPersonaDetail(personaResource.data);
+    if (personaResource.data?.id === primaryPersonaId) setPersonaDetail(personaResource.data);
     if (personaResource.error) setError(personaResource.error.message);
-  }, [personaResource.data, personaResource.error]);
+  }, [personaResource.data, personaResource.error, primaryPersonaId]);
+
+  useEffect(() => {
+    if (!selectedPersonaId) return;
+    try {
+      window.localStorage.setItem(WEB_SELECTED_PERSONA_KEY, selectedPersonaId);
+    } catch {
+      // Local storage can be unavailable in hardened browser modes.
+    }
+  }, [selectedPersonaId]);
 
   useEffect(() => {
     if (!conversationsResource.data) return;
@@ -405,9 +434,42 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }, []);
 
   useEffect(() => {
-    const nextTitle = personaDetail?.documentTitle ?? personas[0]?.documentTitle;
+    const selectedDetail = personaDetail?.id === selectedPersonaId ? personaDetail : undefined;
+    const nextTitle = selectedDetail
+      ? selectedDetail.documentTitle
+      : personas.find((persona) => persona.id === selectedPersonaId)?.documentTitle;
     document.title = nextTitle ? `${nextTitle} | For the Baddiez` : "For the Baddiez";
-  }, [personaDetail?.documentTitle, personas]);
+  }, [personaDetail, personas, selectedPersonaId]);
+
+  async function selectPersona(personaId: string): Promise<void> {
+    if (personaId === selectedPersonaId) {
+      setMobileSidebarOpen(false);
+      return;
+    }
+    if (activeRequestRef.current) {
+      setError("Wait for the current response to finish or cancel it before switching personas.");
+      setMobileSidebarOpen(false);
+      return;
+    }
+    const selectionGeneration = ++personaSelectionGenerationRef.current;
+    setLoading(true);
+    setError(undefined);
+    try {
+      const detail = await queryClient.fetchQuery(personaQueryOptions(personaId));
+      if (selectionGeneration !== personaSelectionGenerationRef.current) return;
+      setSelectedPersonaId(detail.id);
+      setPersonaDetail(detail);
+      setProvider((current) => detail.supportedProviders.includes(current)
+        ? current
+        : detail.supportedProviders[0] ?? "openai");
+      setMobileSidebarOpen(false);
+    } catch (selectError) {
+      if (selectionGeneration !== personaSelectionGenerationRef.current) return;
+      setError(selectError instanceof Error ? selectError.message : "Could not switch persona.");
+    } finally {
+      if (selectionGeneration === personaSelectionGenerationRef.current) setLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!audioEnabled) {
@@ -581,6 +643,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       return [
         ...current,
         {
+          personaId: result.persona.id,
           userMessage: message,
           userAssets,
           userFiles,
@@ -725,6 +788,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setRenderedTurns((current) => [
       ...current,
       {
+        ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
         userMessage: message,
         userAssets,
         userFiles,
@@ -750,6 +814,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setRenderedTurns((current) => [
       ...current,
       {
+        ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
         userMessage: message,
         userAssets,
         userFiles,
@@ -795,6 +860,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setRenderedTurns((current) => [
       ...current,
       {
+        ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
         userMessage: message,
         userAssets,
         userFiles,
@@ -868,6 +934,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           turn.backgroundJobId === jobId
             ? {
                 ...turn,
+                personaId: finalResult.persona.id,
                 assistantText,
                 outputs: finalResult.outputs,
                 usage: finalResult.usage
@@ -992,6 +1059,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       setRenderedTurns((current) => [
         ...current,
         {
+          ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
           userMessage: cancelledPrompt,
           userAssets: pendingPromptAssets,
           userFiles: pendingPromptFiles,
@@ -1021,6 +1089,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   function resetConversation(): void {
     abandonActiveRequest();
     selectionGenerationRef.current += 1;
+    personaSelectionGenerationRef.current += 1;
     setConversationId(undefined);
     setResponse(undefined);
     setLatestRequest(undefined);
@@ -1209,7 +1278,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
   }
 
-  const activePersona = personaDetail ?? personas[0];
+  const activePersona = personaDetail?.id === selectedPersonaId
+    ? personaDetail
+    : personas.find((persona) => persona.id === selectedPersonaId) ?? personas[0];
   const activeTheme = activePersona?.theme;
   const hasConversationContent = renderedTurns.length > 0 || Boolean(pendingPrompt) || loading;
   const personaVisualState = audioEnabled
@@ -1224,15 +1295,19 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const themeStyle = activeTheme
     ? ({
         "--theme-background": activeTheme.background,
+        "--theme-background-alt": activeTheme.backgroundAlt,
         "--theme-background-accent": activeTheme.backgroundAccent,
         "--theme-background-accent-secondary": activeTheme.backgroundAccentSecondary,
         "--theme-surface": activeTheme.surface,
         "--theme-surface-strong": activeTheme.surfaceStrong,
+        "--theme-rail": activeTheme.rail,
         "--theme-border": activeTheme.border,
         "--theme-accent": activeTheme.accent,
         "--theme-accent-2": activeTheme.accent2,
+        "--theme-danger": activeTheme.danger,
         "--theme-text": activeTheme.text,
-        "--theme-muted": activeTheme.muted
+        "--theme-muted": activeTheme.muted,
+        ...Object.fromEntries(activeTheme.chartColors.map((color, index) => [`--theme-chart-${index + 1}`, color]))
       } as CSSProperties)
     : undefined;
 
@@ -1264,6 +1339,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         <ConversationSidebar
           mobileOpen={mobileSidebarOpen}
           personaName={activePersona?.name ?? "Persona"}
+          personas={personas}
+          activePersonaId={activePersona?.id}
+          onSelectPersona={(personaId) => void selectPersona(personaId)}
           authUser={authUser}
           authLoading={authLoading}
           authError={authError}
@@ -1310,7 +1388,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
             void pinConversationFromHistory(nextConversationId, pinned);
           }}
         />
-        <PersonaHeader personaSummary={personas[0]} personaDetail={personaDetail} />
+        <PersonaHeader
+          personaSummary={personas.find((persona) => persona.id === activePersona?.id)}
+          personaDetail={personaDetail?.id === activePersona?.id ? personaDetail : undefined}
+        />
         <section className={`chat-column${hasConversationContent ? "" : " chat-column-empty"}`}>
                 <div
                   className={`conversation-stage-grid${
@@ -1379,8 +1460,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
               disabled={!authUser || authLoading}
               promptPlaceholder={!authUser
                 ? "Please sign in or create an account to start chatting."
-                : personaDetail?.promptPlaceholder ?? personas[0]?.promptPlaceholder ?? "Ask anything"}
-              suggestedPrompts={personaDetail?.suggestedPrompts ?? personas[0]?.suggestedPrompts ?? []}
+                : activePersona?.promptPlaceholder ?? "Ask anything"}
+              suggestedPrompts={activePersona?.suggestedPrompts ?? []}
               {...(composerDraft !== undefined ? { draftMessage: composerDraft } : {})}
               {...(composerDraftAttachments !== undefined ? { draftAttachments: composerDraftAttachments } : {})}
               onResetConversation={resetConversation}
