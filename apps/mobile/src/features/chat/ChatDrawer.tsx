@@ -17,6 +17,7 @@ type ChatDrawerProps = {
   activePersona?: PersonaSummary | undefined;
   theme: MobileTheme;
   topInset: number;
+  leftInset: number;
   bottomInset: number;
   loading: boolean;
   refreshing: boolean;
@@ -43,6 +44,7 @@ export function ChatDrawer({
   activePersona,
   theme,
   topInset,
+  leftInset,
   bottomInset,
   loading,
   refreshing,
@@ -83,6 +85,7 @@ export function ChatDrawer({
         {
           backgroundColor: theme.background,
           borderRightColor: theme.border,
+          paddingLeft: Math.max(leftInset, 0),
           paddingTop: Math.max(topInset + 6, 16),
           paddingBottom: Math.max(bottomInset, 8)
         }

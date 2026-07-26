@@ -11,6 +11,7 @@ import { buildPersonaStyleReference } from "../../services/personaStyleReference
 import { personaVoicePromptInstructions } from "../../services/personaVoicePerformance.js";
 import { buildImageGenerationPrompt, directPersonaVisualReferencePaths } from "../../services/imagePromptBuilder.js";
 import { storageService } from "../../services/storageService.js";
+import { analyzeImageReferenceRequirement } from "../../services/imageReferenceRequirement.js";
 import { HttpError } from "../../utils/httpError.js";
 import type { LLMProgressCallbacks, LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
@@ -196,6 +197,8 @@ export function buildOpenAITools(input: LLMInput): OpenAIItem[] {
 export function shouldUseDirectImageApi(input: LLMInput): boolean {
   const options = input.toolOptions;
   const attachments = input.attachments ?? [];
+  const imageReferenceRequirement = analyzeImageReferenceRequirement(input.userMessage);
+  const imageAttachmentCount = attachments.filter((attachment) => attachment.kind === "image").length;
   const hasOnlyImageAttachments = attachments.length > 0 && attachments.every((attachment) =>
     attachment.kind === "image" && DIRECT_IMAGE_EDIT_MIME_TYPES.has(attachment.mimeType)
   );
@@ -206,6 +209,7 @@ export function shouldUseDirectImageApi(input: LLMInput): boolean {
     !options.webSearch &&
     !options.fileSearch &&
     !options.codeInterpreter &&
+    (!imageReferenceRequirement.required || imageAttachmentCount >= imageReferenceRequirement.minimumImages) &&
     !wantsGeneratedImageDescription(input.userMessage) &&
     (hasOnlyImageAttachments || (attachments.length === 0 && !IMAGE_EDIT_OR_CONTEXT_PATTERN.test(input.userMessage)))
   );
@@ -333,7 +337,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
 
   if (input.toolOptions?.imageGeneration) {
     extraInstructions.push(
-      "The user is requesting an image. Use the image generation tool to produce the image. Do not answer that you cannot generate, edit, change, show, or provide images when the image_generation tool is available. If a referenced image cannot be edited directly, attempt a new safe generated image that follows the user's requested visual change and preserves the non-explicit visual intent. Do not classify or lecture about the reference image unless the provider returns a hard safety error. Keep any text response short and do not send generated image data through persona style transfer. If the user asks you to generate an image and also describe, caption, explain, or summarize it, include a short text description in the same final answer after generating the image."
+      "The user is requesting an image. Use the image generation tool to produce the image. Do not answer that you cannot generate, edit, change, show, or provide images when the image_generation tool is available. Never invent or substitute a generic source image when the user asks to mix, combine, edit, match, or otherwise use specific uploads or references that are missing or unavailable. In that case, ask the user to attach or re-upload the required images and do not generate a replacement image. Do not classify or lecture about a supplied reference image unless the provider returns a hard safety error. Keep any text response short and do not send generated image data through persona style transfer. If the user asks you to generate an image and also describe, caption, explain, or summarize it, include a short text description in the same final answer after generating the image."
     );
   }
 

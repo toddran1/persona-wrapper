@@ -138,7 +138,9 @@ export function buildStubOutput(input: LLMInput, provider: ProviderId, mode: Stu
   const lowerMessage = input.userMessage.toLowerCase();
   const requested = new Set(input.requestedOutputs ?? []);
   const wantsChart = requested.has("chart") || hasKeyword(lowerMessage, ["chart", "graph", "data", "breakdown", "analytics"]);
-  const wantsImage = requested.has("image") || hasKeyword(lowerMessage, ["image", "poster", "cover", "look", "outfit", "photo"]);
+  const wantsImage = requested.has("image") ||
+    input.toolOptions?.imageGeneration === true ||
+    hasKeyword(lowerMessage, ["image", "poster", "cover", "look", "outfit", "photo"]);
   const wantsFile = requested.has("file") || hasKeyword(lowerMessage, [
     "csv",
     "pdf",

@@ -119,19 +119,27 @@ export class UploadService {
     let openaiFileId: string | undefined;
     try {
       const object = await storageService.head(row.storageKey);
-      if (object.sizeBytes !== row.sizeBytes || (object.mimeType && object.mimeType !== row.mimeType)) {
+      if (object.sizeBytes !== row.sizeBytes) {
         throw new HttpError("Uploaded object does not match the requested file metadata.", 400);
       }
       const { buffer } = await storageService.get(row.storageKey);
-      await validateUploadBuffer(buffer, row.fileName, row.mimeType, row.sizeBytes);
-      openaiFileId = await uploadBufferToOpenAI(buffer, row.fileName, row.mimeType);
+      const metadata = await canonicalUploadMetadata(row.fileName, row.mimeType, buffer);
+      if (object.mimeType && object.mimeType !== row.mimeType && metadata.mimeType === row.mimeType) {
+        throw new HttpError("Uploaded object does not match the requested file metadata.", 400);
+      }
+      await validateUploadBuffer(buffer, metadata.fileName, metadata.mimeType, row.sizeBytes);
+      openaiFileId = await uploadBufferToOpenAI(buffer, metadata.fileName, metadata.mimeType);
       await db.update(uploads).set({
+        fileName: metadata.fileName,
+        mimeType: metadata.mimeType,
         openaiFileId,
         metadata: { ...row.metadata, uploadStatus: "ready" },
         updatedAt: new Date()
       }).where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId)));
       return this.publicAsset(this.assetFromDatabase({
         ...row,
+        fileName: metadata.fileName,
+        mimeType: metadata.mimeType,
         openaiFileId: openaiFileId ?? null,
         metadata: { ...row.metadata, uploadStatus: "ready" },
         updatedAt: new Date()
@@ -156,10 +164,11 @@ export class UploadService {
   async save(ownerId: string, file: Express.Multer.File): Promise<UploadedAsset> {
     await this.cleanupExpired();
     validateUploadDeclaration(ownerId, file.originalname, file.mimetype, file.size);
-    await validateFileContents(file);
+    const metadata = await canonicalUploadMetadata(file.originalname, file.mimetype, file.buffer);
+    await validateUploadBuffer(file.buffer, metadata.fileName, metadata.mimeType, file.size);
 
     const id = `asset_${randomUUID()}`;
-    const safeExtension = extname(basename(file.originalname)).slice(0, 12);
+    const safeExtension = extname(basename(metadata.fileName)).slice(0, 12);
     const stored = await storageService.put({
       bucket: "uploads",
       fileName: `${id}${safeExtension}`,
@@ -172,7 +181,7 @@ export class UploadService {
       if (env.OPENAI_API_KEY) {
         const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
         const uploaded = await client.files.create({
-          file: await toFile(file.buffer, basename(file.originalname), { type: file.mimetype }),
+          file: await toFile(file.buffer, basename(metadata.fileName), { type: metadata.mimeType }),
           purpose: "user_data",
           expires_after: {
             anchor: "created_at",
@@ -189,9 +198,9 @@ export class UploadService {
     const asset: StoredAsset = {
       id,
       ownerId,
-      kind: IMAGE_MIME_TYPES.has(file.mimetype) ? "image" : "file",
-      fileName: basename(file.originalname),
-      mimeType: file.mimetype,
+      kind: IMAGE_MIME_TYPES.has(metadata.mimeType) ? "image" : "file",
+      fileName: basename(metadata.fileName),
+      mimeType: metadata.mimeType,
       sizeBytes: file.size,
       url: `/api/uploads/${id}`,
       ...(openaiFileId ? { openaiFileId } : {}),
@@ -562,6 +571,33 @@ async function validateUploadBuffer(buffer: Buffer, fileName: string, mimeType: 
     mimetype: mimeType,
     size: sizeBytes
   } as Express.Multer.File);
+}
+
+export async function canonicalUploadMetadata(
+  fileName: string,
+  declaredMimeType: string,
+  buffer: Buffer
+): Promise<{ fileName: string; mimeType: string }> {
+  if (!IMAGE_MIME_TYPES.has(declaredMimeType)) {
+    return { fileName, mimeType: declaredMimeType };
+  }
+
+  const detected = await fileTypeFromBuffer(buffer);
+  if (!detected || !IMAGE_MIME_TYPES.has(detected.mime)) {
+    return { fileName, mimeType: declaredMimeType };
+  }
+  if (detected.mime === declaredMimeType) {
+    return { fileName, mimeType: declaredMimeType };
+  }
+
+  const extension = detected.ext === "jpeg" ? "jpg" : detected.ext;
+  const name = basename(fileName);
+  const extensionIndex = name.lastIndexOf(".");
+  const stem = extensionIndex > 0 ? name.slice(0, extensionIndex) : name;
+  return {
+    fileName: `${stem || "image"}.${extension}`,
+    mimeType: detected.mime
+  };
 }
 
 function uploadExpiresAt(): Date {

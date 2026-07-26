@@ -580,6 +580,13 @@ export const llmInputSchema = z.object({
   toolDefinitions: z.array(toolDefinitionSchema),
   requestedOutputs: z.array(outputTypeSchema).optional(),
   attachments: z.array(uploadedAssetSchema).optional(),
+  visualContext: z.object({
+    intent: z.enum(["inspect", "transform"]),
+    source: z.enum(["user_uploads", "generated_outputs"]),
+    summary: z.string(),
+    selectedTurnIndexes: z.array(z.number().int().nonnegative()),
+    selectedPositions: z.array(z.number().int().positive())
+  }).optional(),
   toolOptions: toolOptionsSchema.optional(),
   audio: z.boolean().default(false),
   clientContext: clientContextSchema.optional()
@@ -720,12 +727,20 @@ export const conversationUserAssetSchema = z.object({
 });
 export type ConversationUserAsset = z.infer<typeof conversationUserAssetSchema>;
 
+export const conversationMediaClarificationSchema = z.object({
+  status: z.literal("ambiguous"),
+  originalRequest: z.string().min(1),
+  selectedPositions: z.array(z.number().int().positive()).default([])
+});
+export type ConversationMediaClarification = z.infer<typeof conversationMediaClarificationSchema>;
+
 export const conversationTurnSchema = z.object({
   personaId: z.string().optional(),
   userMessage: z.string(),
   userAssets: z.array(conversationUserAssetSchema).default([]),
   assistantText: z.string(),
   outputs: z.array(contentBlockSchema),
+  visualClarification: conversationMediaClarificationSchema.optional(),
   provider: providerSchema.optional(),
   providerModel: z.string().optional(),
   responseId: z.string().optional(),

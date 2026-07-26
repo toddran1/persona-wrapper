@@ -60,6 +60,8 @@ export type MobileUploadFile = {
   sizeBytes?: number;
 };
 
+type PreparedMobileUploadFile = MobileUploadFile & { blob: Blob };
+
 type MobileRegisterRequest = Omit<RegisterRequest, "clientType" | "deviceId">;
 type MobileLoginRequest = Omit<LoginRequest, "clientType" | "deviceId">;
 type MobileRestoreAccountRequest = Omit<RestoreAccountRequest, "clientType" | "deviceId">;
@@ -103,6 +105,13 @@ const UPLOAD_REQUEST_TIMEOUT_MS = 10 * 60_000;
 const CHAT_REQUEST_TIMEOUT_MS = 130_000;
 const DATA_TRANSFER_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 5 * 60 * 1000;
 const DATA_TRANSFER_UPLOAD_TIMEOUT_MS = 4 * 60 * 60 * 1000;
+
+const IMAGE_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif"
+};
 
 type RequestTimeout = {
   signal: AbortSignal;
@@ -167,6 +176,103 @@ function validateUploadFiles(files: MobileUploadFile[]): void {
   const oversized = files.find((file) => file.sizeBytes !== undefined && file.sizeBytes > MAX_OPENAI_IMAGE_EDIT_BYTES);
   if (oversized) {
     throw new Error(`${oversized.name} is too large. Each attachment must be smaller than 50 MB.`);
+  }
+}
+
+function imageMimeTypeFromHeader(header: Uint8Array): string | undefined {
+  if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (header.length >= 8 && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47 &&
+    header[4] === 0x0d && header[5] === 0x0a && header[6] === 0x1a && header[7] === 0x0a) {
+    return "image/png";
+  }
+  if (header.length >= 6 && header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x38 &&
+    (header[4] === 0x37 || header[4] === 0x39) && header[5] === 0x61) {
+    return "image/gif";
+  }
+  if (header.length >= 12 && header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46 &&
+    header[8] === 0x57 && header[9] === 0x45 && header[10] === 0x42 && header[11] === 0x50) {
+    return "image/webp";
+  }
+  return undefined;
+}
+
+function base64HeaderToBytes(value: string): Uint8Array {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const bytes: number[] = [];
+  let accumulator = 0;
+  let bitCount = 0;
+  for (const character of value) {
+    if (character === "=") break;
+    const index = alphabet.indexOf(character);
+    if (index < 0) continue;
+    accumulator = (accumulator << 6) | index;
+    bitCount += 6;
+    if (bitCount >= 8) {
+      bitCount -= 8;
+      bytes.push((accumulator >> bitCount) & 0xff);
+    }
+  }
+  return new Uint8Array(bytes);
+}
+
+async function imageMimeTypeFromFileUri(uri: string): Promise<string | undefined> {
+  try {
+    const base64Header = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+      position: 0,
+      length: 12
+    });
+    return imageMimeTypeFromHeader(base64HeaderToBytes(base64Header));
+  } catch {
+    // The API verifies the full file independently. A URI that cannot expose
+    // its header here can still be uploaded through the normal path.
+    return undefined;
+  }
+}
+
+function normalizedImageFileName(fileName: string, mimeType: string): string {
+  const extension = IMAGE_MIME_TYPES_BY_EXTENSION[mimeType];
+  if (!extension) return fileName;
+  const extensionIndex = fileName.lastIndexOf(".");
+  const stem = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName;
+  return `${stem || "image"}.${extension}`;
+}
+
+async function prepareMobileUploadFile(
+  file: MobileUploadFile,
+  signal?: AbortSignal
+): Promise<PreparedMobileUploadFile> {
+  const sourceTimeout = createRequestTimeout(signal, UPLOAD_REQUEST_TIMEOUT_MS);
+  try {
+    const source = await fetch(file.uri, { signal: sourceTimeout.signal });
+    if (!source.ok) throw new Error("Could not read the selected file.");
+    const blob = await source.blob();
+    if (blob.size > MAX_OPENAI_IMAGE_EDIT_BYTES) {
+      throw new Error(`${file.name} is too large. Each attachment must be smaller than 50 MB.`);
+    }
+
+    const detectedImageMimeType = await imageMimeTypeFromFileUri(file.uri);
+    if (!detectedImageMimeType || detectedImageMimeType === file.mimeType) {
+      return { ...file, sizeBytes: blob.size, blob };
+    }
+
+    return {
+      ...file,
+      name: normalizedImageFileName(file.name, detectedImageMimeType),
+      mimeType: detectedImageMimeType,
+      sizeBytes: blob.size,
+      blob
+    };
+  } catch (error) {
+    if (sourceTimeout.didTimeout()) {
+      throw new Error(`Reading ${file.name} took too long. Choose the file again and retry.`);
+    }
+    rethrowAbort(error);
+    throw error;
+  } finally {
+    sourceTimeout.dispose();
   }
 }
 
@@ -336,30 +442,13 @@ export const api = {
     options?: { skipAuthRefresh?: boolean; signal?: AbortSignal }
   ): Promise<UploadedAsset[]> => {
     validateUploadFiles(files);
+    const preparedFiles = await Promise.all(files.map((file) => prepareMobileUploadFile(file, options?.signal)));
     const issuedAssetIds: string[] = [];
     try {
       const assets: UploadedAsset[] = [];
-      for (const file of files) {
-        const sourceTimeout = createRequestTimeout(options?.signal, UPLOAD_REQUEST_TIMEOUT_MS);
-        let blob: Blob;
-        try {
-          const source = await fetch(file.uri, { signal: sourceTimeout.signal });
-          if (!source.ok) throw new Error("Could not read the selected file.");
-          blob = await source.blob();
-          if (blob.size > MAX_OPENAI_IMAGE_EDIT_BYTES) {
-            throw new Error(`${file.name} is too large. Each attachment must be smaller than 50 MB.`);
-          }
-        } catch (error) {
-          if (sourceTimeout.didTimeout()) {
-            throw new Error(`Reading ${file.name} took too long. Choose the file again and retry.`);
-          }
-          rethrowAbort(error);
-          throw error;
-        } finally {
-          sourceTimeout.dispose();
-        }
+      for (const file of preparedFiles) {
         const presigned = await contractClient.uploads.presign({
-          body: { fileName: file.name, mimeType: file.mimeType, sizeBytes: blob.size },
+          body: { fileName: file.name, mimeType: file.mimeType, sizeBytes: file.blob.size },
           ...(options?.signal ? { fetchOptions: { signal: options.signal } } : {})
         });
         if (presigned.status === 409) throw new Error("DIRECT_UPLOAD_UNAVAILABLE");
@@ -370,7 +459,7 @@ export const api = {
           const uploaded = await fetch(presigned.body.uploadUrl, {
             method: "PUT",
             headers: presigned.body.headers,
-            body: blob,
+            body: file.blob,
             signal: uploadTimeout.signal
           });
           if (!uploaded.ok) throw await directUploadError(uploaded, "The storage service rejected this upload.");
@@ -402,7 +491,7 @@ export const api = {
     const fallbackAssets: UploadedAsset[] = [];
     try {
       let authRefreshUsed = options?.skipAuthRefresh === true;
-      for (const file of files) {
+      for (const file of preparedFiles) {
         let uploaded = false;
         for (let attempt = 0; attempt < 2 && !uploaded; attempt += 1) {
           const body = new FormData();

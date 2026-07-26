@@ -135,6 +135,34 @@ function personaCharacterInfluenceVisualBrief(persona: PersonaDefinition): strin
   ].join(" ");
 }
 
+function imageFollowUpConversationContext(input: LLMInput): string {
+  const hasHistoricalImageReference = (input.attachments ?? []).some((attachment) =>
+    attachment.kind === "image" &&
+    (attachment.id.startsWith("conversation-media:") || attachment.id.startsWith("conversation-upload:"))
+  );
+  if (!hasHistoricalImageReference) return "";
+
+  const messages = (input.baseMessages ?? input.messages)
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .filter((message, index, all) =>
+      !(index === all.length - 1 && message.role === "user" && message.content.trim() === input.userMessage.trim())
+    )
+    .filter((message) => message.content.trim())
+    .slice(-6)
+    .map((message) => {
+      const content = normalizeWhitespace(message.content).slice(0, 700);
+      return `${message.role === "user" ? "User" : "Assistant"}: ${content}`;
+    });
+
+  if (messages.length === 0 && !input.visualContext?.summary) return "";
+  return [
+    "Relevant recent conversation context for interpreting this follow-up:",
+    input.visualContext?.summary ?? "",
+    ...messages,
+    "Use this context only to resolve references and preserve continuity. The current visual request remains the instruction to execute."
+  ].filter(Boolean).join("\n");
+}
+
 export function directPersonaVisualReferencePaths(input: LLMInput): string[] {
   if (!isPersonaImageRequest(input.userMessage, input.persona)) return [];
 
@@ -166,6 +194,7 @@ export function buildImageGenerationPrompt(
     includeUserImageReferences
       ? "The user's attached image or images are source references for this edit. Use them to preserve or deliberately transform the relevant subjects and visual details according to the user's request. When multiple images are attached, treat them as complementary references; do not invent an extra subject or combine unrelated people unless the user asks."
       : "",
+    imageFollowUpConversationContext(input),
     `User visual request, cleaned for image generation: ${request}`,
     includePersonaVisuals
       ? "Keep the result non-explicit, clothed, polished, and aligned with the persona's requested visual identity."

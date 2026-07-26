@@ -130,6 +130,66 @@ describe("imagePromptBuilder", () => {
     );
   });
 
+  it("includes recent text history when a direct image follow-up reuses earlier visual context", () => {
+    const input = imageInput("Now combine their designs into one new character.");
+    input.baseMessages = [
+      { role: "system", content: "System instructions." },
+      { role: "user", content: "Mix the two character images I uploaded." },
+      { role: "assistant", content: "I combined the two characters into a superhero-inspired result." },
+      { role: "user", content: input.userMessage }
+    ];
+    input.messages = input.baseMessages;
+    input.attachments = [
+      {
+        id: "conversation-upload:asset_1",
+        kind: "image",
+        fileName: "first.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 123
+      },
+      {
+        id: "conversation-upload:asset_2",
+        kind: "image",
+        fileName: "second.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 456
+      }
+    ];
+    input.visualContext = {
+      intent: "transform",
+      source: "user_uploads",
+      summary: "Resolved visual lineage: original uploaded source set from the character-combination turn.",
+      selectedTurnIndexes: [0],
+      selectedPositions: [1, 2]
+    };
+
+    const prompt = buildImageGenerationPrompt(input, { includeUserImageReferences: true });
+
+    expect(prompt).toContain("Relevant recent conversation context for interpreting this follow-up:");
+    expect(prompt).toContain("Resolved visual lineage: original uploaded source set");
+    expect(prompt).toContain("User: Mix the two character images I uploaded.");
+    expect(prompt).toContain("Assistant: I combined the two characters into a superhero-inspired result.");
+    expect(prompt).toContain("The current visual request remains the instruction to execute.");
+  });
+
+  it("does not add prior chat text to a new image request with fresh uploads", () => {
+    const input = imageInput("Combine these new reference images.");
+    input.baseMessages = [
+      { role: "user", content: "An unrelated earlier image request." },
+      { role: "assistant", content: "An unrelated earlier result." },
+      { role: "user", content: input.userMessage }
+    ];
+    input.messages = input.baseMessages;
+    input.attachments = [
+      { id: "asset_1", kind: "image", fileName: "new.jpg", mimeType: "image/jpeg", sizeBytes: 123 }
+    ];
+
+    const prompt = buildImageGenerationPrompt(input, { includeUserImageReferences: true });
+
+    expect(prompt).not.toContain("Relevant recent conversation context");
+    expect(prompt).not.toContain("An unrelated earlier image request");
+  });
+
   it("includes persona profile details for avatar and character image requests", () => {
     const prompts = [
       buildImageGenerationPrompt(imageInput("Make your avatar wearing a black leather jacket.")),

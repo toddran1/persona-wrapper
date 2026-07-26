@@ -271,4 +271,69 @@ describe("OpenAIProvider instructions", () => {
     expect(shouldUseDirectImageApi(imageInput)).toBe(true);
     expect(shouldUseDirectImageApi(fileInput)).toBe(false);
   });
+
+  it("does not route reference-dependent requests to direct image generation without all references", () => {
+    const input = inputForLaRae();
+    input.userMessage = "Mix these two images into a new character.";
+    input.attachments = [{
+      id: "asset_1",
+      kind: "image",
+      fileName: "one.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 123
+    }];
+    input.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: true,
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+
+    expect(shouldUseDirectImageApi(input)).toBe(false);
+    input.attachments.push({
+      id: "asset_2",
+      kind: "image",
+      fileName: "two.webp",
+      mimeType: "image/webp",
+      sizeBytes: 456
+    });
+    expect(shouldUseDirectImageApi(input)).toBe(true);
+    expect(buildOpenAIResponseInstructions(input, "full")).toContain(
+      "Never invent or substitute a generic source image"
+    );
+  });
+
+  it("requires every image in larger explicit reference sets before using direct generation", () => {
+    const input = inputForLaRae();
+    input.userMessage = "Blend these 4 images into one new character.";
+    input.attachments = [1, 2, 3].map((index) => ({
+      id: `asset_${index}`,
+      kind: "image" as const,
+      fileName: `${index}.png`,
+      mimeType: "image/png",
+      sizeBytes: 123
+    }));
+    input.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: true,
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+
+    expect(shouldUseDirectImageApi(input)).toBe(false);
+    input.attachments.push({
+      id: "asset_4",
+      kind: "image",
+      fileName: "4.png",
+      mimeType: "image/png",
+      sizeBytes: 123
+    });
+    expect(shouldUseDirectImageApi(input)).toBe(true);
+  });
 });

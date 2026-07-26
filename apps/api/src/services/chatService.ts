@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { llmOutputSchema, type ChatMessage, type ChatRequest, type ChatResponse, type ContentBlock, type UserPersonalizationProfile } from "@persona/shared";
+import { llmOutputSchema, MAX_CHAT_ATTACHMENTS, type ChatMessage, type ChatRequest, type ChatResponse, type ContentBlock, type UserPersonalizationProfile } from "@persona/shared";
 import { eq } from "drizzle-orm";
 import type { TTSOutput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
@@ -21,6 +21,7 @@ import { openAIArtifactService } from "./openAIArtifactService.js";
 import { applyPersonaPhraseReplacements } from "./personaPhraseReplacementService.js";
 import { getDatabase } from "../db/client.js";
 import { users } from "../db/schema.js";
+import { analyzeImageReferenceRequirement, missingImageReferenceMessage } from "./imageReferenceRequirement.js";
 
 export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
@@ -136,10 +137,15 @@ export class ChatService {
       personaId: request.personaId,
       titleSeed: request.message
     });
+    const imageReferenceRequirement = analyzeImageReferenceRequirement(request.message);
+    const currentImageCount = (request.attachments ?? []).filter((attachment) => attachment.kind === "image").length;
     const conversationMediaAttachments = await resolveConversationMediaContext(conversation, {
       message: request.message,
       ...(options.ownerId ? { ownerId: options.ownerId } : {}),
-      maxImages: 1
+      maxImages: Math.max(MAX_CHAT_ATTACHMENTS - currentImageCount, 0),
+      currentImageCount,
+      minimumImages: imageReferenceRequirement.minimumImages,
+      expectsNewUploads: imageReferenceRequirement.expectsNewUploads
     });
     const userAssets = (request.attachments ?? []).map((asset) => ({
       id: asset.id,
@@ -149,8 +155,69 @@ export class ChatService {
       ...(asset.url ? { url: asset.url } : {})
     }));
 
+    if (conversationMediaAttachments.ambiguityMessage) {
+      const clarificationText = conversationMediaAttachments.ambiguityMessage;
+      const clarificationOutput = llmOutputSchema.parse({
+        provider: request.provider,
+        rawText: clarificationText,
+        content: [{ type: "text", text: clarificationText }],
+        metadata: {
+          conversationMediaContext: {
+            status: "ambiguous",
+            candidateCount: conversationMediaAttachments.candidateCount,
+            selectedPositions: conversationMediaAttachments.selectedPositions
+          }
+        }
+      });
+      if (streamCallbacks) streamCallbacks.onTextDelta(clarificationText);
+      logger.info("Visual conversation reference was ambiguous", {
+        conversationId: conversation.id,
+        personaId: persona.id,
+        candidateCount: conversationMediaAttachments.candidateCount,
+        selectedPositions: conversationMediaAttachments.selectedPositions
+      });
+      const updatedConversation = await this.conversationStore.appendTurn(conversation, [
+        {
+          id: userMessageId,
+          role: "user",
+          content: request.message,
+          metadata: {
+            provider: request.provider,
+            userAssets
+          }
+        },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: clarificationText,
+          metadata: {
+            personaId: persona.id,
+            outputs: clarificationOutput.content,
+            provider: clarificationOutput.provider,
+            visualClarification: {
+              status: "ambiguous",
+              originalRequest: request.message,
+              selectedPositions: conversationMediaAttachments.selectedPositions
+            }
+          }
+        }
+      ]);
+      return this.responseFormatter.format({
+        persona,
+        llmOutput: clarificationOutput,
+        conversationId: updatedConversation.id,
+        history: updatedConversation.messages,
+        includeAudio: false,
+        diagnostics: {
+          testMode,
+          ...(testMode ? { neutralResponse: clarificationText } : {})
+        }
+      });
+    }
+
     if (
       !request.attachments?.length &&
+      !imageReferenceRequirement.expectsNewUploads &&
       conversationMediaAttachments.referenced &&
       conversationMediaAttachments.candidateCount > 0 &&
       conversationMediaAttachments.attachments.length === 0 &&
@@ -239,14 +306,117 @@ export class ChatService {
       });
     }
 
+    const contextualImageCount = conversationMediaAttachments.attachments.filter((attachment) => attachment.kind === "image").length;
+    const availableImageCount = currentImageCount + contextualImageCount;
+    const requiredImageCount = Math.max(
+      imageReferenceRequirement.minimumImages,
+      conversationMediaAttachments.minimumImages
+    );
+    const requiresImageReferences = imageReferenceRequirement.required ||
+      (conversationMediaAttachments.referenced && conversationMediaAttachments.candidateCount > 0);
+    if (requiresImageReferences && availableImageCount < requiredImageCount) {
+      const clarificationText = missingImageReferenceMessage(
+        requiredImageCount,
+        availableImageCount
+      );
+      const clarificationOutput = llmOutputSchema.parse({
+        provider: request.provider,
+        rawText: clarificationText,
+        content: [{ type: "text", text: clarificationText }],
+        metadata: {
+          imageReferenceRequirement: {
+            status: "missing",
+            requiredImages: requiredImageCount,
+            availableImages: availableImageCount,
+            expectsNewUploads: imageReferenceRequirement.expectsNewUploads,
+            conversationMediaSource: conversationMediaAttachments.source
+          }
+        }
+      });
+      if (streamCallbacks) streamCallbacks.onTextDelta(clarificationText);
+      logger.llmTurn({
+        conversationId: conversation.id,
+        personaId: persona.id,
+        provider: request.provider,
+        testMode,
+        status: "completed",
+        messageCharacters: request.message.length,
+        neutralLlm: {
+          skipped: "Required image references were not supplied.",
+          requiredImages: requiredImageCount,
+          availableImages: availableImageCount,
+          expectsNewUploads: imageReferenceRequirement.expectsNewUploads,
+          conversationMediaSource: conversationMediaAttachments.source
+        }
+      });
+      const updatedConversation = await this.conversationStore.appendTurn(conversation, [
+        {
+          id: userMessageId,
+          role: "user",
+          content: request.message,
+          metadata: {
+            provider: request.provider,
+            userAssets
+          }
+        },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: clarificationText,
+          metadata: {
+            personaId: persona.id,
+            outputs: clarificationOutput.content,
+            provider: clarificationOutput.provider
+          }
+        }
+      ]);
+
+      return this.responseFormatter.format({
+        persona,
+        llmOutput: clarificationOutput,
+        conversationId: updatedConversation.id,
+        history: updatedConversation.messages,
+        includeAudio: false,
+        diagnostics: {
+          testMode,
+          ...(testMode ? { neutralResponse: clarificationText } : {})
+        }
+      });
+    }
+
     const userProfile = await loadUserPersonalizationProfile(options.ownerId);
     const llmProvider = createLLMProvider(request.provider);
+    const resolvedHistoricalVisuals = conversationMediaAttachments.attachments.length > 0;
+    const effectiveToolOptions = resolvedHistoricalVisuals && conversationMediaAttachments.intent === "transform"
+      ? {
+          webSearch: request.toolOptions?.webSearch ?? false,
+          fileSearch: request.toolOptions?.fileSearch ?? false,
+          codeInterpreter: request.toolOptions?.codeInterpreter ?? false,
+          imageGeneration: true,
+          appFunctions: request.toolOptions?.appFunctions ?? true,
+          background: request.toolOptions?.background ?? false,
+          vectorStoreIds: request.toolOptions?.vectorStoreIds ?? []
+        }
+      : request.toolOptions;
     const llmInput = this.personaEngine.prepareInput(persona, {
       ...request,
       attachments: [...(request.attachments ?? []), ...conversationMediaAttachments.attachments],
+      ...(effectiveToolOptions ? { toolOptions: effectiveToolOptions } : {}),
       conversationId: conversation.id,
       history: this.conversationStore.getPromptContext(conversation)
     }, userProfile);
+    if (
+      conversationMediaAttachments.promptContext &&
+      conversationMediaAttachments.source !== "none"
+    ) {
+      llmInput.visualContext = {
+        intent: conversationMediaAttachments.intent,
+        source: conversationMediaAttachments.source,
+        summary: conversationMediaAttachments.promptContext,
+        selectedTurnIndexes: conversationMediaAttachments.selectedTurnIndexes,
+        selectedPositions: conversationMediaAttachments.selectedPositions
+      };
+    }
     const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext);
     if (toolContext) {
       llmInput.messages = insertToolContext(llmInput.messages, toolContext);

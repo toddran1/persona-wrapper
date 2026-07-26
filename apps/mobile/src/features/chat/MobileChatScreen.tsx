@@ -264,6 +264,7 @@ export function MobileChatScreen() {
   const [profileSelection, setProfileSelection] = useState<ProfileSelectionKind | undefined>();
   const [authMode, setAuthMode] = useState<MobileAuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
+  const [conversationActionTarget, setConversationActionTarget] = useState<ConversationSummary | undefined>();
   const [assistantActionTurn, setAssistantActionTurn] = useState<RenderedTurn | undefined>();
   const [reportTarget, setReportTarget] = useState<RenderedTurn | undefined>();
   const [reportCategory, setReportCategory] = useState<UnsafeOutputReportCategory | undefined>();
@@ -314,6 +315,12 @@ export function MobileChatScreen() {
   const sessionValidationInFlightRef = useRef(false);
   const appDataReloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
   const landscapeLayout = landscapeLayoutEnabled && windowWidth > windowHeight;
+  // Android may place its three-button navigation rail over the left edge in
+  // landscape without exposing a reliable safe-area inset. Reserve its touch
+  // area so app controls and text never render beneath it.
+  const landscapeLeftInset = landscapeLayout
+    ? Math.max(insets.left, Platform.OS === "android" ? 72 : 0)
+    : insets.left;
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
@@ -805,6 +812,9 @@ export function MobileChatScreen() {
       drawerX.value = withTiming(shouldOpen ? 0 : -drawerWidth, { duration: 190 });
       runOnJS(setDrawerInteractive)(shouldOpen);
     });
+  // Preserve native vertical scrolling inside the drawer while retaining the
+  // horizontal swipe-to-close gesture around it.
+  const drawerGesture = Gesture.Simultaneous(gesture, Gesture.Native());
 
   const edgeStartX = useSharedValue(-drawerWidth);
   const edgeGesture = Gesture.Pan().activeOffsetX(30).failOffsetY([-14, 14])
@@ -1751,29 +1761,7 @@ export function MobileChatScreen() {
   }
 
   function showConversationActions(conversation: ConversationSummary): void {
-    Alert.alert(conversation.title, undefined, [
-      {
-        text: "Rename",
-        onPress: () => {
-          setRenameTarget(conversation);
-          setRenameTitle(conversation.title);
-        }
-      },
-      {
-        text: conversation.pinned ? "Unpin" : "Pin",
-        onPress: () => void pinConversation(conversation)
-      },
-      {
-        text: "Export",
-        onPress: () => void shareDataArchive("conversation", conversation.id)
-      },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: () => confirmDeleteConversation(conversation)
-      },
-      { text: "Cancel", style: "cancel" }
-    ]);
+    setConversationActionTarget(conversation);
   }
 
   async function renameConversation(): Promise<void> {
@@ -2311,7 +2299,13 @@ export function MobileChatScreen() {
               tabletLayout ? styles.keyboardTablet : null,
               compactLayout ? styles.keyboardCompact : null,
               landscapeLayout ? styles.keyboardLandscape : null,
-              { paddingTop: insets.top + (compactLayout ? 4 : 8), paddingBottom: Math.max(insets.bottom, 8) }
+              {
+                paddingTop: insets.top + (compactLayout ? 4 : 8),
+                paddingBottom: Math.max(insets.bottom, 8),
+                ...(landscapeLayout
+                  ? { paddingLeft: landscapeLeftInset + 8, paddingRight: Math.max(insets.right, 8) + 8 }
+                  : {})
+              }
             ]}
           >
           <View style={[styles.topBar, landscapeLayout ? styles.topBarLandscape : null, personaCardExpanded ? styles.layerAbovePersonaBackground : null]}>
@@ -2567,7 +2561,7 @@ export function MobileChatScreen() {
         </Animated.View>
       ) : null}
 
-      <GestureDetector gesture={gesture}>
+      <GestureDetector gesture={drawerGesture}>
         <Animated.View style={[styles.drawerWrap, { width: drawerWidth }, drawerStyle]}>
           <ChatDrawer
             authUser={authUser}
@@ -2577,6 +2571,7 @@ export function MobileChatScreen() {
             activePersona={activePersona}
             theme={theme}
             topInset={insets.top}
+            leftInset={landscapeLeftInset}
             bottomInset={insets.bottom}
             loading={loading}
             refreshing={hasConversationSearch ? conversationSearching : conversationsRefreshing}
@@ -3049,6 +3044,63 @@ export function MobileChatScreen() {
         </View>
       </Modal>
 
+      <Modal
+        accessibilityViewIsModal
+        visible={Boolean(conversationActionTarget)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setConversationActionTarget(undefined)}
+      >
+        <View style={styles.actionSheetScrim}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close chat actions" style={StyleSheet.absoluteFill} onPress={() => setConversationActionTarget(undefined)} />
+          <View style={[styles.actionSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View style={styles.actionSheetHeader}>
+              <View style={styles.actionSheetHeadingCopy}>
+                <Text style={[styles.actionSheetTitle, styles.actionSheetTitleNoPadding, { color: theme.text }]}>Chat options</Text>
+                {conversationActionTarget ? <Text numberOfLines={1} style={[styles.actionSheetSubtitle, { color: theme.muted }]}>{conversationActionTarget.title}</Text> : null}
+              </View>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close chat actions" hitSlop={10} onPress={() => setConversationActionTarget(undefined)} style={[styles.actionSheetClose, { backgroundColor: "rgba(255,255,255,0.08)" }]}>
+                <Ionicons name="close" size={20} color={theme.text} />
+              </Pressable>
+            </View>
+            <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+              const target = conversationActionTarget;
+              setConversationActionTarget(undefined);
+              if (!target) return;
+              setRenameTarget(target);
+              setRenameTitle(target.title);
+            }}>
+              <Ionicons name="create-outline" size={20} color={theme.text} />
+              <Text style={[styles.actionSheetText, { color: theme.text }]}>Rename</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+              const target = conversationActionTarget;
+              setConversationActionTarget(undefined);
+              if (target) void pinConversation(target);
+            }}>
+              <Ionicons name={conversationActionTarget?.pinned ? "bookmark-outline" : "bookmark"} size={20} color={theme.text} />
+              <Text style={[styles.actionSheetText, { color: theme.text }]}>{conversationActionTarget?.pinned ? "Unpin" : "Pin"}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+              const target = conversationActionTarget;
+              setConversationActionTarget(undefined);
+              if (target) void shareDataArchive("conversation", target.id);
+            }}>
+              <Ionicons name="download-outline" size={20} color={theme.text} />
+              <Text style={[styles.actionSheetText, { color: theme.text }]}>Export</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={[styles.actionSheetRow, styles.actionSheetDangerRow]} onPress={() => {
+              const target = conversationActionTarget;
+              setConversationActionTarget(undefined);
+              if (target) confirmDeleteConversation(target);
+            }}>
+              <Ionicons name="trash-outline" size={20} color={theme.danger} />
+              <Text style={[styles.actionSheetText, { color: theme.danger }]}>Delete chat</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {renameTarget ? (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close rename chat dialog" style={StyleSheet.absoluteFill} onPress={() => setRenameTarget(undefined)} />
@@ -3293,6 +3345,35 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     width: "100%"
   },
+  actionSheetClose: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 38,
+    justifyContent: "center",
+    width: 38
+  },
+  actionSheetDangerRow: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+    marginTop: 4,
+    paddingTop: 12
+  },
+  actionSheetHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 8,
+    paddingHorizontal: 8
+  },
+  actionSheetHeadingCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12
+  },
+  actionSheetSubtitle: {
+    fontSize: 13,
+    lineHeight: 18
+  },
   attachmentSheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
@@ -3365,6 +3446,9 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     paddingBottom: 8,
     paddingHorizontal: 8
+  },
+  actionSheetTitleNoPadding: {
+    paddingHorizontal: 0
   },
   assistantContent: {
     flex: 1,

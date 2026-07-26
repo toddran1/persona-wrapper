@@ -218,7 +218,12 @@ describe("ConversationStore prompt context", () => {
           provider: "openai_persona",
           providerModel: "gpt-test",
           responseId: "resp_123",
-          styleTransferProvider: "stub_style_transfer"
+          styleTransferProvider: "stub_style_transfer",
+          visualClarification: {
+            status: "ambiguous",
+            originalRequest: "Make the second image brighter.",
+            selectedPositions: [2]
+          }
         }
       }
     ]);
@@ -235,6 +240,11 @@ describe("ConversationStore prompt context", () => {
     expect(restored?.turns[0]?.responseId).toBe("resp_123");
     expect(restored?.turns[0]?.styleTransferProvider).toBe("stub_style_transfer");
     expect(restored?.turns[0]?.personaId).toBe("larae");
+    expect(restored?.turns[0]?.visualClarification).toEqual({
+      status: "ambiguous",
+      originalRequest: "Make the second image brighter.",
+      selectedPositions: [2]
+    });
   });
 
   it("keeps the same chat history when its active persona changes", async () => {

@@ -5,18 +5,28 @@ import type { ContentBlock } from "@persona/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let storageRoot: string;
+const originalAuthRequired = process.env.AUTH_REQUIRED;
+const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
 
 beforeEach(async () => {
   storageRoot = await mkdtemp(join(tmpdir(), "persona-conversation-media-"));
   process.env.STORAGE_LOCAL_ROOT = storageRoot;
   process.env.DATABASE_URL = "";
+  process.env.AUTH_REQUIRED = "false";
+  process.env.OPENAI_API_KEY = "";
   vi.resetModules();
 });
 
 afterEach(async () => {
   await rm(storageRoot, { recursive: true, force: true });
   delete process.env.STORAGE_LOCAL_ROOT;
-  delete process.env.DATABASE_URL;
+  if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = originalDatabaseUrl;
+  if (originalAuthRequired === undefined) delete process.env.AUTH_REQUIRED;
+  else process.env.AUTH_REQUIRED = originalAuthRequired;
+  if (originalOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
+  else process.env.OPENAI_API_KEY = originalOpenAiApiKey;
 });
 
 describe("conversation media context", () => {
@@ -30,7 +40,7 @@ describe("conversation media context", () => {
   });
 
   it("detects broad natural follow-up references to prior visual output", async () => {
-    const { shouldUseConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const { inferConversationMediaMinimum, shouldUseConversationMediaContext } = await import("../services/conversationMediaContext.js");
 
     const prompts = [
       "What am I looking at?",
@@ -52,12 +62,746 @@ describe("conversation media context", () => {
       "Now add a red hoodie to it.",
       "Do it again but with better lighting.",
       "What breed is it?",
-      "What is going on here?"
+      "What is going on here?",
+      "Now merge their faces to make something new.",
+      "Combine them into a new character.",
+      "Then restyle the character.",
+      "Make her taller.",
+      "Put them on a beach.",
+      "Give him blue eyes.",
+      "Make the background blue.",
+      "More realistic.",
+      "Same pose, different outfit.",
+      "What does she look like?",
+      "Can you read the sign?",
+      "Go back to the original uploads.",
+      "Use them as the reference.",
+      "Try it in watercolor.",
+      "Put these images side by side.",
+      "Use images 1 and 3.",
+      "Zoom in.",
+      "Crop tighter.",
+      "Remove background.",
+      "Add a hat.",
+      "Put a hat on her.",
+      "Choose the best one.",
+      "Use the one where she is smiling."
     ];
 
     for (const prompt of prompts) {
       expect(shouldUseConversationMediaContext(prompt), prompt).toBe(true);
     }
+    expect(inferConversationMediaMinimum("Now merge their faces to make something new.")).toBe(2);
+    expect(inferConversationMediaMinimum("Put these images side by side.")).toBe(2);
+    expect(inferConversationMediaMinimum("Make the result brighter.")).toBe(1);
+  });
+
+  it("returns an ambiguity instead of guessing when an ordinal matches multiple visual sets", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const result = await resolveConversationMediaContext({
+      id: "conv-ambiguous",
+      turns: [
+        {
+          userMessage: "Create an older pair.",
+          outputs: [image("older first"), image("older second")]
+        },
+        {
+          userMessage: "Create a newer pair.",
+          outputs: [image("newer first"), image("newer second")]
+        }
+      ]
+    }, {
+      message: "Make the second image more realistic."
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      intent: "transform",
+      source: "none",
+      selectedPositions: [2]
+    });
+    expect(result.ambiguityMessage).toContain("2 earlier visual sets");
+    expect(result.attachments).toHaveLength(0);
+  });
+
+  it("uses structured source and position selectors when the request is specific", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const latestSecondUrl = image("latest second").url;
+    const result = await resolveConversationMediaContext({
+      id: "conv-specific",
+      turns: [
+        {
+          userMessage: "Create an older pair.",
+          assistantText: "Here is the older pair.",
+          outputs: [image("older first"), image("older second")]
+        },
+        {
+          userMessage: "Create the latest pair.",
+          assistantText: "Here is the latest pair.",
+          outputs: [image("latest first"), { ...image("latest second"), url: latestSecondUrl }]
+        }
+      ]
+    }, {
+      message: "Make the second image from the latest result more realistic."
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      intent: "transform",
+      source: "generated_outputs",
+      selectedTurnIndexes: [1],
+      selectedPositions: [2]
+    });
+    expect(result.ambiguityMessage).toBeUndefined();
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0]?.url).toBe(latestSecondUrl);
+    expect(result.promptContext).toContain("Originating user request: Create the latest pair.");
+    expect(result.promptContext).toContain("position 2 (latest second)");
+  });
+
+  it("returns to the original uploads when the request contrasts them with a generated result", async () => {
+    const { uploadService } = await import("../services/uploadService.js");
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const gif = Buffer.from("47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b", "hex");
+    const original = await uploadService.save("owner-a", {
+      originalname: "original.gif",
+      mimetype: "image/gif",
+      size: gif.byteLength,
+      buffer: gif
+    } as Express.Multer.File);
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-return-to-upload",
+      turns: [{
+        userMessage: "Use this as the source.",
+        userAssets: [original],
+        assistantText: "Here is the generated version.",
+        outputs: [{
+          type: "image",
+          url: `data:image/png;base64,${Buffer.from("generated-result").toString("base64")}`,
+          alt: "generated result"
+        }]
+      }]
+    }, {
+      message: "Go back to the original upload instead of the latest generated result and make it darker.",
+      ownerId: "owner-a"
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      intent: "transform",
+      source: "user_uploads",
+      selectedTurnIndexes: [0],
+      selectedPositions: [1]
+    });
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0]?.id).toBe(`conversation-upload:${original.id}`);
+  });
+
+  it("selects an earlier generated attempt by version ordinal", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const firstAttemptUrl = image("first attempt").url;
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-version-selector",
+      turns: [
+        {
+          userMessage: "Create the first version.",
+          outputs: [{ ...image("first attempt"), url: firstAttemptUrl }]
+        },
+        {
+          userMessage: "Try a second version.",
+          outputs: [image("second attempt")]
+        }
+      ]
+    }, {
+      message: "Go back to the first attempt and make it darker."
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      intent: "transform",
+      source: "generated_outputs",
+      selectedTurnIndexes: [0],
+      selectedPositions: [1]
+    });
+    expect(result.attachments[0]?.url).toBe(firstAttemptUrl);
+  });
+
+  it("does not interpret go back to the latest result as the original result", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const latestUrl = image("latest").url;
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-latest-selector",
+      turns: [
+        { userMessage: "Create the original.", outputs: [image("original")] },
+        { userMessage: "Create another.", outputs: [{ ...image("latest"), url: latestUrl }] }
+      ]
+    }, {
+      message: "Go back to the latest generated result and make it brighter."
+    });
+
+    expect(result).toMatchObject({
+      source: "generated_outputs",
+      selectedTurnIndexes: [1],
+      selectedPositions: [1]
+    });
+    expect(result.attachments[0]?.url).toBe(latestUrl);
+  });
+
+  it("treats original image as the earliest visual result when there are no uploads", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const originalUrl = image("original generated").url;
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-original-generated",
+      turns: [
+        { outputs: [{ ...image("original generated"), url: originalUrl }] },
+        { outputs: [image("latest generated")] }
+      ]
+    }, {
+      message: "Make the original image darker."
+    });
+
+    expect(result).toMatchObject({
+      source: "generated_outputs",
+      selectedTurnIndexes: [0],
+      selectedPositions: [1]
+    });
+    expect(result.attachments[0]?.url).toBe(originalUrl);
+  });
+
+  it("supports image positions written after a plural image noun", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-position-list",
+      turns: [{
+        outputs: [image("one"), image("two"), image("three"), image("four")]
+      }]
+    }, {
+      message: "Use images 1 and 3 from the latest result."
+    });
+
+    expect(result).toMatchObject({
+      source: "generated_outputs",
+      selectedPositions: [1, 3]
+    });
+    expect(result.attachments.map((attachment) => attachment.url)).toEqual([
+      image("one").url,
+      image("three").url
+    ]);
+  });
+
+  it("honors exclusions instead of treating excluded ordinals as selections", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-exclusions",
+      turns: [{
+        outputs: [image("one"), image("two"), image("three"), image("four")]
+      }]
+    }, {
+      message: "Use all except the second image and make a collage."
+    });
+
+    expect(result).toMatchObject({
+      intent: "transform",
+      source: "generated_outputs",
+      selectedPositions: [1, 3, 4]
+    });
+    expect(result.attachments.map((attachment) => attachment.url)).toEqual([
+      image("one").url,
+      image("three").url,
+      image("four").url
+    ]);
+  });
+
+  it("maps spatial selectors to the visual ordering and clarifies an even middle", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const conversation = {
+      id: "conv-spatial",
+      turns: [{
+        outputs: [image("left"), image("middle-left"), image("middle-right"), image("right")]
+      }]
+    };
+
+    const left = await resolveConversationMediaContext(conversation, {
+      message: "Use the image on the left and make it brighter."
+    });
+    const bottom = await resolveConversationMediaContext(conversation, {
+      message: "Use the bottom image and make it brighter."
+    });
+    const middle = await resolveConversationMediaContext(conversation, {
+      message: "Use the middle image and make it brighter."
+    });
+
+    expect(left.selectedPositions).toEqual([1]);
+    expect(left.attachments[0]?.url).toBe(image("left").url);
+    expect(bottom.selectedPositions).toEqual([4]);
+    expect(bottom.attachments[0]?.url).toBe(image("right").url);
+    expect(middle.attachments).toHaveLength(0);
+    expect(middle.ambiguityMessage).toContain("two middle images");
+  });
+
+  it("resolves result ordinals separately from image ordinals", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const selectedUrl = image("newer third").url;
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-nested-selector",
+      turns: [
+        { outputs: [image("older first"), image("older second"), image("older third")] },
+        { outputs: [image("newer first"), image("newer second"), { ...image("newer third"), url: selectedUrl }] }
+      ]
+    }, {
+      message: "Use the third image from the second result and make it cinematic."
+    });
+
+    expect(result).toMatchObject({
+      source: "generated_outputs",
+      selectedTurnIndexes: [1],
+      selectedPositions: [3],
+      intent: "transform"
+    });
+    expect(result.attachments[0]?.url).toBe(selectedUrl);
+  });
+
+  it("passes the complete latest set for semantic image selection", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const conversation = {
+      id: "conv-semantic-selector",
+      turns: [{
+        outputs: [image("serious"), image("smiling"), image("profile")]
+      }]
+    };
+
+    const matching = await resolveConversationMediaContext(conversation, {
+      message: "Use the one where she is smiling and make the background blue."
+    });
+    const best = await resolveConversationMediaContext(conversation, {
+      message: "Choose the best one."
+    });
+
+    expect(matching).toMatchObject({
+      intent: "transform",
+      selectedPositions: [1, 2, 3]
+    });
+    expect(matching.attachments).toHaveLength(3);
+    expect(best).toMatchObject({
+      intent: "inspect",
+      selectedPositions: [1, 2, 3]
+    });
+    expect(best.attachments).toHaveLength(3);
+  });
+
+  it("treats concise continuation commands as visual transformations", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const conversation = {
+      id: "conv-short-transform",
+      turns: [{
+        outputs: [{
+          type: "image" as const,
+          url: `data:image/png;base64,${Buffer.from("source").toString("base64")}`,
+          alt: "source"
+        }]
+      }]
+    };
+
+    for (const message of [
+      "Do it again.",
+      "Run it back.",
+      "Now with a blue background.",
+      "Without the hat.",
+      "Zoom in.",
+      "Crop tighter.",
+      "Remove background.",
+      "Add a hat.",
+      "Put a hat on her."
+    ]) {
+      const result = await resolveConversationMediaContext(conversation, { message });
+      expect(result.referenced, message).toBe(true);
+      expect(result.intent, message).toBe("transform");
+      expect(result.attachments, message).toHaveLength(1);
+    }
+  });
+
+  it("gives historical reset language precedence over positive reference matches", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const conversation = {
+      id: "conv-history-reset",
+      turns: [{
+        outputs: [{
+          type: "image" as const,
+          url: `data:image/png;base64,${Buffer.from("old").toString("base64")}`,
+          alt: "old"
+        }]
+      }]
+    };
+
+    for (const message of [
+      "Do not use the previous image; create a new one.",
+      "Ignore the last result and start from scratch."
+    ]) {
+      const result = await resolveConversationMediaContext(conversation, { message });
+      expect(result, message).toMatchObject({
+        referenced: false,
+        source: "none",
+        attachments: []
+      });
+    }
+
+    const currentOnly = await resolveConversationMediaContext(conversation, {
+      message: "Use this image, not the previous one.",
+      currentImageCount: 1
+    });
+    expect(currentOnly).toMatchObject({
+      referenced: false,
+      source: "none",
+      attachments: []
+    });
+  });
+
+  it("returns a precise clarification when an image position does not exist", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const result = await resolveConversationMediaContext({
+      id: "conv-missing-position",
+      turns: [{
+        outputs: [{
+          type: "image",
+          url: `data:image/png;base64,${Buffer.from("only image").toString("base64")}`,
+          alt: "only image"
+        }]
+      }]
+    }, {
+      message: "Make image 3 from the latest result brighter."
+    });
+
+    expect(result.attachments).toHaveLength(0);
+    expect(result.ambiguityMessage).toContain("image #3");
+  });
+
+  it("carries the original transformation through a short ambiguity answer", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const latestSecondUrl = image("latest second").url;
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-clarification-continuity",
+      turns: [
+        {
+          outputs: [image("older first"), image("older second")]
+        },
+        {
+          outputs: [image("latest first"), { ...image("latest second"), url: latestSecondUrl }]
+        },
+        {
+          userMessage: "Make the second image more realistic.",
+          assistantText: "Which earlier visual set do you mean?",
+          outputs: [{ type: "text", text: "Which earlier visual set do you mean?" }],
+          visualClarification: {
+            status: "ambiguous",
+            originalRequest: "Make the second image more realistic.",
+            selectedPositions: [2]
+          }
+        }
+      ]
+    }, {
+      message: "The latest result."
+    });
+
+    expect(result).toMatchObject({
+      intent: "transform",
+      source: "generated_outputs",
+      selectedTurnIndexes: [1],
+      selectedPositions: [2]
+    });
+    expect(result.attachments[0]?.url).toBe(latestSecondUrl);
+  });
+
+  it("combines a current upload with an explicitly requested historical source", async () => {
+    const { uploadService } = await import("../services/uploadService.js");
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const gif = Buffer.from("47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b", "hex");
+    const original = await uploadService.save("owner-a", {
+      originalname: "original.gif",
+      mimetype: "image/gif",
+      size: gif.byteLength,
+      buffer: gif
+    } as Express.Multer.File);
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-mixed",
+      turns: [{
+        userMessage: "Use this as the original character.",
+        userAssets: [original],
+        outputs: []
+      }]
+    }, {
+      message: "Combine this new image with the original upload.",
+      ownerId: "owner-a",
+      currentImageCount: 1,
+      minimumImages: 1,
+      maxImages: 9
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      intent: "transform",
+      source: "user_uploads",
+      minimumImages: 2,
+      selectedTurnIndexes: [0],
+      selectedPositions: [1]
+    });
+    expect(result.attachments[0]?.id).toBe(`conversation-upload:${original.id}`);
+  });
+
+  it("keeps inspection follow-ups out of visual transformation mode", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const result = await resolveConversationMediaContext({
+      id: "conv-inspect",
+      turns: [{
+        userMessage: "Show a street sign.",
+        outputs: [{
+          type: "image",
+          url: `data:image/png;base64,${Buffer.from("sign").toString("base64")}`,
+          alt: "street sign"
+        }]
+      }]
+    }, {
+      message: "Can you read the sign?"
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      intent: "inspect",
+      source: "generated_outputs",
+      selectedPositions: [1]
+    });
+  });
+
+  it("restores the latest prior upload set when a plural follow-up needs more images than the generated result", async () => {
+    const { uploadService } = await import("../services/uploadService.js");
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const gif = Buffer.from("47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b", "hex");
+    const first = await uploadService.save("owner-a", {
+      originalname: "first.gif",
+      mimetype: "image/gif",
+      size: gif.byteLength,
+      buffer: gif
+    } as Express.Multer.File);
+    const second = await uploadService.save("owner-a", {
+      originalname: "second.gif",
+      mimetype: "image/gif",
+      size: gif.byteLength,
+      buffer: gif
+    } as Express.Multer.File);
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-test",
+      turns: [{
+        userAssets: [first, second],
+        outputs: [{
+          type: "image",
+          url: `data:image/png;base64,${Buffer.from("single-generated-result").toString("base64")}`,
+          alt: "combined character"
+        }]
+      }]
+    }, {
+      message: "Now merge their faces to make something new.",
+      ownerId: "owner-a",
+      maxImages: 10
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      source: "user_uploads",
+      minimumImages: 2,
+      candidateCount: 2,
+      unavailableCount: 0
+    });
+    expect(result.attachments).toHaveLength(2);
+    expect(result.attachments.map((asset) => asset.id)).toEqual([
+      `conversation-upload:${first.id}`,
+      `conversation-upload:${second.id}`
+    ]);
+    expect(result.attachments.every((asset) => Boolean(asset.storageKey || asset.localPath))).toBe(true);
+  });
+
+  it("preserves the complete prior source group for follow-ups involving more than two visuals", async () => {
+    const { uploadService } = await import("../services/uploadService.js");
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const gif = Buffer.from("47494638396101000100800000ffffff00000021f90401000000002c00000000010001000002024401003b", "hex");
+    const sources = await Promise.all(
+      Array.from({ length: 4 }, (_, index) => uploadService.save("owner-a", {
+        originalname: `source-${index + 1}.gif`,
+        mimetype: "image/gif",
+        size: gif.byteLength,
+        buffer: gif
+      } as Express.Multer.File))
+    );
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-four-sources",
+      turns: [{
+        userAssets: sources,
+        outputs: [{
+          type: "image",
+          url: `data:image/png;base64,${Buffer.from("generated-result").toString("base64")}`,
+          alt: "generated result"
+        }]
+      }]
+    }, {
+      message: "Now combine all of them into a new design.",
+      ownerId: "owner-a",
+      maxImages: 10
+    });
+
+    expect(result.source).toBe("user_uploads");
+    expect(result.attachments).toHaveLength(4);
+    expect(result.attachments.map((asset) => asset.id)).toEqual(
+      sources.map((asset) => `conversation-upload:${asset.id}`)
+    );
+  });
+
+  it("uses the latest generated result for a singular visual follow-up", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const resultUrl = `data:image/png;base64,${Buffer.from("latest-result").toString("base64")}`;
+
+    const result = await resolveConversationMediaContext({
+      id: "conv-test",
+      turns: [{
+        userAssets: [{
+          id: "old-upload",
+          kind: "image",
+          fileName: "source.png",
+          mimeType: "image/png"
+        }],
+        outputs: [{ type: "image", url: resultUrl, alt: "latest result" }]
+      }]
+    }, {
+      message: "Now make it brighter.",
+      ownerId: "owner-a"
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      source: "generated_outputs",
+      minimumImages: 1,
+      candidateCount: 1,
+      unavailableCount: 0
+    });
+    expect(result.attachments[0]?.url).toBe(resultUrl);
+  });
+
+  it("does not mix historical media into a fresh current upload set", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const result = await resolveConversationMediaContext({
+      id: "conv-test",
+      turns: [{
+        outputs: [{
+          type: "image",
+          url: `data:image/png;base64,${Buffer.from("old-result").toString("base64")}`,
+          alt: "old result"
+        }]
+      }]
+    }, {
+      message: "Combine these two images I am uploading.",
+      currentImageCount: 2,
+      minimumImages: 2,
+      expectsNewUploads: true
+    });
+
+    expect(result).toEqual({
+      referenced: false,
+      candidateCount: 0,
+      attachments: [],
+      unavailableCount: 0,
+      minimumImages: 0,
+      source: "none",
+      intent: "transform",
+      selectedTurnIndexes: [],
+      selectedPositions: []
+    });
+  });
+
+  it("does not manufacture a missing-image requirement when no visual history exists", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const result = await resolveConversationMediaContext({
+      id: "conv-text-only",
+      turns: [{
+        outputs: [{ type: "text", text: "Here is a dramatic introduction." }]
+      }]
+    }, {
+      message: "Now turn that into a chart and a csv file."
+    });
+
+    expect(result).toEqual({
+      referenced: true,
+      candidateCount: 0,
+      attachments: [],
+      unavailableCount: 0,
+      minimumImages: 1,
+      source: "none",
+      intent: "transform",
+      selectedTurnIndexes: [],
+      selectedPositions: []
+    });
   });
 
   it("resolves the latest generated image as a hidden OpenAI image attachment", async () => {

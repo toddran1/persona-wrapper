@@ -2,10 +2,12 @@ import { randomUUID } from "node:crypto";
 import {
   chatMessageSchema,
   contentBlockSchema,
+  conversationMediaClarificationSchema,
   conversationUserAssetSchema,
   providerSchema,
   type ChatMessage,
   type ConversationDetail,
+  type ConversationMediaClarification,
   type ConversationSummary,
   type ConversationTurn,
   type ConversationListPage,
@@ -36,6 +38,7 @@ type ConversationMessageMetadata = {
   outputs?: ConversationTurn["outputs"];
   usage?: ConversationTurn["usage"];
   userAssets?: ConversationTurn["userAssets"];
+  visualClarification?: ConversationMediaClarification;
   backgroundJobId?: string;
   provider?: ConversationTurn["provider"];
   providerModel?: string;
@@ -860,6 +863,7 @@ function appendRenderedTurns(existingTurns: ConversationTurn[], messages: Conver
       userAssets: userMetadata?.userAssets ?? [],
       assistantText: assistant.content,
       outputs: assistantMetadata?.outputs ?? (assistant.content ? [{ type: "text", text: assistant.content }] : []),
+      ...(assistantMetadata?.visualClarification ? { visualClarification: assistantMetadata.visualClarification } : {}),
       ...(assistantMetadata?.provider ? { provider: assistantMetadata.provider } : {}),
       ...(assistantMetadata?.providerModel ? { providerModel: assistantMetadata.providerModel } : {}),
       ...(assistantMetadata?.responseId ? { responseId: assistantMetadata.responseId } : {}),
@@ -898,6 +902,9 @@ function sanitizeMessageMetadata(metadata: unknown): ConversationMessageMetadata
 
   const userAssets = userAssetsSchema.safeParse(raw.userAssets);
   if (userAssets.success) normalized.userAssets = userAssets.data;
+
+  const visualClarification = conversationMediaClarificationSchema.safeParse(raw.visualClarification);
+  if (visualClarification.success) normalized.visualClarification = visualClarification.data;
 
   if (typeof raw.backgroundJobId === "string") {
     normalized.backgroundJobId = raw.backgroundJobId;
@@ -956,6 +963,7 @@ function buildConversationTurns(
       userAssets: userMetadata?.userAssets ?? [],
       assistantText: assistant?.content ?? "",
       outputs: assistantMetadata?.outputs ?? (assistant?.content ? [{ type: "text", text: assistant.content }] : []),
+      ...(assistantMetadata?.visualClarification ? { visualClarification: assistantMetadata.visualClarification } : {}),
       ...(assistantMetadata?.provider ? { provider: assistantMetadata.provider } : {}),
       ...(assistantMetadata?.providerModel ? { providerModel: assistantMetadata.providerModel } : {}),
       ...(assistantMetadata?.responseId ? { responseId: assistantMetadata.responseId } : {}),
