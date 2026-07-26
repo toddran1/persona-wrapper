@@ -26,6 +26,12 @@ export type RenderedTurn = {
   backgroundJobId?: string;
 };
 
+function isThinkingStatus(output: ContentBlock): boolean {
+  return output.type === "status"
+    && output.status === "in_progress"
+    && /\bthinking\b/i.test(output.message);
+}
+
 function resolveAssetUrl(url: string): string {
   return resolveApiUrl(url);
 }
@@ -682,7 +688,8 @@ export function ConversationHistory({
           ) : null}
           {turns.map((turn, turnIndex) => {
             const turnPersonaId = turn.personaId ?? personaId;
-            const inlineOutputs = turn.outputs.filter(shouldRenderInlineOutput);
+            const isThinking = turn.outputs.some(isThinkingStatus);
+            const inlineOutputs = turn.outputs.filter((output) => shouldRenderInlineOutput(output) && !isThinkingStatus(output));
             const sources = turn.outputs.filter((output): output is Extract<ContentBlock, { type: "source_list" }> => output.type === "source_list");
             const audioBlocks = turn.outputs.filter((output): output is Extract<ContentBlock, { type: "audio" }> => output.type === "audio");
             const assistantText = turn.outputs.some((output) => output.type === "file")
@@ -703,8 +710,15 @@ export function ConversationHistory({
                 <article ref={turnIndex === turns.length - 1 ? newestAssistantRef : undefined} className="chat-row chat-row-assistant">
                   <div className="chat-avatar chat-avatar-assistant">{turnPersonaId}</div>
                   <div className="chat-bubble chat-bubble-assistant">
-                    <span className="history-role">Reply</span>
+                    <span className="history-role">{isThinking ? "Thinking" : "Reply"}</span>
                     {assistantText ? <MarkdownText text={assistantText} className="message-text markdown-text" /> : null}
+                    {isThinking ? (
+                      <div className="thinking-indicator" aria-live="polite" aria-label={`${turnPersonaId} is thinking`}>
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                    ) : null}
                     {inlineOutputs.length > 0 ? (
                       <div className="inline-artifact-stack">
                         {inlineOutputs.map((output, outputIndex) => (

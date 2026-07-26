@@ -265,6 +265,7 @@ export function MobileChatScreen() {
   const [authMode, setAuthMode] = useState<MobileAuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [conversationActionTarget, setConversationActionTarget] = useState<ConversationSummary | undefined>();
+  const [userActionTurn, setUserActionTurn] = useState<RenderedTurn | undefined>();
   const [assistantActionTurn, setAssistantActionTurn] = useState<RenderedTurn | undefined>();
   const [reportTarget, setReportTarget] = useState<RenderedTurn | undefined>();
   const [reportCategory, setReportCategory] = useState<UnsafeOutputReportCategory | undefined>();
@@ -294,6 +295,7 @@ export function MobileChatScreen() {
   const [drawerInteractive, setDrawerInteractive] = useState(false);
   const drawerX = useSharedValue(-drawerWidth);
   const scrollRef = useRef<FlashListRef<RenderedTurn>>(null);
+  const turnsRef = useRef<RenderedTurn[]>([]);
   const visualStateTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scrollButtonTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const conversationSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -378,6 +380,10 @@ export function MobileChatScreen() {
   useEffect(() => {
     if (primaryPersonaResource.data && !persona) setPersona(primaryPersonaResource.data);
   }, [primaryPersonaResource.data, persona]);
+
+  useEffect(() => {
+    turnsRef.current = turns;
+  }, [turns]);
 
   useEffect(() => {
     if (!conversationsResource.data) return;
@@ -715,6 +721,15 @@ export function MobileChatScreen() {
         // Persona speech is foreground-only. Relinquish audio focus immediately
         // so music, podcasts, and calls from other apps return to normal volume.
         void releaseCurrentAudioPlayback();
+        markPersonaIdle();
+        const pendingTurn = [...turnsRef.current].reverse().find(isStillRunningTurn);
+        if (pendingTurn?.backgroundJobId) {
+          updateTurnOutputs(pendingTurn.id, [{
+            type: "status",
+            status: "in_progress",
+            message: "Thinking"
+          }], pendingTurn.backgroundJobId);
+        }
       }
       const resumed = (previousState === "background" || previousState === "inactive") && nextState === "active";
       if (!resumed || !authUser || !isOnline || sessionValidationInFlightRef.current) return;
@@ -725,6 +740,7 @@ export function MobileChatScreen() {
           if (!active) return;
           if (user) {
             setAuthUser(user);
+            void reconcilePendingBackgroundTurn();
             return;
           }
           cancelActiveChatRequest();
@@ -1227,11 +1243,7 @@ export function MobileChatScreen() {
   }
 
   function showUserMessageActions(turn: RenderedTurn): void {
-    Alert.alert("Message actions", undefined, [
-      { text: "Copy", onPress: () => void copyMessage("Prompt copied.", turn.userMessage) },
-      { text: "Edit", onPress: () => editUserMessage(turn.userMessage) },
-      { text: "Cancel", style: "cancel" }
-    ]);
+    setUserActionTurn(turn);
   }
 
   function showAssistantActions(turn: RenderedTurn): void {
@@ -1481,15 +1493,19 @@ export function MobileChatScreen() {
   }
 
   function updateTurnOutputs(turnId: string, outputs: RenderedTurn["outputs"], backgroundJobId?: string): void {
-    setTurns((current) => current.map((turn) => (
-      turn.id === turnId
+    setTurns((current) => {
+      const next = current.map((turn) => (
+        turn.id === turnId
         ? {
           ...turn,
           outputs,
           ...(backgroundJobId ? { backgroundJobId } : {})
         }
         : turn
-    )));
+      ));
+      turnsRef.current = next;
+      return next;
+    });
   }
 
   function replaceTurnWithResponse(turnId: string, userMessage: string, userAssets: RenderedTurn["userAssets"], response: ChatResponse): void {
@@ -1536,16 +1552,28 @@ export function MobileChatScreen() {
     throw new BackgroundPollingTimeoutError(latestJob ?? await api.getChatJob(jobId, signal));
   }
 
-  async function resumeBackgroundJob(turn: RenderedTurn): Promise<void> {
-    if (!turn.backgroundJobId || resumingJobId || sending || activeChatAbortControllerRef.current) return;
+  async function resumeBackgroundJob(turn: RenderedTurn, options?: { force?: boolean }): Promise<void> {
+    const force = options?.force === true;
+    if (!turn.backgroundJobId || (!force && (resumingJobId || sending || activeChatAbortControllerRef.current))) return;
+    if (force) {
+      const previousController = activeChatAbortControllerRef.current;
+      activeChatAbortControllerRef.current = undefined;
+      previousController?.abort();
+      setSending(false);
+      setUploadingAttachments(false);
+      setResumingJobId(undefined);
+    }
     const controller = new AbortController();
     activeChatAbortControllerRef.current = controller;
     setResumingJobId(turn.backgroundJobId);
+    clearVisualStateTimer();
+    setPersonaVisualState("thinking");
     setError(undefined);
     try {
       const firstJob = await api.getChatJob(turn.backgroundJobId, controller.signal);
       if (firstJob.status === "completed" && firstJob.response) {
         replaceTurnWithResponse(turn.id, turn.userMessage, turn.userAssets, firstJob.response);
+        await setSelectedConversationId(firstJob.response.conversationId);
         await refreshConversations();
         return;
       }
@@ -1555,6 +1583,7 @@ export function MobileChatScreen() {
       updateTurnOutputs(turn.id, [{ type: "status", status: "in_progress", message: "Thinking" }], firstJob.id);
       const response = await pollChatJob(firstJob.id, undefined, controller.signal);
       replaceTurnWithResponse(turn.id, turn.userMessage, turn.userAssets, response);
+      await setSelectedConversationId(response.conversationId);
       await refreshConversations();
     } catch (resumeError) {
       if (isRequestCancellation(resumeError)) return;
@@ -1586,6 +1615,13 @@ export function MobileChatScreen() {
         setResumingJobId(undefined);
       }
     }
+  }
+
+  async function reconcilePendingBackgroundTurn(): Promise<void> {
+    if (!isOnline) return;
+    const pendingTurn = [...turnsRef.current].reverse().find(isStillRunningTurn);
+    if (!pendingTurn) return;
+    await resumeBackgroundJob(pendingTurn, { force: true });
   }
 
   async function finishAuth(user: AuthUser): Promise<void> {
@@ -1835,6 +1871,7 @@ export function MobileChatScreen() {
     const submittedFiles = options?.files ?? selectedFiles;
     if (!options?.files) setSelectedFiles([]);
     let optimistic: RenderedTurn | undefined;
+    let backgroundJobId: string | undefined;
     try {
       setUploadingAttachments(submittedFiles.length > 0);
       const attachments = submittedFiles.length > 0
@@ -1870,7 +1907,11 @@ export function MobileChatScreen() {
         assistantText: "",
         outputs: [{ type: "status", status: "in_progress", message: "Thinking" }]
       };
-      setTurns((current) => [...current, optimistic as RenderedTurn]);
+      setTurns((current) => {
+        const next = [...current, optimistic as RenderedTurn];
+        turnsRef.current = next;
+        return next;
+      });
       const response = await api.sendChat({
         personaId: activePersona.id,
         message,
@@ -1882,6 +1923,16 @@ export function MobileChatScreen() {
         ...(conversationId ? { conversationId } : {})
       }, controller.signal);
       const backgroundJob = response.diagnostics.backgroundJob;
+      if (backgroundJob) {
+        backgroundJobId = backgroundJob.id;
+        setConversationId(response.conversationId);
+        await setSelectedConversationId(response.conversationId);
+        updateTurnOutputs(optimistic.id, [{
+          type: "status",
+          status: "in_progress",
+          message: "Thinking"
+        }], backgroundJob.id);
+      }
       const finalResponse = backgroundJob ? await pollChatJob(backgroundJob.id, undefined, controller.signal) : response;
       setConversationId(finalResponse.conversationId);
       await setSelectedConversationId(finalResponse.conversationId);
@@ -1919,9 +1970,18 @@ export function MobileChatScreen() {
             message: sendError.job.error ?? sendError.message
           }], sendError.job.id);
         } else {
-          setError(messageText);
           markPersonaIdle();
-          updateTurnOutputs(optimistic.id, [{ type: "status", status: "failed", message: messageText }]);
+          if (backgroundJobId) {
+            setError("The app lost contact with the background request. Tap Check status or reopen the app to reconnect.");
+            updateTurnOutputs(optimistic.id, [{
+              type: "status",
+              status: "in_progress",
+              message: "Still working in the background. Status will be checked again when the app reconnects."
+            }], backgroundJobId);
+          } else {
+            setError(messageText);
+            updateTurnOutputs(optimistic.id, [{ type: "status", status: "failed", message: messageText }]);
+          }
         }
       } else {
         setError(messageText);
@@ -2481,7 +2541,12 @@ export function MobileChatScreen() {
                     </View>
                     <View style={[styles.assistantContent, personaCardExpanded ? styles.expandedAssistantBubble : null]}>
                       <OutputBlocks outputs={turn.outputs} theme={theme} onAction={(action) => void handleOutputAction(action)} />
-                      {isStillRunningTurn(turn) ? (
+                      {isStillRunningTurn(turn)
+                        && !turn.outputs.some((output) => (
+                          output.type === "status"
+                          && output.status === "in_progress"
+                          && /\bthinking\b/i.test(output.message)
+                        )) ? (
                         <Pressable
                           accessibilityRole="button"
                           disabled={resumingJobId === turn.backgroundJobId}
@@ -3039,6 +3104,64 @@ export function MobileChatScreen() {
             </Pressable>
             <Pressable accessibilityRole="button" style={styles.actionSheetCancel} onPress={() => setAttachmentMenuVisible(false)}>
               <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        accessibilityViewIsModal
+        visible={Boolean(userActionTurn)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setUserActionTurn(undefined)}
+      >
+        <View style={styles.actionSheetScrim}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close message actions"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setUserActionTurn(undefined)}
+          />
+          <View style={[styles.actionSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View style={styles.actionSheetHeader}>
+              <View style={styles.actionSheetHeadingCopy}>
+                <Text style={[styles.actionSheetTitle, styles.actionSheetTitleNoPadding, { color: theme.text }]}>Message actions</Text>
+                {userActionTurn ? <Text numberOfLines={1} style={[styles.actionSheetSubtitle, { color: theme.muted }]}>{userActionTurn.userMessage}</Text> : null}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close message actions"
+                hitSlop={10}
+                onPress={() => setUserActionTurn(undefined)}
+                style={[styles.actionSheetClose, { backgroundColor: "rgba(255,255,255,0.08)" }]}
+              >
+                <Ionicons name="close" size={20} color={theme.text} />
+              </Pressable>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.actionSheetRow}
+              onPress={() => {
+                const turn = userActionTurn;
+                setUserActionTurn(undefined);
+                if (turn) void copyMessage("Prompt copied.", turn.userMessage);
+              }}
+            >
+              <Ionicons name="copy-outline" size={20} color={theme.text} />
+              <Text style={[styles.actionSheetText, { color: theme.text }]}>Copy</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.actionSheetRow}
+              onPress={() => {
+                const turn = userActionTurn;
+                setUserActionTurn(undefined);
+                if (turn) editUserMessage(turn.userMessage);
+              }}
+            >
+              <Ionicons name="create-outline" size={20} color={theme.text} />
+              <Text style={[styles.actionSheetText, { color: theme.text }]}>Edit</Text>
             </Pressable>
           </View>
         </View>

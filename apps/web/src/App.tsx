@@ -177,6 +177,15 @@ class BackgroundJobStateError extends Error {
 
 const WEB_SELECTED_CONVERSATION_KEY = "for-the-baddiez:selected-conversation";
 const WEB_SELECTED_PERSONA_KEY = "for-the-baddiez:selected-persona";
+const WEB_PENDING_BACKGROUND_JOB_KEY = "for-the-baddiez:pending-background-job";
+
+type StoredBackgroundJob = {
+  jobId: string;
+  conversationId: string;
+  personaId?: string;
+  userMessage: string;
+  userAssets: UserPromptAsset[];
+};
 
 function storedConversationId(): string | undefined {
   try {
@@ -192,6 +201,47 @@ function storedPersonaId(): string | undefined {
     return window.localStorage.getItem(WEB_SELECTED_PERSONA_KEY)?.trim() || undefined;
   } catch {
     return undefined;
+  }
+}
+
+function storedBackgroundJob(): StoredBackgroundJob | undefined {
+  try {
+    const raw = window.sessionStorage.getItem(WEB_PENDING_BACKGROUND_JOB_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<StoredBackgroundJob>;
+    if (
+      typeof parsed.jobId !== "string" ||
+      typeof parsed.conversationId !== "string" ||
+      typeof parsed.userMessage !== "string" ||
+      !Array.isArray(parsed.userAssets)
+    ) return undefined;
+    return {
+      jobId: parsed.jobId,
+      conversationId: parsed.conversationId,
+      ...(typeof parsed.personaId === "string" ? { personaId: parsed.personaId } : {}),
+      userMessage: parsed.userMessage,
+      userAssets: parsed.userAssets
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function saveBackgroundJob(job: StoredBackgroundJob): void {
+  try {
+    window.sessionStorage.setItem(WEB_PENDING_BACKGROUND_JOB_KEY, JSON.stringify(job));
+  } catch {
+    // The in-memory turn remains recoverable when session storage is unavailable.
+  }
+}
+
+function clearStoredBackgroundJob(jobId?: string): void {
+  try {
+    const current = storedBackgroundJob();
+    if (jobId && current?.jobId !== jobId) return;
+    window.sessionStorage.removeItem(WEB_PENDING_BACKGROUND_JOB_KEY);
+  } catch {
+    // Session storage can be unavailable in hardened browser modes.
   }
 }
 
@@ -292,6 +342,73 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       // Session storage can be unavailable in hardened browser modes.
     }
   }, [conversationId]);
+
+  useEffect(() => {
+    if (!authUser || authLoading || !conversationId) return;
+
+    let cancelled = false;
+    const reconcile = async (): Promise<void> => {
+      if (document.visibilityState !== "visible") return;
+      const pendingJob = storedBackgroundJob();
+      if (!pendingJob || pendingJob.conversationId !== conversationId || cancelled) return;
+
+      setRenderedTurns((current) => current.some((turn) => turn.backgroundJobId === pendingJob.jobId)
+        ? current
+        : [
+            ...current,
+            {
+              ...(pendingJob.personaId ? { personaId: pendingJob.personaId } : {}),
+              userMessage: pendingJob.userMessage,
+              userAssets: pendingJob.userAssets,
+              assistantText: "",
+              backgroundJobId: pendingJob.jobId,
+              outputs: buildThinkingOutputs()
+            }
+          ]
+      );
+      activeBackgroundJobIdRef.current = pendingJob.jobId;
+
+      try {
+        const job = await api.getChatJob(pendingJob.jobId);
+        if (cancelled) return;
+        if (job.status === "completed" && job.response) {
+          activeRequestRef.current?.abort();
+          replaceBackgroundTurnWithResult(job.id, job.response);
+          clearStoredBackgroundJob(job.id);
+          activeBackgroundJobIdRef.current = undefined;
+          setLoading(false);
+          void refreshConversationList(job.response.conversationId);
+          return;
+        }
+        if (job.status === "failed" || job.status === "cancelled") {
+          activeRequestRef.current?.abort();
+          const reason = job.failureReason ?? (job.status === "cancelled" ? "manual_cancel" : "provider_failure");
+          markCurrentTurnSilent();
+          replaceBackgroundTurnWithError(job, reason);
+          clearStoredBackgroundJob(job.id);
+          activeBackgroundJobIdRef.current = undefined;
+          setLoading(false);
+          return;
+        }
+        setBackgroundTurnThinking(job.id);
+        if (!activeRequestRef.current) void resumeBackgroundJob(job.id);
+      } catch (reconcileError) {
+        if (!cancelled) {
+          setError(reconcileError instanceof Error ? reconcileError.message : "Could not check the background request.");
+        }
+      }
+    };
+
+    const onVisibilityChange = () => {
+      void reconcile();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void reconcile();
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [authLoading, authUser?.id, conversationId, renderedTurns.length]);
 
   function clearNonAudioVisualTimer(): void {
     if (nonAudioVisualTimeoutRef.current === undefined) return;
@@ -544,6 +661,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     const requestController = new AbortController();
     activeRequestRef.current = requestController;
     let keepBackgroundJob = false;
+    let backgroundJobId: string | undefined;
 
     try {
       const attachments = files.length > 0 ? await api.uploadFiles(files, requestController.signal) : [];
@@ -571,11 +689,38 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       const result = await api.sendChat(payload, requestController.signal);
       const backgroundJob = result.diagnostics.backgroundJob;
       activeBackgroundJobIdRef.current = backgroundJob?.id;
+      if (backgroundJob) {
+        backgroundJobId = backgroundJob.id;
+        keepBackgroundJob = true;
+        const userAssets = mapUploadedAssetsToUserPromptAssets(attachments);
+        appendChatStillRunning(message, {
+          id: backgroundJob.id,
+          status: backgroundJob.status,
+          updatedAt: new Date().toISOString()
+        }, userAssets, files, false);
+        saveBackgroundJob({
+          jobId: backgroundJob.id,
+          conversationId: result.conversationId,
+          ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
+          userMessage: message,
+          userAssets
+        });
+        setConversationId(result.conversationId);
+        setPendingPrompt(undefined);
+        setPendingPromptAssets([]);
+        setPendingPromptFiles([]);
+        releasePendingPromptAssets(localPendingAssets);
+      }
       const finalResult = backgroundJob
         ? await pollChatJob(backgroundJob.id, requestController.signal)
         : result;
 
-      appendChatResult(message, finalResult, attachments, files);
+      if (backgroundJob) {
+        replaceBackgroundTurnWithResult(backgroundJob.id, finalResult);
+        clearStoredBackgroundJob(backgroundJob.id);
+      } else {
+        appendChatResult(message, finalResult, attachments, files);
+      }
       void refreshConversationList(finalResult.conversationId);
       activeBackgroundJobIdRef.current = undefined;
       setPendingPrompt(undefined);
@@ -592,7 +737,18 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       if (submitError instanceof BackgroundPollingTimeoutError) {
         keepBackgroundJob = true;
         setError(undefined);
-        appendChatStillRunning(message, submitError.job, localPendingAssets, files);
+        if (!backgroundJobId) {
+          appendChatStillRunning(message, submitError.job, localPendingAssets, files);
+          saveBackgroundJob({
+            jobId: submitError.job.id,
+            conversationId: conversationId ?? "",
+            ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
+            userMessage: message,
+            userAssets: localPendingAssets
+          });
+        } else {
+          refreshBackgroundTurnStatus(submitError.job);
+        }
         setEvalSavedMessage(undefined);
         setEvalError(undefined);
         return;
@@ -600,12 +756,23 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       if (submitError instanceof BackgroundJobStateError) {
         const jobReason = submitError.job.failureReason ?? (submitError.job.status === "cancelled" ? "manual_cancel" : "provider_failure");
         setError(messageText);
-        appendChatJobError(message, submitError.job, jobReason, localPendingAssets, files);
+        if (backgroundJobId) {
+          replaceBackgroundTurnWithError(submitError.job, jobReason);
+          clearStoredBackgroundJob(submitError.job.id);
+          activeBackgroundJobIdRef.current = undefined;
+        } else {
+          appendChatJobError(message, submitError.job, jobReason, localPendingAssets, files);
+        }
         return;
       }
       if (!requestController.signal.aborted) {
-        setError(messageText);
-        appendChatError(message, messageText, localPendingAssets, files);
+        if (backgroundJobId) {
+          keepBackgroundJob = true;
+          setError("The browser lost contact with the background request. Return to this tab or use Check status to reconnect.");
+        } else {
+          setError(messageText);
+          appendChatError(message, messageText, localPendingAssets, files);
+        }
       }
     } finally {
       const isCurrentRequest = activeRequestRef.current === requestController;
@@ -653,6 +820,64 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         }
       ];
     });
+  }
+
+  function replaceBackgroundTurnWithResult(jobId: string, result: ChatResponse): void {
+    const assistantTextBlock = result.outputs.find((output) => output.type === "text");
+    const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
+    const imageOnlyResponse = isImageOnlyResponse(result.outputs);
+    lastCompletedTurnWasImageOnlyRef.current = imageOnlyResponse;
+    suppressAudioVisualForCurrentTurnRef.current = imageOnlyResponse;
+    setConversationId(result.conversationId);
+    setResponse(result);
+    setRenderedTurns((current) => {
+      const backgroundTurnIndex = current.findIndex((turn) => turn.backgroundJobId === jobId);
+      const nextTurns = current.map((turn) => (
+        turn.backgroundJobId === jobId ? (() => {
+          const { backgroundJobId: _backgroundJobId, ...completedTurn } = turn;
+          return {
+              ...completedTurn,
+              personaId: result.persona.id,
+              assistantText,
+              outputs: result.outputs,
+              ...(result.usage ? { usage: result.usage } : {})
+            };
+          })() : turn
+      ));
+      setAutoPlayAudioTurnIndex(backgroundTurnIndex >= 0 ? backgroundTurnIndex : undefined);
+      return nextTurns;
+    });
+  }
+
+  function replaceBackgroundTurnWithError(job: ChatJobResponse, reason: string): void {
+    const assistantText = reason === "manual_cancel" ? "Request cancelled." : "Background request failed.";
+    setRenderedTurns((current) => current.map((turn) => (
+      turn.backgroundJobId === job.id ? (() => {
+          const { backgroundJobId: _backgroundJobId, ...failedTurn } = turn;
+          return {
+            ...failedTurn,
+            assistantText,
+            outputs: buildJobErrorOutputs(job, reason)
+          };
+        })() : turn
+    )));
+    setAutoPlayAudioTurnIndex(undefined);
+  }
+
+  function refreshBackgroundTurnStatus(job: ChatJobResponse): void {
+    setRenderedTurns((current) => current.map((turn) => (
+      turn.backgroundJobId === job.id
+        ? { ...turn, outputs: buildStillRunningOutputs(job) }
+        : turn
+    )));
+  }
+
+  function setBackgroundTurnThinking(jobId: string): void {
+    setRenderedTurns((current) => current.map((turn) => (
+      turn.backgroundJobId === jobId
+        ? { ...turn, assistantText: "", outputs: buildThinkingOutputs() }
+        : turn
+    )));
   }
 
   async function refreshConversationList(preferConversationId?: string, retryOnStartup = false, accountId = authUser?.id): Promise<void> {
@@ -808,7 +1033,13 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     ]);
   }
 
-  function appendChatStillRunning(message: string, job: ChatJobResponse, userAssets: UserPromptAsset[] = [], userFiles: File[] = []): void {
+  function appendChatStillRunning(
+    message: string,
+    job: ChatJobResponse,
+    userAssets: UserPromptAsset[] = [],
+    userFiles: File[] = [],
+    showRecoveryStatus = true
+  ): void {
     markCurrentTurnSilent();
     setAutoPlayAudioTurnIndex(undefined);
     setRenderedTurns((current) => [
@@ -818,33 +1049,11 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         userMessage: message,
         userAssets,
         userFiles,
-        assistantText: "This is still running in the background.",
+        assistantText: showRecoveryStatus ? "This is still running in the background." : "",
         backgroundJobId: job.id,
-        outputs: [
-          {
-            type: "status",
-            status: "in_progress",
-            message: stillRunningStatusMessage(job, false)
-          },
-          ...(testModeEnabled ? [{
-            type: "json" as const,
-            data: {
-              reason: "frontend_poll_timeout",
-              jobId: job.id,
-              providerResponseId: job.providerResponseId,
-              providerStatus: job.providerStatus,
-              updatedAt: job.updatedAt
-            }
-          }] : []),
-          {
-            type: "action",
-            id: `resume-${job.id}`,
-            label: "Check status",
-            action: "resume_background_job",
-            arguments: { jobId: job.id },
-            style: "primary"
-          }
-        ]
+        outputs: showRecoveryStatus
+          ? buildStillRunningOutputs(job)
+          : buildThinkingOutputs()
       }
     ]);
   }
@@ -922,29 +1131,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setError(undefined);
     try {
       const finalResult = await pollChatJob(jobId, requestController.signal);
-      const assistantTextBlock = finalResult.outputs.find((output) => output.type === "text");
-      const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
-      const imageOnlyResponse = isImageOnlyResponse(finalResult.outputs);
-      lastCompletedTurnWasImageOnlyRef.current = imageOnlyResponse;
-      suppressAudioVisualForCurrentTurnRef.current = imageOnlyResponse;
-      setConversationId(finalResult.conversationId);
-      setResponse(finalResult);
-      setRenderedTurns((current) => {
-        const nextTurns = current.map((turn) => (
-          turn.backgroundJobId === jobId
-            ? {
-                ...turn,
-                personaId: finalResult.persona.id,
-                assistantText,
-                outputs: finalResult.outputs,
-                usage: finalResult.usage
-              }
-            : turn
-        ));
-        const nextAutoPlayIndex = nextTurns.findIndex((turn) => turn.backgroundJobId === jobId);
-        setAutoPlayAudioTurnIndex(nextAutoPlayIndex >= 0 ? nextAutoPlayIndex : undefined);
-        return nextTurns;
-      });
+      replaceBackgroundTurnWithResult(jobId, finalResult);
+      clearStoredBackgroundJob(jobId);
+      void refreshConversationList(finalResult.conversationId);
       activeBackgroundJobIdRef.current = undefined;
     } catch (resumeError) {
       if (resumeError instanceof BackgroundPollingTimeoutError) {
@@ -963,16 +1152,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       if (resumeError instanceof BackgroundJobStateError) {
         markCurrentTurnSilent();
         const reason = resumeError.job.failureReason ?? (resumeError.job.status === "cancelled" ? "manual_cancel" : "provider_failure");
-        setRenderedTurns((current) => current.map((turn) => (
-          turn.backgroundJobId === jobId
-            ? {
-                ...turn,
-                assistantText: reason === "manual_cancel" ? "Request cancelled." : "Background request failed.",
-                outputs: buildJobErrorOutputs(resumeError.job, reason)
-              }
-            : turn
-        )));
-        setAutoPlayAudioTurnIndex(undefined);
+        replaceBackgroundTurnWithError(resumeError.job, reason);
+        clearStoredBackgroundJob(jobId);
         return;
       }
       const messageText = resumeError instanceof Error ? resumeError.message : "Failed to resume background request";
@@ -1013,6 +1194,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     ];
   }
 
+  function buildThinkingOutputs(): ContentBlock[] {
+    return [{ type: "status", status: "in_progress", message: "Thinking" }];
+  }
+
   function buildJobErrorOutputs(job: ChatJobResponse, reason: string): ContentBlock[] {
     const message = reason === "manual_cancel"
       ? "Request cancelled."
@@ -1047,6 +1232,12 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       void api.cancelChatJob(backgroundJobId).catch((cancelError) => {
         console.warn("Failed to cancel background chat job", cancelError);
       });
+      replaceBackgroundTurnWithError({
+        id: backgroundJobId,
+        status: "cancelled",
+        updatedAt: new Date().toISOString()
+      }, "manual_cancel");
+      clearStoredBackgroundJob(backgroundJobId);
     }
     activeRequestRef.current?.abort();
     activeRequestRef.current = undefined;

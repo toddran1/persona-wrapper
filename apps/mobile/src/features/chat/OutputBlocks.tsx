@@ -452,6 +452,7 @@ function ImageOutputBlock({
 }) {
   const insets = useSafeAreaInsets();
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [imageActionsVisible, setImageActionsVisible] = useState(false);
   const [localImageUri, setLocalImageUri] = useState<string | undefined>();
   const [imageError, setImageError] = useState<string | undefined>();
   const cacheKeyRef = useRef(`persona-image-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`);
@@ -562,12 +563,7 @@ function ImageOutputBlock({
   }
 
   function showImageMenu(): void {
-    Alert.alert("Image actions", undefined, [
-      { text: "Open original", onPress: () => void openOriginal() },
-      { text: "Download", onPress: () => void downloadImage() },
-      { text: "Copy prompt", onPress: () => void copyPrompt() },
-      { text: "Cancel", style: "cancel" }
-    ]);
+    setImageActionsVisible(true);
   }
 
   return (
@@ -636,6 +632,61 @@ function ImageOutputBlock({
             <Pressable accessibilityRole="button" onPress={() => void copyPrompt()} style={[styles.viewerActionButton, { borderColor: theme.border }]}>
               <Ionicons name="copy-outline" size={18} color={theme.text} />
               <Text style={[styles.viewerActionText, { color: theme.text }]}>Copy prompt</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        accessibilityViewIsModal
+        visible={imageActionsVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setImageActionsVisible(false)}
+      >
+        <View style={styles.imageActionScrim}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close image actions"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setImageActionsVisible(false)}
+          />
+          <View style={[styles.imageActionSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <Text style={[styles.imageActionTitle, { color: theme.text }]}>Response actions</Text>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.imageActionRow}
+              onPress={() => {
+                setImageActionsVisible(false);
+                void copyPrompt();
+              }}
+            >
+              <Ionicons name="copy-outline" size={22} color={theme.text} />
+              <Text style={[styles.imageActionText, { color: theme.text }]}>Copy prompt</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.imageActionRow}
+              onPress={() => {
+                setImageActionsVisible(false);
+                void downloadImage();
+              }}
+            >
+              <Ionicons name="download-outline" size={22} color={theme.text} />
+              <Text style={[styles.imageActionText, { color: theme.text }]}>Download</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.imageActionRow}
+              onPress={() => {
+                setImageActionsVisible(false);
+                void openOriginal();
+              }}
+            >
+              <Ionicons name="open-outline" size={22} color={theme.text} />
+              <Text style={[styles.imageActionText, { color: theme.text }]}>Open original</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" style={styles.imageActionCancel} onPress={() => setImageActionsVisible(false)}>
+              <Text style={[styles.imageActionText, { color: theme.muted }]}>Cancel</Text>
             </Pressable>
           </View>
         </View>
@@ -712,6 +763,42 @@ const styles = StyleSheet.create({
   },
   imageButton: {
     position: "relative"
+  },
+  imageActionCancel: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 58,
+    marginTop: 4
+  },
+  imageActionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 17,
+    minHeight: 62,
+    paddingHorizontal: 12
+  },
+  imageActionScrim: {
+    backgroundColor: "rgba(0,0,0,0.52)",
+    flex: 1,
+    justifyContent: "flex-end"
+  },
+  imageActionSheet: {
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingTop: 22,
+    width: "100%"
+  },
+  imageActionText: {
+    fontSize: 17,
+    fontWeight: "800"
+  },
+  imageActionTitle: {
+    fontSize: 28,
+    fontWeight: "900",
+    paddingBottom: 14,
+    paddingHorizontal: 12
   },
   imageErrorText: {
     fontSize: 12,
