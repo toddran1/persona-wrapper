@@ -9,6 +9,7 @@ type ChatComposerProps = {
   theme: MobileTheme;
   compact?: boolean;
   disabled?: boolean;
+  requestInProgress?: boolean;
   uploadingAttachments?: boolean;
   voiceInputActive?: boolean;
   attachments: MobilePickedFile[];
@@ -21,12 +22,14 @@ type ChatComposerProps = {
   onHeightChange?: (height: number) => void;
   onRemoveAttachment: (id: string) => void;
   onSubmit: (message: string) => void;
+  onStop: () => void;
 };
 
 export function ChatComposer({
   theme,
   compact = false,
   disabled,
+  requestInProgress = false,
   uploadingAttachments,
   voiceInputActive,
   attachments,
@@ -38,11 +41,15 @@ export function ChatComposer({
   onMicPress,
   onHeightChange,
   onRemoveAttachment,
-  onSubmit
+  onSubmit,
+  onStop
 }: ChatComposerProps) {
   const { t } = useLocalization();
   const [draft, setDraft] = useState("");
-  const canSend = draft.trim().length > 0 && !disabled && !uploadingAttachments;
+  const hasDraft = draft.trim().length > 0;
+  const hasAttachments = attachments.length > 0;
+  const canSend = (hasDraft || hasAttachments) && !disabled && !uploadingAttachments && !requestInProgress;
+  const composerLocked = Boolean(disabled || uploadingAttachments || requestInProgress);
 
   useEffect(() => {
     if (draftMessage === undefined) return;
@@ -51,7 +58,7 @@ export function ChatComposer({
 
   function submit(): void {
     const message = draft.trim();
-    if (!message || disabled || uploadingAttachments) return;
+    if ((!message && !hasAttachments) || disabled || uploadingAttachments || requestInProgress) return;
     setDraft("");
     onDraftChange?.("");
     onSubmit(message);
@@ -90,8 +97,8 @@ export function ChatComposer({
           accessibilityRole="button"
           testID="mobile-attach-file"
           accessibilityLabel={t("composer.attach")}
-          accessibilityState={{ disabled: Boolean(disabled || uploadingAttachments) }}
-          disabled={disabled || uploadingAttachments}
+          accessibilityState={{ disabled: composerLocked }}
+          disabled={composerLocked}
           onPress={onAttach}
           style={styles.sideButton}
         >
@@ -102,7 +109,7 @@ export function ChatComposer({
           accessibilityLabel={t("composer.message")}
           value={draft}
           onChangeText={updateDraft}
-          editable={!disabled && !uploadingAttachments}
+          editable={!composerLocked}
           placeholder={uploadingAttachments ? t("composer.uploading") : placeholder}
           placeholderTextColor={theme.muted}
           multiline
@@ -110,7 +117,17 @@ export function ChatComposer({
           style={[styles.input, compact ? styles.inputCompact : null, { color: theme.text }]}
         />
         <View style={styles.trailingControls}>
-          {canSend ? (
+          {requestInProgress ? (
+            <Pressable
+              accessibilityRole="button"
+              testID="mobile-stop-message"
+              accessibilityLabel={t("composer.stop")}
+              onPress={onStop}
+              style={[styles.sendButton, styles.stopButton, { backgroundColor: theme.danger }]}
+            >
+              <Ionicons name="stop" size={18} color={theme.background} />
+            </Pressable>
+          ) : canSend ? (
             <Pressable
               accessibilityRole="button"
               testID="mobile-send-message"
@@ -121,44 +138,48 @@ export function ChatComposer({
               <Ionicons name="arrow-up" size={20} color={theme.background} />
             </Pressable>
           ) : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("composer.voice")}
-              accessibilityState={{ disabled: Boolean(disabled || uploadingAttachments), selected: voiceInputActive }}
-              disabled={disabled || uploadingAttachments}
-              onPress={onMicPress}
-              style={[
-                styles.micButton,
-                compact ? styles.micButtonCompact : null,
-                {
-                  backgroundColor: voiceInputActive ? theme.accent : "rgba(255,255,255,0.08)"
-                }
-              ]}
-            >
-              <Ionicons name={voiceInputActive ? "stop" : "mic-outline"} size={20} color={theme.text} />
-            </Pressable>
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("composer.voice")}
+                accessibilityState={{ disabled: Boolean(disabled || uploadingAttachments), selected: voiceInputActive }}
+                disabled={disabled || uploadingAttachments}
+                onPress={onMicPress}
+                style={[
+                  styles.micButton,
+                  compact ? styles.micButtonCompact : null,
+                  {
+                    backgroundColor: voiceInputActive ? theme.accent : "rgba(255,255,255,0.08)"
+                  }
+                ]}
+              >
+                <Ionicons name={voiceInputActive ? "stop" : "mic-outline"} size={20} color={theme.text} />
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                testID="mobile-persona-audio-options"
+                accessibilityLabel={t("composer.audio")}
+                disabled={Boolean(disabled || uploadingAttachments)}
+                onPress={onAudioMenu}
+                style={[
+                  styles.audioButton,
+                  compact ? styles.audioButtonCompact : null,
+                  {
+                    backgroundColor: theme.accent2,
+                    borderColor: theme.accent,
+                    opacity: disabled || uploadingAttachments ? 0.45 : 1,
+                    shadowColor: theme.accent2
+                  }
+                ]}
+              >
+                <View style={styles.audioGlyph}>
+                  <View style={[styles.audioBar, styles.audioBarShort, { backgroundColor: theme.background }]} />
+                  <View style={[styles.audioBar, styles.audioBarTall, { backgroundColor: theme.background }]} />
+                  <View style={[styles.audioBar, styles.audioBarMedium, { backgroundColor: theme.background }]} />
+                </View>
+              </Pressable>
+            </>
           )}
-          <Pressable
-            accessibilityRole="button"
-            testID="mobile-persona-audio-options"
-            accessibilityLabel={t("composer.audio")}
-            onPress={onAudioMenu}
-            style={[
-              styles.audioButton,
-              compact ? styles.audioButtonCompact : null,
-              {
-                backgroundColor: theme.accent2,
-                borderColor: theme.accent,
-                shadowColor: theme.accent2
-              }
-            ]}
-          >
-            <View style={styles.audioGlyph}>
-              <View style={[styles.audioBar, styles.audioBarShort, { backgroundColor: theme.background }]} />
-              <View style={[styles.audioBar, styles.audioBarTall, { backgroundColor: theme.background }]} />
-              <View style={[styles.audioBar, styles.audioBarMedium, { backgroundColor: theme.background }]} />
-            </View>
-          </Pressable>
         </View>
       </View>
     </View>
@@ -252,9 +273,13 @@ const styles = StyleSheet.create({
   sendButton: {
     alignItems: "center",
     borderRadius: 999,
-    height: 36,
+    height: 46,
     justifyContent: "center",
-    width: 36
+    width: 46
+  },
+  stopButton: {
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)"
   },
   sideButton: {
     alignItems: "center",

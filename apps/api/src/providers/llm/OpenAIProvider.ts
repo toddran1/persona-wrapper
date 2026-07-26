@@ -35,7 +35,9 @@ const DIRECT_IMAGE_EDIT_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/
 
 function inputContent(input: LLMInput): OpenAIItem[] {
   const promptText = input.toolOptions?.imageGeneration ? buildImageGenerationPrompt(input) : input.userMessage;
-  const content: OpenAIItem[] = [{ type: "input_text", text: promptText }];
+  const content: OpenAIItem[] = promptText.trim()
+    ? [{ type: "input_text", text: promptText }]
+    : [];
 
   for (const attachment of input.attachments ?? []) {
     if (attachment.kind === "image") {
@@ -119,7 +121,7 @@ function dualTextResponseFormat(): OpenAIItem {
   };
 }
 
-function buildInput(input: LLMInput, promptMode: OpenAIPromptMode): OpenAIItem[] {
+export function buildInput(input: LLMInput, promptMode: OpenAIPromptMode): OpenAIItem[] {
   const sourceMessages = promptMode === "full" ? input.messages : (input.baseMessages ?? input.messages);
   const messages = sourceMessages
     .filter((message) => message.role !== "system")

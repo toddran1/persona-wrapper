@@ -128,11 +128,13 @@ export function ChatComposer(props: ChatComposerProps) {
     if (props.disabled) return;
     const submittedMessage = message;
     const submittedAttachments = attachments;
-    if (!submittedMessage.trim()) {
+    if (!submittedMessage.trim() && submittedAttachments.length === 0) {
       return;
     }
 
-    setPromptHistory((currentHistory) => [...currentHistory, submittedMessage]);
+    if (submittedMessage.trim()) {
+      setPromptHistory((currentHistory) => [...currentHistory, submittedMessage]);
+    }
     setMessage("");
     setAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";

@@ -584,7 +584,8 @@ export function ConversationHistory({
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | undefined>();
   const [reportSubmitted, setReportSubmitted] = useState(false);
-  const messageCount = turns.length * 2 + (pendingPrompt ? 1 : 0) + (thinking ? 1 : 0);
+  const hasPendingTurn = pendingPrompt !== undefined && (pendingPrompt.trim().length > 0 || pendingAssets.length > 0);
+  const messageCount = turns.length * 2 + (hasPendingTurn ? 1 : 0) + (thinking ? 1 : 0);
   const historyRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const newestAssistantRef = useRef<HTMLElement>(null);
@@ -629,10 +630,10 @@ export function ConversationHistory({
   }, [conversationId]);
 
   useEffect(() => {
-    if (pendingPrompt) {
+    if (hasPendingTurn) {
       shouldFollowRef.current = true;
     }
-  }, [pendingPrompt]);
+  }, [hasPendingTurn]);
 
   useEffect(() => {
     const responseJustCompleted = previousThinkingRef.current && !thinking;
@@ -751,15 +752,15 @@ export function ConversationHistory({
               </div>
             );
           })}
-          {pendingPrompt ? (
+          {hasPendingTurn ? (
             <article className="chat-row chat-row-user">
               <div className="chat-avatar chat-avatar-user">You</div>
               <div className="chat-bubble chat-bubble-user">
                 <span className="history-role">Prompt</span>
                 {pendingAssets.length ? <UserPromptAssets assets={pendingAssets} /> : null}
-                <p className="message-text">{pendingPrompt}</p>
+                {pendingPrompt?.trim() ? <p className="message-text">{pendingPrompt}</p> : null}
               </div>
-              <UserMessageActions message={pendingPrompt} files={pendingFiles} onEdit={onEditUserPrompt} />
+              <UserMessageActions message={pendingPrompt ?? ""} files={pendingFiles} onEdit={onEditUserPrompt} />
             </article>
           ) : null}
           {thinking ? (

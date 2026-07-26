@@ -3,6 +3,7 @@ import type { LLMInput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
 import { PersonaEngine } from "../services/personaEngine.js";
 import {
+  buildInput,
   buildDirectImageApiParams,
   buildOpenAIResponseInstructions,
   buildOpenAITools,
@@ -26,6 +27,45 @@ function inputForLaRae(audio = false): LLMInput {
 }
 
 describe("OpenAIProvider instructions", () => {
+  it("keeps prior chat context and omits fabricated text for attachment-only turns", () => {
+    const persona = getPersonaById("larae");
+    if (!persona) throw new Error("LaRae persona not found");
+    const input = new PersonaEngine().prepareInput(persona, {
+      personaId: "larae",
+      provider: "openai_persona",
+      message: "",
+      audio: false,
+      testMode: false,
+      history: [
+        { role: "user", content: "Compare this with the next image I send." },
+        { role: "assistant", content: "Send the next image when you are ready." }
+      ],
+      attachments: [{
+        id: "asset_follow_up",
+        kind: "image",
+        fileName: "follow-up.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 42,
+        url: "https://example.com/follow-up.jpg"
+      }]
+    });
+
+    const responseInput = buildInput(input, "full") as Array<Record<string, unknown>>;
+    const currentTurn = responseInput.at(-1) as { role: string; content: Array<Record<string, unknown>> };
+
+    expect(responseInput[0]).toEqual({
+      role: "user",
+      content: "Compare this with the next image I send."
+    });
+    expect(currentTurn.role).toBe("user");
+    expect(currentTurn.content).toEqual([{
+      type: "input_image",
+      image_url: "https://example.com/follow-up.jpg",
+      detail: "auto"
+    }]);
+    expect(currentTurn.content.some((item) => item.type === "input_text")).toBe(false);
+  });
+
   it("adds strengthened LaRae performance direction only for direct persona mode", () => {
     const input = inputForLaRae();
     const directInstructions = buildOpenAIResponseInstructions(input, "full");

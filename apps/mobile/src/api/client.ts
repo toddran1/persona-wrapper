@@ -694,6 +694,11 @@ export const api = {
     if (response.status !== 200) throw contractError(response.body, "Chat job not found.");
     return response.body;
   },
+  cancelChatJob: async (jobId: string): Promise<ChatJobResponse> => {
+    const response = await contractClient.chat.cancelJob({ params: { jobId } });
+    if (response.status !== 200) throw contractError(response.body, "Could not stop the chat request.");
+    return response.body;
+  },
   listConversationsPage: async (cursor?: string, limit = 50, query?: string): Promise<ConversationListPage> => {
     const response = await contractClient.conversations.list({ query: { limit, ...(cursor ? { cursor } : {}), ...(query?.trim() ? { query: query.trim() } : {}) } });
     if (response.status !== 200) throw contractError(response.body, "Could not load conversations.");
@@ -719,6 +724,10 @@ export const api = {
     if (response.status !== 201) throw contractError(response.body, "Could not create a vector store.");
     return response.body.vectorStore;
   },
+  deleteUpload: (assetId: string): Promise<void> =>
+    contractClient.uploads.remove({ params: { id: assetId } }).then((response) => {
+      if (response.status !== 204) throw contractError(response.body, "Could not delete this upload.");
+    }),
   deleteVectorStore: (vectorStoreId: string): Promise<void> =>
     contractClient.uploads.removeVectorStore({ params: { id: vectorStoreId } }).then((response) => {
       if (response.status !== 204) throw contractError(response.body, "Could not delete this vector store.");

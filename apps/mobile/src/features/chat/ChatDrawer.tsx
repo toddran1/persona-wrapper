@@ -190,6 +190,9 @@ export function ChatDrawer({
       <ScrollView
         style={styles.conversationScroller}
         contentContainerStyle={styles.conversationList}
+        directionalLockEnabled
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -365,7 +368,8 @@ const styles = StyleSheet.create<DrawerStyles>({
     paddingHorizontal: 10
   },
   conversationScroller: {
-    flex: 1
+    flex: 1,
+    minHeight: 0
   },
   conversationTitle: {
     fontSize: 14,
@@ -384,7 +388,8 @@ const styles = StyleSheet.create<DrawerStyles>({
   },
   drawer: {
     borderRightWidth: 1,
-    flex: 1
+    flex: 1,
+    minHeight: 0
   },
   empty: {
     fontSize: 14,

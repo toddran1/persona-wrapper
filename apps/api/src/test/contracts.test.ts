@@ -109,6 +109,33 @@ describe("shared schemas", () => {
     expect(parsed.history).toEqual([]);
   });
 
+  it("accepts an attachment-only chat turn without inventing message text", () => {
+    const parsed = chatRequestSchema.parse({
+      personaId: "larae",
+      message: "",
+      attachments: [{
+        id: "asset_attachment_only",
+        kind: "image",
+        fileName: "follow-up.jpg",
+        mimeType: "image/jpeg",
+        sizeBytes: 42,
+        openaiFileId: "file_attachment_only"
+      }]
+    });
+
+    expect(parsed.message).toBe("");
+    expect(parsed.attachments).toHaveLength(1);
+  });
+
+  it("rejects a chat turn with neither message text nor attachments", () => {
+    const parsed = chatRequestSchema.safeParse({
+      personaId: "larae",
+      message: "   "
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("accepts structured chat responses with history", () => {
     const parsed = chatResponseSchema.parse({
       persona: {

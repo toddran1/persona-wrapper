@@ -311,8 +311,12 @@ export function MobileChatScreen() {
   const audioPlaybackSubscriptionRef = useRef<AudioPlaybackSubscription | undefined>(undefined);
   const audioPlaybackGenerationRef = useRef(0);
   const activeChatAbortControllerRef = useRef<AbortController | undefined>(undefined);
+  const activeChatTurnIdRef = useRef<string | undefined>(undefined);
+  const activeBackgroundJobIdRef = useRef<string | undefined>(undefined);
+  const activeSubmissionRef = useRef<{ message: string; files: MobilePickedFile[] } | undefined>(undefined);
   const dataTransferAbortControllerRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
+  const conversationListGenerationRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
   const sessionValidationInFlightRef = useRef(false);
   const appDataReloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
@@ -745,6 +749,7 @@ export function MobileChatScreen() {
           }
           cancelActiveChatRequest();
           selectionGenerationRef.current += 1;
+          conversationListGenerationRef.current += 1;
           dataTransferAbortControllerRef.current?.abort();
           dataTransferAbortControllerRef.current = undefined;
           setAuthUser(undefined);
@@ -753,12 +758,13 @@ export function MobileChatScreen() {
           setActiveSessions([]);
           closeDrawer();
           setConversations([]);
+          setConversationsRefreshing(false);
           setConversationId(undefined);
           setTurns([]);
           setTurnsCursor(null);
           setAuthMode("login");
           setAuthError("This session ended on another device. Sign in again to continue.");
-          void clearSelectedConversationId();
+          void clearSelectedConversationId().catch(() => undefined);
         })
         .catch((validationError) => {
           if (!active) return;
@@ -816,7 +822,7 @@ export function MobileChatScreen() {
   }));
 
   const drawerStartX = useSharedValue(-drawerWidth);
-  const gesture = Gesture.Pan().activeOffsetX([-6, 6]).failOffsetY([-20, 20])
+  const gesture = Gesture.Pan().activeOffsetX([-12, 12]).failOffsetY([-8, 8])
     .onBegin(() => {
       drawerStartX.value = drawerX.value;
     })
@@ -852,10 +858,11 @@ export function MobileChatScreen() {
     });
 
   async function refreshConversations(accountId = authUser?.id): Promise<ConversationSummary[]> {
+    const generation = ++conversationListGenerationRef.current;
     const page = accountId === authUser?.id
       ? (await conversationsResource.refetch()).data
       : await queryClient.fetchQuery({ ...conversationsPageQueryOptions(undefined, undefined, accountId), staleTime: 0 });
-    if (!page) return [];
+    if (!page || generation !== conversationListGenerationRef.current) return [];
     const sorted = [...page.conversations].sort(sortConversationSummaries);
     setConversations(sorted);
     setConversationsCursor(page.nextCursor);
@@ -864,15 +871,18 @@ export function MobileChatScreen() {
 
   async function loadMoreConversations(): Promise<void> {
     if (!conversationsCursor || conversationsRefreshing) return;
+    const generation = ++conversationListGenerationRef.current;
     setConversationsRefreshing(true);
     try {
       const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationsCursor, undefined, authUser?.id));
+      if (generation !== conversationListGenerationRef.current) return;
       setConversations((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationsCursor(page.nextCursor);
     } catch (loadError) {
+      if (generation !== conversationListGenerationRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Could not load more chats.");
     } finally {
-      setConversationsRefreshing(false);
+      if (generation === conversationListGenerationRef.current) setConversationsRefreshing(false);
     }
   }
 
@@ -1114,7 +1124,7 @@ export function MobileChatScreen() {
     });
   }
 
-  function shouldEnableImageGeneration(message: string, files: MobilePickedFile[]): boolean {
+  function shouldEnableImageGeneration(message: string, files: Array<{ kind: "image" | "file" }>): boolean {
     return IMAGE_REQUEST_PATTERN.test(message) ||
       files.some((file) => file.kind === "image") && /\b(edit|change|remove|replace|recolor|retouch|put|add|turn|make)\b/i.test(message);
   }
@@ -1431,8 +1441,23 @@ export function MobileChatScreen() {
   async function retryAssistantTurn(turn: RenderedTurn): Promise<void> {
     if (sending) return;
     if (turns[turns.length - 1]?.id !== turn.id) return;
-    setTurns((current) => current.filter((candidate) => candidate.id !== turn.id));
-    await submit(turn.userMessage, { files: [] });
+    const reusableAttachments = (turn.userAssets ?? []).map((asset): UploadedAsset => ({
+      id: asset.id,
+      kind: asset.kind,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      sizeBytes: 0,
+      ...(asset.url ? { url: asset.url } : {})
+    }));
+    if (!turn.userMessage.trim() && reusableAttachments.length === 0) {
+      setError("This response cannot be retried because its original message and attachments are unavailable.");
+      return;
+    }
+    await submit(turn.userMessage, {
+      files: [],
+      attachments: reusableAttachments,
+      replaceTurnId: turn.id
+    });
   }
 
   async function handleOutputAction(action: Extract<RenderedTurn["outputs"][number], { type: "action" }>): Promise<void> {
@@ -1462,6 +1487,9 @@ export function MobileChatScreen() {
   function cancelActiveChatRequest(): void {
     const controller = activeChatAbortControllerRef.current;
     activeChatAbortControllerRef.current = undefined;
+    activeChatTurnIdRef.current = undefined;
+    activeBackgroundJobIdRef.current = undefined;
+    activeSubmissionRef.current = undefined;
     controller?.abort();
     // Response-focus state belongs to the current conversation. Keeping it
     // across navigation can suppress the initial scroll when a chat is opened
@@ -1480,6 +1508,78 @@ export function MobileChatScreen() {
     setUploadingAttachments(false);
     setResumingJobId(undefined);
     markPersonaIdle();
+  }
+
+  function stopActiveChatRequest(): void {
+    const controller = activeChatAbortControllerRef.current;
+    const turnId = activeChatTurnIdRef.current;
+    const backgroundJobId = activeBackgroundJobIdRef.current;
+    const activeSubmission = activeSubmissionRef.current;
+    if (!controller && !turnId) return;
+    const activeTurn = turnId
+      ? turnsRef.current.find((turn) => turn.id === turnId)
+      : undefined;
+
+    activeChatAbortControllerRef.current = undefined;
+    activeChatTurnIdRef.current = undefined;
+    activeBackgroundJobIdRef.current = undefined;
+    activeSubmissionRef.current = undefined;
+    controller?.abort();
+    setSending(false);
+    setUploadingAttachments(false);
+    setResumingJobId(undefined);
+    setError(undefined);
+    markPersonaIdle();
+
+    if (!turnId && activeSubmission) {
+      currentComposerDraftRef.current = activeSubmission.message;
+      setComposerDraft(activeSubmission.message);
+      setSelectedFiles(activeSubmission.files);
+    }
+    if (turnId) {
+      updateTurnOutputs(turnId, [{
+        type: "status",
+        status: "cancelled",
+        message: "Request stopped."
+      }], backgroundJobId);
+    }
+    if (backgroundJobId) {
+      void api.cancelChatJob(backgroundJobId)
+        .then((job) => {
+          if (job.status === "completed" && job.response && turnId) {
+            replaceTurnWithResponse(turnId, activeTurn?.userMessage ?? "", activeTurn?.userAssets, job.response);
+            void refreshConversations().catch(() => undefined);
+            return;
+          }
+          if (job.status === "failed" && turnId) {
+            updateTurnOutputs(turnId, [{
+              type: "status",
+              status: "failed",
+              message: job.error ?? "The request failed before it could be stopped."
+            }], backgroundJobId);
+            return;
+          }
+          if (job.status !== "cancelled" && turnId) {
+            setError("The server has not confirmed cancellation yet. Use Check status to reconcile this request.");
+            updateTurnOutputs(turnId, [{
+              type: "status",
+              status: "in_progress",
+              message: "Cancellation has not been confirmed. Use Check status to reconcile this request."
+            }], backgroundJobId);
+          }
+        })
+        .catch((cancelError) => {
+          const message = cancelError instanceof Error ? cancelError.message : "Server cancellation could not be confirmed.";
+          setError(`The request stopped on this device, but the server could not confirm cancellation. ${message}`);
+          if (turnId) {
+            updateTurnOutputs(turnId, [{
+              type: "status",
+              status: "in_progress",
+              message: "Cancellation could not be confirmed. Use Check status to reconcile this request."
+            }], backgroundJobId);
+          }
+        });
+    }
   }
 
   function backgroundStatusMessage(job: ChatJobResponse, checked: boolean): string {
@@ -1513,6 +1613,10 @@ export function MobileChatScreen() {
       ...turnFromChatResponse(userMessage, response),
       ...(userAssets ? { userAssets } : {})
     };
+    // A background request can briefly lose its original foreground connection
+    // before the resumed poll receives the completed result. Completion is
+    // authoritative, so clear any transient reconnect banner with it.
+    setError(undefined);
     setConversationId(response.conversationId);
     markPersonaSpeaking(response.outputs);
     playGeneratedPersonaAudio(response.outputs);
@@ -1565,6 +1669,8 @@ export function MobileChatScreen() {
     }
     const controller = new AbortController();
     activeChatAbortControllerRef.current = controller;
+    activeChatTurnIdRef.current = turn.id;
+    activeBackgroundJobIdRef.current = turn.backgroundJobId;
     setResumingJobId(turn.backgroundJobId);
     clearVisualStateTimer();
     setPersonaVisualState("thinking");
@@ -1573,7 +1679,7 @@ export function MobileChatScreen() {
       const firstJob = await api.getChatJob(turn.backgroundJobId, controller.signal);
       if (firstJob.status === "completed" && firstJob.response) {
         replaceTurnWithResponse(turn.id, turn.userMessage, turn.userAssets, firstJob.response);
-        await setSelectedConversationId(firstJob.response.conversationId);
+        await setSelectedConversationId(firstJob.response.conversationId).catch(() => undefined);
         await refreshConversations();
         return;
       }
@@ -1583,7 +1689,7 @@ export function MobileChatScreen() {
       updateTurnOutputs(turn.id, [{ type: "status", status: "in_progress", message: "Thinking" }], firstJob.id);
       const response = await pollChatJob(firstJob.id, undefined, controller.signal);
       replaceTurnWithResponse(turn.id, turn.userMessage, turn.userAssets, response);
-      await setSelectedConversationId(response.conversationId);
+      await setSelectedConversationId(response.conversationId).catch(() => undefined);
       await refreshConversations();
     } catch (resumeError) {
       if (isRequestCancellation(resumeError)) return;
@@ -1612,6 +1718,8 @@ export function MobileChatScreen() {
     } finally {
       if (activeChatAbortControllerRef.current === controller) {
         activeChatAbortControllerRef.current = undefined;
+        activeChatTurnIdRef.current = undefined;
+        activeBackgroundJobIdRef.current = undefined;
         setResumingJobId(undefined);
       }
     }
@@ -1732,6 +1840,7 @@ export function MobileChatScreen() {
       return;
     }
     const selectionGeneration = ++selectionGenerationRef.current;
+    setLoadingEarlierTurns(false);
     try {
       setLoading(true);
       const detail = await queryClient.fetchQuery(personaQueryOptions(personaId));
@@ -1751,13 +1860,14 @@ export function MobileChatScreen() {
   async function selectConversation(nextConversationId: string, options?: { keepDrawerOpen?: boolean; accountId?: string }): Promise<void> {
     cancelActiveChatRequest();
     const selectionGeneration = ++selectionGenerationRef.current;
+    setLoadingEarlierTurns(false);
     try {
       setLoading(true);
       setError(undefined);
       const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(nextConversationId, undefined, options?.accountId ?? authUser?.id));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setConversationId(page.conversation.id);
-      await setSelectedConversationId(page.conversation.id);
+      await setSelectedConversationId(page.conversation.id).catch(() => undefined);
       setTurns(turnsFromConversationTurns(page.turns));
       setTurnsCursor(page.nextCursor);
       if (!options?.keepDrawerOpen) closeDrawer();
@@ -1779,20 +1889,22 @@ export function MobileChatScreen() {
       setTurns((current) => [...turnsFromConversationTurns(page.turns), ...current]);
       setTurnsCursor(page.nextCursor);
     } catch (loadError) {
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Could not load earlier messages.");
     } finally {
-      setLoadingEarlierTurns(false);
+      if (selectionGeneration === selectionGenerationRef.current) setLoadingEarlierTurns(false);
     }
   }
 
   function newChat(): void {
     cancelActiveChatRequest();
     selectionGenerationRef.current += 1;
+    setLoadingEarlierTurns(false);
     setConversationId(undefined);
     setTurns([]);
     setTurnsCursor(null);
     setSelectedFiles([]);
-    void clearSelectedConversationId();
+    void clearSelectedConversationId().catch(() => undefined);
     closeDrawer();
   }
 
@@ -1847,14 +1959,18 @@ export function MobileChatScreen() {
         setConversationId(undefined);
         setTurns([]);
         setTurnsCursor(null);
-        await clearSelectedConversationId();
+        await clearSelectedConversationId().catch(() => undefined);
       }
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Could not delete chat.");
     }
   }
 
-  async function submit(message: string, options?: { files?: MobilePickedFile[] }): Promise<void> {
+  async function submit(message: string, options?: {
+    files?: MobilePickedFile[];
+    attachments?: UploadedAsset[];
+    replaceTurnId?: string;
+  }): Promise<void> {
     if (!activePersona || sending || activeChatAbortControllerRef.current) return;
     if (!isOnline) {
       setError(t("network.offlineBody"));
@@ -1862,6 +1978,8 @@ export function MobileChatScreen() {
     }
     const controller = new AbortController();
     activeChatAbortControllerRef.current = controller;
+    activeChatTurnIdRef.current = undefined;
+    activeBackgroundJobIdRef.current = undefined;
     setSending(true);
     clearVisualStateTimer();
     setPersonaVisualState("thinking");
@@ -1869,12 +1987,21 @@ export function MobileChatScreen() {
     currentComposerDraftRef.current = "";
     setComposerDraft(undefined);
     const submittedFiles = options?.files ?? selectedFiles;
+    activeSubmissionRef.current = options?.replaceTurnId
+      ? undefined
+      : {
+          message,
+          files: submittedFiles
+        };
     if (!options?.files) setSelectedFiles([]);
     let optimistic: RenderedTurn | undefined;
     let backgroundJobId: string | undefined;
+    let uploadedAttachments: UploadedAsset[] = [];
+    let createdVectorStoreId: string | undefined;
+    let chatRequestStarted = false;
     try {
       setUploadingAttachments(submittedFiles.length > 0);
-      const attachments = submittedFiles.length > 0
+      uploadedAttachments = submittedFiles.length > 0
         ? await api.uploadFiles(submittedFiles.map((file) => ({
           uri: file.uri,
           name: file.name,
@@ -1882,13 +2009,18 @@ export function MobileChatScreen() {
           ...(file.size !== undefined ? { sizeBytes: file.size } : {})
         })), { signal: controller.signal })
         : [];
+      const attachments = [...(options?.attachments ?? []), ...uploadedAttachments];
       const fileAttachmentIds = attachments
         .filter((attachment) => attachment.kind === "file")
         .map((attachment) => attachment.id);
       const vectorStore = fileAttachmentIds.length > 0
         ? await api.createVectorStore(fileAttachmentIds, `mobile-${Date.now()}`, controller.signal)
         : undefined;
-      const imageGeneration = shouldEnableImageGeneration(message, submittedFiles);
+      createdVectorStoreId = vectorStore?.id;
+      const imageGeneration = shouldEnableImageGeneration(message, [
+        ...submittedFiles,
+        ...(options?.attachments ?? [])
+      ]);
       const resolvedToolOptions = {
         webSearch: false,
         fileSearch: fileAttachmentIds.length > 0,
@@ -1907,11 +2039,16 @@ export function MobileChatScreen() {
         assistantText: "",
         outputs: [{ type: "status", status: "in_progress", message: "Thinking" }]
       };
+      activeChatTurnIdRef.current = optimistic.id;
+      activeSubmissionRef.current = undefined;
       setTurns((current) => {
-        const next = [...current, optimistic as RenderedTurn];
+        const next = options?.replaceTurnId
+          ? current.map((turn) => turn.id === options.replaceTurnId ? optimistic as RenderedTurn : turn)
+          : [...current, optimistic as RenderedTurn];
         turnsRef.current = next;
         return next;
       });
+      chatRequestStarted = true;
       const response = await api.sendChat({
         personaId: activePersona.id,
         message,
@@ -1925,8 +2062,9 @@ export function MobileChatScreen() {
       const backgroundJob = response.diagnostics.backgroundJob;
       if (backgroundJob) {
         backgroundJobId = backgroundJob.id;
+        activeBackgroundJobIdRef.current = backgroundJob.id;
         setConversationId(response.conversationId);
-        await setSelectedConversationId(response.conversationId);
+        await setSelectedConversationId(response.conversationId).catch(() => undefined);
         updateTurnOutputs(optimistic.id, [{
           type: "status",
           status: "in_progress",
@@ -1935,11 +2073,12 @@ export function MobileChatScreen() {
       }
       const finalResponse = backgroundJob ? await pollChatJob(backgroundJob.id, undefined, controller.signal) : response;
       setConversationId(finalResponse.conversationId);
-      await setSelectedConversationId(finalResponse.conversationId);
+      await setSelectedConversationId(finalResponse.conversationId).catch(() => undefined);
       const completedTurn: RenderedTurn = {
         ...turnFromChatResponse(message, finalResponse),
         userAssets: mapUploadedAssetsToUserAssets(attachments)
       };
+      setError(undefined);
       markPersonaSpeaking(finalResponse.outputs);
       playGeneratedPersonaAudio(finalResponse.outputs);
       setTurns((current) => current.map((turn) => (
@@ -1948,6 +2087,12 @@ export function MobileChatScreen() {
       focusCompletedResponse(completedTurn.id);
       await refreshConversations();
     } catch (sendError) {
+      if (!chatRequestStarted) {
+        await Promise.allSettled([
+          ...uploadedAttachments.map((attachment) => api.deleteUpload(attachment.id)),
+          ...(createdVectorStoreId ? [api.deleteVectorStore(createdVectorStoreId)] : [])
+        ]);
+      }
       if (isRequestCancellation(sendError)) return;
       const messageText = sendError instanceof Error ? sendError.message : "Message failed.";
       if (optimistic) {
@@ -1970,8 +2115,12 @@ export function MobileChatScreen() {
             message: sendError.job.error ?? sendError.message
           }], sendError.job.id);
         } else {
-          markPersonaIdle();
           if (backgroundJobId) {
+            // App resume starts a new controller for the durable job. Ignore a
+            // late network failure from the superseded foreground request so it
+            // cannot overwrite a successfully recovered response.
+            if (activeChatAbortControllerRef.current !== controller) return;
+            markPersonaIdle();
             setError("The app lost contact with the background request. Tap Check status or reopen the app to reconnect.");
             updateTurnOutputs(optimistic.id, [{
               type: "status",
@@ -1979,6 +2128,7 @@ export function MobileChatScreen() {
               message: "Still working in the background. Status will be checked again when the app reconnects."
             }], backgroundJobId);
           } else {
+            markPersonaIdle();
             setError(messageText);
             updateTurnOutputs(optimistic.id, [{ type: "status", status: "failed", message: messageText }]);
           }
@@ -1991,6 +2141,9 @@ export function MobileChatScreen() {
     } finally {
       if (activeChatAbortControllerRef.current === controller) {
         activeChatAbortControllerRef.current = undefined;
+        activeChatTurnIdRef.current = undefined;
+        activeBackgroundJobIdRef.current = undefined;
+        activeSubmissionRef.current = undefined;
         setUploadingAttachments(false);
         setSending(false);
       }
@@ -2054,6 +2207,7 @@ export function MobileChatScreen() {
   async function logout(): Promise<void> {
     cancelActiveChatRequest();
     selectionGenerationRef.current += 1;
+    conversationListGenerationRef.current += 1;
     let logoutError: string | undefined;
     try {
       if (dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status)) {
@@ -2071,8 +2225,9 @@ export function MobileChatScreen() {
     setSettingsVisible(false);
     closeDrawer();
     setConversations([]);
+    setConversationsRefreshing(false);
     setConversationId(undefined);
-    void clearSelectedConversationId();
+    void clearSelectedConversationId().catch(() => undefined);
     setTurns([]);
     setTurnsCursor(null);
     setAuthMode("login");
@@ -2242,6 +2397,7 @@ export function MobileChatScreen() {
     dataTransferAbortControllerRef.current?.abort();
     dataTransferAbortControllerRef.current = undefined;
     selectionGenerationRef.current += 1;
+    conversationListGenerationRef.current += 1;
     try {
       const result = await api.deleteAccount({
         confirmation: "DELETE",
@@ -2253,6 +2409,7 @@ export function MobileChatScreen() {
       setAuthUser(undefined);
       setDataTransferJob(undefined);
       setConversations([]);
+      setConversationsRefreshing(false);
       setConversationId(undefined);
       setTurns([]);
       setTurnsCursor(null);
@@ -2260,7 +2417,7 @@ export function MobileChatScreen() {
       setDeletePassword("");
       setAuthMode("restore");
       setAuthError(`Account deletion is scheduled for ${recoveryDate}. Restore it before then to keep your data.`);
-      await clearSelectedConversationId();
+      await clearSelectedConversationId().catch(() => undefined);
     } catch (error) {
       setDeleteAccountError(error instanceof Error ? error.message : "Could not schedule account deletion.");
     } finally {
@@ -2601,7 +2758,8 @@ export function MobileChatScreen() {
             <ChatComposer
               theme={theme}
               compact={compactLayout}
-              disabled={sending || !activePersona || !isOnline}
+              disabled={!activePersona || !isOnline}
+              requestInProgress={sending || Boolean(resumingJobId)}
               uploadingAttachments={uploadingAttachments}
               voiceInputActive={voiceInputActive}
               attachments={selectedFiles}
@@ -2614,6 +2772,7 @@ export function MobileChatScreen() {
               onHeightChange={setComposerHeight}
               onRemoveAttachment={(id) => setSelectedFiles((current) => current.filter((file) => file.id !== id))}
               onSubmit={(message) => void submit(message)}
+              onStop={stopActiveChatRequest}
             />
           </View>
           </KeyboardAvoidingView>

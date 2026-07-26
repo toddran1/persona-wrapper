@@ -49,6 +49,27 @@ describe("ConversationHistory pending state", () => {
     expect(screen.getByText("The final styled answer.")).toBeInTheDocument();
   });
 
+  it("renders an attachment-only pending turn while the response is running", () => {
+    render(
+      <ConversationHistory
+        personaShortName="LaRae"
+        turns={[]}
+        pendingPrompt=""
+        pendingAssets={[{
+          id: "asset_pending",
+          kind: "image",
+          fileName: "follow-up.png",
+          mimeType: "image/png"
+        }]}
+        thinking
+      />
+    );
+
+    expect(screen.getByText("follow-up.png")).toBeInTheDocument();
+    expect(screen.getByLabelText("LaRae is thinking")).toBeInTheDocument();
+    expect(screen.queryByText("Please review the attached file.")).not.toBeInTheDocument();
+  });
+
   it("keeps each turn's artifacts attached to its own response", () => {
     render(
       <ConversationHistory

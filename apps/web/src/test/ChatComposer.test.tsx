@@ -183,6 +183,24 @@ describe("ChatComposer", () => {
     expect(screen.getByText("receipts.pdf")).toBeInTheDocument();
   });
 
+  it("submits an attachment-only turn without inventing prompt text", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <ChatComposer
+        {...defaultProps}
+        onSubmit={onSubmit}
+      />
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["follow-up"], "follow-up.png", { type: "image/png" });
+
+    await user.upload(input, file);
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSubmit).toHaveBeenCalledWith("", [file], expect.objectContaining({ appFunctions: true }));
+  });
+
   it("adds a later picker selection instead of replacing existing attachments", async () => {
     const user = userEvent.setup();
     const { container } = render(

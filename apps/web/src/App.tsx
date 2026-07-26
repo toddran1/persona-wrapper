@@ -287,6 +287,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const personaSelectionGenerationRef = useRef(0);
   const dataTransferAbortRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
+  const conversationListRefreshGenerationRef = useRef(0);
+  const conversationListErrorRef = useRef<string | undefined>(undefined);
   const completedTurnCountRef = useRef(0);
   const lastCompletedTurnWasImageOnlyRef = useRef(false);
   const suppressAudioVisualForCurrentTurnRef = useRef(false);
@@ -444,6 +446,17 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       fileName: attachment.fileName,
       mimeType: attachment.mimeType,
       ...(attachment.url ? { url: attachment.url } : {})
+    }));
+  }
+
+  function reusableUploadedAssets(assets: UserPromptAsset[]): UploadedAsset[] {
+    return assets.map((asset) => ({
+      id: asset.id,
+      kind: asset.kind,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
+      sizeBytes: 0,
+      ...(asset.url ? { url: asset.url } : {})
     }));
   }
 
@@ -638,12 +651,17 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
 
     completedTurnCountRef.current = renderedTurns.length;
-    if (!pendingPrompt) {
+    if (pendingPrompt === undefined) {
       setNonAudioVisualState("idle");
     }
   }, [audioEnabled, loading, pendingPrompt, renderedTurns.length]);
 
-  async function handleSubmit(message: string, files: File[], toolOptions: ToolOptions): Promise<void> {
+  async function handleSubmit(
+    message: string,
+    files: File[],
+    toolOptions: ToolOptions,
+    reusableAttachments: UploadedAsset[] = []
+  ): Promise<void> {
     if (!personaDetail || !authUser || activeRequestRef.current) {
       return;
     }
@@ -656,15 +674,23 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setComposerDraft(undefined);
     setComposerDraftAttachments(undefined);
     const localPendingAssets = mapFilesToPendingPromptAssets(files);
-    setPendingPromptAssets(localPendingAssets);
+    const pendingAssets = [
+      ...mapUploadedAssetsToUserPromptAssets(reusableAttachments),
+      ...localPendingAssets
+    ];
+    setPendingPromptAssets(pendingAssets);
     setPendingPromptFiles(files);
     const requestController = new AbortController();
     activeRequestRef.current = requestController;
     let keepBackgroundJob = false;
     let backgroundJobId: string | undefined;
+    let uploadedAttachments: UploadedAsset[] = [];
+    let createdVectorStoreId: string | undefined;
+    let chatRequestStarted = false;
 
     try {
-      const attachments = files.length > 0 ? await api.uploadFiles(files, requestController.signal) : [];
+      uploadedAttachments = files.length > 0 ? await api.uploadFiles(files, requestController.signal) : [];
+      const attachments = [...reusableAttachments, ...uploadedAttachments];
       let resolvedToolOptions = toolOptions;
       if (toolOptions.fileSearch && attachments.some((attachment) => attachment.kind === "file")) {
         const vectorStore = await api.createVectorStore(
@@ -672,6 +698,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           undefined,
           requestController.signal
         );
+        createdVectorStoreId = vectorStore.id;
         resolvedToolOptions = { ...toolOptions, vectorStoreIds: [vectorStore.id] };
       }
       const payload = {
@@ -686,6 +713,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         ...(conversationId ? { conversationId } : {})
       };
       setLatestRequest(payload);
+      chatRequestStarted = true;
       const result = await api.sendChat(payload, requestController.signal);
       const backgroundJob = result.diagnostics.backgroundJob;
       activeBackgroundJobIdRef.current = backgroundJob?.id;
@@ -730,6 +758,12 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       setEvalSavedMessage(undefined);
       setEvalError(undefined);
     } catch (submitError) {
+      if (!chatRequestStarted) {
+        await Promise.allSettled([
+          ...uploadedAttachments.map((attachment) => api.deleteUpload(attachment.id)),
+          ...(createdVectorStoreId ? [api.deleteVectorStore(createdVectorStoreId)] : [])
+        ]);
+      }
       const messageText = submitError instanceof Error ? submitError.message : "Failed to generate response";
       setPendingPrompt(undefined);
       setPendingPromptAssets([]);
@@ -738,13 +772,13 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         keepBackgroundJob = true;
         setError(undefined);
         if (!backgroundJobId) {
-          appendChatStillRunning(message, submitError.job, localPendingAssets, files);
+          appendChatStillRunning(message, submitError.job, pendingAssets, files);
           saveBackgroundJob({
             jobId: submitError.job.id,
             conversationId: conversationId ?? "",
             ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
             userMessage: message,
-            userAssets: localPendingAssets
+            userAssets: pendingAssets
           });
         } else {
           refreshBackgroundTurnStatus(submitError.job);
@@ -761,7 +795,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           clearStoredBackgroundJob(submitError.job.id);
           activeBackgroundJobIdRef.current = undefined;
         } else {
-          appendChatJobError(message, submitError.job, jobReason, localPendingAssets, files);
+          appendChatJobError(message, submitError.job, jobReason, pendingAssets, files);
         }
         return;
       }
@@ -771,7 +805,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           setError("The browser lost contact with the background request. Return to this tab or use Check status to reconnect.");
         } else {
           setError(messageText);
-          appendChatError(message, messageText, localPendingAssets, files);
+          appendChatError(message, messageText, pendingAssets, files);
         }
       }
     } finally {
@@ -784,7 +818,15 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }
 
   function retryAssistantTurn(turn: RenderedTurn): void {
-    void handleSubmit(turn.userMessage, turn.userFiles ?? [], {
+    const files = turn.userFiles ?? [];
+    const reusableAttachments = files.length === 0
+      ? reusableUploadedAssets(turn.userAssets ?? [])
+      : [];
+    if (!turn.userMessage.trim() && files.length === 0 && reusableAttachments.length === 0) {
+      setError("This response cannot be retried because its original message and attachments are unavailable.");
+      return;
+    }
+    void handleSubmit(turn.userMessage, files, {
       webSearch: false,
       fileSearch: false,
       codeInterpreter: false,
@@ -792,7 +834,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       appFunctions: true,
       background: false,
       vectorStoreIds: []
-    });
+    }, reusableAttachments);
   }
 
   function appendChatResult(message: string, result: ChatResponse, attachments: UploadedAsset[] = [], userFiles: File[] = []): void {
@@ -826,6 +868,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     const assistantTextBlock = result.outputs.find((output) => output.type === "text");
     const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
     const imageOnlyResponse = isImageOnlyResponse(result.outputs);
+    // The durable job result is authoritative over a transient foreground
+    // reconnect error that may have been recorded before polling recovered.
+    setError(undefined);
     lastCompletedTurnWasImageOnlyRef.current = imageOnlyResponse;
     suppressAudioVisualForCurrentTurnRef.current = imageOnlyResponse;
     setConversationId(result.conversationId);
@@ -881,31 +926,48 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }
 
   async function refreshConversationList(preferConversationId?: string, retryOnStartup = false, accountId = authUser?.id): Promise<void> {
+    const refreshGeneration = ++conversationListRefreshGenerationRef.current;
     setConversationListLoading(true);
     try {
       const page = accountId === authUser?.id
         ? (await conversationsResource.refetch()).data
         : await queryClient.fetchQuery({ ...conversationsPageQueryOptions(undefined, undefined, accountId), staleTime: 0 });
-      if (!page) return;
+      if (!page || refreshGeneration !== conversationListRefreshGenerationRef.current) return;
       setConversationList(page.conversations);
       setConversationListCursor(page.nextCursor);
+      const previousListError = conversationListErrorRef.current;
+      conversationListErrorRef.current = undefined;
+      if (previousListError) {
+        setError((current) => current === previousListError ? undefined : current);
+      }
       if (preferConversationId) {
         setConversationId(preferConversationId);
       }
     } catch (listError) {
+      if (refreshGeneration !== conversationListRefreshGenerationRef.current) return;
       console.warn("Failed to load conversation list", listError);
+      const message = retryOnStartup
+        ? "Signed in, but your chat history could not be loaded. Try refreshing the page."
+        : "Your latest chat was saved, but the conversation list could not be refreshed.";
+      conversationListErrorRef.current = message;
+      setError(message);
     } finally {
-      setConversationListLoading(false);
+      if (refreshGeneration === conversationListRefreshGenerationRef.current) {
+        setConversationListLoading(false);
+      }
     }
   }
 
   function clearAccountConversationState(): void {
+    conversationListRefreshGenerationRef.current += 1;
+    conversationListErrorRef.current = undefined;
     dataTransferAbortRef.current?.abort();
     dataTransferAbortRef.current = undefined;
     queryClient.removeQueries({ queryKey: ["conversations"] });
     queryClient.removeQueries({ queryKey: ["conversation-turns"] });
     setConversationList([]);
     setConversationListCursor(null);
+    setConversationListLoading(false);
     setDataTransferJob(undefined);
   }
 
@@ -913,6 +975,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     abandonActiveRequest();
     const selectionGeneration = ++selectionGenerationRef.current;
     holdPersonaVisualIdleForCurrentMutation();
+    setLoadingEarlierTurns(false);
     setLoading(true);
     setError(undefined);
     setPendingPrompt(undefined);
@@ -953,23 +1016,31 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       setRenderedTurns((current) => [...renderTurnsFromConversationTurns(page.turns), ...current]);
       setTurnsCursor(page.nextCursor);
     } catch (loadError) {
+      if (selectionGeneration !== selectionGenerationRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Failed to load earlier messages");
     } finally {
-      setLoadingEarlierTurns(false);
+      if (selectionGeneration === selectionGenerationRef.current) {
+        setLoadingEarlierTurns(false);
+      }
     }
   }
 
   async function loadMoreConversations(): Promise<void> {
     if (!conversationListCursor || conversationListLoading) return;
+    const refreshGeneration = ++conversationListRefreshGenerationRef.current;
     setConversationListLoading(true);
     try {
       const page = await queryClient.fetchQuery(conversationsPageQueryOptions(conversationListCursor, undefined, authUser?.id));
+      if (refreshGeneration !== conversationListRefreshGenerationRef.current) return;
       setConversationList((current) => [...current, ...page.conversations.filter((item) => !current.some((existing) => existing.id === item.id))]);
       setConversationListCursor(page.nextCursor);
     } catch (loadError) {
+      if (refreshGeneration !== conversationListRefreshGenerationRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Failed to load more conversations");
     } finally {
-      setConversationListLoading(false);
+      if (refreshGeneration === conversationListRefreshGenerationRef.current) {
+        setConversationListLoading(false);
+      }
     }
   }
 
@@ -1228,16 +1299,53 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setAutoPlayAudioTurnIndex(undefined);
     const backgroundJobId = activeBackgroundJobIdRef.current;
     const cancelledPrompt = pendingPrompt;
+    const cancelledAssets = pendingPromptAssets;
+    const cancelledFiles = pendingPromptFiles;
     if (backgroundJobId) {
-      void api.cancelChatJob(backgroundJobId).catch((cancelError) => {
-        console.warn("Failed to cancel background chat job", cancelError);
-      });
-      replaceBackgroundTurnWithError({
-        id: backgroundJobId,
-        status: "cancelled",
-        updatedAt: new Date().toISOString()
-      }, "manual_cancel");
-      clearStoredBackgroundJob(backgroundJobId);
+      setRenderedTurns((current) => current.map((turn) => (
+        turn.backgroundJobId === backgroundJobId
+          ? {
+              ...turn,
+              assistantText: "Confirming cancellation.",
+              outputs: [{
+                type: "status",
+                status: "in_progress",
+                message: "Confirming cancellation with the server."
+              }]
+            }
+          : turn
+      )));
+      void api.cancelChatJob(backgroundJobId)
+        .then((job) => {
+          if (job.status === "completed" && job.response) {
+            replaceBackgroundTurnWithResult(backgroundJobId, job.response);
+          } else if (job.status === "failed" || job.status === "cancelled") {
+            replaceBackgroundTurnWithError(job, job.status === "cancelled" ? "manual_cancel" : (job.failureReason ?? "provider_failure"));
+          } else {
+            refreshBackgroundTurnStatus(job);
+            setError("The server has not confirmed cancellation yet. Use Check status to reconcile this request.");
+            return;
+          }
+          clearStoredBackgroundJob(backgroundJobId);
+          void refreshConversationList(job.response?.conversationId);
+        })
+        .catch((cancelError) => {
+          const message = cancelError instanceof Error ? cancelError.message : "Server cancellation could not be confirmed.";
+          setError(`The request stopped in this browser, but server cancellation could not be confirmed. ${message}`);
+          setRenderedTurns((current) => current.map((turn) => (
+            turn.backgroundJobId === backgroundJobId
+              ? {
+                  ...turn,
+                  assistantText: "Cancellation could not be confirmed.",
+                  outputs: [{
+                    type: "status",
+                    status: "in_progress",
+                    message: "Cancellation could not be confirmed. Use Check status to reconcile this request."
+                  }]
+                }
+              : turn
+          )));
+        });
     }
     activeRequestRef.current?.abort();
     activeRequestRef.current = undefined;
@@ -1245,15 +1353,29 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setLoading(false);
     setPersonaAudioPlaying(false);
     setPendingPrompt(undefined);
+    setPendingPromptAssets([]);
     setPendingPromptFiles([]);
-    if (cancelledPrompt) {
+    const appendCancelledTurn = cancelledPrompt !== undefined
+      && (cancelledPrompt.trim().length > 0 || cancelledAssets.length > 0);
+    const cancelledTurnAssets = cancelledAssets.map((asset) => (
+      asset.url?.startsWith("blob:")
+        ? {
+            id: asset.id,
+            kind: asset.kind,
+            fileName: asset.fileName,
+            mimeType: asset.mimeType
+          }
+        : asset
+    ));
+    releasePendingPromptAssets(cancelledAssets);
+    if (appendCancelledTurn) {
       setRenderedTurns((current) => [
         ...current,
         {
           ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
           userMessage: cancelledPrompt,
-          userAssets: pendingPromptAssets,
-          userFiles: pendingPromptFiles,
+          userAssets: cancelledTurnAssets,
+          userFiles: cancelledFiles,
           assistantText: "Request cancelled.",
           outputs: [
             {
@@ -1280,6 +1402,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   function resetConversation(): void {
     abandonActiveRequest();
     selectionGenerationRef.current += 1;
+    setLoadingEarlierTurns(false);
     personaSelectionGenerationRef.current += 1;
     setConversationId(undefined);
     setResponse(undefined);
@@ -1473,7 +1596,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     ? personaDetail
     : personas.find((persona) => persona.id === selectedPersonaId) ?? personas[0];
   const activeTheme = activePersona?.theme;
-  const hasConversationContent = renderedTurns.length > 0 || Boolean(pendingPrompt) || loading;
+  const hasConversationContent = renderedTurns.length > 0 || pendingPrompt !== undefined || loading;
   const personaVisualState = audioEnabled
     ? personaAudioPlaying
       ? "speaking"
@@ -1600,7 +1723,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
               pendingPrompt={pendingPrompt}
               pendingAssets={pendingPromptAssets}
               pendingFiles={pendingPromptFiles}
-              thinking={loading && Boolean(pendingPrompt)}
+              thinking={loading && pendingPrompt !== undefined}
               testMode={testModeEnabled}
               autoPlayAudioTurnIndex={autoPlayAudioTurnIndex}
               onAudioPlaybackChange={audioEnabled ? (playing) => {

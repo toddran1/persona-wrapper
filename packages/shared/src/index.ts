@@ -382,7 +382,7 @@ export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
 
 export const chatRequestSchema = z.object({
   personaId: z.string().min(1),
-  message: z.string().min(1),
+  message: z.string(),
   provider: providerSchema.default("openai"),
   audio: z.boolean().default(false),
   testMode: z.boolean().default(false),
@@ -392,6 +392,14 @@ export const chatRequestSchema = z.object({
   clientContext: clientContextSchema.optional(),
   attachments: z.array(uploadedAssetSchema).max(MAX_CHAT_ATTACHMENTS).optional(),
   toolOptions: toolOptionsSchema.optional()
+}).superRefine((request, context) => {
+  if (!request.message.trim() && (request.attachments?.length ?? 0) === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["message"],
+      message: "A message or attachment is required."
+    });
+  }
 });
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 

@@ -48,6 +48,7 @@ export const englishMessages = {
   "composer.message": "Chat message",
   "composer.uploading": "Uploading attachments...",
   "composer.send": "Send message",
+  "composer.stop": "Stop generating",
   "composer.voice": "Voice input",
   "composer.audio": "Persona audio options",
   "network.offlineTitle": "You’re offline",
@@ -74,4 +75,3 @@ export const englishMessages = {
 
 export type MessageKey = keyof typeof englishMessages;
 export type MessageParameters = Record<string, string | number>;
-
