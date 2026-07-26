@@ -327,6 +327,12 @@ export function MobileChatScreen() {
   const landscapeLeftInset = landscapeLayout
     ? Math.max(insets.left, Platform.OS === "android" ? 72 : 0)
     : insets.left;
+  const landscapeRightInset = landscapeLayout ? Math.max(insets.right, 0) : insets.right;
+  const chatHorizontalGutter = compactLayout ? 8 : tabletLayout ? 20 : 12;
+  const sheetHorizontalInsets = {
+    paddingLeft: Math.max(insets.left + 16, 16),
+    paddingRight: Math.max(insets.right + 16, 16)
+  };
 
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
@@ -830,14 +836,11 @@ export function MobileChatScreen() {
       drawerX.value = Math.max(-drawerWidth, Math.min(0, drawerStartX.value + event.translationX));
     })
     .onEnd((event) => {
-      const shouldOpen = event.velocityX > 300 || (event.velocityX >= -250 && drawerX.value > -drawerWidth * 0.38);
-      drawerX.value = withTiming(shouldOpen ? 0 : -drawerWidth, { duration: 190 });
-      runOnJS(setDrawerInteractive)(shouldOpen);
+      const shouldClose = event.velocityX < -280 || event.translationX < -56 || drawerX.value < -drawerWidth * 0.15;
+      drawerX.value = withTiming(shouldClose ? -drawerWidth : 0, { duration: 190 });
+      runOnJS(setDrawerInteractive)(!shouldClose);
     });
-  // Preserve native vertical scrolling inside the drawer while retaining the
-  // horizontal swipe-to-close gesture around it.
   const drawerGesture = Gesture.Simultaneous(gesture, Gesture.Native());
-
   const edgeStartX = useSharedValue(-drawerWidth);
   const edgeGesture = Gesture.Pan().activeOffsetX(30).failOffsetY([-14, 14])
     .enabled(!drawerInteractive && !settingsVisible)
@@ -2519,9 +2522,8 @@ export function MobileChatScreen() {
               {
                 paddingTop: insets.top + (compactLayout ? 4 : 8),
                 paddingBottom: Math.max(insets.bottom, 8),
-                ...(landscapeLayout
-                  ? { paddingLeft: landscapeLeftInset + 8, paddingRight: Math.max(insets.right, 8) + 8 }
-                  : {})
+                paddingLeft: (landscapeLayout ? landscapeLeftInset : insets.left) + chatHorizontalGutter,
+                paddingRight: (landscapeLayout ? landscapeRightInset : insets.right) + chatHorizontalGutter
               }
             ]}
           >
@@ -2669,7 +2671,7 @@ export function MobileChatScreen() {
                       personaCardExpanded ? styles.expandedUserBubble : { backgroundColor: "rgba(255,255,255,0.10)" }
                     ]}
                   >
-                    <Text style={[styles.userText, { color: theme.text }]}>{turn.userMessage}</Text>
+                    <Text selectable style={[styles.userText, { color: theme.text }]}>{turn.userMessage}</Text>
                     {turn.userAssets && turn.userAssets.length > 0 ? (
                       <View style={styles.sentAssetStack}>
                         {turn.userAssets.map((asset) => (
@@ -2796,7 +2798,9 @@ export function MobileChatScreen() {
             theme={theme}
             topInset={insets.top}
             leftInset={landscapeLeftInset}
+            rightInset={landscapeRightInset}
             bottomInset={insets.bottom}
+            landscape={landscapeLayout}
             loading={loading}
             refreshing={hasConversationSearch ? conversationSearching : conversationsRefreshing}
             searchQuery={conversationSearchQuery}
@@ -2825,8 +2829,20 @@ export function MobileChatScreen() {
           contentContainerStyle={[
             styles.settingsContent,
             landscapeLayout ? styles.settingsContentLandscape : null,
-            { paddingTop: insets.top + 12, paddingBottom: Math.max(insets.bottom, 18) }
+            {
+              paddingTop: insets.top + 12,
+              paddingBottom: Math.max(insets.bottom, 18),
+              paddingLeft: Math.max(
+                (landscapeLayout ? landscapeLeftInset : insets.left) + 16,
+                landscapeLayout ? 32 : 20
+              ),
+              paddingRight: Math.max(
+                (landscapeLayout ? landscapeRightInset : insets.right) + 16,
+                landscapeLayout ? 32 : 20
+              )
+            }
           ]}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.settingsTopBar}>
@@ -3162,7 +3178,7 @@ export function MobileChatScreen() {
       >
         <View style={styles.actionSheetScrim}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close selection menu" style={StyleSheet.absoluteFill} onPress={() => setProfileSelection(undefined)} />
-          <View style={[styles.profileSelectionSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+          <View style={[styles.profileSelectionSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <View style={[styles.attachmentSheetHandle, { backgroundColor: theme.border }]} />
             <Text style={[styles.actionSheetTitle, { color: theme.text }]}>{profileSelectionTitle}</Text>
             <ScrollView contentContainerStyle={styles.profileSelectionList} showsVerticalScrollIndicator={false}>
@@ -3192,7 +3208,7 @@ export function MobileChatScreen() {
       <Modal accessibilityViewIsModal visible={deleteAccountVisible} transparent animationType="fade" onRequestClose={() => setDeleteAccountVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close delete account dialog" style={StyleSheet.absoluteFill} onPress={() => setDeleteAccountVisible(false)} />
-          <View style={[styles.loginCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
+          <View style={[styles.loginCard, styles.deleteAccountCard, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
             <Text style={[styles.loginTitle, { color: theme.text }]}>Delete account?</Text>
             <Text style={{ color: theme.muted, lineHeight: 20 }}>
               You will be signed out immediately. Your account and all chats, uploads, images, and audio will be permanently deleted after 30 days unless you restore it.
@@ -3239,7 +3255,7 @@ export function MobileChatScreen() {
       >
         <View style={styles.actionSheetScrim}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close attachment menu" style={StyleSheet.absoluteFill} onPress={() => setAttachmentMenuVisible(false)} />
-          <View style={[styles.attachmentSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+          <View style={[styles.attachmentSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <View style={[styles.attachmentSheetHandle, { backgroundColor: theme.border }]} />
             <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Add to message</Text>
             <Text style={[styles.attachmentSheetCopy, { color: theme.muted }]}>Choose something to share with {activePersona?.shortName ?? activePersona?.name ?? "your persona"}.</Text>
@@ -3282,7 +3298,7 @@ export function MobileChatScreen() {
             style={StyleSheet.absoluteFill}
             onPress={() => setUserActionTurn(undefined)}
           />
-          <View style={[styles.actionSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+          <View style={[styles.actionSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <View style={styles.actionSheetHeader}>
               <View style={styles.actionSheetHeadingCopy}>
                 <Text style={[styles.actionSheetTitle, styles.actionSheetTitleNoPadding, { color: theme.text }]}>Message actions</Text>
@@ -3335,7 +3351,7 @@ export function MobileChatScreen() {
       >
         <View style={styles.actionSheetScrim}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close chat actions" style={StyleSheet.absoluteFill} onPress={() => setConversationActionTarget(undefined)} />
-          <View style={[styles.actionSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+          <View style={[styles.actionSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <View style={styles.actionSheetHeader}>
               <View style={styles.actionSheetHeadingCopy}>
                 <Text style={[styles.actionSheetTitle, styles.actionSheetTitleNoPadding, { color: theme.text }]}>Chat options</Text>
@@ -3386,7 +3402,7 @@ export function MobileChatScreen() {
       {renameTarget ? (
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close rename chat dialog" style={StyleSheet.absoluteFill} onPress={() => setRenameTarget(undefined)} />
-          <View style={[styles.loginCard, styles.renameCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
+          <View style={[styles.loginCard, styles.renameCard, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
             <Text style={[styles.loginTitle, { color: theme.text }]}>Rename chat</Text>
             <TextInput
               accessibilityLabel="Chat title"
@@ -3425,63 +3441,70 @@ export function MobileChatScreen() {
       >
         <View style={styles.actionSheetScrim}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close response actions" style={StyleSheet.absoluteFill} onPress={() => setAssistantActionTurn(undefined)} />
-          <View style={[styles.actionSheet, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+          <View style={[styles.actionSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Response actions</Text>
-            {assistantActionTurn && assistantTextForDisplay(assistantActionTurn).trim() ? (
-              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
-                if (!assistantActionTurn) return;
-                const text = assistantTextForDisplay(assistantActionTurn);
-                setAssistantActionTurn(undefined);
-                void copyMessage("Response copied.", text);
-              }}>
-                <Ionicons name="copy-outline" size={20} color={theme.text} />
-                <Text style={[styles.actionSheetText, { color: theme.text }]}>Copy</Text>
-              </Pressable>
-            ) : null}
-            {assistantActionAudio ? (
-              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
-                const audio = assistantActionAudio;
-                setAssistantActionTurn(undefined);
-                void replayAudioOutput(audio);
-              }}>
-                <Ionicons name="volume-high-outline" size={20} color={theme.text} />
-                <Text style={[styles.actionSheetText, { color: theme.text }]}>Replay audio</Text>
-              </Pressable>
-            ) : null}
-            {assistantActionReferences.length > 0 ? (
-              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => showReferences(assistantActionReferences)}>
-                <Ionicons name="book-outline" size={20} color={theme.text} />
-                <Text style={[styles.actionSheetText, { color: theme.text }]}>References</Text>
-              </Pressable>
-            ) : null}
-            {canRetryAssistantAction ? (
-              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
-                const turn = assistantActionTurn;
-                setAssistantActionTurn(undefined);
-                if (turn) void retryAssistantTurn(turn);
-              }}>
-                <Ionicons name="refresh" size={20} color={theme.text} />
-                <Text style={[styles.actionSheetText, { color: theme.text }]}>Retry</Text>
-              </Pressable>
-            ) : null}
-            {assistantActionTurn ? (
-              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
-                if (assistantActionTurn) showUnsafeOutputReport(assistantActionTurn);
-              }}>
-                <Ionicons name="flag-outline" size={20} color={theme.danger} />
-                <Text style={[styles.actionSheetText, { color: theme.danger }]}>Report unsafe output</Text>
-              </Pressable>
-            ) : null}
-            {assistantActionTurn && isStillRunningTurn(assistantActionTurn) ? (
-              <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
-                const turn = assistantActionTurn;
-                setAssistantActionTurn(undefined);
-                void resumeBackgroundJob(turn);
-              }}>
-                <Ionicons name="time-outline" size={20} color={theme.text} />
-                <Text style={[styles.actionSheetText, { color: theme.text }]}>Check status</Text>
-              </Pressable>
-            ) : null}
+            <ScrollView
+              style={styles.actionSheetScroll}
+              contentContainerStyle={styles.actionSheetScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {assistantActionTurn && assistantTextForDisplay(assistantActionTurn).trim() ? (
+                <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+                  if (!assistantActionTurn) return;
+                  const text = assistantTextForDisplay(assistantActionTurn);
+                  setAssistantActionTurn(undefined);
+                  void copyMessage("Response copied.", text);
+                }}>
+                  <Ionicons name="copy-outline" size={20} color={theme.text} />
+                  <Text style={[styles.actionSheetText, { color: theme.text }]}>Copy</Text>
+                </Pressable>
+              ) : null}
+              {assistantActionAudio ? (
+                <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+                  const audio = assistantActionAudio;
+                  setAssistantActionTurn(undefined);
+                  void replayAudioOutput(audio);
+                }}>
+                  <Ionicons name="volume-high-outline" size={20} color={theme.text} />
+                  <Text style={[styles.actionSheetText, { color: theme.text }]}>Replay audio</Text>
+                </Pressable>
+              ) : null}
+              {assistantActionReferences.length > 0 ? (
+                <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => showReferences(assistantActionReferences)}>
+                  <Ionicons name="book-outline" size={20} color={theme.text} />
+                  <Text style={[styles.actionSheetText, { color: theme.text }]}>References</Text>
+                </Pressable>
+              ) : null}
+              {canRetryAssistantAction ? (
+                <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+                  const turn = assistantActionTurn;
+                  setAssistantActionTurn(undefined);
+                  if (turn) void retryAssistantTurn(turn);
+                }}>
+                  <Ionicons name="refresh" size={20} color={theme.text} />
+                  <Text style={[styles.actionSheetText, { color: theme.text }]}>Retry</Text>
+                </Pressable>
+              ) : null}
+              {assistantActionTurn ? (
+                <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+                  if (assistantActionTurn) showUnsafeOutputReport(assistantActionTurn);
+                }}>
+                  <Ionicons name="flag-outline" size={20} color={theme.danger} />
+                  <Text style={[styles.actionSheetText, { color: theme.danger }]}>Report unsafe output</Text>
+                </Pressable>
+              ) : null}
+              {assistantActionTurn && isStillRunningTurn(assistantActionTurn) ? (
+                <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+                  const turn = assistantActionTurn;
+                  setAssistantActionTurn(undefined);
+                  void resumeBackgroundJob(turn);
+                }}>
+                  <Ionicons name="time-outline" size={20} color={theme.text} />
+                  <Text style={[styles.actionSheetText, { color: theme.text }]}>Check status</Text>
+                </Pressable>
+              ) : null}
+            </ScrollView>
             <Pressable accessibilityRole="button" style={styles.actionSheetCancel} onPress={() => setAssistantActionTurn(undefined)}>
               <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
             </Pressable>
@@ -3497,7 +3520,14 @@ export function MobileChatScreen() {
       >
         <KeyboardAvoidingView style={styles.actionSheetScrim} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close report" style={StyleSheet.absoluteFill} onPress={() => { if (!reportBusy) setReportTarget(undefined); }} />
-          <View style={[styles.reportSheet, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 18) }]}>
+          <View style={[styles.reportSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 18) }]}>
+            <ScrollView
+              contentContainerStyle={styles.reportSheetContent}
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
             <View style={styles.referenceHeader}>
               <View style={styles.reportHeadingCopy}>
                 <Text style={[styles.reportEyebrow, { color: theme.accent2 }]}>SAFETY FEEDBACK</Text>
@@ -3508,7 +3538,7 @@ export function MobileChatScreen() {
               </Pressable>
             </View>
             <Text style={[styles.reportCopy, { color: theme.muted }]}>Tell us what went wrong. Reports help us investigate unsafe AI output and do not automatically remove your conversation.</Text>
-            <ScrollView style={styles.reportCategoryScroll} contentContainerStyle={styles.reportCategories} keyboardShouldPersistTaps="handled">
+            <ScrollView style={styles.reportCategoryScroll} contentContainerStyle={styles.reportCategories} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
               {REPORT_CATEGORIES.map((option) => {
                 const selected = reportCategory === option.value;
                 return (
@@ -3544,6 +3574,7 @@ export function MobileChatScreen() {
                 {reportBusy ? <ActivityIndicator color={theme.background} /> : <Text style={[styles.renamePrimaryText, { color: theme.background }]}>Send report</Text>}
               </Pressable>
             </View>
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -3556,7 +3587,7 @@ export function MobileChatScreen() {
       >
         <View style={styles.referenceScrim}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close references" style={StyleSheet.absoluteFill} onPress={() => setReferenceSources([])} />
-          <View style={[styles.referenceCard, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
+          <View style={[styles.referenceCard, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
             <View style={styles.referenceHeader}>
               <Text style={[styles.loginTitle, { color: theme.text }]}>References</Text>
               <Pressable accessibilityRole="button" accessibilityLabel="Close references" onPress={() => setReferenceSources([])}>
@@ -3623,6 +3654,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     borderWidth: 1,
     gap: 2,
+    maxHeight: "92%",
     paddingHorizontal: 16,
     paddingTop: 16,
     width: "100%"
@@ -3661,6 +3693,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     borderWidth: 1,
     gap: 4,
+    maxHeight: "92%",
     paddingHorizontal: 18,
     paddingTop: 10,
     width: "100%"
@@ -3713,6 +3746,12 @@ const styles = StyleSheet.create({
     gap: 14,
     minHeight: 52,
     paddingHorizontal: 8
+  },
+  actionSheetScroll: {
+    flexShrink: 1
+  },
+  actionSheetScrollContent: {
+    flexGrow: 0
   },
   actionSheetScrim: {
     backgroundColor: "rgba(0,0,0,0.48)",
@@ -3798,6 +3837,10 @@ const styles = StyleSheet.create({
   conversationScroll: {
     flex: 1,
     minHeight: 0
+  },
+  deleteAccountCard: {
+    gap: 12,
+    padding: 18
   },
   drawerWrap: {
     bottom: 0,
@@ -4100,11 +4143,13 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderWidth: 1,
-    gap: 14,
     maxHeight: "92%",
     paddingHorizontal: 18,
     paddingTop: 20,
     width: "100%"
+  },
+  reportSheetContent: {
+    gap: 14
   },
   referenceCard: {
     borderRadius: 24,

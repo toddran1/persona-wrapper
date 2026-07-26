@@ -70,6 +70,7 @@ export function MobileAuthScreen({
   const insets = useSafeAreaInsets();
   const [passwordVisible, setPasswordVisible] = useState(false);
   const compact = height < 700 || width < 360;
+  const horizontalGutter = compact ? 20 : 24;
   const enabledProviders = oauthProviders.filter((provider) => provider.enabled);
   const canSubmit = identifier.trim().length > 0 && (mode === "forgot" || password.length > 0) && !busy && isOnline;
 
@@ -84,8 +85,14 @@ export function MobileAuthScreen({
           contentContainerStyle={[
             styles.content,
             compact ? styles.contentCompact : null,
-            { paddingTop: Math.max(insets.top + 18, compact ? 24 : 44), paddingBottom: Math.max(insets.bottom + 18, 32) }
+            {
+              paddingTop: Math.max(insets.top + 18, compact ? 24 : 44),
+              paddingBottom: Math.max(insets.bottom + 18, 32),
+              paddingLeft: Math.max(insets.left + 12, horizontalGutter),
+              paddingRight: Math.max(insets.right + 12, horizontalGutter)
+            }
           ]}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >

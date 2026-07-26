@@ -122,8 +122,14 @@ export function ChatComposer({
               accessibilityRole="button"
               testID="mobile-stop-message"
               accessibilityLabel={t("composer.stop")}
+              hitSlop={6}
               onPress={onStop}
-              style={[styles.sendButton, styles.stopButton, { backgroundColor: theme.danger }]}
+              style={[
+                styles.sendButton,
+                compact ? styles.sendButtonCompact : null,
+                styles.stopButton,
+                { backgroundColor: theme.danger }
+              ]}
             >
               <Ionicons name="stop" size={18} color={theme.background} />
             </Pressable>
@@ -132,8 +138,13 @@ export function ChatComposer({
               accessibilityRole="button"
               testID="mobile-send-message"
               accessibilityLabel={t("composer.send")}
+              hitSlop={6}
               onPress={submit}
-              style={[styles.sendButton, { backgroundColor: theme.text }]}
+              style={[
+                styles.sendButton,
+                compact ? styles.sendButtonCompact : null,
+                { backgroundColor: theme.text }
+              ]}
             >
               <Ionicons name="arrow-up" size={20} color={theme.background} />
             </Pressable>
@@ -144,6 +155,7 @@ export function ChatComposer({
                 accessibilityLabel={t("composer.voice")}
                 accessibilityState={{ disabled: Boolean(disabled || uploadingAttachments), selected: voiceInputActive }}
                 disabled={disabled || uploadingAttachments}
+                hitSlop={6}
                 onPress={onMicPress}
                 style={[
                   styles.micButton,
@@ -160,6 +172,7 @@ export function ChatComposer({
                 testID="mobile-persona-audio-options"
                 accessibilityLabel={t("composer.audio")}
                 disabled={Boolean(disabled || uploadingAttachments)}
+                hitSlop={6}
                 onPress={onAudioMenu}
                 style={[
                   styles.audioButton,
@@ -224,16 +237,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: 999,
     borderWidth: 1,
-    height: 46,
+    height: 36,
     justifyContent: "center",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.22,
     shadowRadius: 14,
-    width: 46
+    width: 36
   },
   audioButtonCompact: {
-    height: 42,
-    width: 42
+    height: 34,
+    width: 34
   },
   audioGlyph: {
     alignItems: "center",
@@ -273,9 +286,13 @@ const styles = StyleSheet.create({
   sendButton: {
     alignItems: "center",
     borderRadius: 999,
-    height: 46,
+    height: 36,
     justifyContent: "center",
-    width: 46
+    width: 36
+  },
+  sendButtonCompact: {
+    height: 34,
+    width: 34
   },
   stopButton: {
     borderWidth: 1,

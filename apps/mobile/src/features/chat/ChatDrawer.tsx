@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type ImageStyle, type TextInput as TextInputType, type TextStyle, type ViewStyle } from "react-native";
+import { useRef, useState, type PropsWithChildren } from "react";
+import { Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type ImageStyle, type TextInput as TextInputType, type TextStyle, type ViewStyle } from "react-native";
 import type { AuthUser, ConversationSummary, PersonaSummary } from "@persona/shared";
 import { Ionicons } from "@expo/vector-icons";
 import type { MobileTheme } from "../../theme/personaTheme";
@@ -18,7 +18,9 @@ type ChatDrawerProps = {
   theme: MobileTheme;
   topInset: number;
   leftInset: number;
+  rightInset: number;
   bottomInset: number;
+  landscape: boolean;
   loading: boolean;
   refreshing: boolean;
   searchQuery: string;
@@ -36,6 +38,69 @@ type ChatDrawerProps = {
   onShowSettings: () => void;
 };
 
+type ResponsiveDrawerContainerProps = PropsWithChildren<{
+  landscape: boolean;
+  refreshing: boolean;
+  tintColor: string;
+  onRefresh: () => void;
+}>;
+
+function ResponsiveDrawerContainer({
+  landscape,
+  refreshing,
+  tintColor,
+  onRefresh,
+  children
+}: ResponsiveDrawerContainerProps) {
+  if (!landscape) return <View style={styles.drawerBody}>{children}</View>;
+
+  return (
+    <ScrollView
+      style={styles.drawerBody}
+      contentContainerStyle={styles.landscapeDrawerContent}
+      directionalLockEnabled
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tintColor} />}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+type ResponsiveConversationContainerProps = PropsWithChildren<{
+  landscape: boolean;
+  refreshing: boolean;
+  tintColor: string;
+  onRefresh: () => void;
+}>;
+
+function ResponsiveConversationContainer({
+  landscape,
+  refreshing,
+  tintColor,
+  onRefresh,
+  children
+}: ResponsiveConversationContainerProps) {
+  if (landscape) return <View style={styles.conversationList}>{children}</View>;
+
+  return (
+    <ScrollView
+      style={styles.conversationScroller}
+      contentContainerStyle={styles.conversationList}
+      directionalLockEnabled
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      nestedScrollEnabled
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tintColor} />}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
 export function ChatDrawer({
   authUser,
   conversations,
@@ -45,7 +110,9 @@ export function ChatDrawer({
   theme,
   topInset,
   leftInset,
+  rightInset,
   bottomInset,
+  landscape,
   loading,
   refreshing,
   searchQuery,
@@ -78,6 +145,10 @@ export function ChatDrawer({
     onSearchQueryChange("");
   }
 
+  function refreshDrawer(): void {
+    if (isOnline) onRefreshConversations();
+  }
+
   return (
     <View
       style={[
@@ -86,12 +157,19 @@ export function ChatDrawer({
           backgroundColor: theme.background,
           borderRightColor: theme.border,
           paddingLeft: Math.max(leftInset, 0),
+          paddingRight: Math.max(rightInset, 0),
           paddingTop: Math.max(topInset + 6, 16),
           paddingBottom: Math.max(bottomInset, 8)
         }
       ]}
     >
       <View style={[styles.rail, { backgroundColor: theme.rail }]} />
+      <ResponsiveDrawerContainer
+        landscape={landscape}
+        refreshing={refreshing}
+        tintColor={theme.accent2}
+        onRefresh={refreshDrawer}
+      >
       <View style={styles.header}>
         <View style={styles.brandLockup}>
           <Image accessible={false} accessibilityIgnoresInvertColors source={APP_LOGO} style={styles.brandLogo} resizeMode="contain" />
@@ -187,22 +265,11 @@ export function ChatDrawer({
         <Text style={[styles.sectionLabel, { color: theme.accent2 }]}>{searchVisible && searchQuery.trim() ? t("drawer.searchResults") : t("drawer.chats")}</Text>
         <Text accessibilityLiveRegion="polite" style={[styles.subtle, { color: theme.muted }]}>{loading || searching ? t("drawer.loading") : `${conversations.length}`}</Text>
       </View>
-      <ScrollView
-        style={styles.conversationScroller}
-        contentContainerStyle={styles.conversationList}
-        directionalLockEnabled
-        nestedScrollEnabled
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              if (isOnline) onRefreshConversations();
-            }}
-            tintColor={theme.accent2}
-          />
-        }
+      <ResponsiveConversationContainer
+        landscape={landscape}
+        refreshing={refreshing}
+        tintColor={theme.accent2}
+        onRefresh={refreshDrawer}
       >
         {conversations.length === 0 ? (
           <Text style={[styles.empty, { color: theme.muted }]}>{searchVisible && searchQuery.trim() ? t("drawer.noMatches") : t("drawer.empty")}</Text>
@@ -245,7 +312,8 @@ export function ChatDrawer({
             <Text style={[styles.subtle, { color: theme.text }]}>{t("drawer.loadMore")}</Text>
           </Pressable>
         ) : null}
-      </ScrollView>
+      </ResponsiveConversationContainer>
+      </ResponsiveDrawerContainer>
     </View>
   );
 }
@@ -268,8 +336,10 @@ type DrawerStyles = {
   disabled: ViewStyle;
   loadMore: ViewStyle;
   drawer: ViewStyle;
+  drawerBody: ViewStyle;
   empty: TextStyle;
   header: ViewStyle;
+  landscapeDrawerContent: ViewStyle;
   newChat: ViewStyle;
   newChatText: TextStyle;
   pillIconButton: ViewStyle;
@@ -391,6 +461,10 @@ const styles = StyleSheet.create<DrawerStyles>({
     flex: 1,
     minHeight: 0
   },
+  drawerBody: {
+    flex: 1,
+    minHeight: 0
+  },
   empty: {
     fontSize: 14,
     lineHeight: 20,
@@ -402,6 +476,9 @@ const styles = StyleSheet.create<DrawerStyles>({
     justifyContent: "space-between",
     paddingHorizontal: 22,
     paddingVertical: 18
+  },
+  landscapeDrawerContent: {
+    paddingBottom: 18
   },
   newChat: {
     alignItems: "center",

@@ -255,7 +255,7 @@ function MobileChartBlock({ output, theme }: { output: Extract<ContentBlock, { t
   return (
     <View accessibilityLabel={`${output.title}, ${output.chartType} chart`} style={[styles.dataCard, { borderColor: theme.border }]}>
       <Text style={[styles.dataEyebrow, { color: theme.accent2 }]}>{output.chartType} chart</Text>
-      <Text style={[styles.dataTitle, { color: theme.text }]}>{output.title}</Text>
+      <Text selectable style={[styles.dataTitle, { color: theme.text }]}>{output.title}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chartScroll}>
         {output.chartType === "pie" ? (
           <PieChart data={data} donut showText textColor={theme.text} radius={92} innerRadius={48} />
@@ -303,15 +303,15 @@ function OutputBlock({
       : ["#fffaf4", "#f8efe5"];
     return (
       <View style={[styles.dataCard, { borderColor: theme.border }]}>
-        {output.title ? <Text style={[styles.dataTitle, { color: theme.text }]}>{output.title}</Text> : null}
+        {output.title ? <Text selectable style={[styles.dataTitle, { color: theme.text }]}>{output.title}</Text> : null}
         <ScrollView horizontal showsHorizontalScrollIndicator>
           <View>
             <View style={[styles.tableRow, styles.tableHeader, { borderColor: theme.border, backgroundColor: theme.mode === "dark" ? "#35234c" : "#e9dbc7" }]}> 
-              {output.columns.map((column) => <Text key={column} style={[styles.tableCell, styles.tableHeaderText, { color: theme.text }]}>{column}</Text>)}
+              {output.columns.map((column) => <Text selectable key={column} style={[styles.tableCell, styles.tableHeaderText, { color: theme.text }]}>{column}</Text>)}
             </View>
             {output.rows.map((row, rowIndex) => (
               <View key={`row-${rowIndex}`} style={[styles.tableRow, { borderColor: theme.border, backgroundColor: tableRowColors[rowIndex % tableRowColors.length] }]}> 
-                {row.map((cell, cellIndex) => <Text key={`${rowIndex}-${cellIndex}`} style={[styles.tableCell, { color: theme.text }]}>{cell === null ? "—" : String(cell)}</Text>)}
+                {row.map((cell, cellIndex) => <Text selectable key={`${rowIndex}-${cellIndex}`} style={[styles.tableCell, { color: theme.text }]}>{cell === null ? "—" : String(cell)}</Text>)}
               </View>
             ))}
           </View>
@@ -418,7 +418,7 @@ function OutputBlock({
     }
     return (
       <View style={[styles.status, { borderColor: theme.border }]}>
-        <Text style={[styles.statusText, { color: theme.muted }]}>{output.message}</Text>
+        <Text selectable style={[styles.statusText, { color: theme.muted }]}>{output.message}</Text>
       </View>
     );
   }
@@ -600,7 +600,9 @@ function ImageOutputBlock({
             {
               backgroundColor: theme.background,
               paddingTop: Math.max(insets.top + 8, 20),
-              paddingBottom: Math.max(insets.bottom + 12, 20)
+              paddingBottom: Math.max(insets.bottom + 12, 20),
+              paddingLeft: Math.max(insets.left + 14, 14),
+              paddingRight: Math.max(insets.right + 14, 14)
             }
           ]}
         >
@@ -650,7 +652,18 @@ function ImageOutputBlock({
             style={StyleSheet.absoluteFill}
             onPress={() => setImageActionsVisible(false)}
           />
-          <View style={[styles.imageActionSheet, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+          <View
+            style={[
+              styles.imageActionSheet,
+              {
+                borderColor: theme.border,
+                backgroundColor: theme.surfaceStrong,
+                paddingBottom: Math.max(insets.bottom, 14),
+                paddingLeft: Math.max(insets.left + 18, 18),
+                paddingRight: Math.max(insets.right + 18, 18)
+              }
+            ]}
+          >
             <Text style={[styles.imageActionTitle, { color: theme.text }]}>Response actions</Text>
             <Pressable
               accessibilityRole="button"
