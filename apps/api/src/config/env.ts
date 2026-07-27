@@ -91,7 +91,7 @@ const envSchema = z.object({
   OPENAI_ENABLE_CODE_INTERPRETER: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_ENABLE_IMAGE_GENERATION: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_DIRECT_IMAGE_API_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
-  OPENAI_IMAGE_MODEL: z.string().default("gpt-image-1"),
+  OPENAI_IMAGE_MODEL: z.string().default("gpt-image-2"),
   OPENAI_IMAGE_MODERATION: z.preprocess(emptyStringToUndefined, openAIImageModerationSchema.default("low")),
   OPENAI_IMAGE_SIZE: z.preprocess(emptyStringToUndefined, openAIImageSizeSchema.default("auto")),
   OPENAI_IMAGE_QUALITY: z.preprocess(emptyStringToUndefined, openAIImageQualitySchema.default("auto")),
