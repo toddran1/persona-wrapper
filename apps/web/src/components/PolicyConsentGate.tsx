@@ -52,10 +52,16 @@ export function PolicyConsentGate({
               <a href={policies.termsPath} target="_blank" rel="noreferrer">Terms of Use <span aria-hidden="true">↗</span></a>
               <a href={policies.privacyPath} target="_blank" rel="noreferrer">Privacy Policy <span aria-hidden="true">↗</span></a>
             </div>
-            <label className="policy-consent-check">
-              <input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} />
+            <button
+              type="button"
+              className="policy-consent-check"
+              role="checkbox"
+              aria-checked={accepted}
+              onClick={() => setAccepted((value) => !value)}
+            >
+              <span className="policy-consent-checkmark" aria-hidden="true">{accepted ? "✓" : ""}</span>
               <span>I accept the Terms of Use and Privacy Policy.</span>
-            </label>
+            </button>
             <button type="button" className="policy-consent-primary" disabled={!accepted || saving} onClick={() => void submit()}>
               {saving ? "Saving…" : "Accept and continue"}
             </button>

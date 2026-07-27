@@ -5673,20 +5673,42 @@ button:disabled {
 
 .policy-consent-check {
   align-items: flex-start;
+  appearance: none;
   background: rgba(218, 179, 83, 0.07);
   border: 1px solid rgba(218, 179, 83, 0.24);
   border-radius: 0.85rem;
+  color: #f7eef0;
+  cursor: pointer;
   display: flex;
+  font: inherit;
   gap: 0.75rem;
   line-height: 1.45;
   padding: 1rem;
+  text-align: left;
+  width: 100%;
 }
 
-.policy-consent-check input {
-  accent-color: #dab353;
+.policy-consent-checkmark {
+  align-items: center;
+  border: 1.5px solid #dab353;
+  border-radius: 0.28rem;
+  color: #170f21;
+  display: inline-flex;
+  flex: 0 0 auto;
   height: 1.1rem;
-  margin-top: 0.15rem;
+  justify-content: center;
+  margin-top: 0.12rem;
+  background: transparent;
   width: 1.1rem;
+}
+
+.policy-consent-check[aria-checked="true"] .policy-consent-checkmark {
+  background: #dab353;
+}
+
+.policy-consent-check:focus-visible {
+  outline: 2px solid #dab353;
+  outline-offset: 3px;
 }
 
 .policy-consent-primary,
