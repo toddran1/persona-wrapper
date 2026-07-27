@@ -195,7 +195,14 @@ export function buildOpenAITools(input: LLMInput): OpenAIItem[] {
     tools.push({ type: "code_interpreter", container: { type: "auto", file_ids: fileIds } });
   }
   if (options.imageGeneration && env.OPENAI_ENABLE_IMAGE_GENERATION) {
-    tools.push({ type: "image_generation", action: "auto", moderation: env.OPENAI_IMAGE_MODERATION });
+    tools.push({
+      type: "image_generation",
+      action: "auto",
+      model: env.OPENAI_IMAGE_MODEL,
+      moderation: env.OPENAI_IMAGE_MODERATION,
+      size: env.OPENAI_IMAGE_SIZE,
+      quality: env.OPENAI_IMAGE_QUALITY
+    });
   }
   if (options.appFunctions) {
     tools.push(...applicationFunctionTools(input.toolDefinitions));

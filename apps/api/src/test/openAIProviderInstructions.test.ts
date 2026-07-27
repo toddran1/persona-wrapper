@@ -165,7 +165,10 @@ describe("OpenAIProvider instructions", () => {
     expect(tools).toContainEqual({
       type: "image_generation",
       action: "auto",
-      moderation: "low"
+      model: "gpt-image-2",
+      moderation: "low",
+      size: "auto",
+      quality: "auto"
     });
   });
 

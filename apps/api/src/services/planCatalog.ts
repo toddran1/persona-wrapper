@@ -27,7 +27,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     personaIds: ["larae"],
     allowances: {
       image_outputs: 15,
-      audio_seconds: 5 * 60
+      audio_seconds: 10 * 60
     }
   },
   silver: {
@@ -41,7 +41,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     personaIds: CURRENT_PERSONA_IDS,
     allowances: {
       image_outputs: 80,
-      audio_seconds: 30 * 60
+      audio_seconds: 60 * 60
     }
   },
   gold: {
@@ -55,7 +55,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     personaIds: CURRENT_PERSONA_IDS,
     allowances: {
       image_outputs: 160,
-      audio_seconds: 90 * 60
+      audio_seconds: 120 * 60
     }
   }
 };
