@@ -2,8 +2,10 @@ import type {
   AuthUser,
   ConnectedAccount,
   ConversationSummary,
+  CurrentPoliciesResponse,
   DataTransferJob,
   OAuthProvider,
+  PolicyVersions,
   OAuthProviderStatus,
   PersonaSummary,
   UpdateUserProfileRequest,
@@ -13,12 +15,13 @@ import { createPortal } from "react-dom";
 
 const REGISTER_PASSWORD_MIN_LENGTH = 10;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
-type SettingsSection = "account" | "security" | "data" | "about" | "delete";
+type SettingsSection = "account" | "security" | "memory" | "data" | "about" | "delete";
 
 function SettingsGlyph({ section }: { section: SettingsSection }) {
   const paths: Record<SettingsSection, React.ReactNode> = {
     account: <><circle cx="12" cy="8" r="3" /><path d="M5.5 19c.8-3.2 3-5 6.5-5s5.7 1.8 6.5 5" /></>,
     security: <><path d="M12 3 5.5 5.8v5.1c0 4.2 2.4 7.5 6.5 9.1 4.1-1.6 6.5-4.9 6.5-9.1V5.8L12 3Z" /><path d="m9.5 11.5 1.7 1.7 3.7-4" /></>,
+    memory: <><path d="M8 5.5A3.5 3.5 0 0 1 14.3 3.4 3.8 3.8 0 0 1 19 7.1a3.7 3.7 0 0 1-.8 2.3 4 4 0 0 1-1.7 6.9A3.5 3.5 0 0 1 10 18a3.7 3.7 0 0 1-5-3.5 3.6 3.6 0 0 1 1-2.5A4 4 0 0 1 8 5.5Z" /><path d="M9 8.5c1.8.2 3 1.2 3 3v5.8M15 7.5c-1.7.4-2.8 1.4-3 3" /></>,
     data: <><path d="M12 3v12" /><path d="m8.5 7 3.5-4 3.5 4" /><path d="M5 14v5h14v-5" /></>,
     about: <><circle cx="12" cy="12" r="9" /><path d="M12 10v6" /><path d="M12 7.2h.01" /></>,
     delete: <><path d="M5 7h14" /><path d="M9 7V4h6v3" /><path d="m7.5 7 .8 13h7.4l.8-13" /><path d="M10.5 11v5M13.5 11v5" /></>,
@@ -58,6 +61,7 @@ export function ConversationSidebar({
   authLoading = false,
   authError,
   oauthProviders = [],
+  currentPolicies,
   conversations,
   activeConversationId,
   loading = false,
@@ -69,6 +73,10 @@ export function ConversationSidebar({
   onRequestPasswordReset,
   onChangePassword,
   onUpdateProfile,
+  onGetMemorySettings,
+  onUpdateMemorySettings,
+  onClearConversationMemory,
+  onClearAllMemory,
   onListConnectedAccounts,
   onLinkConnectedAccount,
   onUnlinkConnectedAccount,
@@ -95,6 +103,7 @@ export function ConversationSidebar({
   authLoading?: boolean;
   authError?: string | undefined;
   oauthProviders?: OAuthProviderStatus[];
+  currentPolicies?: CurrentPoliciesResponse | undefined;
   conversations: ConversationSummary[];
   activeConversationId?: string | undefined;
   loading?: boolean;
@@ -105,11 +114,16 @@ export function ConversationSidebar({
     email?: string;
     username?: string;
     password: string;
+    policyConsent: PolicyVersions;
   }) => Promise<void>;
   onRestoreAccount: (identifier: string, password: string) => Promise<void>;
   onRequestPasswordReset: (email: string) => Promise<void>;
   onChangePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   onUpdateProfile: (profile: UpdateUserProfileRequest) => Promise<void>;
+  onGetMemorySettings: () => Promise<boolean>;
+  onUpdateMemorySettings: (enabled: boolean) => Promise<void>;
+  onClearConversationMemory: (conversationId: string) => Promise<void>;
+  onClearAllMemory: () => Promise<void>;
   onListConnectedAccounts: () => Promise<ConnectedAccount[]>;
   onLinkConnectedAccount: (provider: OAuthProvider) => Promise<void>;
   onUnlinkConnectedAccount: (providerId: string, accountId?: string) => Promise<void>;
@@ -136,6 +150,7 @@ export function ConversationSidebar({
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerUsername, setRegisterUsername] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
+  const [registrationConsent, setRegistrationConsent] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [localAuthError, setLocalAuthError] = useState<string | undefined>();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -155,6 +170,9 @@ export function ConversationSidebar({
   const [username, setUsername] = useState("");
   const [usernameEditing, setUsernameEditing] = useState(false);
   const [profileNotice, setProfileNotice] = useState<string | undefined>();
+  const [memoryEnabled, setMemoryEnabled] = useState(authUser?.memoryEnabled ?? true);
+  const [memoryNotice, setMemoryNotice] = useState<string | undefined>();
+  const [memoryConfirmation, setMemoryConfirmation] = useState<"chat" | "all" | undefined>();
   const [preferredName, setPreferredName] = useState("");
   const [gender, setGender] = useState<AuthUser["gender"] | "">("");
   const [birthMonth, setBirthMonth] = useState("");
@@ -297,8 +315,16 @@ export function ConversationSidebar({
   }
 
   async function submitRegister(): Promise<void> {
-    const payload: { email?: string; username?: string; password: string } = {
+    if (!registrationConsent || !currentPolicies) {
+      setLocalAuthError("Accept the Terms of Use and Privacy Policy to create an account.");
+      return;
+    }
+    const payload: { email?: string; username?: string; password: string; policyConsent: PolicyVersions } = {
       password: registerPassword,
+      policyConsent: {
+        termsVersion: currentPolicies.termsVersion,
+        privacyVersion: currentPolicies.privacyVersion
+      }
     };
     const email = registerEmail.trim();
     const username = registerUsername.trim();
@@ -326,6 +352,7 @@ export function ConversationSidebar({
     try {
       await onRegister(payload);
       setRegisterPassword("");
+      setRegistrationConsent(false);
       setAuthPanelOpen(false);
     } catch (error) {
       setLocalAuthError(
@@ -386,6 +413,17 @@ export function ConversationSidebar({
     setSettingsSection(section);
     setLocalAuthError(undefined);
     setSecurityNotice(undefined);
+    if (section === "memory") {
+      setAuthBusy(true);
+      try {
+        setMemoryEnabled(await onGetMemorySettings());
+      } catch (error) {
+        setLocalAuthError(error instanceof Error ? error.message : "Could not load memory settings.");
+      } finally {
+        setAuthBusy(false);
+      }
+      return;
+    }
     if (section !== "security") return;
     setAuthBusy(true);
     try {
@@ -409,7 +447,48 @@ export function ConversationSidebar({
     setLocalAuthError(undefined);
     setProfileNotice(undefined);
     setSecurityNotice(undefined);
+    setMemoryNotice(undefined);
+    setMemoryConfirmation(undefined);
     setSettingsOpen(true);
+  }
+
+  async function toggleMemory(): Promise<void> {
+    const next = !memoryEnabled;
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      await onUpdateMemorySettings(next);
+      setMemoryEnabled(next);
+      setMemoryNotice(next ? "Chat memory is on." : "Chat memory is off.");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not update memory settings.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function forgetMemory(scope: "chat" | "all"): Promise<void> {
+    if (memoryConfirmation !== scope) {
+      setMemoryConfirmation(scope);
+      return;
+    }
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      if (scope === "chat") {
+        if (!activeConversationId) return;
+        await onClearConversationMemory(activeConversationId);
+        setMemoryNotice("This chat’s saved memory was removed.");
+      } else {
+        await onClearAllMemory();
+        setMemoryNotice("Memory was removed from all of your chats.");
+      }
+      setMemoryConfirmation(undefined);
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not clear memory.");
+    } finally {
+      setAuthBusy(false);
+    }
   }
 
   async function submitChangePassword(): Promise<void> {
@@ -739,6 +818,19 @@ export function ConversationSidebar({
                       autoComplete="new-password"
                       disabled={authBusy || authLoading}
                     />
+                    <label className="conversation-registration-consent">
+                      <input
+                        type="checkbox"
+                        checked={registrationConsent}
+                        onChange={(event) => setRegistrationConsent(event.target.checked)}
+                        disabled={authBusy || authLoading || !currentPolicies}
+                        data-testid="auth-register-consent"
+                      />
+                      <span>
+                        I accept the <a href="/terms" target="_blank" rel="noreferrer">Terms of Use</a> and{" "}
+                        <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.
+                      </span>
+                    </label>
                   </>
                 )}
                 {securityNotice && authMode === "forgot" ? <div className="conversation-auth-copy" role="status">{securityNotice}</div> : null}
@@ -752,7 +844,7 @@ export function ConversationSidebar({
                     type="submit"
                     className="conversation-auth-submit"
                     data-testid="auth-submit"
-                    disabled={authBusy || authLoading}
+                    disabled={authBusy || authLoading || (authMode === "register" && (!registrationConsent || !currentPolicies))}
                   >
                     {authBusy ? busyAuthText : authMode === "login" ? "Log in" : authMode === "restore" ? "Restore account" : authMode === "forgot" ? "Send reset link" : "Create account"}
                   </button>
@@ -1097,6 +1189,7 @@ export function ConversationSidebar({
                     {([
                       ["account", "Account"],
                       ["security", "Security & sign-in"],
+                      ["memory", "Memory"],
                       ["data", "Your data"],
                       ["about", "About"],
                       ["delete", "Delete account"],
@@ -1359,6 +1452,34 @@ export function ConversationSidebar({
                         {dataTransferActive && onCancelDataTransfer ? (
                           <button type="button" className="settings-action" onClick={() => void onCancelDataTransfer()}>Cancel data transfer</button>
                         ) : null}
+                      </div>
+                    ) : null}
+
+                    {settingsSection === "memory" ? (
+                      <div className="settings-section">
+                        <div className="settings-section-heading">
+                          <span className="settings-section-eyebrow">Conversation context</span>
+                          <h3>Memory</h3>
+                          <p>Control whether older parts of each chat can help shape later replies. Memory stays inside each individual chat.</p>
+                        </div>
+                        {memoryNotice ? <div className="settings-notice" role="status">{memoryNotice}</div> : null}
+                        <div className="settings-list">
+                          <div className="settings-list-row">
+                            <span><strong>Use chat memory</strong><small>When off, existing memory is not used and no new memory is created.</small></span>
+                            <button type="button" className={`settings-memory-switch${memoryEnabled ? " settings-memory-switch-on" : ""}`} role="switch" aria-label="Use chat memory" aria-checked={memoryEnabled} disabled={authBusy} onClick={() => void toggleMemory()}>
+                              <span />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="settings-data-actions">
+                          <button type="button" className="settings-data-card" disabled={authBusy || !activeConversationId} onClick={() => void forgetMemory("chat")}>
+                            <span><strong>{memoryConfirmation === "chat" ? "Confirm forget this chat" : "Forget this chat"}</strong><small>Remove only the memory condensed from the currently open chat.</small></span>
+                          </button>
+                          <button type="button" className="settings-data-card settings-memory-danger" disabled={authBusy} onClick={() => void forgetMemory("all")}>
+                            <span><strong>{memoryConfirmation === "all" ? "Confirm clear all memory" : "Clear all memory"}</strong><small>Remove saved memory from every chat in your account.</small></span>
+                          </button>
+                        </div>
+                        {memoryConfirmation ? <button type="button" className="settings-action" onClick={() => setMemoryConfirmation(undefined)}>Cancel</button> : null}
                       </div>
                     ) : null}
 

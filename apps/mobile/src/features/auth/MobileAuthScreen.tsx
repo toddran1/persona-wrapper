@@ -15,7 +15,7 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { OAuthProvider, OAuthProviderStatus } from "@persona/shared";
+import type { CurrentPoliciesResponse, OAuthProvider, OAuthProviderStatus } from "@persona/shared";
 import type { MobileTheme } from "../../theme/personaTheme";
 import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
 import { useLocalization } from "../../localization/LocalizationProvider";
@@ -34,11 +34,14 @@ type MobileAuthScreenProps = {
   busy: boolean;
   error?: string | undefined;
   oauthProviders: OAuthProviderStatus[];
+  currentPolicies?: CurrentPoliciesResponse | undefined;
+  registrationConsent: boolean;
   theme: MobileTheme;
   onModeChange: (mode: MobileAuthMode) => void;
   onIdentifierChange: (value: string) => void;
   onDisplayNameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
+  onRegistrationConsentChange: (value: boolean) => void;
   onSubmit: () => void;
   onOAuth: (provider: OAuthProvider) => void;
   onRetry: () => void;
@@ -54,11 +57,14 @@ export function MobileAuthScreen({
   busy,
   error,
   oauthProviders,
+  currentPolicies,
+  registrationConsent,
   theme,
   onModeChange,
   onIdentifierChange,
   onDisplayNameChange,
   onPasswordChange,
+  onRegistrationConsentChange,
   onSubmit,
   onOAuth,
   onRetry,
@@ -72,7 +78,11 @@ export function MobileAuthScreen({
   const compact = height < 700 || width < 360;
   const horizontalGutter = compact ? 20 : 24;
   const enabledProviders = oauthProviders.filter((provider) => provider.enabled);
-  const canSubmit = identifier.trim().length > 0 && (mode === "forgot" || password.length > 0) && !busy && isOnline;
+  const canSubmit = identifier.trim().length > 0
+    && (mode === "forgot" || password.length > 0)
+    && (mode !== "register" || (registrationConsent && Boolean(currentPolicies)))
+    && !busy
+    && isOnline;
 
   return (
     <LinearGradient
@@ -229,6 +239,34 @@ export function MobileAuthScreen({
                     </Pressable>
                   </View>
                 </View> : null}
+                {mode === "register" ? (
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: registrationConsent }}
+                    disabled={busy || !currentPolicies}
+                    onPress={() => onRegistrationConsentChange(!registrationConsent)}
+                    style={[styles.consentRow, { borderColor: theme.border }]}
+                  >
+                    <View style={[styles.consentCheckbox, {
+                      borderColor: registrationConsent ? theme.accent2 : theme.muted,
+                      backgroundColor: registrationConsent ? theme.accent2 : "transparent"
+                    }]}>
+                      {registrationConsent ? <Ionicons name="checkmark" size={15} color={theme.background} /> : null}
+                    </View>
+                    <Text style={[styles.consentText, { color: theme.muted }]}>
+                      I accept the{" "}
+                      <Text style={{ color: theme.accent2 }} onPress={(event) => {
+                        event.stopPropagation();
+                        onOpenPublicPage("/terms");
+                      }}>Terms of Use</Text>
+                      {" "}and{" "}
+                      <Text style={{ color: theme.accent2 }} onPress={(event) => {
+                        event.stopPropagation();
+                        onOpenPublicPage("/privacy");
+                      }}>Privacy Policy</Text>.
+                    </Text>
+                  </Pressable>
+                ) : null}
               </View>
 
               {error ? (
@@ -355,6 +393,27 @@ const styles = StyleSheet.create({
   copy: {
     fontSize: 15,
     lineHeight: 21
+  },
+  consentCheckbox: {
+    alignItems: "center",
+    borderRadius: 5,
+    borderWidth: 1.5,
+    height: 22,
+    justifyContent: "center",
+    width: 22
+  },
+  consentRow: {
+    alignItems: "flex-start",
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 11,
+    padding: 13
+  },
+  consentText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19
   },
   disabled: {
     opacity: 0.5

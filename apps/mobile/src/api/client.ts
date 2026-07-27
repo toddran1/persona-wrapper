@@ -23,6 +23,8 @@ import type {
   MeResponse,
   OAuthProvider,
   OAuthProviderStatus,
+  CurrentPoliciesResponse,
+  PolicyVersions,
   PersonaDefinition,
   PersonaSummary,
   ProviderId,
@@ -369,6 +371,11 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
     birthday: typeof user.birthMonth === "number" && typeof user.birthDay === "number"
       ? { month: user.birthMonth, day: user.birthDay }
       : null,
+    memoryEnabled: typeof user.memoryEnabled === "boolean" ? user.memoryEnabled : true,
+    termsVersionAccepted: typeof user.termsVersionAccepted === "string" ? user.termsVersionAccepted : null,
+    termsAcceptedAt: user.termsAcceptedAt ? new Date(user.termsAcceptedAt as string | Date).toISOString() : null,
+    privacyVersionAccepted: typeof user.privacyVersionAccepted === "string" ? user.privacyVersionAccepted : null,
+    privacyAcceptedAt: user.privacyAcceptedAt ? new Date(user.privacyAcceptedAt as string | Date).toISOString() : null,
     status: typeof user.status === "string" ? user.status : "active",
     deletionRequestedAt: user.deletionRequestedAt ? new Date(user.deletionRequestedAt as string | Date).toISOString() : null,
     deletionScheduledFor: user.deletionScheduledFor ? new Date(user.deletionScheduledFor as string | Date).toISOString() : null,
@@ -557,12 +564,18 @@ export const api = {
   },
   register: async (payload: MobileRegisterRequest): Promise<{ user: AuthUser }> => {
     const email = payload.email?.trim().toLowerCase() ?? `${payload.username?.trim().toLowerCase()}@users.invalid`;
-    const result = await authClient.signUp.email({
+    const signUpPayload = {
       email,
       password: payload.password,
       name: payload.displayName?.trim() || payload.username?.trim() || email,
-      ...(payload.username ? { username: payload.username, displayUsername: payload.username } : {})
-    });
+      ...(payload.username ? { username: payload.username, displayUsername: payload.username } : {}),
+      termsVersionAccepted: payload.policyConsent.termsVersion,
+      privacyVersionAccepted: payload.policyConsent.privacyVersion
+    } as Parameters<typeof authClient.signUp.email>[0] & {
+      termsVersionAccepted: string;
+      privacyVersionAccepted: string;
+    };
+    const result = await authClient.signUp.email(signUpPayload);
     if (result.error || !result.data?.user) throw authError(result.error);
     return { user: await requirePersistedAuthUser() };
   },
@@ -597,10 +610,38 @@ export const api = {
       session: toAuthSession(result.data.session as unknown as Record<string, unknown>)
     };
   },
+  getCurrentPolicies: async (): Promise<CurrentPoliciesResponse> => {
+    const response = await contractClient.account.currentPolicies({});
+    if (response.status !== 200) throw contractError(response.body, "Could not load the current policies.");
+    return response.body;
+  },
+  acceptPolicies: async (versions: PolicyVersions): Promise<AuthUser> => {
+    const response = await contractClient.account.acceptPolicies({ body: versions });
+    if (response.status !== 200) throw contractError(response.body, "Could not save your policy acceptance.");
+    return response.body.user;
+  },
   updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {
     const response = await contractClient.account.updateProfile({ body: payload });
     if (response.status !== 200) throw contractError(response.body, "Could not update your profile.");
     return response.body.user;
+  },
+  getMemorySettings: async (): Promise<boolean> => {
+    const response = await contractClient.account.getMemorySettings({});
+    if (response.status !== 200) throw contractError(response.body, "Could not load memory settings.");
+    return response.body.enabled;
+  },
+  updateMemorySettings: async (enabled: boolean): Promise<boolean> => {
+    const response = await contractClient.account.updateMemorySettings({ body: { enabled } });
+    if (response.status !== 200) throw contractError(response.body, "Could not update memory settings.");
+    return response.body.enabled;
+  },
+  clearAllMemory: async (): Promise<void> => {
+    const response = await contractClient.account.clearMemory({});
+    if (response.status !== 204) throw contractError(response.body, "Could not clear memory.");
+  },
+  clearConversationMemory: async (conversationId: string): Promise<void> => {
+    const response = await contractClient.conversations.clearMemory({ params: { conversationId } });
+    if (response.status !== 204) throw contractError(response.body, "Could not forget this chat.");
   },
   listActiveSessions: async (): Promise<ActiveSession[]> => {
     const [sessionsResult, currentResult] = await Promise.all([authClient.listSessions(), authClient.getSession()]);

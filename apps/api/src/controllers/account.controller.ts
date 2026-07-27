@@ -3,6 +3,8 @@ import { and, eq, or } from "drizzle-orm";
 import {
   deleteAccountRequestSchema,
   restoreAccountRequestSchema,
+  memorySettingsSchema,
+  acceptPolicyConsentRequestSchema,
   updateUserProfileRequestSchema,
   type AuthUser
 } from "@persona/shared";
@@ -15,6 +17,7 @@ import { backgroundChatJobService } from "../services/backgroundChatJobService.j
 import { dataTransferJobService } from "../services/dataTransferJobService.js";
 import { verifyPassword } from "../services/passwordService.js";
 import { hasDatabaseErrorCode } from "../utils/databaseError.js";
+import { conversationStore } from "./chat.controller.js";
 
 function requireDatabase() {
   const db = getDatabase();
@@ -36,12 +39,78 @@ function toAuthUser(user: typeof users.$inferSelect): AuthUser {
     birthday: user.birthMonth !== null && user.birthDay !== null
       ? { month: user.birthMonth, day: user.birthDay }
       : null,
+    memoryEnabled: user.memoryEnabled,
+    termsVersionAccepted: user.termsVersionAccepted,
+    termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
+    privacyVersionAccepted: user.privacyVersionAccepted,
+    privacyAcceptedAt: user.privacyAcceptedAt?.toISOString() ?? null,
     status: user.status,
     deletionRequestedAt: user.deletionRequestedAt?.toISOString() ?? null,
     deletionScheduledFor: user.deletionScheduledFor?.toISOString() ?? null,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString()
   };
+}
+
+export function getCurrentPolicies(_request: Request, response: Response): void {
+  response.status(200).json({
+    termsVersion: env.TERMS_POLICY_VERSION,
+    privacyVersion: env.PRIVACY_POLICY_VERSION,
+    termsPath: "/terms",
+    privacyPath: "/privacy"
+  });
+}
+
+export async function acceptPolicies(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  const payload = acceptPolicyConsentRequestSchema.parse(request.body);
+  if (
+    payload.termsVersion !== env.TERMS_POLICY_VERSION
+    || payload.privacyVersion !== env.PRIVACY_POLICY_VERSION
+  ) {
+    throw new HttpError("The policies changed while you were reviewing them. Review the current versions and try again.", 409);
+  }
+  const acceptedAt = new Date();
+  const db = requireDatabase();
+  const [user] = await db.update(users).set({
+    termsVersionAccepted: env.TERMS_POLICY_VERSION,
+    termsAcceptedAt: acceptedAt,
+    privacyVersionAccepted: env.PRIVACY_POLICY_VERSION,
+    privacyAcceptedAt: acceptedAt,
+    updatedAt: acceptedAt
+  }).where(and(eq(users.id, request.auth.userId), eq(users.status, "active"))).returning();
+  if (!user) throw new HttpError("Account is unavailable.", 404);
+  response.status(200).json({ user: toAuthUser(user) });
+}
+
+export async function getMemorySettings(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  const db = requireDatabase();
+  const [user] = await db.select({ memoryEnabled: users.memoryEnabled })
+    .from(users)
+    .where(and(eq(users.id, request.auth.userId), eq(users.status, "active")))
+    .limit(1);
+  if (!user) throw new HttpError("Account is unavailable.", 404);
+  response.status(200).json({ enabled: user.memoryEnabled });
+}
+
+export async function updateMemorySettings(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  const payload = memorySettingsSchema.parse(request.body);
+  const db = requireDatabase();
+  const [user] = await db.update(users)
+    .set({ memoryEnabled: payload.enabled, updatedAt: new Date() })
+    .where(and(eq(users.id, request.auth.userId), eq(users.status, "active")))
+    .returning({ memoryEnabled: users.memoryEnabled });
+  if (!user) throw new HttpError("Account is unavailable.", 404);
+  response.status(200).json({ enabled: user.memoryEnabled });
+}
+
+export async function clearAccountMemory(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  requireDatabase();
+  await conversationStore.clearAllMemory(request.auth.userId);
+  response.status(204).end();
 }
 
 export async function updateProfile(request: Request, response: Response): Promise<void> {

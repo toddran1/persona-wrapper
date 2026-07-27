@@ -27,6 +27,11 @@ DATABASE_URL=postgres://persona:persona_dev_password@localhost:5434/persona_wrap
 npm run db:migrate
 ```
 
+Migration `0013_user_memory_controls.sql` adds the account-level switch used to
+disable future conversation-memory generation and prompt injection. Memory
+content itself remains scoped to each conversation's metadata and can be
+deleted per conversation or for all conversations owned by the signed-in user.
+
 With `DATABASE_URL` unset, the API falls back to in-memory/local-only storage so existing tests and quick local runs do not require Postgres.
 
 With `DATABASE_URL` set, the API currently persists:
@@ -223,3 +228,23 @@ OPENAI_STYLE_REFERENCE_SYNTHETIC_LIMIT=20
 OPENAI_STYLE_REFERENCE_GOLDEN_LIMIT=5
 OPENAI_STYLE_REFERENCE_MAX_TOKENS=9000
 ```
+
+## Versioned policy consent
+
+Registration requires affirmative acceptance of both the currently deployed Terms
+of Use and Privacy Policy. The `users` table stores each accepted policy version and
+acceptance timestamp independently:
+
+- `terms_version_accepted` and `terms_accepted_at`
+- `privacy_version_accepted` and `privacy_accepted_at`
+
+`TERMS_POLICY_VERSION` and `PRIVACY_POLICY_VERSION` are deployment configuration,
+not values supplied authoritatively by a client. The API validates registration and
+re-consent against those configured versions. Increasing either version makes
+existing sessions consent-stale: normal authenticated API routes return HTTP 428
+until the user reviews and accepts the current policies. Session/logout and the
+current-policy and acceptance endpoints remain available during that gate.
+
+Only increase a configured version for a material policy update that should require
+affirmative re-consent. Deploy the updated legal page content and version
+configuration together.

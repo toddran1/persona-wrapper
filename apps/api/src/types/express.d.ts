@@ -7,6 +7,7 @@ declare global {
         userId: string;
         sessionId: string;
         clientType: AuthClientType;
+        policyConsentRequired: boolean;
       };
     }
   }

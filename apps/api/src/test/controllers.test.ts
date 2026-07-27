@@ -2,9 +2,11 @@ import type { Request, Response } from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cancelChatJob, postChat, postChatStream } from "../controllers/chat.controller.js";
 import { getPersona, getPersonas } from "../controllers/persona.controller.js";
+import { acceptPolicies, getCurrentPolicies } from "../controllers/account.controller.js";
 import { backgroundChatJobService } from "../services/backgroundChatJobService.js";
 import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
 import { usageControlService } from "../services/usageControlService.js";
+import { requireCurrentPolicyConsent } from "../middleware/authMiddleware.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -40,6 +42,32 @@ function createMockResponse() {
 }
 
 describe("controllers", () => {
+  it("blocks authenticated API use until current policy consent is recorded", () => {
+    const next = vi.fn();
+    requireCurrentPolicyConsent({
+      path: "/api/chat",
+      auth: {
+        userId: "user_policy",
+        sessionId: "session_policy",
+        clientType: "web",
+        policyConsentRequired: true
+      }
+    } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 428 }));
+
+    next.mockClear();
+    requireCurrentPolicyConsent({
+      path: "/api/account/policies/accept",
+      auth: {
+        userId: "user_policy",
+        sessionId: "session_policy",
+        clientType: "web",
+        policyConsentRequired: true
+      }
+    } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith();
+  });
+
   it("returns personas from the persona controller", () => {
     const { response, state } = createMockResponse();
 
@@ -59,6 +87,30 @@ describe("controllers", () => {
 
     expect(state.statusCode).toBe(200);
     expect((state.body as { persona: { id: string } }).persona.id).toBe("larae");
+  });
+
+  it("exposes the deployed policy versions and rejects stale acceptance", async () => {
+    const current = createMockResponse();
+    getCurrentPolicies({} as Request, current.response);
+    expect(current.state.statusCode).toBe(200);
+    expect(current.state.body).toMatchObject({
+      termsVersion: expect.any(String),
+      privacyVersion: expect.any(String),
+      termsPath: "/terms",
+      privacyPath: "/privacy"
+    });
+
+    await expect(acceptPolicies({
+      auth: {
+        userId: "user_policy",
+        sessionId: "session_policy",
+        clientType: "web",
+        policyConsentRequired: true
+      },
+      body: { termsVersion: "stale", privacyVersion: "stale" }
+    } as Request, createMockResponse().response)).rejects.toMatchObject({
+      statusCode: 409
+    });
   });
 
   it("returns structured chat output from the chat controller", async () => {

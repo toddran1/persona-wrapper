@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, hasCompletePersonaVisualVideoSet, llmInputSchema, personaVisualStageSchema, restoreAccountRequestSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, currentPoliciesResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, hasCompletePersonaVisualVideoSet, llmInputSchema, personaVisualStageSchema, registerRequestSchema, restoreAccountRequestSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
   it("defaults omitted persona videos to image-only stages", () => {
@@ -97,6 +97,32 @@ describe("shared schemas", () => {
       deletionRequestedAt: "2026-07-11T12:00:00.000Z",
       deletionScheduledFor: "2026-08-10T12:00:00.000Z"
     }).status).toBe("pending_deletion");
+  });
+
+  it("requires versioned Terms and Privacy consent at registration", () => {
+    const policies = currentPoliciesResponseSchema.parse({
+      termsVersion: "2026-07-24",
+      privacyVersion: "2026-07-24",
+      termsPath: "/terms",
+      privacyPath: "/privacy"
+    });
+    expect(registerRequestSchema.parse({
+      email: "new@example.com",
+      password: "password123",
+      policyConsent: {
+        termsVersion: policies.termsVersion,
+        privacyVersion: policies.privacyVersion
+      },
+      clientType: "web"
+    }).policyConsent).toEqual({
+      termsVersion: "2026-07-24",
+      privacyVersion: "2026-07-24"
+    });
+    expect(() => registerRequestSchema.parse({
+      email: "new@example.com",
+      password: "password123",
+      clientType: "web"
+    })).toThrow();
   });
   it("applies chat request defaults", () => {
     const parsed = chatRequestSchema.parse({

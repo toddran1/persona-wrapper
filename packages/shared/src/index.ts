@@ -453,6 +453,28 @@ export const updateUserProfileRequestSchema = userPersonalizationProfileSchema.e
 );
 export type UpdateUserProfileRequest = z.infer<typeof updateUserProfileRequestSchema>;
 
+export const memorySettingsSchema = z.object({
+  enabled: z.boolean()
+}).strict();
+export type MemorySettings = z.infer<typeof memorySettingsSchema>;
+
+export const policyVersionSchema = z.string().trim().min(1).max(80);
+
+export const policyVersionsSchema = z.object({
+  termsVersion: policyVersionSchema,
+  privacyVersion: policyVersionSchema
+}).strict();
+export type PolicyVersions = z.infer<typeof policyVersionsSchema>;
+
+export const acceptPolicyConsentRequestSchema = policyVersionsSchema;
+export type AcceptPolicyConsentRequest = z.infer<typeof acceptPolicyConsentRequestSchema>;
+
+export const currentPoliciesResponseSchema = policyVersionsSchema.extend({
+  termsPath: z.literal("/terms"),
+  privacyPath: z.literal("/privacy")
+});
+export type CurrentPoliciesResponse = z.infer<typeof currentPoliciesResponseSchema>;
+
 export const authUserSchema = z.object({
   id: z.string(),
   email: z.string().email().nullable().optional(),
@@ -462,6 +484,11 @@ export const authUserSchema = z.object({
   preferredName: z.string().nullable().optional(),
   gender: userGenderSchema.nullable().optional(),
   birthday: userBirthdaySchema.nullable().optional(),
+  memoryEnabled: z.boolean().optional(),
+  termsVersionAccepted: z.string().nullable().optional(),
+  termsAcceptedAt: z.string().nullable().optional(),
+  privacyVersionAccepted: z.string().nullable().optional(),
+  privacyAcceptedAt: z.string().nullable().optional(),
   status: z.string(),
   deletionRequestedAt: z.string().nullable().optional(),
   deletionScheduledFor: z.string().nullable().optional(),
@@ -509,6 +536,7 @@ export const registerRequestSchema = z.object({
   username: z.string().min(3).max(64).optional(),
   password: z.string().min(8).max(256),
   displayName: z.string().min(1).max(120).optional(),
+  policyConsent: policyVersionsSchema,
   clientType: authClientTypeSchema.default("web"),
   deviceId: z.string().max(200).optional()
 }).refine((value) => Boolean(value.email || value.username), {
@@ -1192,6 +1220,13 @@ export const apiContract = contract.router({
       pathParams: z.object({ conversationId: z.string().min(1) }),
       body: contract.noBody(),
       responses: { 204: contract.noBody(), 404: apiErrorSchema }
+    },
+    clearMemory: {
+      method: "DELETE",
+      path: "/api/chat/conversations/:conversationId/memory",
+      pathParams: z.object({ conversationId: z.string().min(1) }),
+      body: contract.noBody(),
+      responses: { 204: contract.noBody(), 404: apiErrorSchema }
     }
   }),
   safety: contract.router({
@@ -1209,6 +1244,41 @@ export const apiContract = contract.router({
     }
   }),
   account: contract.router({
+    currentPolicies: {
+      method: "GET",
+      path: "/api/account/policies/current",
+      responses: { 200: currentPoliciesResponseSchema }
+    },
+    acceptPolicies: {
+      method: "POST",
+      path: "/api/account/policies/accept",
+      body: acceptPolicyConsentRequestSchema,
+      responses: {
+        200: z.object({ user: authUserSchema }),
+        400: apiErrorSchema,
+        401: apiErrorSchema,
+        404: apiErrorSchema,
+        409: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    },
+    getMemorySettings: {
+      method: "GET",
+      path: "/api/account/memory",
+      responses: { 200: memorySettingsSchema, 401: apiErrorSchema, 404: apiErrorSchema, 503: apiErrorSchema }
+    },
+    updateMemorySettings: {
+      method: "PATCH",
+      path: "/api/account/memory",
+      body: memorySettingsSchema,
+      responses: { 200: memorySettingsSchema, 401: apiErrorSchema, 404: apiErrorSchema, 503: apiErrorSchema }
+    },
+    clearMemory: {
+      method: "DELETE",
+      path: "/api/account/memory",
+      body: contract.noBody(),
+      responses: { 204: contract.noBody(), 401: apiErrorSchema, 503: apiErrorSchema }
+    },
     updateProfile: {
       method: "PATCH",
       path: "/api/account/profile",

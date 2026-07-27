@@ -92,6 +92,20 @@
       "when": 1785110000000,
       "tag": "0012_conversation_listing_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1785200000000,
+      "tag": "0013_user_memory_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1785280000000,
+      "tag": "0014_policy_consent",
+      "breakpoints": true
     }
   ]
 }

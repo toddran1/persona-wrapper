@@ -1136,6 +1136,49 @@ textarea {
   white-space: nowrap;
 }
 
+.settings-list-row small {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--theme-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.settings-memory-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.8rem;
+  height: 1.55rem;
+  padding: 0.14rem;
+  border: 1px solid rgba(244, 226, 214, 0.22);
+  border-radius: 999px;
+  background: rgba(244, 226, 214, 0.1);
+  cursor: pointer;
+}
+
+.settings-memory-switch span {
+  display: block;
+  width: 1.12rem;
+  height: 1.12rem;
+  border-radius: 50%;
+  background: var(--theme-text);
+  transition: transform 160ms ease;
+}
+
+.settings-memory-switch-on {
+  border-color: var(--theme-accent);
+  background: color-mix(in srgb, var(--theme-accent) 35%, transparent);
+}
+
+.settings-memory-switch-on span {
+  transform: translateX(1.2rem);
+  background: var(--theme-accent);
+}
+
+.settings-memory-danger strong {
+  color: var(--theme-danger);
+}
+
 .settings-identity-editor {
   display: flex;
   align-items: center;
@@ -5545,4 +5588,155 @@ button:disabled {
   font: inherit;
   font-weight: 800;
   cursor: pointer;
+}
+.conversation-registration-consent {
+  align-items: flex-start;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.74rem;
+  gap: 0.55rem;
+  line-height: 1.45;
+}
+
+.conversation-registration-consent input {
+  accent-color: var(--accent-2);
+  flex: 0 0 auto;
+  margin-top: 0.15rem;
+}
+
+.conversation-registration-consent a {
+  color: var(--accent-2);
+  text-underline-offset: 0.15em;
+}
+
+.policy-consent-shell {
+  align-items: center;
+  background:
+    radial-gradient(circle at 15% 12%, rgba(115, 57, 183, 0.34), transparent 34rem),
+    radial-gradient(circle at 88% 82%, rgba(218, 179, 83, 0.2), transparent 32rem),
+    #09060f;
+  box-sizing: border-box;
+  color: #f7eef0;
+  display: flex;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 1.5rem;
+}
+
+.policy-consent-card {
+  background: linear-gradient(145deg, rgba(31, 20, 43, 0.98), rgba(15, 10, 23, 0.98));
+  border: 1px solid rgba(218, 179, 83, 0.38);
+  border-radius: 1.35rem;
+  box-shadow: 0 2rem 5rem rgba(0, 0, 0, 0.44);
+  max-width: 34rem;
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  width: 100%;
+}
+
+.policy-consent-card h1 {
+  font-size: clamp(1.8rem, 6vw, 2.65rem);
+  line-height: 1;
+  margin: 0.45rem 0 1rem;
+}
+
+.policy-consent-card > p:not(.policy-consent-eyebrow) {
+  color: #c8bdd8;
+  line-height: 1.6;
+}
+
+.policy-consent-eyebrow {
+  color: #dab353;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.policy-consent-links {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 1.5rem 0;
+}
+
+.policy-consent-links a {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.75rem;
+  color: #f7eef0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0.85rem 0.95rem;
+  text-decoration: none;
+}
+
+.policy-consent-check {
+  align-items: flex-start;
+  background: rgba(218, 179, 83, 0.07);
+  border: 1px solid rgba(218, 179, 83, 0.24);
+  border-radius: 0.85rem;
+  display: flex;
+  gap: 0.75rem;
+  line-height: 1.45;
+  padding: 1rem;
+}
+
+.policy-consent-check input {
+  accent-color: #dab353;
+  height: 1.1rem;
+  margin-top: 0.15rem;
+  width: 1.1rem;
+}
+
+.policy-consent-primary,
+.policy-consent-logout,
+.policy-consent-error button {
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+.policy-consent-primary {
+  background: #dab353;
+  color: #170f21;
+  margin-top: 1rem;
+  padding: 0.95rem 1.25rem;
+  width: 100%;
+}
+
+.policy-consent-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.policy-consent-logout {
+  background: transparent;
+  color: #c8bdd8;
+  display: block;
+  margin: 1rem auto 0;
+  padding: 0.55rem 1rem;
+}
+
+.policy-consent-error {
+  border: 1px solid #ec5a78;
+  border-radius: 0.8rem;
+  color: #f7eef0;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.8rem;
+}
+
+.policy-consent-error button {
+  background: transparent;
+  color: #dab353;
+}
+
+@media (max-width: 480px) {
+  .policy-consent-links {
+    grid-template-columns: 1fr;
+  }
 }

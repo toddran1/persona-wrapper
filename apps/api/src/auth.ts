@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { betterAuth } from "better-auth";
+import { APIError, betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { expo } from "@better-auth/expo";
 import { username } from "better-auth/plugins";
@@ -41,12 +41,31 @@ export const auth = database ? betterAuth({
   databaseHooks: {
     user: {
       create: {
-        before: async (user) => ({
-          data: {
+        before: async (user, context) => {
+          const data = {
             ...user,
             name: user.name?.trim() || user.username?.toString() || "Baddie"
+          };
+          if (context?.path !== "/sign-up/email") return { data };
+          if (
+            user.termsVersionAccepted !== env.TERMS_POLICY_VERSION
+            || user.privacyVersionAccepted !== env.PRIVACY_POLICY_VERSION
+          ) {
+            throw new APIError("BAD_REQUEST", {
+              message: "You must accept the current Terms of Use and Privacy Policy to create an account."
+            });
           }
-        })
+          const acceptedAt = new Date();
+          return {
+            data: {
+              ...data,
+              termsVersionAccepted: env.TERMS_POLICY_VERSION,
+              termsAcceptedAt: acceptedAt,
+              privacyVersionAccepted: env.PRIVACY_POLICY_VERSION,
+              privacyAcceptedAt: acceptedAt
+            }
+          };
+        }
       }
     },
     session: {
@@ -90,7 +109,11 @@ export const auth = database ? betterAuth({
       preferredName: { type: "string", required: false, input: false },
       gender: { type: "string", required: false, input: false },
       birthMonth: { type: "number", required: false, input: false },
-      birthDay: { type: "number", required: false, input: false }
+      birthDay: { type: "number", required: false, input: false },
+      termsVersionAccepted: { type: "string", required: false, input: true },
+      termsAcceptedAt: { type: "date", required: false, input: false },
+      privacyVersionAccepted: { type: "string", required: false, input: true },
+      privacyAcceptedAt: { type: "date", required: false, input: false }
     }
   },
   session: {

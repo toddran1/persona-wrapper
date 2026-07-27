@@ -33,6 +33,7 @@ type ConversationRecord = {
   updatedAt?: Date;
   messages: ChatMessage[];
   turns?: ConversationTurn[];
+  memoryEnabled?: boolean;
 };
 
 type ConversationMessageMetadata = {
@@ -57,6 +58,7 @@ type ConversationOptions = {
   userId?: string;
   personaId?: string;
   titleSeed?: string;
+  memoryEnabled?: boolean;
 };
 
 type Database = NonNullable<ReturnType<typeof getDatabase>>;
@@ -131,6 +133,7 @@ export class ConversationStore {
           }
           existing.personaId = options.personaId;
         }
+        if (options.memoryEnabled !== undefined) existing.memoryEnabled = options.memoryEnabled;
         return existing;
       }
     }
@@ -146,7 +149,8 @@ export class ConversationStore {
       metadata: {},
       createdAt: now,
       updatedAt: now,
-      messages: [...seedHistory]
+      messages: [...seedHistory],
+      memoryEnabled: options.memoryEnabled ?? true
     };
 
     this.conversations.set(id, record);
@@ -161,7 +165,7 @@ export class ConversationStore {
     const history = this.getPromptHistory(record);
     const memorySummary = getMemorySummary(record.metadata);
     const structuredMemory = getStructuredMemory(record.metadata);
-    if ((!memorySummary && !structuredMemory) || !env.CONVERSATION_MEMORY_SUMMARY_ENABLED) {
+    if (record.memoryEnabled === false || (!memorySummary && !structuredMemory) || !env.CONVERSATION_MEMORY_SUMMARY_ENABLED) {
       return history;
     }
 
@@ -191,7 +195,8 @@ export class ConversationStore {
       const nextMetadata = buildConversationMetadata(
         record.metadata,
         [...record.messages, ...nextMessages],
-        nextTurns
+        nextTurns,
+        record.memoryEnabled !== false
       );
 
       if (messages.length > 0) {
@@ -243,7 +248,8 @@ export class ConversationStore {
       metadata: buildConversationMetadata(
         record.metadata,
         [...record.messages, ...nextMessages],
-        nextTurns
+        nextTurns,
+        record.memoryEnabled !== false
       ),
       updatedAt: new Date(),
       messages: [...record.messages, ...nextMessages],
@@ -261,6 +267,48 @@ export class ConversationStore {
       return;
     }
     this.conversations.delete(conversationId);
+  }
+
+  async clearMemory(conversationId: string, userId?: string): Promise<boolean> {
+    const db = getDatabase();
+    if (db) {
+      const [updated] = await db.update(conversations)
+        .set({
+          metadata: sql`${conversations.metadata} - 'memorySummary' - 'memorySummaryUpdatedAt' - 'structuredMemory' - 'structuredMemoryUpdatedAt'`
+        })
+        .where(and(
+          eq(conversations.id, conversationId),
+          userId ? eq(conversations.userId, userId) : isNull(conversations.userId)
+        ))
+        .returning({ id: conversations.id });
+      return Boolean(updated);
+    }
+
+    const record = this.conversations.get(conversationId);
+    if (!record || !conversationMatchesOwner(record, userId)) return false;
+    record.metadata = withoutConversationMemory(record.metadata);
+    return true;
+  }
+
+  async clearAllMemory(userId?: string): Promise<number> {
+    const db = getDatabase();
+    if (db) {
+      const updated = await db.update(conversations)
+        .set({
+          metadata: sql`${conversations.metadata} - 'memorySummary' - 'memorySummaryUpdatedAt' - 'structuredMemory' - 'structuredMemoryUpdatedAt'`
+        })
+        .where(userId ? eq(conversations.userId, userId) : isNull(conversations.userId))
+        .returning({ id: conversations.id });
+      return updated.length;
+    }
+
+    let count = 0;
+    for (const record of this.conversations.values()) {
+      if (!conversationMatchesOwner(record, userId)) continue;
+      record.metadata = withoutConversationMemory(record.metadata);
+      count += 1;
+    }
+    return count;
   }
 
   async list(userId?: string, limit = 100, query?: string): Promise<ConversationSummary[]> {
@@ -742,7 +790,8 @@ export class ConversationStore {
             existing.messages.map(rowToChatMessage),
             existing.messages.map(rowToMessageMetadata),
             legacyTurnPersonaId(nextMetadata, existing.personaId)
-          )
+          ),
+          memoryEnabled: options.memoryEnabled ?? true
         };
       }
     }
@@ -780,7 +829,8 @@ export class ConversationStore {
       pinned: false,
       metadata: {},
       messages: [...seedHistory],
-      turns: buildConversationTurns(seedHistory)
+      turns: buildConversationTurns(seedHistory),
+      memoryEnabled: options.memoryEnabled ?? true
     };
   }
 }
@@ -900,9 +950,11 @@ function conversationFallsAfterCursor(record: ConversationRecord, cursor: Conver
 function buildConversationMetadata(
   current: Record<string, unknown> | null | undefined,
   messages: ChatMessage[],
-  turns: ConversationTurn[]
+  turns: ConversationTurn[],
+  memoryEnabled = true
 ): Record<string, unknown> {
   const next = { ...(current ?? {}) };
+  if (!memoryEnabled) return next;
   const promptSelection = selectPromptHistory(messages);
   const hasOmittedContext = messages
     .slice(0, promptSelection.startIndex)
@@ -937,6 +989,17 @@ function buildConversationMetadata(
     delete next.structuredMemory;
     delete next.structuredMemoryUpdatedAt;
   }
+  return next;
+}
+
+function withoutConversationMemory(
+  current: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  const next = { ...(current ?? {}) };
+  delete next.memorySummary;
+  delete next.memorySummaryUpdatedAt;
+  delete next.structuredMemory;
+  delete next.structuredMemoryUpdatedAt;
   return next;
 }
 

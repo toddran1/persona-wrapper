@@ -177,6 +177,60 @@ describe("ConversationStore prompt context", () => {
     expect(context.at(-2)?.content).toBe("What color did I say I liked?");
   });
 
+  it("does not generate or inject memory while memory is disabled", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 4;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 10000;
+    env.CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES = 2;
+    const store = new ConversationStore();
+    let conversation = await store.getOrCreate(`disabled-memory-${randomUUID()}`, [], {
+      userId: "memory-owner",
+      memoryEnabled: false
+    });
+    for (let index = 0; index < 5; index += 1) {
+      conversation = await store.appendTurn(conversation, [
+        { role: "user", content: `Private preference ${index}` },
+        { role: "assistant", content: `Acknowledged ${index}` }
+      ]);
+    }
+
+    const context = store.getPromptContext(conversation);
+    expect(context.some((message) => message.role === "system" && message.content.includes("memory"))).toBe(false);
+    expect(conversation.metadata).not.toHaveProperty("memorySummary");
+    expect(conversation.metadata).not.toHaveProperty("structuredMemory");
+  });
+
+  it("clears memory for one chat or every chat without crossing owner boundaries", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 4;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 10000;
+    env.CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES = 2;
+    const store = new ConversationStore();
+    const createRememberingConversation = async (id: string, userId: string) => {
+      let conversation = await store.getOrCreate(id, [], { userId });
+      for (let index = 0; index < 5; index += 1) {
+        conversation = await store.appendTurn(conversation, [
+          { role: "user", content: `Remember ${id} ${index}` },
+          { role: "assistant", content: `Saved ${index}` }
+        ]);
+      }
+      return conversation;
+    };
+    const first = await createRememberingConversation(`memory-a-${randomUUID()}`, "owner-a");
+    const second = await createRememberingConversation(`memory-b-${randomUUID()}`, "owner-a");
+    const otherOwner = await createRememberingConversation(`memory-c-${randomUUID()}`, "owner-b");
+
+    expect(store.getPromptContext(first)[0]?.role).toBe("system");
+    expect(await store.clearMemory(first.id, "owner-b")).toBe(false);
+    expect(await store.clearMemory(first.id, "owner-a")).toBe(true);
+    expect(store.getPromptContext(first)[0]?.role).not.toBe("system");
+    expect(store.getPromptContext(second)[0]?.role).toBe("system");
+
+    expect(await store.clearAllMemory("owner-a")).toBe(2);
+    expect(store.getPromptContext(second)[0]?.role).not.toBe("system");
+    expect(store.getPromptContext(otherOwner)[0]?.role).toBe("system");
+  });
+
   it("adds structured goals, decisions, and referenced assets for older turns", async () => {
     env.OPENAI_MAX_CONTEXT_MESSAGES = 2;
     env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;

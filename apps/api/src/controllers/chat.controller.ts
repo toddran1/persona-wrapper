@@ -15,7 +15,7 @@ import { openAIResponseLifecycleService } from "../services/openAIResponseLifecy
 import { requestOwnerId } from "../utils/requestIdentity.js";
 import { logger } from "../utils/logger.js";
 
-const conversationStore = new ConversationStore();
+export const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
 const evalCaptureService = new EvalCaptureService();
 const evalCaptureRequestSchema = z.object({
@@ -253,6 +253,13 @@ export async function deleteConversation(request: Request, response: Response): 
     throw new HttpError("Conversation not found", 404);
   }
   response.status(204).send();
+}
+
+export async function clearConversationMemory(request: Request, response: Response): Promise<void> {
+  const conversationId = String(request.params.conversationId ?? "");
+  const cleared = await conversationStore.clearMemory(conversationId, requestIdentity(request));
+  if (!cleared) throw new HttpError("Conversation not found", 404);
+  response.status(204).end();
 }
 
 export async function patchConversation(request: Request, response: Response): Promise<void> {

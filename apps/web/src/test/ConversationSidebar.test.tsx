@@ -31,6 +31,9 @@ const persona = personaSummarySchema.parse({
 
 function renderSidebar(options: { showPersona?: boolean; onSelectPersona?: (id: string) => void } = {}) {
   const onUpdateProfile = vi.fn().mockResolvedValue(undefined);
+  const onGetMemorySettings = vi.fn().mockResolvedValue(true);
+  const onUpdateMemorySettings = vi.fn().mockResolvedValue(undefined);
+  const onClearAllMemory = vi.fn().mockResolvedValue(undefined);
   const view = render(
     <ConversationSidebar
       personaName="LaRae the Baddest"
@@ -58,6 +61,10 @@ function renderSidebar(options: { showPersona?: boolean; onSelectPersona?: (id: 
       onRequestPasswordReset={vi.fn()}
       onChangePassword={vi.fn()}
       onUpdateProfile={onUpdateProfile}
+      onGetMemorySettings={onGetMemorySettings}
+      onUpdateMemorySettings={onUpdateMemorySettings}
+      onClearConversationMemory={vi.fn().mockResolvedValue(undefined)}
+      onClearAllMemory={onClearAllMemory}
       onListConnectedAccounts={vi.fn().mockResolvedValue([
         {
           id: "account_credential",
@@ -82,10 +89,71 @@ function renderSidebar(options: { showPersona?: boolean; onSelectPersona?: (id: 
       onPinConversation={vi.fn()}
     />,
   );
-  return { onUpdateProfile, ...view };
+  return { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory, ...view };
 }
 
 describe("ConversationSidebar settings", () => {
+  it("requires current policy consent before registration", async () => {
+    const user = userEvent.setup();
+    const onRegister = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ConversationSidebar
+        personaName="LaRae the Baddest"
+        personas={[]}
+        onSelectPersona={vi.fn()}
+        currentPolicies={{
+          termsVersion: "2026-07-24",
+          privacyVersion: "2026-07-24",
+          termsPath: "/terms",
+          privacyPath: "/privacy"
+        }}
+        conversations={[]}
+        onLogin={vi.fn()}
+        onRegister={onRegister}
+        onRestoreAccount={vi.fn()}
+        onRequestPasswordReset={vi.fn()}
+        onChangePassword={vi.fn()}
+        onUpdateProfile={vi.fn()}
+        onGetMemorySettings={vi.fn()}
+        onUpdateMemorySettings={vi.fn()}
+        onClearConversationMemory={vi.fn()}
+        onClearAllMemory={vi.fn()}
+        onListConnectedAccounts={vi.fn()}
+        onLinkConnectedAccount={vi.fn()}
+        onUnlinkConnectedAccount={vi.fn()}
+        onDeleteAccount={vi.fn()}
+        onExportAccount={vi.fn()}
+        onExportConversation={vi.fn()}
+        onImportConversations={vi.fn()}
+        onLogout={vi.fn()}
+        onOAuthLogin={vi.fn()}
+        onNewConversation={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        onRenameConversation={vi.fn()}
+        onPinConversation={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Log in \| Create account/i }));
+    await user.click(screen.getByTestId("auth-register-tab"));
+    await user.type(screen.getByTestId("auth-register-email"), "new@example.com");
+    await user.type(screen.getByTestId("auth-register-password"), "password123");
+    expect(screen.getByTestId("auth-submit")).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Terms of Use" })).toHaveAttribute("href", "/terms");
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+    await user.click(screen.getByTestId("auth-register-consent"));
+    expect(screen.getByTestId("auth-submit")).toBeEnabled();
+    await user.click(screen.getByTestId("auth-submit"));
+    await waitFor(() => expect(onRegister).toHaveBeenCalledWith(expect.objectContaining({
+      email: "new@example.com",
+      policyConsent: expect.objectContaining({
+        termsVersion: "2026-07-24",
+        privacyVersion: "2026-07-24"
+      })
+    })));
+  });
+
   it("renders persona profiles as selectable themed options", async () => {
     const user = userEvent.setup();
     const onSelectPersona = vi.fn();
@@ -99,7 +167,7 @@ describe("ConversationSidebar settings", () => {
 
   it("keeps the account menu compact and moves account controls into the settings modal", async () => {
     const user = userEvent.setup();
-    const { onUpdateProfile } = renderSidebar();
+    const { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory } = renderSidebar();
 
     await user.click(screen.getByTestId("account-menu-toggle"));
     const menu = screen.getByRole("menu", { name: "Account menu" });
@@ -128,6 +196,16 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(dialog).getByRole("button", { name: "Security & sign-in" }));
     expect(await within(dialog).findByRole("heading", { name: "Connected accounts" })).toBeInTheDocument();
     expect(within(dialog).getByText("Email & password")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Memory" }));
+    await waitFor(() => expect(onGetMemorySettings).toHaveBeenCalledOnce());
+    const memorySwitch = within(dialog).getByRole("switch", { name: "Use chat memory" });
+    expect(memorySwitch).toHaveAttribute("aria-checked", "true");
+    await user.click(memorySwitch);
+    await waitFor(() => expect(onUpdateMemorySettings).toHaveBeenCalledWith(false));
+    await user.click(within(dialog).getByRole("button", { name: /Clear all memory/ }));
+    await user.click(within(dialog).getByRole("button", { name: /Confirm clear all memory/ }));
+    await waitFor(() => expect(onClearAllMemory).toHaveBeenCalledOnce());
 
     await user.click(within(dialog).getByRole("button", { name: "Your data" }));
     expect(within(dialog).getByRole("button", { name: /Export account data/ })).toBeInTheDocument();

@@ -1,6 +1,6 @@
-import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, DataTransferJob, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
+import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, CurrentPoliciesResponse, DataTransferJob, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, PolicyVersions, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "./lib/api.js";
@@ -8,6 +8,7 @@ import { queryClient } from "./lib/queryClient.js";
 import { conversationsPageQueryOptions, conversationTurnsQueryOptions, personaQueryOptions, personasQueryOptions } from "./lib/chatQueries.js";
 import { ChatComposer } from "./components/ChatComposer.js";
 import { ConversationSidebar } from "./components/ConversationSidebar.js";
+import { PolicyConsentGate } from "./components/PolicyConsentGate.js";
 import { ConversationHistory, type RenderedTurn, type UserPromptAsset } from "./components/ConversationHistory.js";
 import { DebugPanel } from "./components/DebugPanel.js";
 import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
@@ -17,6 +18,15 @@ import { PersonaHeader } from "./components/PersonaHeader.js";
 import { PersonaVisualStage, type PersonaVisualState } from "./components/PersonaVisualStage.js";
 
 const NON_AUDIO_SPEAKING_MS = 8000;
+
+function hasCurrentPolicyConsent(user: AuthUser | undefined, policies: CurrentPoliciesResponse | undefined): boolean {
+  return Boolean(
+    user
+    && policies
+    && user.termsVersionAccepted === policies.termsVersion
+    && user.privacyVersionAccepted === policies.privacyVersion
+  );
+}
 
 function isImageOnlyResponse(outputs: ContentBlock[]): boolean {
   const hasImage = outputs.some((output) => output.type === "image");
@@ -273,6 +283,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [authError, setAuthError] = useState<string | undefined>();
   const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
+  const [currentPolicies, setCurrentPolicies] = useState<CurrentPoliciesResponse>();
+  const [policyLoading, setPolicyLoading] = useState(true);
+  const [policyError, setPolicyError] = useState<string>();
   const [evalSaving, setEvalSaving] = useState(false);
   const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
   const [evalError, setEvalError] = useState<string | undefined>();
@@ -294,6 +307,22 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const suppressAudioVisualForCurrentTurnRef = useRef(false);
   const suppressPersonaVisualTransitionsRef = useRef(false);
   const nonAudioVisualTimeoutRef = useRef<number | undefined>(undefined);
+  const loadCurrentPolicies = useCallback(async (): Promise<void> => {
+    setPolicyLoading(true);
+    setPolicyError(undefined);
+    try {
+      setCurrentPolicies(await api.getCurrentPolicies());
+    } catch (loadError) {
+      setPolicyError(loadError instanceof Error ? loadError.message : "Could not load the current policies.");
+    } finally {
+      setPolicyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCurrentPolicies();
+  }, [loadCurrentPolicies]);
+
   const personasResource = useQuery({
     ...personasQueryOptions(),
     retry: (failureCount, queryError) => failureCount < 12 && isTransientApiBootError(queryError)
@@ -308,7 +337,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   });
   const conversationsResource = useQuery({
     ...conversationsPageQueryOptions(undefined, undefined, authUser?.id),
-    enabled: Boolean(authUser),
+    enabled: hasCurrentPolicyConsent(authUser, currentPolicies),
     staleTime: 15_000
   });
   const deleteConversationMutation = useMutation({
@@ -531,13 +560,18 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       }
 
       try {
-        const me = await api.getCurrentUser();
+        const [me, policies] = await Promise.all([
+          api.getCurrentUser(),
+          api.getCurrentPolicies()
+        ]);
         authenticated = true;
         authenticatedUserId = me.user.id;
         if (!cancelled) {
           setAuthUser(me.user);
+          setCurrentPolicies(policies);
           setAuthError(undefined);
         }
+        if (!hasCurrentPolicyConsent(me.user, policies)) authenticated = false;
       } catch {
         if (!cancelled) {
           setAuthUser(undefined);
@@ -1428,7 +1462,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       const auth = await api.login({ identifier, password, clientType: "web" });
       setAuthUser(auth.user);
       resetConversation();
-      await refreshConversationList(undefined, true, auth.user.id);
+      if (hasCurrentPolicyConsent(auth.user, currentPolicies)) {
+        await refreshConversationList(undefined, true, auth.user.id);
+      }
     } catch (loginError) {
       const message = loginError instanceof Error ? loginError.message : "Login failed.";
       setAuthError(message);
@@ -1438,7 +1474,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
   }
 
-  async function handleRegister(payload: { email?: string; username?: string; password: string }): Promise<void> {
+  async function handleRegister(payload: { email?: string; username?: string; password: string; policyConsent: PolicyVersions }): Promise<void> {
     setAuthLoading(true);
     setAuthError(undefined);
     try {
@@ -1462,7 +1498,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       const auth = await api.restoreAccount({ identifier, password, clientType: "web" });
       setAuthUser(auth.user);
       resetConversation();
-      await refreshConversationList(undefined, true, auth.user.id);
+      if (hasCurrentPolicyConsent(auth.user, currentPolicies)) {
+        await refreshConversationList(undefined, true, auth.user.id);
+      }
     } catch (restoreError) {
       setAuthError(restoreError instanceof Error ? restoreError.message : "Account restoration failed.");
       throw restoreError;
@@ -1625,6 +1663,31 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       } as CSSProperties)
     : undefined;
 
+  const policyConsentRequired = Boolean(authUser && currentPolicies && (
+    authUser.termsVersionAccepted !== currentPolicies.termsVersion
+    || authUser.privacyVersionAccepted !== currentPolicies.privacyVersion
+  ));
+  const policyConsentUnknown = Boolean(authUser && !currentPolicies);
+
+  if (authUser && (policyConsentRequired || policyConsentUnknown)) {
+    return (
+      <PolicyConsentGate
+        policies={currentPolicies}
+        loading={policyLoading}
+        error={policyError}
+        onRetry={() => void loadCurrentPolicies()}
+        onAccept={async () => {
+          if (!currentPolicies) return;
+          setAuthUser(await api.acceptPolicies({
+            termsVersion: currentPolicies.termsVersion,
+            privacyVersion: currentPolicies.privacyVersion
+          }));
+        }}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
     reviewPageEnabled ? (
       <GoldenPairReviewPage />
@@ -1660,6 +1723,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           authLoading={authLoading}
           authError={authError}
           oauthProviders={oauthProviders}
+          currentPolicies={currentPolicies}
           conversations={conversationList}
           activeConversationId={conversationId}
           loading={conversationListLoading}
@@ -1673,6 +1737,13 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           onUpdateProfile={async (profile) => {
             setAuthUser(await api.updateProfile(profile));
           }}
+          onGetMemorySettings={api.getMemorySettings}
+          onUpdateMemorySettings={async (enabled) => {
+            const memoryEnabled = await api.updateMemorySettings(enabled);
+            setAuthUser((current) => current ? { ...current, memoryEnabled } : current);
+          }}
+          onClearConversationMemory={api.clearConversationMemory}
+          onClearAllMemory={api.clearAllMemory}
           onListConnectedAccounts={api.listConnectedAccounts}
           onLinkConnectedAccount={api.linkConnectedAccount}
           onUnlinkConnectedAccount={api.unlinkConnectedAccount}

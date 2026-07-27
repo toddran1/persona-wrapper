@@ -31,7 +31,7 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
+import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type CurrentPoliciesResponse, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -67,6 +67,7 @@ import { usePersonaAudio } from "./usePersonaAudio";
 import { useAccountSettingsController, type SettingsPanel } from "./useAccountSettingsController";
 import { PersonaVisualStage, type PersonaVisualState } from "./PersonaVisualStage";
 import { MobileAuthScreen, type MobileAuthMode } from "../auth/MobileAuthScreen";
+import { MobilePolicyConsentScreen } from "../auth/MobilePolicyConsentScreen";
 import {
   getClientContext,
   sortConversationSummaries,
@@ -93,6 +94,15 @@ const REPORT_CATEGORIES: Array<{ value: UnsafeOutputReportCategory; label: strin
   { value: "misinformation", label: "False or misleading information" },
   { value: "other", label: "Something else" }
 ];
+
+function hasCurrentPolicyConsent(user: AuthUser | undefined, policies: CurrentPoliciesResponse | undefined): boolean {
+  return Boolean(
+    user
+    && policies
+    && user.termsVersionAccepted === policies.termsVersion
+    && user.privacyVersionAccepted === policies.privacyVersion
+  );
+}
 
 function mobileAppUrl(path = ""): string {
   const normalizedPath = path.replace(/^\/+/, "");
@@ -238,6 +248,7 @@ export function MobileChatScreen() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState<string | undefined>();
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
+  const [currentPolicies, setCurrentPolicies] = useState<CurrentPoliciesResponse>();
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [resumingJobId, setResumingJobId] = useState<string | undefined>();
@@ -266,6 +277,7 @@ export function MobileChatScreen() {
   const [identifier, setIdentifier] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [registrationConsent, setRegistrationConsent] = useState(false);
   const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [drawerInteractive, setDrawerInteractive] = useState(false);
@@ -349,6 +361,14 @@ export function MobileChatScreen() {
     setProfileNotice,
     profileSelection,
     setProfileSelection,
+    memoryEnabled,
+    setMemoryEnabled,
+    memoryBusy,
+    setMemoryBusy,
+    memoryError,
+    setMemoryError,
+    memoryNotice,
+    setMemoryNotice,
     dataTransferJob,
     setDataTransferJob,
     deleteAccountVisible,
@@ -615,6 +635,73 @@ export function MobileChatScreen() {
     setSettingsPanel(panel);
     if (panel === "sessions") void refreshActiveSessions();
     if (panel === "security") void refreshConnectedAccounts();
+    if (panel === "memory") void refreshMemorySettings();
+  }
+
+  async function refreshMemorySettings(): Promise<void> {
+    setMemoryBusy(true);
+    setMemoryError(undefined);
+    try {
+      setMemoryEnabled(await api.getMemorySettings());
+    } catch (memoryLoadError) {
+      setMemoryError(memoryLoadError instanceof Error ? memoryLoadError.message : "Could not load memory settings.");
+    } finally {
+      setMemoryBusy(false);
+    }
+  }
+
+  async function updateMemoryEnabled(enabled: boolean): Promise<void> {
+    setMemoryBusy(true);
+    setMemoryError(undefined);
+    setMemoryNotice(undefined);
+    try {
+      const saved = await api.updateMemorySettings(enabled);
+      setMemoryEnabled(saved);
+      setAuthUser((current) => current ? { ...current, memoryEnabled: saved } : current);
+      setMemoryNotice(saved ? "Chat memory is on." : "Chat memory is off.");
+    } catch (memoryUpdateError) {
+      setMemoryError(memoryUpdateError instanceof Error ? memoryUpdateError.message : "Could not update memory settings.");
+    } finally {
+      setMemoryBusy(false);
+    }
+  }
+
+  function confirmClearMemory(scope: "chat" | "all"): void {
+    const isChat = scope === "chat";
+    Alert.alert(
+      isChat ? "Forget this chat?" : "Clear all memory?",
+      isChat
+        ? "This removes the memory condensed from the current chat."
+        : "This removes saved memory from every chat in your account.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: isChat ? "Forget" : "Clear all",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              setMemoryBusy(true);
+              setMemoryError(undefined);
+              setMemoryNotice(undefined);
+              try {
+                if (isChat) {
+                  if (!conversationId) return;
+                  await api.clearConversationMemory(conversationId);
+                  setMemoryNotice("This chat’s saved memory was removed.");
+                } else {
+                  await api.clearAllMemory();
+                  setMemoryNotice("Memory was removed from all of your chats.");
+                }
+              } catch (memoryClearError) {
+                setMemoryError(memoryClearError instanceof Error ? memoryClearError.message : "Could not clear memory.");
+              } finally {
+                setMemoryBusy(false);
+              }
+            })();
+          }
+        }
+      ]
+    );
   }
 
   function selectProfileOption(value: string): void {
@@ -1049,15 +1136,17 @@ export function MobileChatScreen() {
       setAuthError(undefined);
       setAuthChecked(false);
       try {
-        const [user, providers, personaList, savedPersonaId, savedConversationId] = await Promise.all([
+        const [user, providers, policies, personaList, savedPersonaId, savedConversationId] = await Promise.all([
           loadAuthenticatedUser(),
           api.getOAuthProviders().catch(() => []),
+          api.getCurrentPolicies(),
           queryClient.fetchQuery(personasQueryOptions()),
           getSelectedPersonaId().catch(() => undefined),
           getSelectedConversationId().catch(() => undefined)
         ]);
         setAuthUser(user);
         setOAuthProviders(providers);
+        setCurrentPolicies(policies);
 
         const selected = personaList.find((candidate) => candidate.id === savedPersonaId)
           ?? (persona && personaList.some((candidate) => candidate.id === persona.id) ? persona : undefined)
@@ -1068,7 +1157,7 @@ export function MobileChatScreen() {
         }
         const [detail, nextConversations] = await Promise.all([
           selected ? queryClient.fetchQuery(personaQueryOptions(selected.id)) : undefined,
-          user ? refreshConversations(user.id) : []
+          hasCurrentPolicyConsent(user, policies) ? refreshConversations(user!.id) : []
         ]);
         if (detail) {
           setPersona(detail);
@@ -1704,11 +1793,14 @@ export function MobileChatScreen() {
     setPassword("");
     setIdentifier("");
     setDisplayName("");
+    setRegistrationConsent(false);
     try {
       const savedConversationId = await getSelectedConversationId().catch(() => undefined);
       await ensureUserCacheRestored(user.id);
       hydrateCachedAccountData(user.id);
-      const nextConversations = await refreshConversations(user.id);
+      const nextConversations = hasCurrentPolicyConsent(user, currentPolicies)
+        ? await refreshConversations(user.id)
+        : [];
       if (savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
         await selectConversation(savedConversationId, { keepDrawerOpen: true, accountId: user.id });
       }
@@ -1724,9 +1816,10 @@ export function MobileChatScreen() {
       setError(undefined);
       setAuthError(undefined);
       try {
-        const [user, providers, personaList, savedPersonaId, savedConversationId] = await Promise.all([
+        const [user, providers, policies, personaList, savedPersonaId, savedConversationId] = await Promise.all([
           loadAuthenticatedUser(),
           api.getOAuthProviders().catch(() => []),
+          api.getCurrentPolicies(),
           queryClient.fetchQuery(personasQueryOptions()),
           getSelectedPersonaId().catch(() => undefined),
           getSelectedConversationId().catch(() => undefined)
@@ -1735,6 +1828,7 @@ export function MobileChatScreen() {
         setAuthUser(user);
         setAuthChecked(true);
         setOAuthProviders(providers);
+        setCurrentPolicies(policies);
 
         const selected = personaList.find((candidate) => candidate.id === savedPersonaId) ?? personaList[0];
         if (user) {
@@ -1744,7 +1838,7 @@ export function MobileChatScreen() {
         }
         const [detail, nextConversations] = await Promise.all([
           selected ? queryClient.fetchQuery(personaQueryOptions(selected.id)) : undefined,
-          user ? refreshConversations(user.id) : []
+          hasCurrentPolicyConsent(user, policies) ? refreshConversations(user!.id) : []
         ]);
         if (!mounted) return;
         if (detail) {
@@ -2164,6 +2258,10 @@ export function MobileChatScreen() {
         setAuthMode("login");
         return;
       }
+      if (authMode === "register" && (!registrationConsent || !currentPolicies)) {
+        setAuthError("Accept the Terms of Use and Privacy Policy to create an account.");
+        return;
+      }
       const auth = authMode === "login"
         ? await api.login({ identifier: trimmedIdentifier, password })
         : authMode === "restore"
@@ -2171,7 +2269,11 @@ export function MobileChatScreen() {
           : await api.register({
           password,
           ...(trimmedIdentifier.includes("@") ? { email: trimmedIdentifier } : { username: trimmedIdentifier }),
-          ...(displayName.trim() ? { displayName: displayName.trim() } : {})
+          ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
+          policyConsent: {
+            termsVersion: currentPolicies!.termsVersion,
+            privacyVersion: currentPolicies!.privacyVersion
+          }
         });
       await finishAuth(auth.user);
     } catch (authError) {
@@ -2532,6 +2634,8 @@ export function MobileChatScreen() {
         busy={authBusy}
         error={authError ?? error}
         oauthProviders={oauthProviders}
+        currentPolicies={currentPolicies}
+        registrationConsent={registrationConsent}
         theme={theme}
         onModeChange={(mode) => {
           setAuthMode(mode);
@@ -2540,12 +2644,34 @@ export function MobileChatScreen() {
         onIdentifierChange={setIdentifier}
         onDisplayNameChange={setDisplayName}
         onPasswordChange={setPassword}
+        onRegistrationConsentChange={setRegistrationConsent}
         onSubmit={() => void submitAuth()}
         onOAuth={(oauthProvider) => void startOAuth(oauthProvider)}
         onRetry={() => void retryLoadAppData()}
         onOpenPublicPage={(path) => void openPublicWebPage(path).catch(() => {
           setAuthError("Could not open this page. Check your internet connection and try again.");
         })}
+      />
+    );
+  }
+
+  if (!currentPolicies || !hasCurrentPolicyConsent(authUser, currentPolicies)) {
+    return (
+      <MobilePolicyConsentScreen
+        policies={currentPolicies}
+        loading={loading}
+        loadError={!currentPolicies ? error : undefined}
+        theme={theme}
+        onOpenPublicPage={(path) => void openPublicWebPage(path)}
+        onAccept={async () => {
+          if (!currentPolicies) return;
+          await finishAuth(await api.acceptPolicies({
+            termsVersion: currentPolicies.termsVersion,
+            privacyVersion: currentPolicies.privacyVersion
+          }));
+        }}
+        onRetry={() => void retryLoadAppData()}
+        onLogout={logout}
       />
     );
   }
@@ -2831,7 +2957,7 @@ export function MobileChatScreen() {
             </Pressable>
             {settingsPanel !== "main" ? (
               <Text style={[styles.settingsPanelTitle, { color: theme.text }]}>
-                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "about" ? "About" : "Your data"}
+                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "memory" ? "Memory" : settingsPanel === "about" ? "About" : "Your data"}
               </Text>
             ) : null}
           </View>
@@ -2900,6 +3026,14 @@ export function MobileChatScreen() {
                   <View style={styles.settingsRowCopy}>
                     <Text style={[styles.settingsRowText, { color: theme.text }]}>Active sessions</Text>
                     <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{activeSessions.length ? `${activeSessions.length} signed-in device${activeSessions.length === 1 ? "" : "s"}` : "Review signed-in devices"}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open memory controls" onPress={() => openSettingsPanel("memory")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="sparkles-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Memory</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Control memory inside individual chats</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
                 </Pressable>
@@ -3138,6 +3272,45 @@ export function MobileChatScreen() {
                 <Ionicons name="cloud-upload-outline" size={22} color={theme.text} />
                 <Text style={[styles.settingsRowText, { color: theme.text }]}>Import conversations</Text>
               </Pressable>
+            </View>
+          ) : null}
+          {settingsPanel === "memory" ? (
+            <View style={styles.settingsSection}>
+              <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>
+                Older parts of each chat can be condensed to help shape later replies. Memory stays inside each individual chat.
+              </Text>
+              {memoryError ? <Text style={[styles.settingsPanelDescription, { color: theme.danger }]} accessibilityRole="alert">{memoryError}</Text> : null}
+              {memoryNotice ? <Text style={[styles.settingsPanelDescription, { color: theme.accent2 }]} accessibilityLiveRegion="polite">{memoryNotice}</Text> : null}
+              <View style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                <Ionicons name="sparkles-outline" size={22} color={theme.text} />
+                <View style={styles.settingsRowCopy}>
+                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Use chat memory</Text>
+                  <Text style={[styles.settingsRowHint, { color: theme.muted }]}>When off, existing memory is not used and no new memory is created</Text>
+                </View>
+                <Switch
+                  accessibilityLabel="Use chat memory"
+                  disabled={memoryBusy}
+                  value={memoryEnabled}
+                  onValueChange={(enabled) => void updateMemoryEnabled(enabled)}
+                  trackColor={{ false: "rgba(255,255,255,0.18)", true: theme.accent }}
+                  thumbColor={theme.text}
+                />
+              </View>
+              <Pressable accessibilityRole="button" disabled={memoryBusy || !conversationId} onPress={() => confirmClearMemory("chat")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: conversationId ? 1 : 0.45 }]}>
+                <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.text} />
+                <View style={styles.settingsRowCopy}>
+                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Forget this chat</Text>
+                  <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Remove memory only from the current chat</Text>
+                </View>
+              </Pressable>
+              <Pressable accessibilityRole="button" disabled={memoryBusy} onPress={() => confirmClearMemory("all")} style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}>
+                <Ionicons name="trash-outline" size={22} color={theme.danger} />
+                <View style={styles.settingsRowCopy}>
+                  <Text style={[styles.settingsRowText, { color: theme.danger }]}>Clear all memory</Text>
+                  <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Remove saved memory from every chat</Text>
+                </View>
+              </Pressable>
+              {memoryBusy ? <ActivityIndicator color={theme.accent2} /> : null}
             </View>
           ) : null}
         </ScrollView>

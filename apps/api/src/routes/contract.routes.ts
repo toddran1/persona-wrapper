@@ -1,9 +1,10 @@
 import { apiContract, type UploadPresignRequest } from "@persona/shared";
 import { initServer } from "@ts-rest/express";
 import type { Request, Response } from "express";
-import { deleteAccount, getOAuthProviders, restoreAccount, updateProfile } from "../controllers/account.controller.js";
+import { acceptPolicies, clearAccountMemory, deleteAccount, getCurrentPolicies, getMemorySettings, getOAuthProviders, restoreAccount, updateMemorySettings, updateProfile } from "../controllers/account.controller.js";
 import {
   cancelChatJob,
+  clearConversationMemory,
   deleteConversation,
   getConversation,
   getConversationTurns,
@@ -112,12 +113,18 @@ export const apiContractRouter = server.router(apiContract, {
     turns: captured(getConversationTurns),
     get: captured(getConversation),
     update: captured(patchConversation),
-    remove: captured(deleteConversation)
+    remove: captured(deleteConversation),
+    clearMemory: captured(clearConversationMemory)
   },
   safety: {
     reportOutput: captured(postUnsafeOutputReport)
   },
   account: {
+    currentPolicies: captured(getCurrentPolicies),
+    acceptPolicies: captured(acceptPolicies),
+    getMemorySettings: captured(getMemorySettings),
+    updateMemorySettings: captured(updateMemorySettings),
+    clearMemory: captured(clearAccountMemory),
     updateProfile: captured(updateProfile),
     restore: captured(restoreAccount),
     remove: captured(deleteAccount),

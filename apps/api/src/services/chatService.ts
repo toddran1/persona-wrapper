@@ -87,24 +87,31 @@ function hasErrorLikeContent(blocks: ContentBlock[], rawText?: string): boolean 
   });
 }
 
-async function loadUserPersonalizationProfile(ownerId?: string): Promise<UserPersonalizationProfile | undefined> {
+async function loadUserChatContext(ownerId?: string): Promise<{
+  profile?: UserPersonalizationProfile;
+  memoryEnabled: boolean;
+}> {
   const db = getDatabase();
-  if (!db || !ownerId) return undefined;
+  if (!db || !ownerId) return { memoryEnabled: true };
   const [user] = await db.select({
     preferredName: users.preferredName,
     gender: users.gender,
     birthMonth: users.birthMonth,
-    birthDay: users.birthDay
+    birthDay: users.birthDay,
+    memoryEnabled: users.memoryEnabled
   }).from(users).where(eq(users.id, ownerId)).limit(1);
-  if (!user) return undefined;
+  if (!user) return { memoryEnabled: true };
   return {
-    preferredName: user.preferredName,
-    gender: user.gender === "male" || user.gender === "female" || user.gender === "nonbinary" || user.gender === "other"
-      ? user.gender
-      : null,
-    birthday: user.birthMonth !== null && user.birthDay !== null
-      ? { month: user.birthMonth, day: user.birthDay }
-      : null
+    memoryEnabled: user.memoryEnabled,
+    profile: {
+      preferredName: user.preferredName,
+      gender: user.gender === "male" || user.gender === "female" || user.gender === "nonbinary" || user.gender === "other"
+        ? user.gender
+        : null,
+      birthday: user.birthMonth !== null && user.birthDay !== null
+        ? { month: user.birthMonth, day: user.birthDay }
+        : null
+    }
   };
 }
 
@@ -132,10 +139,12 @@ export class ChatService {
     const userMessageId = `msg_${randomUUID()}`;
     const assistantMessageId = `msg_${randomUUID()}`;
     const testMode = request.testMode || env.APP_TEST_MODE;
+    const userContext = await loadUserChatContext(options.ownerId);
     const conversation = await this.conversationStore.getOrCreate(request.conversationId, request.history, {
       ...(options.ownerId ? { userId: options.ownerId } : {}),
       personaId: request.personaId,
-      titleSeed: request.message
+      titleSeed: request.message,
+      memoryEnabled: userContext.memoryEnabled
     });
     const imageReferenceRequirement = analyzeImageReferenceRequirement(request.message);
     const currentImageCount = (request.attachments ?? []).filter((attachment) => attachment.kind === "image").length;
@@ -384,7 +393,7 @@ export class ChatService {
       });
     }
 
-    const userProfile = await loadUserPersonalizationProfile(options.ownerId);
+    const userProfile = userContext.profile;
     const llmProvider = createLLMProvider(request.provider);
     const resolvedHistoricalVisuals = conversationMediaAttachments.attachments.length > 0;
     const effectiveToolOptions = resolvedHistoricalVisuals && conversationMediaAttachments.intent === "transform"

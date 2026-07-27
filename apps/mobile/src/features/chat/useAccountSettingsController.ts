@@ -6,7 +6,7 @@ import type {
   DataTransferJob
 } from "@persona/shared";
 
-export type SettingsPanel = "main" | "profile" | "security" | "sessions" | "about" | "data";
+export type SettingsPanel = "main" | "profile" | "security" | "sessions" | "memory" | "about" | "data";
 export type ProfileSelectionKind = "gender" | "month" | "day";
 
 export function useAccountSettingsController(authUser: AuthUser | undefined) {
@@ -33,6 +33,10 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
   const [profileError, setProfileError] = useState<string | undefined>();
   const [profileNotice, setProfileNotice] = useState<string | undefined>();
   const [profileSelection, setProfileSelection] = useState<ProfileSelectionKind | undefined>();
+  const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const [memoryError, setMemoryError] = useState<string | undefined>();
+  const [memoryNotice, setMemoryNotice] = useState<string | undefined>();
   const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -65,6 +69,10 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
       setProfileError(undefined);
       setProfileNotice(undefined);
       setProfileSelection(undefined);
+      setMemoryEnabled(true);
+      setMemoryBusy(false);
+      setMemoryError(undefined);
+      setMemoryNotice(undefined);
       setDataTransferJob(undefined);
       setDeleteAccountVisible(false);
       setDeleteConfirmation("");
@@ -142,6 +150,14 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
     setProfileNotice,
     profileSelection,
     setProfileSelection,
+    memoryEnabled,
+    setMemoryEnabled,
+    memoryBusy,
+    setMemoryBusy,
+    memoryError,
+    setMemoryError,
+    memoryNotice,
+    setMemoryNotice,
     dataTransferJob,
     setDataTransferJob,
     deleteAccountVisible,
