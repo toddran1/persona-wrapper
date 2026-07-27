@@ -281,6 +281,8 @@ export function ChatDrawer({
         ListFooterComponent={listFooter}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+        overScrollMode="always"
         showsVerticalScrollIndicator={false}
         refreshing={refreshing}
         onRefresh={refreshDrawer}

@@ -17,7 +17,8 @@ import {
   Text,
   TextInput,
   useWindowDimensions,
-  View
+  View,
+  type GestureResponderEvent
 } from "react-native";
 import { LinearGradient, type LinearGradientProps } from "expo-linear-gradient";
 import * as Clipboard from "expo-clipboard";
@@ -858,20 +859,27 @@ export function MobileChatScreen() {
     transform: [{ translateX: interpolate(drawerX.value, [-drawerWidth, 0], [0, 0], Extrapolation.CLAMP) }]
   }));
 
-  const drawerStartX = useSharedValue(-drawerWidth);
-  const gesture = Gesture.Pan().activeOffsetX([-12, 12]).failOffsetY([-8, 8])
-    .onBegin(() => {
-      drawerStartX.value = drawerX.value;
-    })
-    .onUpdate((event) => {
-      drawerX.value = Math.max(-drawerWidth, Math.min(0, drawerStartX.value + event.translationX));
-    })
-    .onEnd((event) => {
-      const shouldClose = event.velocityX < -280 || event.translationX < -56 || drawerX.value < -drawerWidth * 0.15;
-      drawerX.value = withTiming(shouldClose ? -drawerWidth : 0, { duration: 190 });
-      runOnJS(setDrawerInteractive)(!shouldClose);
-    });
-  const drawerGesture = Gesture.Simultaneous(gesture, Gesture.Native());
+  // A pan recognizer around the entire drawer can take ownership of Android's
+  // vertical drags before FlashList sees them, particularly in short
+  // landscape viewports. Track only the completed touch instead: this keeps
+  // the swipe-left close affordance without competing with native scrolling.
+  const drawerTouchStartRef = useRef<{ x: number; y: number } | undefined>(undefined);
+  const handleDrawerTouchStart = useCallback((event: GestureResponderEvent) => {
+    drawerTouchStartRef.current = {
+      x: event.nativeEvent.pageX,
+      y: event.nativeEvent.pageY
+    };
+  }, []);
+  const handleDrawerTouchEnd = useCallback((event: GestureResponderEvent) => {
+    const start = drawerTouchStartRef.current;
+    drawerTouchStartRef.current = undefined;
+    if (!start) return;
+    const horizontalDistance = event.nativeEvent.pageX - start.x;
+    const verticalDistance = event.nativeEvent.pageY - start.y;
+    if (horizontalDistance < -56 && Math.abs(horizontalDistance) > Math.abs(verticalDistance) + 8) {
+      closeDrawer();
+    }
+  }, [closeDrawer]);
   const edgeStartX = useSharedValue(-drawerWidth);
   const edgeGesture = Gesture.Pan().activeOffsetX(30).failOffsetY([-14, 14])
     .enabled(!drawerInteractive && !settingsVisible)
@@ -2748,41 +2756,46 @@ export function MobileChatScreen() {
         </Animated.View>
       ) : null}
 
-      <GestureDetector gesture={drawerGesture}>
-        <Animated.View style={[styles.drawerWrap, { width: drawerWidth }, drawerStyle]}>
-          <ChatDrawer
-            authUser={authUser}
-            conversations={drawerConversations}
-            activeConversationId={conversationId}
-            personas={personas}
-            activePersona={activePersona}
-            theme={theme}
-            topInset={insets.top}
-            leftInset={landscapeLeftInset}
-            rightInset={landscapeRightInset}
-            bottomInset={insets.bottom}
-            landscape={landscapeLayout}
-            loading={loading}
-            refreshing={hasConversationSearch ? conversationSearching : conversationsRefreshing}
-            searchQuery={conversationSearchQuery}
-            searching={conversationSearching}
-            onClose={closeDrawer}
-            onNewChat={newChat}
-            onSelectConversation={(id) => void selectConversation(id)}
-            onShowConversationActions={showConversationActions}
-            onRefreshConversations={() => void refreshConversationSearchResults()}
-            onSearchQueryChange={updateConversationSearch}
-            onLoadMoreConversations={() => void (hasConversationSearch ? loadMoreConversationSearchResults() : loadMoreConversations())}
-            hasMoreConversations={drawerHasMoreConversations}
-            onSelectPersona={(id) => void selectPersona(id)}
-            onShowLogin={() => undefined}
-            onShowSettings={() => {
-              setSettingsPanel("main");
-              setSettingsVisible(true);
-            }}
-          />
-        </Animated.View>
-      </GestureDetector>
+      <Animated.View
+        onTouchCancel={() => {
+          drawerTouchStartRef.current = undefined;
+        }}
+        onTouchEnd={handleDrawerTouchEnd}
+        onTouchStart={handleDrawerTouchStart}
+        style={[styles.drawerWrap, { width: drawerWidth }, drawerStyle]}
+      >
+        <ChatDrawer
+          authUser={authUser}
+          conversations={drawerConversations}
+          activeConversationId={conversationId}
+          personas={personas}
+          activePersona={activePersona}
+          theme={theme}
+          topInset={insets.top}
+          leftInset={landscapeLeftInset}
+          rightInset={landscapeRightInset}
+          bottomInset={insets.bottom}
+          landscape={landscapeLayout}
+          loading={loading}
+          refreshing={hasConversationSearch ? conversationSearching : conversationsRefreshing}
+          searchQuery={conversationSearchQuery}
+          searching={conversationSearching}
+          onClose={closeDrawer}
+          onNewChat={newChat}
+          onSelectConversation={(id) => void selectConversation(id)}
+          onShowConversationActions={showConversationActions}
+          onRefreshConversations={() => void refreshConversationSearchResults()}
+          onSearchQueryChange={updateConversationSearch}
+          onLoadMoreConversations={() => void (hasConversationSearch ? loadMoreConversationSearchResults() : loadMoreConversations())}
+          hasMoreConversations={drawerHasMoreConversations}
+          onSelectPersona={(id) => void selectPersona(id)}
+          onShowLogin={() => undefined}
+          onShowSettings={() => {
+            setSettingsPanel("main");
+            setSettingsVisible(true);
+          }}
+        />
+      </Animated.View>
 
       {settingsVisible ? (
         <ScrollView

@@ -38,6 +38,18 @@ type PersonaVisualClip = {
   media: "video" | "image";
 };
 
+function pausePlayerSafely(player: { pause: () => void }): void {
+  // useVideoPlayer releases its native shared object when the visual unmounts.
+  // A hide swipe can therefore race with a pending effect cleanup on either
+  // platform. Pausing a released object is not recoverable, but it also is not
+  // necessary because release already stops playback.
+  try {
+    player.pause();
+  } catch {
+    // The player has already been released as part of unmounting.
+  }
+}
+
 function PersonaVideo({
   source,
   preloadSource,
@@ -86,39 +98,43 @@ function PersonaVideo({
 
   useEffect(() => {
     const requestedSequence = sequence;
+    let cancelled = false;
     completedSequenceRef.current = undefined;
     operationRef.current = operationRef.current
       .catch(() => undefined)
       .then(async () => {
+        if (cancelled) return;
         try {
-          player.pause();
+          pausePlayerSafely(player);
           if (activeSourceRef.current === source) {
             player.currentTime = 0;
           } else {
             await player.replaceAsync({ uri: source, useCaching: true });
             activeSourceRef.current = source;
           }
-          if (requestedSequence === sequenceRef.current && playingRef.current) player.play();
+          if (!cancelled && requestedSequence === sequenceRef.current && playingRef.current) player.play();
         } catch {
-          if (requestedSequence === sequenceRef.current) onErrorRef.current(source);
+          if (!cancelled && requestedSequence === sequenceRef.current) onErrorRef.current(source);
         }
       });
+    return () => {
+      cancelled = true;
+    };
   }, [player, sequence, source]);
 
   useEffect(() => {
     if (!playing || !preloadSource || preloadSource === source) {
-      preloadPlayer.pause();
+      pausePlayerSafely(preloadPlayer);
       return;
     }
     let cancelled = false;
     void preloadPlayer.replaceAsync({ uri: preloadSource, useCaching: true })
       .then(() => {
-        if (!cancelled) preloadPlayer.pause();
+        if (!cancelled) pausePlayerSafely(preloadPlayer);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
-      preloadPlayer.pause();
     };
   }, [playing, preloadPlayer, preloadSource, source]);
 
@@ -127,7 +143,7 @@ function PersonaVideo({
       if (playing) {
         if (completedSequenceRef.current !== sequence) player.play();
       } else {
-        player.pause();
+        pausePlayerSafely(player);
       }
     } catch {
       onErrorRef.current(source);
