@@ -13,6 +13,7 @@ import { backgroundJobs } from "../db/schema.js";
 import { logger } from "../utils/logger.js";
 import { jobQueueService } from "./jobQueueService.js";
 import { usageControlService } from "./usageControlService.js";
+import { customerUsageService } from "./customerUsageService.js";
 
 export type BackgroundChatJob = {
   id: string;
@@ -21,6 +22,7 @@ export type BackgroundChatJob = {
   updatedAt: string;
   ownerId?: string;
   usageReservationId?: string;
+  customerUsageOperationId?: string;
   abortController: AbortController;
   response?: ChatResponse;
   error?: string;
@@ -36,6 +38,7 @@ type QueuedChatJob = {
   request: ChatRequest;
   ownerId?: string;
   usageReservationId?: string;
+  customerUsageOperationId?: string;
   provider?: ChatRequest["provider"];
   conversationId?: string;
   createdAt: string;
@@ -44,6 +47,7 @@ type QueuedChatJob = {
 type BackgroundChatJobStartOptions = {
   ownerId?: string;
   usageReservationId?: string;
+  customerUsageOperationId?: string;
   provider?: ChatRequest["provider"];
   conversationId?: string;
   request?: ChatRequest;
@@ -86,6 +90,7 @@ export class BackgroundChatJobService {
       updatedAt: timestamp,
       ...(options.ownerId ? { ownerId: options.ownerId } : {}),
       ...(options.usageReservationId ? { usageReservationId: options.usageReservationId } : {}),
+      ...(options.customerUsageOperationId ? { customerUsageOperationId: options.customerUsageOperationId } : {}),
       abortController: new AbortController()
     };
     this.jobs.set(job.id, job);
@@ -98,6 +103,7 @@ export class BackgroundChatJobService {
           request: options.request,
           ...(options.ownerId ? { ownerId: options.ownerId } : {}),
           ...(options.usageReservationId ? { usageReservationId: options.usageReservationId } : {}),
+          ...(options.customerUsageOperationId ? { customerUsageOperationId: options.customerUsageOperationId } : {}),
           ...(options.provider ? { provider: options.provider } : {}),
           ...(options.conversationId ? { conversationId: options.conversationId } : {}),
           createdAt: job.createdAt
@@ -117,6 +123,9 @@ export class BackgroundChatJobService {
       ];
       if (options.ownerId && options.usageReservationId) {
         cleanup.push(usageControlService.recordUsage(options.ownerId, undefined, undefined, options.usageReservationId));
+      }
+      if (options.customerUsageOperationId) {
+        cleanup.push(customerUsageService.release(options.customerUsageOperationId));
       }
       await Promise.allSettled(cleanup);
       throw error;
@@ -161,6 +170,7 @@ export class BackgroundChatJobService {
     if (ownerId && job && job.ownerId !== ownerId) return undefined;
     if (!db && job && job.status !== "queued" && job.status !== "running") return this.get(id, ownerId);
     let reservationId = job?.usageReservationId;
+    let customerUsageOperationId = job?.customerUsageOperationId;
     let persistedStatus: string | undefined;
     if (db) {
       const persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
@@ -169,6 +179,8 @@ export class BackgroundChatJobService {
       if (persistedStatus && persistedStatus !== "queued" && persistedStatus !== "running") return this.get(id, ownerId);
       const candidate = persisted?.metadata.usageReservationId;
       if (!reservationId && typeof candidate === "string") reservationId = candidate;
+      const customerCandidate = persisted?.metadata.customerUsageOperationId;
+      if (!customerUsageOperationId && typeof customerCandidate === "string") customerUsageOperationId = customerCandidate;
     }
     const cancelled = await this.transitionActive(id, {
       status: "cancelled",
@@ -191,6 +203,14 @@ export class BackgroundChatJobService {
     if (ownerId && reservationId) {
       await usageControlService.recordUsage(ownerId, undefined, undefined, reservationId).catch((usageError) => {
         logger.warn("Could not release usage reservation after background job cancellation", {
+          jobId: id,
+          error: usageError instanceof Error ? usageError.message : String(usageError)
+        });
+      });
+    }
+    if (customerUsageOperationId) {
+      await customerUsageService.release(customerUsageOperationId).catch((usageError) => {
+        logger.warn("Could not release customer usage reservation after background job cancellation", {
           jobId: id,
           error: usageError instanceof Error ? usageError.message : String(usageError)
         });
@@ -223,6 +243,7 @@ export class BackgroundChatJobService {
       updatedAt: timestamp,
       ...(payload.ownerId ? { ownerId: payload.ownerId } : {}),
       ...(payload.usageReservationId ? { usageReservationId: payload.usageReservationId } : {}),
+      ...(payload.customerUsageOperationId ? { customerUsageOperationId: payload.customerUsageOperationId } : {}),
       abortController: new AbortController()
     };
     this.jobs.set(job.id, job);
@@ -276,6 +297,14 @@ export class BackgroundChatJobService {
       if (job.ownerId && job.usageReservationId) {
         await usageControlService.recordUsage(job.ownerId, undefined, undefined, job.usageReservationId).catch((usageError) => {
           logger.warn("Could not release usage reservation after background job failure", {
+            jobId: job.id,
+            error: usageError instanceof Error ? usageError.message : String(usageError)
+          });
+        });
+      }
+      if (job.customerUsageOperationId) {
+        await customerUsageService.release(job.customerUsageOperationId).catch((usageError) => {
+          logger.warn("Could not release customer usage reservation after background job failure", {
             jobId: job.id,
             error: usageError instanceof Error ? usageError.message : String(usageError)
           });
@@ -383,7 +412,10 @@ export class BackgroundChatJobService {
       conversationId: options.conversationId,
       provider: options.provider,
       request: sanitizeStoredRequest(options.request),
-      metadata: options.usageReservationId ? { usageReservationId: options.usageReservationId } : {},
+      metadata: {
+        ...(options.usageReservationId ? { usageReservationId: options.usageReservationId } : {}),
+        ...(options.customerUsageOperationId ? { customerUsageOperationId: options.customerUsageOperationId } : {})
+      },
       createdAt: new Date(job.createdAt),
       updatedAt: new Date(job.updatedAt)
     });

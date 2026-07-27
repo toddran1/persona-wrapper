@@ -14,6 +14,7 @@ import { usageControlService } from "../services/usageControlService.js";
 import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
 import { requestOwnerId } from "../utils/requestIdentity.js";
 import { logger } from "../utils/logger.js";
+import { customerUsageService } from "../services/customerUsageService.js";
 
 export const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -60,22 +61,34 @@ backgroundChatJobService.setExecutor(async (payload, backgroundJob) => {
     result.usage?.estimatedCostUsd,
     backgroundJob.usageReservationId
   );
+  if (backgroundJob.customerUsageOperationId) {
+    await settleCustomerUsage(backgroundJob.customerUsageOperationId, payload, result).catch((error) => {
+      logger.warn("Could not settle customer usage after background chat completion", {
+        jobId: backgroundJob.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
   return result;
 });
 
 export async function postChat(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
   const reservationId = await usageControlService.check(identity);
+  let customerUsageOperationId: string | undefined;
   let reservationReconciled = false;
   try {
     const payload = await selectTools(await resolveOwnedChatAssets(request));
+    if (!getPersonaById(payload.personaId)) {
+      throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
+    }
+    await customerUsageService.assertPersonaAccess(identity, payload.personaId);
+    customerUsageOperationId = await reserveCustomerUsage(
+      identity,
+      payload,
+      response.locals.requestId ?? `request_${randomUUID()}`
+    );
     if (shouldRunInBackground(payload)) {
-      if (!getPersonaById(payload.personaId)) {
-        // Validate before creating a conversation or durable job. Otherwise an
-        // unknown persona can enqueue orphaned work and only fail while the
-        // pending response is being assembled.
-        throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
-      }
       const requestedConversationId = payload.conversationId ?? `conv_${randomUUID()}`;
       const conversation = await conversationStore.getOrCreate(requestedConversationId, payload.history, {
         userId: identity,
@@ -101,7 +114,8 @@ export async function postChat(request: Request, response: Response): Promise<vo
         provider: backgroundPayload.provider,
         conversationId,
         request: backgroundPayload,
-        usageReservationId: reservationId
+        usageReservationId: reservationId,
+        customerUsageOperationId
       });
       response.status(202).json(createPendingChatResponse(backgroundPayload, job.id));
       return;
@@ -110,10 +124,17 @@ export async function postChat(request: Request, response: Response): Promise<vo
     const result = await chatService.handleChat(payload, undefined, controller.signal, undefined, { ownerId: identity });
     await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd, reservationId);
     reservationReconciled = true;
+    await settleCustomerUsage(customerUsageOperationId, payload, result).catch((error) => {
+      logger.warn("Could not settle customer usage after chat completion", {
+        requestId: response.locals.requestId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
     response.status(200).json(result);
   } catch (error) {
     if (!reservationReconciled) {
       await releaseUsageReservation(identity, reservationId, response.locals.requestId);
+      if (customerUsageOperationId) await releaseCustomerUsage(customerUsageOperationId, response.locals.requestId);
     }
     throw error;
   }
@@ -154,15 +175,26 @@ export async function cancelChatJob(request: Request, response: Response): Promi
 export async function postChatStream(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
   const reservationId = await usageControlService.check(identity);
+  let customerUsageOperationId: string | undefined;
   let reservationReconciled = false;
   let payload: ChatRequest;
   try {
     payload = await selectTools(await resolveOwnedChatAssets(request));
+    if (!getPersonaById(payload.personaId)) {
+      throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
+    }
+    await customerUsageService.assertPersonaAccess(identity, payload.personaId);
+    customerUsageOperationId = await reserveCustomerUsage(
+      identity,
+      payload,
+      response.locals.requestId ?? `request_${randomUUID()}`
+    );
   } catch (error) {
     // Attachment ownership, request parsing, and tool routing all happen after
     // quota reservation. Release that reservation before the SSE headers are
     // committed so ordinary HTTP error handling can return the real error.
     await releaseUsageReservation(identity, reservationId, response.locals.requestId);
+    if (customerUsageOperationId) await releaseCustomerUsage(customerUsageOperationId, response.locals.requestId);
     throw error;
   }
   response.status(200);
@@ -182,11 +214,18 @@ export async function postChatStream(request: Request, response: Response): Prom
     }, controller.signal, undefined, { ownerId: identity });
     await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd, reservationId);
     reservationReconciled = true;
+    await settleCustomerUsage(customerUsageOperationId, payload, result).catch((error) => {
+      logger.warn("Could not settle customer usage after streaming chat completion", {
+        requestId: response.locals.requestId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
     response.write(`event: response\ndata: ${JSON.stringify(result)}\n\n`);
     response.end();
   } catch (error) {
     if (!reservationReconciled) {
       await releaseUsageReservation(identity, reservationId, response.locals.requestId);
+      if (customerUsageOperationId) await releaseCustomerUsage(customerUsageOperationId, response.locals.requestId);
     }
     logger.warn("Streaming chat request failed", {
       requestId: response.locals.requestId,
@@ -292,6 +331,53 @@ async function releaseUsageReservation(identity: string, reservationId: string, 
   });
 }
 
+async function reserveCustomerUsage(identity: string, payload: ChatRequest, idempotencyKey: string): Promise<string> {
+  return customerUsageService.reserve(identity, {
+    // Text is presently unlimited, but reserving a minimal unit creates a
+    // durable operation that can be reconciled to actual provider tokens.
+    text_input_tokens: 1,
+    text_output_tokens: 1,
+    ...(payload.toolOptions?.imageGeneration ? { image_outputs: 1 } : {}),
+    ...(payload.audio ? { audio_seconds: 60 } : {})
+  }, {
+    idempotencyKey,
+    provider: payload.provider
+  });
+}
+
+async function settleCustomerUsage(
+  operationId: string | undefined,
+  payload: ChatRequest,
+  result: ChatResponse
+): Promise<void> {
+  if (!operationId) return;
+  const audioCharacters = result.diagnostics.tts?.status === "generated"
+    ? result.diagnostics.tts.textCharacters ?? 0
+    : 0;
+  await customerUsageService.settle(operationId, {
+    text_input_tokens: result.usage?.inputTokens ?? 0,
+    text_output_tokens: result.usage?.outputTokens ?? 0,
+    image_outputs: result.outputs.filter((output) => output.type === "image").length,
+    audio_seconds: audioCharacters > 0 ? Math.max(1, Math.ceil(audioCharacters / 15)) : 0,
+    web_search_calls: payload.toolOptions?.webSearch ? 1 : 0,
+    file_analysis_operations: payload.toolOptions?.fileSearch ? 1 : 0
+  }, {
+    provider: result.provider,
+    ...(result.diagnostics.providerModel ? { model: result.diagnostics.providerModel } : {}),
+    conversationId: result.conversationId,
+    ...(result.usage?.estimatedCostUsd ? { actualCostUsd: result.usage.estimatedCostUsd } : {})
+  });
+}
+
+async function releaseCustomerUsage(operationId: string, requestId?: string): Promise<void> {
+  await customerUsageService.release(operationId).catch((error) => {
+    logger.warn("Could not release customer usage reservation after chat failure", {
+      requestId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+}
+
 function shouldRunInBackground(payload: ChatRequest): boolean {
   if (payload.provider !== "openai" && payload.provider !== "openai_persona") return false;
   return payload.toolOptions?.background === true ||
@@ -330,7 +416,9 @@ function createPendingChatResponse(payload: ChatRequest, jobId: string): ChatRes
       documentTitle: persona.documentTitle,
       promptPlaceholder: persona.promptPlaceholder,
       suggestedPrompts: persona.suggestedPrompts,
-      supportedProviders: persona.supportedProviders
+      supportedProviders: persona.supportedProviders,
+      minimumPlan: persona.minimumPlan,
+      available: persona.available
     },
     provider: payload.provider,
     conversationId: payload.conversationId ?? `conv_${randomUUID()}`,

@@ -206,22 +206,26 @@ export function ChatDrawer({
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.personaRow}>
           {personas.map((persona) => {
             const selected = persona.id === activePersona?.id;
+            const available = persona.available !== false;
             return (
               <Pressable
                 key={persona.id}
                 accessibilityRole="button"
-                accessibilityLabel={persona.name}
-                accessibilityState={{ selected }}
+                accessibilityLabel={available ? persona.name : `${persona.name}, requires ${persona.minimumPlan} plan`}
+                accessibilityState={{ selected, disabled: !available }}
+                disabled={!available}
                 onPress={() => onSelectPersona(persona.id)}
                 style={[
                   styles.personaChip,
                   {
                     borderColor: selected ? theme.accent2 : theme.border,
-                    backgroundColor: selected ? "rgba(214,181,94,0.16)" : "rgba(255,255,255,0.04)"
+                    backgroundColor: selected ? "rgba(214,181,94,0.16)" : "rgba(255,255,255,0.04)",
+                    opacity: available ? 1 : 0.55
                   }
                 ]}
               >
                 <Text style={[styles.personaChipText, { color: theme.text }]}>{persona.name}</Text>
+                {!available ? <Ionicons name="lock-closed-outline" size={15} color={theme.muted} /> : null}
               </Pressable>
             );
           })}
@@ -473,8 +477,11 @@ const styles = StyleSheet.create<DrawerStyles>({
     width: 42
   },
   personaChip: {
+    alignItems: "center",
     borderRadius: 999,
     borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 9
   },

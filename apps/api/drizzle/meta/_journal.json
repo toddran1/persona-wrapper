@@ -106,6 +106,13 @@
       "when": 1785280000000,
       "tag": "0014_policy_consent",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1785360000000,
+      "tag": "0015_customer_usage_plans",
+      "breakpoints": true
     }
   ]
 }

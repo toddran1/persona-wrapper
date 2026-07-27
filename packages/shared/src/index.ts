@@ -458,6 +458,49 @@ export const memorySettingsSchema = z.object({
 }).strict();
 export type MemorySettings = z.infer<typeof memorySettingsSchema>;
 
+export const planIdSchema = z.enum(["bronze", "silver", "gold"]);
+export type PlanId = z.infer<typeof planIdSchema>;
+
+export const customerUsageMeterSchema = z.enum([
+  "image_outputs",
+  "audio_seconds",
+  "text_input_tokens",
+  "text_output_tokens",
+  "web_search_calls",
+  "file_analysis_operations",
+  "storage_bytes"
+]);
+export type CustomerUsageMeter = z.infer<typeof customerUsageMeterSchema>;
+
+export const planUsageMeterSummarySchema = z.object({
+  key: customerUsageMeterSchema,
+  label: z.string(),
+  unit: z.enum(["credits", "seconds", "tokens", "calls", "bytes"]),
+  limit: z.number().int().nonnegative().nullable(),
+  used: z.number().int().nonnegative(),
+  reserved: z.number().int().nonnegative(),
+  remaining: z.number().int().nonnegative().nullable(),
+  periodStart: z.string().datetime(),
+  periodEnd: z.string().datetime()
+});
+export type PlanUsageMeterSummary = z.infer<typeof planUsageMeterSummarySchema>;
+
+export const planUsageSummarySchema = z.object({
+  plan: z.object({
+    id: planIdSchema,
+    version: z.number().int().positive(),
+    displayName: z.string(),
+    description: z.string(),
+    adsEnabled: z.boolean(),
+    priorityQueue: z.boolean(),
+    maxConcurrentMediaJobs: z.number().int().positive(),
+    personaIds: z.array(z.string())
+  }),
+  meters: z.array(planUsageMeterSummarySchema),
+  enforcementEnabled: z.boolean()
+});
+export type PlanUsageSummary = z.infer<typeof planUsageSummarySchema>;
+
 export const policyVersionSchema = z.string().trim().min(1).max(80);
 
 export const policyVersionsSchema = z.object({
@@ -690,7 +733,9 @@ export const personaSummarySchema = z.object({
   documentTitle: z.string().default("For the Baddiez"),
   promptPlaceholder: z.string().default("Ask anything"),
   suggestedPrompts: z.array(z.string()).default([]),
-  supportedProviders: z.array(providerSchema)
+  supportedProviders: z.array(providerSchema),
+  minimumPlan: planIdSchema.default("bronze"),
+  available: z.boolean().default(true)
 });
 export type PersonaSummary = z.infer<typeof personaSummarySchema>;
 
@@ -1162,6 +1207,7 @@ export const apiContract = contract.router({
       pathParams: z.object({ id: z.string().min(1) }),
       responses: {
         200: z.object({ persona: personaDefinitionSchema }),
+        403: apiErrorSchema,
         404: apiErrorSchema
       }
     }
@@ -1244,6 +1290,16 @@ export const apiContract = contract.router({
     }
   }),
   account: contract.router({
+    usage: {
+      method: "GET",
+      path: "/api/account/usage",
+      responses: {
+        200: planUsageSummarySchema,
+        401: apiErrorSchema,
+        404: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    },
     currentPolicies: {
       method: "GET",
       path: "/api/account/policies/current",

@@ -1,7 +1,7 @@
 import { apiContract, type UploadPresignRequest } from "@persona/shared";
 import { initServer } from "@ts-rest/express";
 import type { Request, Response } from "express";
-import { acceptPolicies, clearAccountMemory, deleteAccount, getCurrentPolicies, getMemorySettings, getOAuthProviders, restoreAccount, updateMemorySettings, updateProfile } from "../controllers/account.controller.js";
+import { acceptPolicies, clearAccountMemory, deleteAccount, getAccountUsage, getCurrentPolicies, getMemorySettings, getOAuthProviders, restoreAccount, updateMemorySettings, updateProfile } from "../controllers/account.controller.js";
 import {
   cancelChatJob,
   clearConversationMemory,
@@ -33,6 +33,8 @@ import { getPersonaById, listPersonas } from "../personas/index.js";
 import { postUnsafeOutputReport } from "../controllers/safety.controller.js";
 import { uploadService } from "../services/uploadService.js";
 import { requestOwnerId } from "../utils/requestIdentity.js";
+import { customerUsageService } from "../services/customerUsageService.js";
+import { planIncludesPersona } from "../services/planCatalog.js";
 
 const server = initServer();
 
@@ -95,9 +97,21 @@ const completeUpload = (async (input: unknown) => {
 
 export const apiContractRouter = server.router(apiContract, {
   personas: {
-    list: async () => ({ status: 200, body: { personas: listPersonas() } }),
-    get: async ({ params }) => {
+    list: async ({ req }) => {
+      const plan = await customerUsageService.getPlan(requestOwnerId(req));
+      return {
+        status: 200,
+        body: {
+          personas: listPersonas().map((persona) => ({
+            ...persona,
+            available: planIncludesPersona(plan, persona.id)
+          }))
+        }
+      };
+    },
+    get: async ({ params, req }) => {
       const persona = getPersonaById(params.id);
+      if (persona) await customerUsageService.assertPersonaAccess(requestOwnerId(req), persona.id);
       return persona
         ? { status: 200 as const, body: { persona } }
         : { status: 404 as const, body: { error: "Persona not found" } };
@@ -120,6 +134,7 @@ export const apiContractRouter = server.router(apiContract, {
     reportOutput: captured(postUnsafeOutputReport)
   },
   account: {
+    usage: captured(getAccountUsage),
     currentPolicies: captured(getCurrentPolicies),
     acceptPolicies: captured(acceptPolicies),
     getMemorySettings: captured(getMemorySettings),

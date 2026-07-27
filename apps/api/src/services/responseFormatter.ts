@@ -52,7 +52,9 @@ export class ResponseFormatter {
         documentTitle: params.persona.documentTitle,
         promptPlaceholder: params.persona.promptPlaceholder,
         suggestedPrompts: params.persona.suggestedPrompts,
-        supportedProviders: params.persona.supportedProviders
+        supportedProviders: params.persona.supportedProviders,
+        minimumPlan: params.persona.minimumPlan,
+        available: params.persona.available
       },
       provider: params.llmOutput.provider,
       conversationId: params.conversationId ?? createConversationId(),

@@ -25,6 +25,7 @@ import type {
   OAuthProviderStatus,
   CurrentPoliciesResponse,
   PolicyVersions,
+  PlanUsageSummary,
   PersonaDefinition,
   PersonaSummary,
   ProviderId,
@@ -619,6 +620,11 @@ export const api = {
     const response = await contractClient.account.acceptPolicies({ body: versions });
     if (response.status !== 200) throw contractError(response.body, "Could not save your policy acceptance.");
     return response.body.user;
+  },
+  getPlanUsage: async (): Promise<PlanUsageSummary> => {
+    const response = await contractClient.account.usage({});
+    if (response.status !== 200) throw contractError(response.body, "Could not load plan usage.");
+    return response.body;
   },
   updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {
     const response = await contractClient.account.updateProfile({ body: payload });

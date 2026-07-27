@@ -100,6 +100,7 @@ const envSchema = z.object({
   OPENAI_OUTPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(0),
   OPENAI_DAILY_SPEND_LIMIT_USD: z.coerce.number().nonnegative().default(5),
   OPENAI_DAILY_TOKEN_LIMIT: z.coerce.number().int().nonnegative().default(1000000),
+  CUSTOMER_USAGE_ENFORCEMENT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
   CHAT_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(30),
   CHAT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
   AUTH_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(20),

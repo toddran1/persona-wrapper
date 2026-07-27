@@ -327,9 +327,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     ...personasQueryOptions(),
     retry: (failureCount, queryError) => failureCount < 12 && isTransientApiBootError(queryError)
   });
-  const primaryPersonaId = personasResource.data?.some((persona) => persona.id === selectedPersonaId)
+  const primaryPersonaId = personasResource.data?.some((persona) => persona.id === selectedPersonaId && persona.available !== false)
     ? selectedPersonaId
-    : personasResource.data?.[0]?.id;
+    : personasResource.data?.find((persona) => persona.available !== false)?.id;
   const personaResource = useQuery({
     ...personaQueryOptions(primaryPersonaId ?? ""),
     enabled: Boolean(primaryPersonaId),
@@ -514,8 +514,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     if (personasResource.data) {
       setPersonas(personasResource.data);
       setSelectedPersonaId((current) => {
-        if (current && personasResource.data.some((persona) => persona.id === current)) return current;
-        return personasResource.data[0]?.id;
+        if (current && personasResource.data.some((persona) => persona.id === current && persona.available !== false)) return current;
+        return personasResource.data.find((persona) => persona.available !== false)?.id;
       });
     }
     if (personasResource.error) setError(personasResource.error.message);
@@ -606,6 +606,12 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }, [personaDetail, personas, selectedPersonaId]);
 
   async function selectPersona(personaId: string): Promise<void> {
+    const selectedSummary = personas.find((candidate) => candidate.id === personaId);
+    if (selectedSummary?.available === false) {
+      setError(`${selectedSummary.name} is not included in your current plan.`);
+      setMobileSidebarOpen(false);
+      return;
+    }
     if (personaId === selectedPersonaId) {
       setMobileSidebarOpen(false);
       return;
@@ -1631,8 +1637,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }
 
   const activePersona = personaDetail?.id === selectedPersonaId
+    && personas.some((candidate) => candidate.id === personaDetail?.id && candidate.available !== false)
     ? personaDetail
-    : personas.find((persona) => persona.id === selectedPersonaId) ?? personas[0];
+    : personas.find((persona) => persona.id === selectedPersonaId && persona.available !== false)
+      ?? personas.find((persona) => persona.available !== false);
   const activeTheme = activePersona?.theme;
   const hasConversationContent = renderedTurns.length > 0 || pendingPrompt !== undefined || loading;
   const personaVisualState = audioEnabled
@@ -1737,6 +1745,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           onUpdateProfile={async (profile) => {
             setAuthUser(await api.updateProfile(profile));
           }}
+          onGetPlanUsage={api.getPlanUsage}
           onGetMemorySettings={api.getMemorySettings}
           onUpdateMemorySettings={async (enabled) => {
             const memoryEnabled = await api.updateMemorySettings(enabled);

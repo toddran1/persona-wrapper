@@ -361,6 +361,12 @@ export function MobileChatScreen() {
     setProfileNotice,
     profileSelection,
     setProfileSelection,
+    planUsage,
+    setPlanUsage,
+    planUsageLoading,
+    setPlanUsageLoading,
+    planUsageError,
+    setPlanUsageError,
     memoryEnabled,
     setMemoryEnabled,
     memoryBusy,
@@ -422,7 +428,9 @@ export function MobileChatScreen() {
 
   const personasResource = useQuery(personasQueryOptions());
   const personas = personasResource.data ?? [];
-  const activePersona = persona ?? personas[0];
+  const activePersona = persona && personas.some((candidate) => candidate.id === persona.id && candidate.available !== false)
+    ? persona
+    : personas.find((candidate) => candidate.available !== false);
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
   const personaById = useMemo(
     () => new Map(personas.map((candidate) => [candidate.id, candidate] as const)),
@@ -636,6 +644,19 @@ export function MobileChatScreen() {
     if (panel === "sessions") void refreshActiveSessions();
     if (panel === "security") void refreshConnectedAccounts();
     if (panel === "memory") void refreshMemorySettings();
+    if (panel === "plan") void refreshPlanUsage();
+  }
+
+  async function refreshPlanUsage(): Promise<void> {
+    setPlanUsageLoading(true);
+    setPlanUsageError(undefined);
+    try {
+      setPlanUsage(await api.getPlanUsage());
+    } catch (usageError) {
+      setPlanUsageError(usageError instanceof Error ? usageError.message : "Could not load plan usage.");
+    } finally {
+      setPlanUsageLoading(false);
+    }
   }
 
   async function refreshMemorySettings(): Promise<void> {
@@ -1148,9 +1169,9 @@ export function MobileChatScreen() {
         setOAuthProviders(providers);
         setCurrentPolicies(policies);
 
-        const selected = personaList.find((candidate) => candidate.id === savedPersonaId)
-          ?? (persona && personaList.some((candidate) => candidate.id === persona.id) ? persona : undefined)
-          ?? personaList[0];
+        const selected = personaList.find((candidate) => candidate.id === savedPersonaId && candidate.available !== false)
+          ?? (persona && persona.available !== false && personaList.some((candidate) => candidate.id === persona.id) ? persona : undefined)
+          ?? personaList.find((candidate) => candidate.available !== false);
         if (user) {
           await ensureUserCacheRestored(user.id);
           hydrateCachedAccountData(user.id);
@@ -1830,7 +1851,8 @@ export function MobileChatScreen() {
         setOAuthProviders(providers);
         setCurrentPolicies(policies);
 
-        const selected = personaList.find((candidate) => candidate.id === savedPersonaId) ?? personaList[0];
+        const selected = personaList.find((candidate) => candidate.id === savedPersonaId && candidate.available !== false)
+          ?? personaList.find((candidate) => candidate.available !== false);
         if (user) {
           await ensureUserCacheRestored(user.id);
           if (!mounted) return;
@@ -1915,6 +1937,12 @@ export function MobileChatScreen() {
   }, []);
 
   async function selectPersona(personaId: string): Promise<void> {
+    const selectedSummary = personas.find((candidate) => candidate.id === personaId);
+    if (selectedSummary?.available === false) {
+      setError(`${selectedSummary.name} is not included in your current plan.`);
+      closeDrawer();
+      return;
+    }
     if (personaId === activePersona?.id) {
       closeDrawer();
       return;
@@ -2957,7 +2985,7 @@ export function MobileChatScreen() {
             </Pressable>
             {settingsPanel !== "main" ? (
               <Text style={[styles.settingsPanelTitle, { color: theme.text }]}>
-                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "memory" ? "Memory" : settingsPanel === "about" ? "About" : "Your data"}
+                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "plan" ? "Plan & usage" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "memory" ? "Memory" : settingsPanel === "about" ? "About" : "Your data"}
               </Text>
             ) : null}
           </View>
@@ -2999,6 +3027,14 @@ export function MobileChatScreen() {
                   <View style={styles.settingsRowCopy}>
                     <Text style={[styles.settingsRowText, { color: theme.text }]}>Personalization</Text>
                     <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Preferred name, gender, and birthday</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open plan and usage" onPress={() => openSettingsPanel("plan")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="layers-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Plan &amp; usage</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Media allowances and reset dates</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
                 </Pressable>
@@ -3155,6 +3191,49 @@ export function MobileChatScreen() {
                   <Ionicons name="checkmark-circle" size={18} color={theme.accent2} />
                   <Text style={{ color: theme.text, fontWeight: "800" }}>{profileNotice}</Text>
                 </View>
+              ) : null}
+            </View>
+          ) : null}
+          {settingsPanel === "plan" ? (
+            <View style={styles.settingsSection}>
+              {planUsageLoading && !planUsage ? <ActivityIndicator color={theme.accent2} /> : null}
+              {planUsageError ? <Text style={[styles.settingsPanelDescription, { color: theme.danger }]} accessibilityRole="alert">{planUsageError}</Text> : null}
+              {planUsage ? (
+                <>
+                  <View style={[styles.settingsPlanCard, { backgroundColor: "rgba(255,255,255,0.09)", borderColor: theme.border }]}>
+                    <Text style={[styles.settingsPlanName, { color: theme.text }]}>{planUsage.plan.displayName}</Text>
+                    <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>{planUsage.plan.description}</Text>
+                  </View>
+                  {planUsage.meters.map((meter) => {
+                    const used = meter.used + meter.reserved;
+                    const percent = meter.limit ? Math.min(100, Math.round((used / meter.limit) * 100)) : 0;
+                    const formatAmount = (value: number) => meter.unit === "seconds"
+                      ? value === 0 ? "0 min" : value < 60 ? "<1 min" : `${Math.ceil(value / 60)} min`
+                      : value.toLocaleString();
+                    return (
+                      <View key={meter.key} style={[styles.settingsUsageCard, { backgroundColor: "rgba(255,255,255,0.07)", borderColor: theme.border }]}>
+                        <View style={styles.settingsUsageHeading}>
+                          <Text style={[styles.settingsRowText, { color: theme.text }]}>{meter.label}</Text>
+                          <Text style={[styles.settingsRowHint, { color: theme.muted }]}>
+                            {formatAmount(used)} of {meter.limit === null ? "unlimited" : formatAmount(meter.limit)}
+                          </Text>
+                        </View>
+                        {meter.limit !== null ? (
+                          <View style={styles.settingsUsageTrack}>
+                            <View style={[styles.settingsUsageFill, { backgroundColor: theme.accent2, width: `${percent}%` }]} />
+                          </View>
+                        ) : null}
+                        <Text style={[styles.settingsRowHint, { color: theme.muted }]}>
+                          Resets {new Date(meter.periodEnd).toLocaleDateString([], { month: "long", day: "numeric", timeZone: "UTC" })}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                  <View style={[styles.settingsPlanCard, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: theme.border }]}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Silver and Gold</Text>
+                    <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Upgrade options will appear here when subscriptions launch.</Text>
+                  </View>
+                </>
               ) : null}
             </View>
           ) : null}
@@ -4360,6 +4439,16 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     paddingHorizontal: 4
   },
+  settingsPlanCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 8,
+    padding: 18
+  },
+  settingsPlanName: {
+    fontSize: 28,
+    fontWeight: "900"
+  },
   settingsPanelTitle: {
     alignSelf: "center",
     fontSize: 20,
@@ -4432,6 +4521,28 @@ const styles = StyleSheet.create({
   },
   settingsTopBar: {
     minHeight: 60
+  },
+  settingsUsageCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 10,
+    padding: 16
+  },
+  settingsUsageFill: {
+    borderRadius: 999,
+    height: "100%"
+  },
+  settingsUsageHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between"
+  },
+  settingsUsageTrack: {
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 999,
+    height: 8,
+    overflow: "hidden"
   },
   sessionActivity: {
     fontSize: 12,

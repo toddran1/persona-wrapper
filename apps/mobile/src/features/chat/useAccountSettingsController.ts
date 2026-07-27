@@ -3,10 +3,11 @@ import type {
   ActiveSession,
   AuthUser,
   ConnectedAccount,
-  DataTransferJob
+  DataTransferJob,
+  PlanUsageSummary
 } from "@persona/shared";
 
-export type SettingsPanel = "main" | "profile" | "security" | "sessions" | "memory" | "about" | "data";
+export type SettingsPanel = "main" | "profile" | "plan" | "security" | "sessions" | "memory" | "about" | "data";
 export type ProfileSelectionKind = "gender" | "month" | "day";
 
 export function useAccountSettingsController(authUser: AuthUser | undefined) {
@@ -33,6 +34,9 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
   const [profileError, setProfileError] = useState<string | undefined>();
   const [profileNotice, setProfileNotice] = useState<string | undefined>();
   const [profileSelection, setProfileSelection] = useState<ProfileSelectionKind | undefined>();
+  const [planUsage, setPlanUsage] = useState<PlanUsageSummary | undefined>();
+  const [planUsageLoading, setPlanUsageLoading] = useState(false);
+  const [planUsageError, setPlanUsageError] = useState<string | undefined>();
   const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [memoryBusy, setMemoryBusy] = useState(false);
   const [memoryError, setMemoryError] = useState<string | undefined>();
@@ -69,6 +73,9 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
       setProfileError(undefined);
       setProfileNotice(undefined);
       setProfileSelection(undefined);
+      setPlanUsage(undefined);
+      setPlanUsageLoading(false);
+      setPlanUsageError(undefined);
       setMemoryEnabled(true);
       setMemoryBusy(false);
       setMemoryError(undefined);
@@ -150,6 +157,12 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
     setProfileNotice,
     profileSelection,
     setProfileSelection,
+    planUsage,
+    setPlanUsage,
+    planUsageLoading,
+    setPlanUsageLoading,
+    planUsageError,
+    setPlanUsageError,
     memoryEnabled,
     setMemoryEnabled,
     memoryBusy,

@@ -18,6 +18,7 @@ import { dataTransferJobService } from "../services/dataTransferJobService.js";
 import { verifyPassword } from "../services/passwordService.js";
 import { hasDatabaseErrorCode } from "../utils/databaseError.js";
 import { conversationStore } from "./chat.controller.js";
+import { customerUsageService } from "../services/customerUsageService.js";
 
 function requireDatabase() {
   const db = getDatabase();
@@ -59,6 +60,11 @@ export function getCurrentPolicies(_request: Request, response: Response): void 
     termsPath: "/terms",
     privacyPath: "/privacy"
   });
+}
+
+export async function getAccountUsage(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  response.status(200).json(await customerUsageService.summary(request.auth.userId));
 }
 
 export async function acceptPolicies(request: Request, response: Response): Promise<void> {

@@ -6,6 +6,7 @@ import type {
   DataTransferJob,
   OAuthProvider,
   PolicyVersions,
+  PlanUsageSummary,
   OAuthProviderStatus,
   PersonaSummary,
   UpdateUserProfileRequest,
@@ -15,11 +16,12 @@ import { createPortal } from "react-dom";
 
 const REGISTER_PASSWORD_MIN_LENGTH = 10;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
-type SettingsSection = "account" | "security" | "memory" | "data" | "about" | "delete";
+type SettingsSection = "account" | "plan" | "security" | "memory" | "data" | "about" | "delete";
 
 function SettingsGlyph({ section }: { section: SettingsSection }) {
   const paths: Record<SettingsSection, React.ReactNode> = {
     account: <><circle cx="12" cy="8" r="3" /><path d="M5.5 19c.8-3.2 3-5 6.5-5s5.7 1.8 6.5 5" /></>,
+    plan: <><path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" /><path d="m6 10.5 6 3.5 6-3.5M6 14l6 3.5 6-3.5" /></>,
     security: <><path d="M12 3 5.5 5.8v5.1c0 4.2 2.4 7.5 6.5 9.1 4.1-1.6 6.5-4.9 6.5-9.1V5.8L12 3Z" /><path d="m9.5 11.5 1.7 1.7 3.7-4" /></>,
     memory: <><path d="M8 5.5A3.5 3.5 0 0 1 14.3 3.4 3.8 3.8 0 0 1 19 7.1a3.7 3.7 0 0 1-.8 2.3 4 4 0 0 1-1.7 6.9A3.5 3.5 0 0 1 10 18a3.7 3.7 0 0 1-5-3.5 3.6 3.6 0 0 1 1-2.5A4 4 0 0 1 8 5.5Z" /><path d="M9 8.5c1.8.2 3 1.2 3 3v5.8M15 7.5c-1.7.4-2.8 1.4-3 3" /></>,
     data: <><path d="M12 3v12" /><path d="m8.5 7 3.5-4 3.5 4" /><path d="M5 14v5h14v-5" /></>,
@@ -73,6 +75,7 @@ export function ConversationSidebar({
   onRequestPasswordReset,
   onChangePassword,
   onUpdateProfile,
+  onGetPlanUsage,
   onGetMemorySettings,
   onUpdateMemorySettings,
   onClearConversationMemory,
@@ -120,6 +123,7 @@ export function ConversationSidebar({
   onRequestPasswordReset: (email: string) => Promise<void>;
   onChangePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   onUpdateProfile: (profile: UpdateUserProfileRequest) => Promise<void>;
+  onGetPlanUsage: () => Promise<PlanUsageSummary>;
   onGetMemorySettings: () => Promise<boolean>;
   onUpdateMemorySettings: (enabled: boolean) => Promise<void>;
   onClearConversationMemory: (conversationId: string) => Promise<void>;
@@ -173,6 +177,7 @@ export function ConversationSidebar({
   const [memoryEnabled, setMemoryEnabled] = useState(authUser?.memoryEnabled ?? true);
   const [memoryNotice, setMemoryNotice] = useState<string | undefined>();
   const [memoryConfirmation, setMemoryConfirmation] = useState<"chat" | "all" | undefined>();
+  const [planUsage, setPlanUsage] = useState<PlanUsageSummary | undefined>();
   const [preferredName, setPreferredName] = useState("");
   const [gender, setGender] = useState<AuthUser["gender"] | "">("");
   const [birthMonth, setBirthMonth] = useState("");
@@ -413,6 +418,17 @@ export function ConversationSidebar({
     setSettingsSection(section);
     setLocalAuthError(undefined);
     setSecurityNotice(undefined);
+    if (section === "plan") {
+      setAuthBusy(true);
+      try {
+        setPlanUsage(await onGetPlanUsage());
+      } catch (error) {
+        setLocalAuthError(error instanceof Error ? error.message : "Could not load plan usage.");
+      } finally {
+        setAuthBusy(false);
+      }
+      return;
+    }
     if (section === "memory") {
       setAuthBusy(true);
       try {
@@ -450,6 +466,10 @@ export function ConversationSidebar({
     setMemoryNotice(undefined);
     setMemoryConfirmation(undefined);
     setSettingsOpen(true);
+    void onGetPlanUsage().then(setPlanUsage).catch(() => {
+      // The dedicated Plan & usage panel exposes a retryable error if opened.
+      // Account settings remain usable when usage telemetry is temporarily down.
+    });
   }
 
   async function toggleMemory(): Promise<void> {
@@ -946,14 +966,18 @@ export function ConversationSidebar({
         <div className="conversation-persona-options" role="list">
           {personas.map((persona) => {
             const selected = persona.id === activePersonaId;
+            const available = persona.available !== false;
             return (
               <div key={persona.id} role="listitem">
                 <button
                   type="button"
-                  className={`conversation-persona-option${selected ? " conversation-persona-option-active" : ""}`}
+                  className={`conversation-persona-option${selected ? " conversation-persona-option-active" : ""}${available ? "" : " conversation-persona-option-locked"}`}
                   style={{ "--persona-option-accent": persona.theme.accent, "--persona-option-accent-2": persona.theme.accent2 } as CSSProperties}
                   aria-current={selected ? "true" : undefined}
-                  aria-label={`Use ${persona.shortName ?? persona.name}, ${persona.theme.themeName}`}
+                  aria-label={available
+                    ? `Use ${persona.shortName ?? persona.name}, ${persona.theme.themeName}`
+                    : `${persona.shortName ?? persona.name}, requires ${persona.minimumPlan} plan`}
+                  disabled={!available}
                   onClick={() => onSelectPersona(persona.id)}
                 >
                   <span className="conversation-persona-avatar" aria-hidden="true">
@@ -961,7 +985,7 @@ export function ConversationSidebar({
                   </span>
                   <span className="conversation-persona-copy">
                     <span>{persona.shortName ?? persona.name}</span>
-                    <small>{persona.theme.themeName}</small>
+                    <small>{available ? persona.theme.themeName : `${persona.minimumPlan} plan`}</small>
                   </span>
                   <span className="conversation-persona-indicator" aria-hidden="true" />
                 </button>
@@ -1188,6 +1212,7 @@ export function ConversationSidebar({
                   <nav className="settings-modal-nav" aria-label="Settings sections">
                     {([
                       ["account", "Account"],
+                      ["plan", "Plan & usage"],
                       ["security", "Security & sign-in"],
                       ["memory", "Memory"],
                       ["data", "Your data"],
@@ -1283,7 +1308,7 @@ export function ConversationSidebar({
                           </div>
                           <div className="settings-list-row">
                             <span>Plan</span>
-                            <strong>Free</strong>
+                            <strong>{planUsage?.plan.displayName ?? "Bronze"}</strong>
                           </div>
                         </div>
                         {profileNotice ? <span className="settings-save-confirmation" role="status">✓ {profileNotice}</span> : null}
@@ -1366,11 +1391,44 @@ export function ConversationSidebar({
                             </div>
                           </div>
                         </div>
-                        <div className="settings-coming-soon">
-                          <span>Upgrade plan</span>
-                          <p>Premium plans will appear here when they launch.</p>
-                          <span className="settings-coming-soon-badge">Coming soon</span>
+                      </div>
+                    ) : null}
+
+                    {settingsSection === "plan" ? (
+                      <div className="settings-section">
+                        <div className="settings-section-heading">
+                          <span className="settings-section-eyebrow">Membership</span>
+                          <h3>{planUsage?.plan.displayName ?? "Plan & usage"}</h3>
+                          <p>{planUsage?.plan.description ?? "Loading your current allowances..."}</p>
                         </div>
+                        {planUsage ? (
+                          <>
+                            <div className="settings-list">
+                              {planUsage.meters.map((meter) => {
+                                const used = meter.used + meter.reserved;
+                                const percent = meter.limit ? Math.min(100, Math.round((used / meter.limit) * 100)) : 0;
+                                const formatAmount = (value: number) => meter.unit === "seconds"
+                                  ? value === 0 ? "0 min" : value < 60 ? "<1 min" : `${Math.ceil(value / 60)} min`
+                                  : value.toLocaleString();
+                                return (
+                                  <div className="settings-usage-meter" key={meter.key}>
+                                    <div className="settings-usage-meter-heading">
+                                      <strong>{meter.label}</strong>
+                                      <span>{formatAmount(used)} of {meter.limit === null ? "unlimited" : formatAmount(meter.limit)}</span>
+                                    </div>
+                                    {meter.limit !== null ? <div className="settings-usage-track"><span style={{ width: `${percent}%` }} /></div> : null}
+                                    <small>Resets {new Date(meter.periodEnd).toLocaleDateString([], { month: "long", day: "numeric", timeZone: "UTC" })}</small>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="settings-coming-soon">
+                              <span>Upgrade plan</span>
+                              <p>Silver and Gold subscriptions will appear here when billing launches.</p>
+                              <span className="settings-coming-soon-badge">Coming soon</span>
+                            </div>
+                          </>
+                        ) : authBusy ? <p className="settings-empty-copy">Loading usage...</p> : null}
                       </div>
                     ) : null}
 

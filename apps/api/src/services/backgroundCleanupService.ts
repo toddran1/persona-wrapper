@@ -8,6 +8,7 @@ import { accountDeletionService } from "./accountDeletionService.js";
 import { jobQueueService } from "./jobQueueService.js";
 import { usageControlService } from "./usageControlService.js";
 import { dataTransferJobService } from "./dataTransferJobService.js";
+import { customerUsageService } from "./customerUsageService.js";
 
 const CLEANUP_QUEUE = "storage-cleanup";
 
@@ -48,6 +49,7 @@ export class BackgroundCleanupService {
         ["generated audio", generatedAudioService.cleanupExpiredNow()],
         ["OpenAI artifacts", openAIArtifactService.cleanupExpiredNow()],
         ["usage reservations", usageControlService.cleanupExpiredNow()],
+        ["customer usage reservations", customerUsageService.cleanupExpiredNow()],
         ["scheduled accounts", accountDeletionService.purgeDueAccounts()],
         ["data transfers", dataTransferJobService.cleanupExpiredNow()]
       ] as const;

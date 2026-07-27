@@ -272,6 +272,15 @@ textarea {
   border-color: color-mix(in srgb, var(--persona-option-accent-2, var(--theme-accent-2)) 62%, transparent);
 }
 
+.conversation-persona-option-locked {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.conversation-persona-option-locked:hover {
+  transform: none;
+}
+
 .conversation-persona-avatar {
   align-items: center;
   background: color-mix(in srgb, var(--persona-option-accent, var(--theme-accent)) 24%, #09060f);
@@ -1142,6 +1151,47 @@ textarea {
   color: var(--theme-muted);
   font-size: 0.72rem;
   line-height: 1.4;
+}
+
+.settings-usage-meter {
+  display: grid;
+  gap: 9px;
+  padding: 14px;
+  border-bottom: 1px solid rgba(214, 181, 94, 0.1);
+}
+
+.settings-usage-meter:last-child {
+  border-bottom: 0;
+}
+
+.settings-usage-meter-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: rgba(255, 248, 239, 0.92);
+  font-size: 0.76rem;
+}
+
+.settings-usage-meter-heading span,
+.settings-usage-meter small {
+  color: rgba(207, 195, 219, 0.7);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.settings-usage-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.settings-usage-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
 }
 
 .settings-memory-switch {

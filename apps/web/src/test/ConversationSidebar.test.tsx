@@ -5,6 +5,20 @@ import { personaSummarySchema } from "@persona/shared";
 import { ConversationSidebar } from "../components/ConversationSidebar.js";
 
 const now = "2026-07-24T05:00:00.000Z";
+const planUsage = {
+  plan: {
+    id: "bronze" as const,
+    version: 1,
+    displayName: "Bronze",
+    description: "Core chat access with a small monthly media allowance.",
+    adsEnabled: true,
+    priorityQueue: false,
+    maxConcurrentMediaJobs: 1,
+    personaIds: ["larae"]
+  },
+  meters: [],
+  enforcementEnabled: false
+};
 const persona = personaSummarySchema.parse({
   id: "larae",
   name: "LaRae the Baddest",
@@ -65,6 +79,7 @@ function renderSidebar(options: { showPersona?: boolean; onSelectPersona?: (id: 
       onUpdateMemorySettings={onUpdateMemorySettings}
       onClearConversationMemory={vi.fn().mockResolvedValue(undefined)}
       onClearAllMemory={onClearAllMemory}
+      onGetPlanUsage={vi.fn().mockResolvedValue(planUsage)}
       onListConnectedAccounts={vi.fn().mockResolvedValue([
         {
           id: "account_credential",
@@ -118,6 +133,7 @@ describe("ConversationSidebar settings", () => {
         onUpdateMemorySettings={vi.fn()}
         onClearConversationMemory={vi.fn()}
         onClearAllMemory={vi.fn()}
+        onGetPlanUsage={vi.fn().mockResolvedValue(planUsage)}
         onListConnectedAccounts={vi.fn()}
         onLinkConnectedAccount={vi.fn()}
         onUnlinkConnectedAccount={vi.fn()}
@@ -177,7 +193,7 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(menu).getByRole("menuitem", { name: "Settings" }));
     const dialog = screen.getByRole("dialog", { name: "Settings" });
     expect(within(dialog).getByText("settings@example.com")).toBeInTheDocument();
-    expect(within(dialog).getByText("Coming soon")).toBeInTheDocument();
+    expect(within(dialog).getByText("Bronze")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Edit username" }));
     expect(within(dialog).getByLabelText("Username")).toHaveValue("settingsuser");
     expect(within(dialog).getByRole("button", { name: "Save username" })).toBeDisabled();
@@ -192,6 +208,9 @@ describe("ConversationSidebar settings", () => {
     expect(within(dialog).queryByRole("option", { name: "30" })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Save changes" })).toBeDisabled();
     expect(within(dialog).getByText("Choose both a birthday month and day, or clear both fields.")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+    expect(await within(dialog).findByText("Coming soon")).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Security & sign-in" }));
     expect(await within(dialog).findByRole("heading", { name: "Connected accounts" })).toBeInTheDocument();

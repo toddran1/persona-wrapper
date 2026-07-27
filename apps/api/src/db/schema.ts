@@ -257,6 +257,71 @@ export const usageEvents = pgTable("usage_events", {
   eventTypeIdx: index("usage_events_event_type_idx").on(table.eventType)
 }));
 
+export const userPlanAssignments = pgTable("user_plan_assignments", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  planId: text("plan_id").notNull(),
+  planVersion: integer("plan_version").notNull(),
+  status: text("status").notNull().default("active"),
+  source: text("source").notNull().default("system"),
+  effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  userEffectiveIdx: index("user_plan_assignments_user_effective_idx")
+    .on(table.userId, table.effectiveAt.desc()),
+  statusExpiresIdx: index("user_plan_assignments_status_expires_idx")
+    .on(table.status, table.expiresAt)
+}));
+
+export const customerUsageBalances = pgTable("customer_usage_balances", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  meterKey: text("meter_key").notNull(),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  usedQuantity: integer("used_quantity").notNull().default(0),
+  reservedQuantity: integer("reserved_quantity").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  userMeterPeriodUnique: uniqueIndex("customer_usage_balances_user_meter_period_unique")
+    .on(table.userId, table.meterKey, table.periodStart),
+  periodEndIdx: index("customer_usage_balances_period_end_idx").on(table.periodEnd)
+}));
+
+export const customerUsageEvents = pgTable("customer_usage_events", {
+  id: text("id").primaryKey(),
+  operationId: text("operation_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  meterKey: text("meter_key").notNull(),
+  quantity: integer("quantity").notNull().default(0),
+  status: text("status").notNull(),
+  planId: text("plan_id").notNull(),
+  planVersion: integer("plan_version").notNull(),
+  provider: text("provider"),
+  model: text("model"),
+  estimatedCostMicroUsd: integer("estimated_cost_micro_usd").notNull().default(0),
+  actualCostMicroUsd: integer("actual_cost_micro_usd").notNull().default(0),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  settledAt: timestamp("settled_at", { withTimezone: true })
+}, (table) => ({
+  userIdempotencyMeterUnique: uniqueIndex("customer_usage_events_user_idempotency_meter_unique")
+    .on(table.userId, table.idempotencyKey, table.meterKey),
+  operationIdx: index("customer_usage_events_operation_idx").on(table.operationId),
+  userPeriodIdx: index("customer_usage_events_user_period_idx")
+    .on(table.userId, table.periodStart, table.meterKey),
+  statusCreatedIdx: index("customer_usage_events_status_created_idx")
+    .on(table.status, table.createdAt)
+}));
+
 export const conversationRelations = relations(conversations, ({ many }) => ({
   messages: many(messages)
 }));

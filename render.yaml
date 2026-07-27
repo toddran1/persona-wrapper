@@ -82,6 +82,8 @@ services:
         value: "2026-07-24"
       - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS
         value: "30"
+      - key: CUSTOMER_USAGE_ENFORCEMENT_ENABLED
+        value: "false"
 
       - key: OPENAI_API_KEY
         sync: false

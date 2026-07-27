@@ -19,7 +19,9 @@ export function getPersonas(_request: Request, response: Response): void {
     documentTitle: persona.documentTitle,
     promptPlaceholder: persona.promptPlaceholder,
     suggestedPrompts: persona.suggestedPrompts,
-    supportedProviders: persona.supportedProviders
+    supportedProviders: persona.supportedProviders,
+    minimumPlan: persona.minimumPlan,
+    available: persona.available
   }));
 
   response.status(200).json({ personas });
