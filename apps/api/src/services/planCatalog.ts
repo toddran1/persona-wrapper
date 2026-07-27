@@ -26,7 +26,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     maxConcurrentMediaJobs: 1,
     personaIds: ["larae"],
     allowances: {
-      image_outputs: 3,
+      image_outputs: 20,
       audio_seconds: 5 * 60
     }
   },
@@ -40,7 +40,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     maxConcurrentMediaJobs: 2,
     personaIds: CURRENT_PERSONA_IDS,
     allowances: {
-      image_outputs: 15,
+      image_outputs: 100,
       audio_seconds: 30 * 60
     }
   },
@@ -54,7 +54,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     maxConcurrentMediaJobs: 3,
     personaIds: CURRENT_PERSONA_IDS,
     allowances: {
-      image_outputs: 40,
+      image_outputs: 200,
       audio_seconds: 90 * 60
     }
   }
