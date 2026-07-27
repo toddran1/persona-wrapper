@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { DataTransferJobService } from "../services/dataTransferJobService.js";
+import { DataTransferJobService, publicDataTransferError } from "../services/dataTransferJobService.js";
 
 const objects = vi.hoisted(() => new Map<string, Buffer>());
 vi.mock("../services/storageService.js", () => ({
@@ -90,5 +90,17 @@ describe("DataTransferJobService", () => {
     expect(job.status).toBe("failed");
     expect(job.error).toBe("Atomic imports require database-backed storage.");
     await service.cleanupExpiredNow(new Date(Date.now() + 8 * 24 * 60 * 60 * 1000));
+  });
+
+  it("does not expose database or storage-provider internals in job errors", () => {
+    expect(publicDataTransferError('Failed query: insert into "conversations" params: user-secret')).toBe(
+      "The data transfer could not be completed. Please try again."
+    );
+    expect(publicDataTransferError("AccessDenied from S3, request ID ABC123")).toBe(
+      "The data transfer could not be completed. Please try again."
+    );
+    expect(publicDataTransferError("Import ZIP is invalid or corrupted.")).toBe(
+      "Import ZIP is invalid or corrupted."
+    );
   });
 });

@@ -69,6 +69,17 @@ describe("BackgroundChatJobService", () => {
     expect(cancelled?.status).toBe("cancelled");
   });
 
+  it("does not expose or cancel legacy unowned jobs to an identified caller", async () => {
+    const service = new BackgroundChatJobService();
+    const job = await service.start({}, async (runningJob) => waitForAbort(runningJob.abortController.signal));
+
+    await expect(service.get(job.id, "owner-a")).resolves.toBeUndefined();
+    await expect(service.cancel(job.id, "Claim legacy job.", "owner-a")).resolves.toBeUndefined();
+    expect((await service.get(job.id))?.status).toBe("running");
+
+    await service.cancel(job.id, "Test cleanup.");
+  });
+
   it("cancels every running job owned by an account before deletion", async () => {
     const service = new BackgroundChatJobService();
     const owned = await service.start({ ownerId: "owner-delete" }, async (runningJob) => waitForAbort(runningJob.abortController.signal));

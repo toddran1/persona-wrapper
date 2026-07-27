@@ -119,11 +119,14 @@ export const auth = database ? betterAuth({
     revokeSessionsOnPasswordReset: true,
     ...(passwordResetEmailEnabled ? {
       sendResetPassword: async ({ user, url }: { user: { email: string; name: string }; url: string }) => {
-        void sendPasswordResetEmail({
+        // Better Auth should not report completion until Gmail accepted the
+        // message. The mail service logs a sanitized SMTP error and throws a
+        // public-safe failure if delivery is rejected.
+        await sendPasswordResetEmail({
           email: user.email,
           displayName: user.name,
           resetUrl: url
-        }).catch(() => undefined);
+        });
       }
     } : {}),
     password: {

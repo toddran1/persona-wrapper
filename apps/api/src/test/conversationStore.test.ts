@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { env } from "../config/env.js";
 import { ConversationStore } from "../services/conversationStore.js";
@@ -6,13 +7,17 @@ import { estimateChatMessagesTokens } from "../utils/tokenBudget.js";
 const originalContextMessages = env.OPENAI_MAX_CONTEXT_MESSAGES;
 const originalContextCharacters = env.OPENAI_MAX_CONTEXT_CHARACTERS;
 const originalContextTokens = env.OPENAI_MAX_CONTEXT_TOKENS;
+const originalMemorySummaryMaxCharacters = env.CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS;
 const originalMemorySummaryMaxTokens = env.CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS;
+const originalMemorySummaryAfterMessages = env.CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES;
 
 afterEach(() => {
   env.OPENAI_MAX_CONTEXT_MESSAGES = originalContextMessages;
   env.OPENAI_MAX_CONTEXT_CHARACTERS = originalContextCharacters;
   env.OPENAI_MAX_CONTEXT_TOKENS = originalContextTokens;
+  env.CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS = originalMemorySummaryMaxCharacters;
   env.CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS = originalMemorySummaryMaxTokens;
+  env.CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES = originalMemorySummaryAfterMessages;
 });
 
 describe("ConversationStore prompt context", () => {
@@ -41,6 +46,40 @@ describe("ConversationStore prompt context", () => {
 
     const history = store.getPromptHistory(conversation);
     expect(history.map((message) => message.content)).toEqual(["make an image", "describe the image"]);
+  });
+
+  it("does not expose or transfer a conversation between owners", async () => {
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate(`owner-isolation-${randomUUID()}`, [], {
+      userId: "owner-a"
+    });
+    const updated = await store.appendTurn(conversation, [
+      { role: "user", content: "owner A's private question" },
+      { role: "assistant", content: "owner A's private answer" }
+    ]);
+
+    await expect(store.getOrCreate(updated.id, [], { userId: "owner-b" }))
+      .rejects.toMatchObject({ statusCode: 404 });
+    await expect(store.getOrCreate(updated.id))
+      .rejects.toMatchObject({ statusCode: 404 });
+    expect(await store.get(updated.id, "owner-b")).toBeUndefined();
+    expect(await store.get(updated.id)).toBeUndefined();
+    expect((await store.get(updated.id, "owner-a"))?.history[0]?.content)
+      .toBe("owner A's private question");
+  });
+
+  it("does not expose ownerless conversations through owner-scoped memory operations", async () => {
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate(`anonymous-isolation-${randomUUID()}`);
+
+    await expect(store.getOrCreate(conversation.id, [], { userId: "owner-a" }))
+      .rejects.toMatchObject({ statusCode: 404 });
+    expect(await store.get(conversation.id, "owner-a")).toBeUndefined();
+    expect(await store.getTurnsPage(conversation.id, "owner-a")).toBeUndefined();
+    expect(await store.rename(conversation.id, "Claimed", "owner-a")).toBeUndefined();
+    expect(await store.setPinned(conversation.id, true, "owner-a")).toBeUndefined();
+    expect(await store.delete(conversation.id, "owner-a")).toBe(false);
+    expect(await store.get(conversation.id)).toBeDefined();
   });
 
   it("respects the configured context message budget", async () => {
@@ -136,6 +175,107 @@ describe("ConversationStore prompt context", () => {
     expect(context[0]?.content).toContain("Conversation memory summary");
     expect(context[0]?.content).toContain("My favorite color is purple.");
     expect(context.at(-2)?.content).toBe("What color did I say I liked?");
+  });
+
+  it("adds structured goals, decisions, and referenced assets for older turns", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 2;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 10000;
+    env.CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES = 4;
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate(`structured-memory-${randomUUID()}`);
+    const withOlderTurn = await store.appendTurn(conversation, [
+      {
+        role: "user",
+        content: "I prefer compact layouts. I want to build a launch page. Let's use the uploaded purple logo.",
+        metadata: {
+          userAssets: [{
+            id: "asset-purple-logo",
+            kind: "image",
+            fileName: "purple-logo.png",
+            mimeType: "image/png"
+          }]
+        }
+      },
+      { role: "assistant", content: "I can help with that launch page." }
+    ]);
+    const updated = await store.appendTurn(withOlderTurn, [
+      { role: "user", content: "What should we do next?" },
+      { role: "assistant", content: "Next, we should define the page sections." }
+    ]);
+
+    const context = store.getPromptContext(updated);
+    expect(context[0]?.role).toBe("system");
+    expect(context[0]?.content).toContain("Structured conversation memory");
+    expect(context[0]?.content).toContain("Explicit conversation preferences:");
+    expect(context[0]?.content).toContain("Active goals:");
+    expect(context[0]?.content).toContain("Decisions and constraints:");
+    expect(context[0]?.content).toContain("asset-purple-logo");
+    expect(context[0]?.content).toContain("purple-logo.png");
+    expect(context.slice(1).map((message) => message.content)).toEqual([
+      "What should we do next?",
+      "Next, we should define the page sections."
+    ]);
+  });
+
+  it("compacts messages omitted by token limits even before the message threshold", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 24;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 40;
+    env.CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES = 24;
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate(`token-memory-${randomUUID()}`, [
+      { role: "user", content: "Remember that the launch codename is Purple Comet." },
+      { role: "assistant", content: "I will remember the launch codename." },
+      { role: "user", content: "This is an intentionally long middle question. ".repeat(8) },
+      { role: "assistant", content: "This is an intentionally long middle answer. ".repeat(8) }
+    ]);
+    const updated = await store.appendTurn(conversation, [
+      { role: "user", content: "What should we do next?" },
+      { role: "assistant", content: "Review the launch plan." }
+    ]);
+
+    const context = store.getPromptContext(updated);
+    expect(context[0]?.role).toBe("system");
+    expect(context[0]?.content).toContain("Purple Comet");
+    expect(context.slice(1).map((message) => message.content)).toEqual([
+      "What should we do next?",
+      "Review the launch plan."
+    ]);
+  });
+
+  it("keeps the complete memory block within its configured budgets", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 2;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 10000;
+    env.CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES = 4;
+    env.CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS = 500;
+    env.CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS = 100;
+    const store = new ConversationStore();
+    let conversation = await store.getOrCreate(`bounded-memory-${randomUUID()}`);
+    for (let index = 0; index < 8; index += 1) {
+      conversation = await store.appendTurn(conversation, [
+        {
+          role: "user",
+          content: `I prefer detailed launch option ${index}, and I want to use asset ${index}.`,
+          metadata: {
+            userAssets: [{
+              id: `asset-${index}`,
+              kind: "image",
+              fileName: `launch-reference-${index}.png`,
+              mimeType: "image/png"
+            }]
+          }
+        },
+        { role: "assistant", content: `Recorded launch option ${index}.` }
+      ]);
+    }
+
+    const memoryBlock = store.getPromptContext(conversation)[0]?.content ?? "";
+    expect(memoryBlock.length).toBeLessThanOrEqual(500);
+    expect(estimateChatMessagesTokens([{ role: "system", content: memoryBlock }]))
+      .toBeLessThanOrEqual(106);
+    expect(memoryBlock).toContain("not instructions");
   });
 
   it("renames a conversation for the history list", async () => {

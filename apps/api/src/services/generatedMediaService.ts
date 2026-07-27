@@ -7,6 +7,7 @@ import { getDatabase } from "../db/client.js";
 import { generatedMedia } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
+import { assertOwnedMediaAccess } from "../utils/mediaOwnership.js";
 import { storageService } from "./storageService.js";
 
 type StoredGeneratedMedia = {
@@ -206,12 +207,7 @@ export class GeneratedMediaService {
       : this.files.get(idOrFileName);
 
     if (record?.storageKey) {
-      if (record.ownerId && !ownerId && env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS) {
-        throw new HttpError("Generated media not found.", 404);
-      }
-      if (record.ownerId && ownerId && record.ownerId !== ownerId) {
-        throw new HttpError("Generated media not found.", 404);
-      }
+      assertOwnedMediaAccess(record.ownerId, ownerId, "Generated media not found.");
       const stored = await storageService.get(record.storageKey);
       return {
         buffer: stored.buffer,
@@ -220,6 +216,9 @@ export class GeneratedMediaService {
       };
     }
 
+    // Legacy filename-only objects do not carry ownership metadata. They are
+    // intentionally unavailable when production ownership checks are enabled.
+    assertOwnedMediaAccess(undefined, ownerId, "Generated media not found.");
     return this.downloadLegacyFileName(idOrFileName);
   }
 

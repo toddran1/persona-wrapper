@@ -121,6 +121,23 @@ function clearLegacyAuthTokens(): void {
   try { localStorage.removeItem(LEGACY_AUTH_TOKENS_KEY); } catch { /* Storage is unavailable. */ }
 }
 
+async function parseContractResponseBody(response: Response): Promise<unknown> {
+  if (response.status === 204) return undefined;
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = await response.text();
+  if (!contentType.includes("application/json")) return body;
+  if (!body.trim()) {
+    if (response.ok) throw new Error("The app server returned an invalid response. Please try again.");
+    return undefined;
+  }
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    if (response.ok) throw new Error("The app server returned an invalid response. Please try again.");
+    return undefined;
+  }
+}
+
 export type ChatPayload = {
   personaId: string;
   message: string;
@@ -255,12 +272,7 @@ const contractClient = initClient(apiContract, {
     if (response.status === 401 && await refreshStoredAuth()) {
       response = await fetchWithTimeout(path, requestInit);
     }
-    const contentType = response.headers.get("content-type") ?? "";
-    const responseBody = response.status === 204
-      ? undefined
-      : contentType.includes("application/json")
-        ? await response.json()
-        : await response.text();
+    const responseBody = await parseContractResponseBody(response);
     return { status: response.status, body: responseBody, headers: response.headers };
   }
 });

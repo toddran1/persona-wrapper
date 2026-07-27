@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canonicalUploadMetadata, MAX_UPLOAD_BATCH_BYTES, MAX_UPLOAD_FILES, validateFileContents, validateUploadBatch } from "../services/uploadService.js";
+import {
+  canonicalUploadMetadata,
+  isPersistedUploadReady,
+  MAX_UPLOAD_BATCH_BYTES,
+  MAX_UPLOAD_FILES,
+  validateFileContents,
+  validateUploadBatch
+} from "../services/uploadService.js";
 
 function upload(mimetype: string, buffer: Buffer): Express.Multer.File {
   return { mimetype, buffer } as Express.Multer.File;
@@ -33,5 +40,13 @@ describe("upload content type validation", () => {
     expect(() => validateUploadBatch(Array.from({ length: MAX_UPLOAD_FILES }, () => ({ sizeBytes: 1 })))).not.toThrow();
     expect(() => validateUploadBatch(Array.from({ length: MAX_UPLOAD_FILES + 1 }, () => ({ sizeBytes: 1 })))).toThrow(/maximum/i);
     expect(() => validateUploadBatch([{ sizeBytes: MAX_UPLOAD_BATCH_BYTES + 1 }])).toThrow(/combined upload size/i);
+  });
+
+  it("only exposes completed presigned uploads while preserving legacy atomic uploads", () => {
+    expect(isPersistedUploadReady({})).toBe(true);
+    expect(isPersistedUploadReady({ uploadStatus: "ready" })).toBe(true);
+    expect(isPersistedUploadReady({ uploadStatus: "pending" })).toBe(false);
+    expect(isPersistedUploadReady({ uploadStatus: "processing" })).toBe(false);
+    expect(isPersistedUploadReady({ uploadStatus: "failed" })).toBe(false);
   });
 });

@@ -15,6 +15,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(storageRoot, { recursive: true, force: true });
   delete process.env.STORAGE_LOCAL_ROOT;
+  delete process.env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS;
 });
 
 describe("generatedAudioService", () => {
@@ -51,5 +52,19 @@ describe("generatedAudioService", () => {
       fileName: "voice.mp3",
       mimeType: "audio/mpeg"
     });
+  });
+
+  it("fails closed for legacy unowned audio when owned access is required", async () => {
+    process.env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS = "true";
+    vi.resetModules();
+    const { generatedAudioService } = await import("../services/generatedAudioService.js");
+    const url = await generatedAudioService.register(Buffer.from("legacy-unowned-audio"), {
+      fileName: "voice.mp3",
+      mimeType: "audio/mpeg"
+    });
+    const token = url.split("/").pop();
+
+    await expect(generatedAudioService.download(token ?? "", "owner-a"))
+      .rejects.toThrow("Generated audio not found.");
   });
 });

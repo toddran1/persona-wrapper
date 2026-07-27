@@ -17,6 +17,14 @@ export const MAX_UPLOAD_FILES = MAX_CHAT_ATTACHMENTS;
 // Ten images at the Images API's <50 MB per-image ceiling remain below the
 // Responses API's documented 512 MB total image-input payload limit.
 export const MAX_UPLOAD_BATCH_BYTES = 500_000_000;
+
+export function isPersistedUploadReady(metadata: Record<string, unknown>): boolean {
+  const status = metadata.uploadStatus;
+  // Rows created before presigned uploads do not have an uploadStatus. They
+  // were stored atomically and are therefore ready. Every explicit status
+  // other than "ready" represents an object that must not reach a provider.
+  return status === undefined || status === "ready";
+}
 const FILE_MIME_TYPES = new Set([
   "application/pdf",
   "text/plain",
@@ -279,7 +287,7 @@ export class UploadService {
     if (db) {
       const rows = await db.select().from(uploads).where(eq(uploads.ownerId, ownerId));
       return rows
-        .filter((row) => row.metadata.uploadStatus !== "pending")
+        .filter((row) => isPersistedUploadReady(row.metadata))
         .map((row) => this.publicAsset(this.assetFromDatabase(row)));
     }
     return [...this.assets.values()].filter((asset) => asset.ownerId === ownerId).map((asset) => this.publicAsset(asset));
@@ -498,7 +506,7 @@ export class UploadService {
   }
 
   private assetFromDatabase(row: typeof uploads.$inferSelect): StoredAsset {
-    if (row.metadata.uploadStatus === "pending") throw new HttpError("Upload is not complete.", 409);
+    if (!isPersistedUploadReady(row.metadata)) throw new HttpError("Upload is not complete.", 409);
     if (!row.storageKey && !row.localPath) throw new HttpError("Upload file is unavailable.", 404);
     return {
       id: row.id,

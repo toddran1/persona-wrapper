@@ -131,7 +131,7 @@ export class BackgroundChatJobService {
     if (db) {
       const persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
       if (!persisted || persisted.kind !== "chat") return undefined;
-      if (ownerId && persisted.ownerId && persisted.ownerId !== ownerId) return undefined;
+      if (ownerId && persisted.ownerId !== ownerId) return undefined;
       return {
         id: persisted.id,
         status: parseJobStatus(persisted.status),
@@ -144,7 +144,7 @@ export class BackgroundChatJobService {
       };
     }
     const job = this.jobs.get(id);
-    if (!job || (ownerId && job.ownerId && job.ownerId !== ownerId)) return undefined;
+    if (!job || (ownerId && job.ownerId !== ownerId)) return undefined;
     return toChatJobResponse(job);
   }
 
@@ -158,13 +158,13 @@ export class BackgroundChatJobService {
   async cancel(id: string, error = "Request cancelled.", ownerId?: string): Promise<ChatJobResponse | undefined> {
     const job = this.jobs.get(id);
     const db = getDatabase();
-    if (ownerId && job?.ownerId && job.ownerId !== ownerId) return undefined;
+    if (ownerId && job && job.ownerId !== ownerId) return undefined;
     if (!db && job && job.status !== "queued" && job.status !== "running") return this.get(id, ownerId);
     let reservationId = job?.usageReservationId;
     let persistedStatus: string | undefined;
     if (db) {
       const persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
-      if (ownerId && persisted?.ownerId && persisted.ownerId !== ownerId) return undefined;
+      if (ownerId && persisted && persisted.ownerId !== ownerId) return undefined;
       persistedStatus = persisted?.status;
       if (persistedStatus && persistedStatus !== "queued" && persistedStatus !== "running") return this.get(id, ownerId);
       const candidate = persisted?.metadata.usageReservationId;

@@ -15,6 +15,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(storageRoot, { recursive: true, force: true });
   delete process.env.STORAGE_LOCAL_ROOT;
+  delete process.env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS;
 });
 
 describe("generatedMediaService", () => {
@@ -74,5 +75,17 @@ describe("generatedMediaService", () => {
     await expect(generatedMediaService.download(persisted.id, "owner-a")).resolves.toMatchObject({
       mimeType: "image/png"
     });
+  });
+
+  it("fails closed for legacy unowned media when owned access is required", async () => {
+    process.env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS = "true";
+    vi.resetModules();
+    const { generatedMediaService } = await import("../services/generatedMediaService.js");
+    const persisted = await generatedMediaService.persistDataUrl(
+      `data:image/png;base64,${Buffer.from("legacy-unowned-png").toString("base64")}`
+    );
+
+    await expect(generatedMediaService.download(persisted.id, "owner-a"))
+      .rejects.toThrow("Generated media not found.");
   });
 });

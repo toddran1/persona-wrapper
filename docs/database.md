@@ -192,16 +192,31 @@ Recommended cost controls:
 
 Conversation turns are stored durably in Postgres. For each model request, the API sends recent turns directly, bounded by `OPENAI_MAX_CONTEXT_MESSAGES`, `OPENAI_MAX_CONTEXT_TOKENS`, and `OPENAI_MAX_CONTEXT_CHARACTERS`, and skips empty assistant messages from media-only turns so they do not waste context slots.
 
-For longer chats, the API keeps a compact deterministic memory summary in `conversations.metadata.memorySummary`. That summary is prepended as a system context note before the recent verbatim turns, which gives the model continuity without resending the entire transcript every time.
+For longer chats, the API keeps both a compact deterministic transcript summary in
+`conversations.metadata.memorySummary` and validated semantic memory in
+`conversations.metadata.structuredMemory`. Structured memory records conservative,
+explicit conversation preferences, conversation-scoped goals, explicit decisions or
+constraints, unresolved requests, and referenced upload IDs with their original purpose. Both are prepended as system
+context before the recent verbatim turns, which gives the model continuity without
+resending the entire transcript every time.
+
+Structured memory is rebuilt from persisted conversation turns when compaction runs.
+It does not become global profile memory, does not infer sensitive user attributes,
+and does not imply that an older referenced asset is still available to the current
+provider request. Invalid structured metadata is ignored and the transcript summary
+remains the fallback. The complete memory note is treated as untrusted conversation
+data and shares the configured summary character and token budgets. Compaction can
+also run before the message threshold when the token or character limit has already
+excluded older turns.
 
 Relevant context controls:
 
 ```env
-OPENAI_MAX_CONTEXT_MESSAGES=16
-OPENAI_MAX_CONTEXT_CHARACTERS=35000
-OPENAI_MAX_CONTEXT_TOKENS=8000
+OPENAI_MAX_CONTEXT_MESSAGES=24
+OPENAI_MAX_CONTEXT_CHARACTERS=50000
+OPENAI_MAX_CONTEXT_TOKENS=12000
 CONVERSATION_MEMORY_SUMMARY_ENABLED=true
-CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=16
+CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=24
 CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS=2500
 CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS=800
 OPENAI_STYLE_REFERENCE_SYNTHETIC_LIMIT=20

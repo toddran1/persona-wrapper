@@ -179,6 +179,23 @@ function validateUploadFiles(files: MobileUploadFile[]): void {
   }
 }
 
+async function parseContractResponseBody(response: Response): Promise<unknown> {
+  if (response.status === 204) return undefined;
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = await response.text();
+  if (!contentType.includes("application/json")) return body;
+  if (!body.trim()) {
+    if (response.ok) throw new Error("The app server returned an invalid response. Please try again.");
+    return undefined;
+  }
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    if (response.ok) throw new Error("The app server returned an invalid response. Please try again.");
+    return undefined;
+  }
+}
+
 function imageMimeTypeFromHeader(header: Uint8Array): string | undefined {
   if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
     return "image/jpeg";
@@ -310,12 +327,7 @@ const contractClient = initClient(apiContract, {
       if (response.status === 401 && await refreshStoredAuth()) {
         response = await fetch(path, { ...requestInit, headers: await requestHeaders(false, headers) });
       }
-      const contentType = response.headers.get("content-type") ?? "";
-      const responseBody = response.status === 204
-        ? undefined
-        : contentType.includes("application/json")
-          ? await response.json()
-          : await response.text();
+      const responseBody = await parseContractResponseBody(response);
       return { status: response.status, body: responseBody, headers: response.headers };
     } catch (error) {
       if (timeout.didTimeout()) throw new Error("The app server took too long to respond. Please try again.");

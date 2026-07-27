@@ -158,4 +158,17 @@ describe("web API authentication refresh", () => {
 
     await expect(api.getPersonas()).rejects.toThrow("Could not load personas.");
   });
+
+  it("reports a stable error when a successful contract response contains truncated JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response('{"personas":', {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    ));
+
+    await expect(api.getPersonas()).rejects.toThrow(
+      "The app server returned an invalid response. Please try again."
+    );
+  });
 });

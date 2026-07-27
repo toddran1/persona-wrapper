@@ -59,6 +59,20 @@ function archiveSizeError(): HttpError {
   return new HttpError("Expanded import archive is too large.", 413);
 }
 
+export function publicDataTransferError(error: string): string {
+  // Keep validation and archive-format messages actionable, but never return
+  // database statements, bound parameters, or storage-provider internals from
+  // the persisted background-job record.
+  if (
+    /failed query:|params:|drizzle|postgres|syntax error|violates .*constraint|duplicate key|relation .* does not exist|accessdenied|request[ -]?id/i.test(
+      error
+    )
+  ) {
+    return "The data transfer could not be completed. Please try again.";
+  }
+  return error;
+}
+
 async function readStreamBuffer(stream: Readable, maxBytes: number, onBytes?: (bytes: number) => void): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let sizeBytes = 0;
@@ -689,6 +703,7 @@ export class DataTransferJobService {
     const { ownerId: _owner, request: _request, abortController: _abort, resultStorageKey: _key, ...value } = job;
     return {
       ...value,
+      ...(value.error ? { error: publicDataTransferError(value.error) } : {}),
       ...(job.kind === "export" && job.status === "completed" ? { downloadUrl: `/api/data/jobs/${job.id}/download` } : {})
     };
   }
@@ -709,7 +724,7 @@ export class DataTransferJobService {
       ...(kind === "export" && row.status === "completed" ? { downloadUrl: `/api/data/jobs/${row.id}/download` } : {}),
       ...(typeof metadata.fileName === "string" ? { fileName: metadata.fileName } : {}),
       ...(typeof metadata.sizeBytes === "number" ? { sizeBytes: metadata.sizeBytes } : {}),
-      ...(row.error ? { error: row.error } : {}),
+      ...(row.error ? { error: publicDataTransferError(row.error) } : {}),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       ...(typeof metadata.expiresAt === "string" ? { expiresAt: metadata.expiresAt } : {})

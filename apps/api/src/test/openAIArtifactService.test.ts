@@ -42,6 +42,7 @@ afterEach(async () => {
     delete process.env.DATABASE_URL;
   }
   delete process.env.OPENAI_API_KEY;
+  delete process.env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS;
 });
 
 describe("openAIArtifactService", () => {
@@ -91,6 +92,18 @@ describe("openAIArtifactService", () => {
         content: blocks
       })
     ).not.toThrow();
+  });
+
+  it("fails closed for legacy unowned artifacts when owned access is required", async () => {
+    process.env.DATABASE_URL = "";
+    process.env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS = "true";
+    vi.resetModules();
+    const { openAIArtifactService } = await import("../services/openAIArtifactService.js");
+    const artifactUrl = openAIArtifactService.register("container-legacy", "file-legacy", "legacy.png");
+    const artifactId = artifactUrl.split("/").pop();
+
+    await expect(openAIArtifactService.download(artifactId ?? "", "owner-a"))
+      .rejects.toThrow("Generated file not found.");
   });
 
   it("persists artifact ownership metadata to Postgres when the database is enabled", async () => {

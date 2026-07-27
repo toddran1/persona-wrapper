@@ -174,11 +174,11 @@ after one day and can be explicitly removed with
 Relevant environment variables:
 
 ```text
-OPENAI_MAX_CONTEXT_MESSAGES=16
-OPENAI_MAX_CONTEXT_CHARACTERS=35000
-OPENAI_MAX_CONTEXT_TOKENS=8000
+OPENAI_MAX_CONTEXT_MESSAGES=24
+OPENAI_MAX_CONTEXT_CHARACTERS=50000
+OPENAI_MAX_CONTEXT_TOKENS=12000
 CONVERSATION_MEMORY_SUMMARY_ENABLED=true
-CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=16
+CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES=24
 CONVERSATION_MEMORY_SUMMARY_MAX_CHARACTERS=2500
 CONVERSATION_MEMORY_SUMMARY_MAX_TOKENS=800
 OPENAI_STYLE_REFERENCE_SYNTHETIC_LIMIT=20
@@ -189,6 +189,14 @@ OPENAI_DAILY_TOKEN_LIMIT=1000000
 CHAT_RATE_LIMIT_REQUESTS=30
 CHAT_RATE_LIMIT_WINDOW_MS=60000
 ```
+
+When older turns leave the recent context window, the API stores a compact transcript
+fallback plus validated, conversation-scoped semantic memory for explicit goals,
+preferences, decisions and constraints, unresolved requests, and referenced upload IDs. This
+memory is advisory, untrusted context, is deleted with the conversation, and is not promoted to
+the user's global profile. The complete memory block shares the configured character and token
+limits, and compaction also runs early when token or character limits exclude turns before the
+normal message threshold.
 
 The token ceiling works without pricing configuration. Set the current model
 pricing environment values for spend enforcement and estimated-cost metadata

@@ -8,6 +8,7 @@ import { getDatabase } from "../db/client.js";
 import { openAIArtifacts } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
+import { assertOwnedMediaAccess } from "../utils/mediaOwnership.js";
 import { storageService } from "./storageService.js";
 
 type Artifact = {
@@ -195,12 +196,7 @@ export class OpenAIArtifactService {
     await this.cleanupExpiredNow();
     const artifact = await this.lookup(id);
     if (!artifact) throw new HttpError("Generated file not found.", 404);
-    if (artifact.ownerId && !ownerId && env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS) {
-      throw new HttpError("Generated file not found.", 404);
-    }
-    if (artifact.ownerId && ownerId && artifact.ownerId !== ownerId) {
-      throw new HttpError("Generated file not found.", 404);
-    }
+    assertOwnedMediaAccess(artifact.ownerId, ownerId, "Generated file not found.");
 
     if (artifact.storageKey) {
       const stored = await storageService.get(artifact.storageKey);

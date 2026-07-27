@@ -7,6 +7,7 @@ import { getDatabase } from "../db/client.js";
 import { generatedAudio } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
+import { assertOwnedMediaAccess } from "../utils/mediaOwnership.js";
 import { storageService } from "./storageService.js";
 
 type GeneratedAudio = {
@@ -88,8 +89,7 @@ export class GeneratedAudioService {
       ? await db.query.generatedAudio.findFirst({ where: eq(generatedAudio.token, token) })
       : this.files.get(token);
     if (!file) throw new HttpError("Generated audio not found.", 404);
-    if (file.ownerId && !ownerId && env.AUTH_REQUIRE_OWNED_MEDIA_ACCESS) throw new HttpError("Generated audio not found.", 404);
-    if (file.ownerId && ownerId && file.ownerId !== ownerId) throw new HttpError("Generated audio not found.", 404);
+    assertOwnedMediaAccess(file.ownerId, ownerId, "Generated audio not found.");
     if (file.storageKey) {
       const stored = await storageService.get(file.storageKey);
       return {
