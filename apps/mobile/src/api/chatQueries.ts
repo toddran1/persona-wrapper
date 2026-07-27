@@ -14,7 +14,7 @@ export const personaQueryOptions = (id: string) => queryOptions({
 });
 
 export const conversationsPageQueryOptions = (cursor?: string, query?: string, accountId = "anonymous") => queryOptions({
-  queryKey: ["conversations", accountId, { cursor: cursor ?? null, query: query ?? null }],
+  queryKey: ["conversations", accountId, "keyset-v1", { cursor: cursor ?? null, query: query ?? null }],
   queryFn: () => api.listConversationsPage(cursor, 50, query)
 });
 

@@ -27,11 +27,10 @@ import * as Sharing from "expo-sharing";
 import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
 import * as ScreenOrientation from "expo-screen-orientation";
-import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer } from "expo-audio";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type DataTransferJob, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type PersonaSummary, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
+import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -45,6 +44,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../api/client";
 import { queryClient } from "../../api/queryClient";
 import { conversationsPageQueryOptions, conversationTurnsQueryOptions, personaQueryOptions, personasQueryOptions } from "../../api/chatQueries";
+import { clearUserQueryCache, restoreUserQueryCache, subscribeUserQueryCache } from "../../api/queryPersistence";
 import { IconButton } from "../../components/IconButton";
 import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
 import { useLocalization } from "../../localization/LocalizationProvider";
@@ -58,10 +58,12 @@ import {
 } from "../../storage/secureTokens";
 import { saveFileToDevice } from "../../storage/downloadDirectory";
 import { getLandscapeLayoutEnabled, setLandscapeLayoutEnabled } from "../../storage/mobilePreferences";
-import { defaultPersonaTheme, themeFromPersona, type MobileTheme } from "../../theme/personaTheme";
+import { defaultPersonaTheme, themeFromPersona } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
-import { OutputBlocks } from "./OutputBlocks";
+import { ChatTurn } from "./ChatTurn";
+import { usePersonaAudio } from "./usePersonaAudio";
+import { useAccountSettingsController, type SettingsPanel } from "./useAccountSettingsController";
 import { PersonaVisualStage, type PersonaVisualState } from "./PersonaVisualStage";
 import { MobileAuthScreen, type MobileAuthMode } from "../auth/MobileAuthScreen";
 import {
@@ -138,7 +140,15 @@ async function loadAuthenticatedUser(): Promise<AuthUser | undefined> {
 
 type SpeechRecognitionRuntime = typeof import("expo-speech-recognition");
 type SpeechRecognitionSubscription = { remove: () => void };
-type AudioPlaybackSubscription = { remove: () => void };
+type ChatTurnActionHandlers = {
+  copyPrompt: (turn: RenderedTurn) => void;
+  editPrompt: (turn: RenderedTurn) => void;
+  showPromptActions: (turn: RenderedTurn) => void;
+  outputAction: (action: Extract<RenderedTurn["outputs"][number], { type: "action" }>) => void;
+  resumeBackgroundJob: (turn: RenderedTurn) => void;
+  copyResponse: (turn: RenderedTurn) => void;
+  showResponseActions: (turn: RenderedTurn) => void;
+};
 declare const require: (moduleName: string) => unknown;
 const IMAGE_REQUEST_PATTERN =
   /\b(generate|create|make|draw|design|edit|change|remove|replace|recolor|retouch|give|get|show|provide|turn|convert)\b[\s\S]{0,80}\b(image|photo|picture|poster|logo|art|illustration|avatar|thumbnail|banner|flyer)\b/i;
@@ -184,9 +194,6 @@ function formatSessionActivity(value: string): string {
   return `Last active ${date.toLocaleString()}`;
 }
 
-type SettingsPanel = "main" | "profile" | "security" | "sessions" | "about" | "data";
-type ProfileSelectionKind = "gender" | "month" | "day";
-
 const PROFILE_GENDER_OPTIONS = [
   { value: "", label: "Not specified" },
   { value: "female", label: "Female" },
@@ -213,10 +220,8 @@ export function MobileChatScreen() {
   const drawerWidth = windowWidth;
   const compactLayout = windowWidth < 360 || windowHeight < 700;
   const tabletLayout = Math.min(windowWidth, windowHeight) >= 600;
-  const [personas, setPersonas] = useState<PersonaSummary[]>([]);
   const [persona, setPersona] = useState<PersonaDefinition | undefined>();
   const [provider, setProvider] = useState<ProviderId>("openai_persona");
-  const [audioEnabled, setAudioEnabled] = useState(false);
   const [turns, setTurns] = useState<RenderedTurn[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationsCursor, setConversationsCursor] = useState<string | null>(null);
@@ -237,31 +242,6 @@ export function MobileChatScreen() {
   const [resumingJobId, setResumingJobId] = useState<string | undefined>();
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [settingsVisible, setSettingsVisible] = useState(false);
-  const [settingsPanel, setSettingsPanel] = useState<SettingsPanel>("main");
-  const [landscapeLayoutEnabled, setLandscapeLayoutEnabledState] = useState(false);
-  const [landscapePreferenceBusy, setLandscapePreferenceBusy] = useState(false);
-  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
-  const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
-  const dataTransferActive = Boolean(dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status));
-  const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [sessionsError, setSessionsError] = useState<string | undefined>();
-  const [sessionActionId, setSessionActionId] = useState<string | undefined>();
-  const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
-  const [securityLoading, setSecurityLoading] = useState(false);
-  const [securityError, setSecurityError] = useState<string | undefined>();
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [newPasswordConfirmation, setNewPasswordConfirmation] = useState("");
-  const [profileUsername, setProfileUsername] = useState("");
-  const [preferredName, setPreferredName] = useState("");
-  const [profileGender, setProfileGender] = useState<AuthUser["gender"] | "">("");
-  const [birthMonth, setBirthMonth] = useState("");
-  const [birthDay, setBirthDay] = useState("");
-  const [profileBusy, setProfileBusy] = useState(false);
-  const [profileError, setProfileError] = useState<string | undefined>();
-  const [profileNotice, setProfileNotice] = useState<string | undefined>();
-  const [profileSelection, setProfileSelection] = useState<ProfileSelectionKind | undefined>();
   const [authMode, setAuthMode] = useState<MobileAuthMode>("login");
   const [renameTarget, setRenameTarget] = useState<ConversationSummary | undefined>();
   const [conversationActionTarget, setConversationActionTarget] = useState<ConversationSummary | undefined>();
@@ -285,11 +265,6 @@ export function MobileChatScreen() {
   const [identifier, setIdentifier] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
-  const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState("");
-  const [deletePassword, setDeletePassword] = useState("");
-  const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
-  const [deleteAccountError, setDeleteAccountError] = useState<string | undefined>();
   const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [drawerInteractive, setDrawerInteractive] = useState(false);
@@ -306,20 +281,110 @@ export function MobileChatScreen() {
   const speechBaseDraftRef = useRef("");
   const speechRuntimeRef = useRef<SpeechRecognitionRuntime | undefined>(undefined);
   const speechSubscriptionsRef = useRef<SpeechRecognitionSubscription[]>([]);
-  const audioPlaybackRef = useRef<AudioPlayer | undefined>(undefined);
-  const audioPlaybackUriRef = useRef<string | undefined>(undefined);
-  const audioPlaybackSubscriptionRef = useRef<AudioPlaybackSubscription | undefined>(undefined);
-  const audioPlaybackGenerationRef = useRef(0);
   const activeChatAbortControllerRef = useRef<AbortController | undefined>(undefined);
   const activeChatTurnIdRef = useRef<string | undefined>(undefined);
   const activeBackgroundJobIdRef = useRef<string | undefined>(undefined);
   const activeSubmissionRef = useRef<{ message: string; files: MobilePickedFile[] } | undefined>(undefined);
+  const chatTurnActionHandlersRef = useRef<ChatTurnActionHandlers | undefined>(undefined);
   const dataTransferAbortControllerRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
   const conversationListGenerationRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
   const sessionValidationInFlightRef = useRef(false);
   const appDataReloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
+  const userCacheRestoreRef = useRef<Map<string, Promise<void>>>(new Map());
+  const userCacheSubscriptionRef = useRef<(() => void) | undefined>(undefined);
+  const {
+    audioEnabled,
+    setAudioEnabled,
+    releaseCurrentAudioPlayback,
+    replayAudioOutput,
+    playGeneratedPersonaAudio
+  } = usePersonaAudio();
+  const {
+    settingsVisible,
+    setSettingsVisible,
+    settingsPanel,
+    setSettingsPanel,
+    landscapeLayoutEnabled,
+    setLandscapeLayoutEnabledState,
+    landscapePreferenceBusy,
+    setLandscapePreferenceBusy,
+    activeSessions,
+    setActiveSessions,
+    sessionsLoading,
+    setSessionsLoading,
+    sessionsError,
+    setSessionsError,
+    sessionActionId,
+    setSessionActionId,
+    connectedAccounts,
+    setConnectedAccounts,
+    securityLoading,
+    setSecurityLoading,
+    securityError,
+    setSecurityError,
+    currentPassword,
+    setCurrentPassword,
+    newPassword,
+    setNewPassword,
+    newPasswordConfirmation,
+    setNewPasswordConfirmation,
+    profileUsername,
+    setProfileUsername,
+    preferredName,
+    setPreferredName,
+    profileGender,
+    setProfileGender,
+    birthMonth,
+    setBirthMonth,
+    birthDay,
+    setBirthDay,
+    profileBusy,
+    setProfileBusy,
+    profileError,
+    setProfileError,
+    profileNotice,
+    setProfileNotice,
+    profileSelection,
+    setProfileSelection,
+    dataTransferJob,
+    setDataTransferJob,
+    deleteAccountVisible,
+    setDeleteAccountVisible,
+    deleteConfirmation,
+    setDeleteConfirmation,
+    deletePassword,
+    setDeletePassword,
+    deleteAccountBusy,
+    setDeleteAccountBusy,
+    deleteAccountError,
+    setDeleteAccountError
+  } = useAccountSettingsController(authUser);
+  const dataTransferActive = Boolean(
+    dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status)
+  );
+  const copyTurnPrompt = useCallback((turn: RenderedTurn) => {
+    chatTurnActionHandlersRef.current?.copyPrompt(turn);
+  }, []);
+  const editTurnPrompt = useCallback((turn: RenderedTurn) => {
+    chatTurnActionHandlersRef.current?.editPrompt(turn);
+  }, []);
+  const showTurnPromptActions = useCallback((turn: RenderedTurn) => {
+    chatTurnActionHandlersRef.current?.showPromptActions(turn);
+  }, []);
+  const handleTurnOutputAction = useCallback((action: Extract<RenderedTurn["outputs"][number], { type: "action" }>) => {
+    chatTurnActionHandlersRef.current?.outputAction(action);
+  }, []);
+  const resumeTurnBackgroundJob = useCallback((turn: RenderedTurn) => {
+    chatTurnActionHandlersRef.current?.resumeBackgroundJob(turn);
+  }, []);
+  const copyTurnResponse = useCallback((turn: RenderedTurn) => {
+    chatTurnActionHandlersRef.current?.copyResponse(turn);
+  }, []);
+  const showTurnResponseActions = useCallback((turn: RenderedTurn) => {
+    chatTurnActionHandlersRef.current?.showResponseActions(turn);
+  }, []);
   const landscapeLayout = landscapeLayoutEnabled && windowWidth > windowHeight;
   // Android may place its three-button navigation rail over the left edge in
   // landscape without exposing a reliable safe-area inset. Reserve its touch
@@ -334,20 +399,15 @@ export function MobileChatScreen() {
     paddingRight: Math.max(insets.right + 16, 16)
   };
 
+  const personasResource = useQuery(personasQueryOptions());
+  const personas = personasResource.data ?? [];
   const activePersona = persona ?? personas[0];
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
+  const personaById = useMemo(
+    () => new Map(personas.map((candidate) => [candidate.id, candidate] as const)),
+    [personas]
+  );
   const [selectedFiles, setSelectedFiles] = useState<MobilePickedFile[]>([]);
-  const personasResource = useQuery(personasQueryOptions());
-  const primaryPersonaId = personasResource.data?.[0]?.id;
-  const primaryPersonaResource = useQuery({
-    ...personaQueryOptions(primaryPersonaId ?? ""),
-    enabled: Boolean(primaryPersonaId)
-  });
-  const conversationsResource = useQuery({
-    ...conversationsPageQueryOptions(undefined, undefined, authUser?.id),
-    enabled: Boolean(authUser),
-    staleTime: 15_000
-  });
   const deleteConversationMutation = useMutation({
     mutationFn: api.deleteConversation,
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["conversations", authUser?.id] })
@@ -383,23 +443,12 @@ export function MobileChatScreen() {
   }, []);
 
   useEffect(() => {
-    if (personasResource.data) setPersonas(personasResource.data);
     if (personasResource.error) setError(personasResource.error.message);
-  }, [personasResource.data, personasResource.error]);
-
-  useEffect(() => {
-    if (primaryPersonaResource.data && !persona) setPersona(primaryPersonaResource.data);
-  }, [primaryPersonaResource.data, persona]);
+  }, [personasResource.error]);
 
   useEffect(() => {
     turnsRef.current = turns;
   }, [turns]);
-
-  useEffect(() => {
-    if (!conversationsResource.data) return;
-    setConversations([...conversationsResource.data.conversations].sort(sortConversationSummaries));
-    setConversationsCursor(conversationsResource.data.nextCursor);
-  }, [conversationsResource.data]);
 
   useEffect(() => {
     if (!drawerInteractive) drawerX.value = -drawerWidth;
@@ -412,7 +461,6 @@ export function MobileChatScreen() {
       } catch {
         // Native speech recognition may be unavailable in Expo Go or unsupported builds.
       }
-      void releaseCurrentAudioPlayback();
       activeChatAbortControllerRef.current?.abort();
       activeChatAbortControllerRef.current = undefined;
       clearScrollButtonTimer();
@@ -422,9 +470,6 @@ export function MobileChatScreen() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!audioEnabled) void releaseCurrentAudioPlayback();
-  }, [audioEnabled]);
 
   useEffect(() => {
     if (!recentlyRestored || !authChecked) return;
@@ -570,21 +615,6 @@ export function MobileChatScreen() {
     if (panel === "sessions") void refreshActiveSessions();
     if (panel === "security") void refreshConnectedAccounts();
   }
-
-  useEffect(() => {
-    if (!authUser) setProfileSelection(undefined);
-    setProfileUsername(authUser?.username ?? "");
-    setPreferredName(authUser?.preferredName ?? "");
-    setProfileGender(authUser?.gender ?? "");
-    setBirthMonth(authUser?.birthday?.month.toString() ?? "");
-    setBirthDay(authUser?.birthday?.day.toString() ?? "");
-  }, [authUser?.id, authUser?.username, authUser?.preferredName, authUser?.gender, authUser?.birthday?.month, authUser?.birthday?.day]);
-
-  useEffect(() => {
-    if (!profileNotice) return;
-    const timer = setTimeout(() => setProfileNotice(undefined), 2400);
-    return () => clearTimeout(timer);
-  }, [profileNotice]);
 
   function selectProfileOption(value: string): void {
     if (profileSelection === "gender") {
@@ -770,6 +800,7 @@ export function MobileChatScreen() {
           setTurnsCursor(null);
           setAuthMode("login");
           setAuthError("This session ended on another device. Sign in again to continue.");
+          void purgeUserCache(authUser.id).catch(() => undefined);
           void clearSelectedConversationId().catch(() => undefined);
         })
         .catch((validationError) => {
@@ -862,14 +893,40 @@ export function MobileChatScreen() {
 
   async function refreshConversations(accountId = authUser?.id): Promise<ConversationSummary[]> {
     const generation = ++conversationListGenerationRef.current;
-    const page = accountId === authUser?.id
-      ? (await conversationsResource.refetch()).data
-      : await queryClient.fetchQuery({ ...conversationsPageQueryOptions(undefined, undefined, accountId), staleTime: 0 });
+    const page = await queryClient.fetchQuery({
+      ...conversationsPageQueryOptions(undefined, undefined, accountId),
+      staleTime: 0
+    });
     if (!page || generation !== conversationListGenerationRef.current) return [];
     const sorted = [...page.conversations].sort(sortConversationSummaries);
     setConversations(sorted);
     setConversationsCursor(page.nextCursor);
     return sorted;
+  }
+
+  function ensureUserCacheRestored(userId: string): Promise<void> {
+    const existing = userCacheRestoreRef.current.get(userId);
+    if (existing) return existing;
+    const restore = restoreUserQueryCache(queryClient, userId).catch(() => undefined);
+    userCacheRestoreRef.current.set(userId, restore);
+    return restore;
+  }
+
+  async function purgeUserCache(userId: string): Promise<void> {
+    userCacheSubscriptionRef.current?.();
+    userCacheSubscriptionRef.current = undefined;
+    await userCacheRestoreRef.current.get(userId)?.catch(() => undefined);
+    userCacheRestoreRef.current.delete(userId);
+    await clearUserQueryCache(queryClient, userId);
+  }
+
+  function hydrateCachedAccountData(userId: string): void {
+    const conversationsOptions = conversationsPageQueryOptions(undefined, undefined, userId);
+    const cachedConversations = queryClient.getQueryData(conversationsOptions.queryKey);
+    if (!cachedConversations) return;
+    const sorted = [...cachedConversations.conversations].sort(sortConversationSummaries);
+    setConversations(sorted);
+    setConversationsCursor(cachedConversations.nextCursor);
   }
 
   async function loadMoreConversations(): Promise<void> {
@@ -984,28 +1041,33 @@ export function MobileChatScreen() {
       setAuthError(undefined);
       setAuthChecked(false);
       try {
-        const [user, providers] = await Promise.all([
+        const [user, providers, personaList, savedPersonaId, savedConversationId] = await Promise.all([
           loadAuthenticatedUser(),
-          api.getOAuthProviders().catch(() => [])
+          api.getOAuthProviders().catch(() => []),
+          queryClient.fetchQuery(personasQueryOptions()),
+          getSelectedPersonaId().catch(() => undefined),
+          getSelectedConversationId().catch(() => undefined)
         ]);
         setAuthUser(user);
         setOAuthProviders(providers);
 
-        const personaList = await queryClient.fetchQuery(personasQueryOptions());
-        setPersonas(personaList);
-        const savedPersonaId = await getSelectedPersonaId().catch(() => undefined);
         const selected = personaList.find((candidate) => candidate.id === savedPersonaId)
           ?? (persona && personaList.some((candidate) => candidate.id === persona.id) ? persona : undefined)
           ?? personaList[0];
-        if (selected) {
-          const detail = await queryClient.fetchQuery(personaQueryOptions(selected.id));
+        if (user) {
+          await ensureUserCacheRestored(user.id);
+          hydrateCachedAccountData(user.id);
+        }
+        const [detail, nextConversations] = await Promise.all([
+          selected ? queryClient.fetchQuery(personaQueryOptions(selected.id)) : undefined,
+          user ? refreshConversations(user.id) : []
+        ]);
+        if (detail) {
           setPersona(detail);
           setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
           void setSelectedPersonaId(detail.id).catch(() => undefined);
         }
         if (user) {
-          const nextConversations = await refreshConversations(user.id);
-          const savedConversationId = await getSelectedConversationId();
           if (!conversationId && savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
             await selectConversation(savedConversationId, { keepDrawerOpen: true, accountId: user.id });
           }
@@ -1140,114 +1202,6 @@ export function MobileChatScreen() {
     } catch (copyError) {
       Alert.alert(label, copyError instanceof Error ? copyError.message : "Could not copy this message.");
     }
-  }
-
-  function audioFileExtension(mimeType: string): string {
-    if (mimeType.includes("wav")) return "wav";
-    if (mimeType.includes("ogg")) return "ogg";
-    if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
-    if (mimeType.includes("mp4")) return "m4a";
-    return "audio";
-  }
-
-  async function releaseCurrentAudioPlayback(): Promise<void> {
-    audioPlaybackGenerationRef.current += 1;
-    const player = audioPlaybackRef.current;
-    const uri = audioPlaybackUriRef.current;
-    const subscription = audioPlaybackSubscriptionRef.current;
-    audioPlaybackRef.current = undefined;
-    audioPlaybackUriRef.current = undefined;
-    audioPlaybackSubscriptionRef.current = undefined;
-    subscription?.remove();
-    try {
-      player?.pause();
-      player?.remove();
-    } catch {
-      // The native player may already have released itself after an interruption.
-    }
-    if (uri?.startsWith(FileSystem.cacheDirectory ?? "")) {
-      await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
-    }
-    if (player) {
-      await setIsAudioActiveAsync(false).catch(() => undefined);
-    }
-  }
-
-  async function prepareAudioUri(output: Extract<RenderedTurn["outputs"][number], { type: "audio" }>): Promise<string> {
-    const audioUrl = api.resolveUrl(output.url);
-    if (!FileSystem.cacheDirectory) return audioUrl;
-
-    const destination = `${FileSystem.cacheDirectory}persona-audio-${Date.now()}.${audioFileExtension(output.mimeType)}`;
-    const downloadOptions = api.isProtectedMediaUrl(output.url) ? { headers: await api.mediaHeaders() } : undefined;
-    const result = await FileSystem.downloadAsync(audioUrl, destination, downloadOptions);
-    if (result.status < 200 || result.status >= 300) {
-      await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
-      throw new Error(`Audio download failed with status ${result.status}.`);
-    }
-    const info = await FileSystem.getInfoAsync(result.uri);
-    if (!info.exists || info.size === 0) {
-      await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
-      throw new Error("Downloaded audio file was empty.");
-    }
-    return result.uri;
-  }
-
-  async function replayAudioOutput(output: Extract<RenderedTurn["outputs"][number], { type: "audio" }>): Promise<void> {
-    let pendingAudioUri: string | undefined;
-    try {
-      await releaseCurrentAudioPlayback();
-      const playbackGeneration = audioPlaybackGenerationRef.current;
-      pendingAudioUri = await prepareAudioUri(output);
-      if (playbackGeneration !== audioPlaybackGenerationRef.current || AppState.currentState !== "active") {
-        if (pendingAudioUri.startsWith(FileSystem.cacheDirectory ?? "")) {
-          await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
-        }
-        return;
-      }
-      await setAudioModeAsync({
-        allowsRecording: false,
-        playsInSilentMode: true,
-        interruptionMode: "duckOthers",
-        shouldPlayInBackground: false,
-        shouldRouteThroughEarpiece: false
-      });
-      await setIsAudioActiveAsync(true);
-      if (playbackGeneration !== audioPlaybackGenerationRef.current || AppState.currentState !== "active") {
-        await setIsAudioActiveAsync(false).catch(() => undefined);
-        if (pendingAudioUri.startsWith(FileSystem.cacheDirectory ?? "")) {
-          await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
-        }
-        return;
-      }
-      const audioUri = pendingAudioUri;
-      const player = createAudioPlayer({ uri: audioUri }, {
-        keepAudioSessionActive: false,
-        updateInterval: 250
-      });
-      audioPlaybackRef.current = player;
-      audioPlaybackUriRef.current = audioUri;
-      audioPlaybackSubscriptionRef.current = player.addListener("playbackStatusUpdate", (status) => {
-        if (status.didJustFinish && audioPlaybackRef.current === player) {
-          void releaseCurrentAudioPlayback();
-        }
-      });
-      pendingAudioUri = undefined;
-      player.play();
-    } catch (playbackError) {
-      await releaseCurrentAudioPlayback();
-      if (pendingAudioUri?.startsWith(FileSystem.cacheDirectory ?? "")) {
-        await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
-      }
-      Alert.alert("Audio playback failed", playbackError instanceof Error ? playbackError.message : "Could not play this audio response.");
-    }
-  }
-
-  function playGeneratedPersonaAudio(outputs: RenderedTurn["outputs"]): void {
-    if (!audioEnabled) return;
-    const audio = outputs.find(
-      (output): output is Extract<RenderedTurn["outputs"][number], { type: "audio" }> => output.type === "audio"
-    );
-    if (audio) void replayAudioOutput(audio);
   }
 
   function editUserMessage(message: string): void {
@@ -1743,7 +1697,13 @@ export function MobileChatScreen() {
     setIdentifier("");
     setDisplayName("");
     try {
-      await refreshConversations(user.id);
+      const savedConversationId = await getSelectedConversationId().catch(() => undefined);
+      await ensureUserCacheRestored(user.id);
+      hydrateCachedAccountData(user.id);
+      const nextConversations = await refreshConversations(user.id);
+      if (savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
+        await selectConversation(savedConversationId, { keepDrawerOpen: true, accountId: user.id });
+      }
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : "Signed in, but could not load your chat history.");
     }
@@ -1756,31 +1716,35 @@ export function MobileChatScreen() {
       setError(undefined);
       setAuthError(undefined);
       try {
-        const user = await loadAuthenticatedUser();
+        const [user, providers, personaList, savedPersonaId, savedConversationId] = await Promise.all([
+          loadAuthenticatedUser(),
+          api.getOAuthProviders().catch(() => []),
+          queryClient.fetchQuery(personasQueryOptions()),
+          getSelectedPersonaId().catch(() => undefined),
+          getSelectedConversationId().catch(() => undefined)
+        ]);
         if (!mounted) return;
         setAuthUser(user);
         setAuthChecked(true);
-
-        const providers = await api.getOAuthProviders().catch(() => []);
-        if (!mounted) return;
         setOAuthProviders(providers);
 
-        const personaList = await queryClient.fetchQuery(personasQueryOptions());
-        if (!mounted) return;
-        setPersonas(personaList);
-        const savedPersonaId = await getSelectedPersonaId().catch(() => undefined);
         const selected = personaList.find((candidate) => candidate.id === savedPersonaId) ?? personaList[0];
-        if (selected) {
-          setProvider(selected.supportedProviders.includes("openai_persona") ? "openai_persona" : selected.supportedProviders[0] ?? "openai");
-          const detail = await queryClient.fetchQuery(personaQueryOptions(selected.id));
-          if (mounted) {
-            setPersona(detail);
-            void setSelectedPersonaId(detail.id).catch(() => undefined);
-          }
+        if (user) {
+          await ensureUserCacheRestored(user.id);
+          if (!mounted) return;
+          hydrateCachedAccountData(user.id);
         }
-        if (user && mounted) {
-          const nextConversations = await refreshConversations(user.id);
-          const savedConversationId = await getSelectedConversationId();
+        const [detail, nextConversations] = await Promise.all([
+          selected ? queryClient.fetchQuery(personaQueryOptions(selected.id)) : undefined,
+          user ? refreshConversations(user.id) : []
+        ]);
+        if (!mounted) return;
+        if (detail) {
+          setProvider(detail.supportedProviders.includes("openai_persona") ? "openai_persona" : detail.supportedProviders[0] ?? "openai");
+          setPersona(detail);
+          void setSelectedPersonaId(detail.id).catch(() => undefined);
+        }
+        if (user) {
           if (savedConversationId && nextConversations.some((conversation) => conversation.id === savedConversationId)) {
             await selectConversation(savedConversationId, { keepDrawerOpen: true, accountId: user.id });
           }
@@ -1799,6 +1763,22 @@ export function MobileChatScreen() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    userCacheSubscriptionRef.current?.();
+    userCacheSubscriptionRef.current = undefined;
+    if (!authUser?.id) return;
+    let cancelled = false;
+    void ensureUserCacheRestored(authUser.id).then(() => {
+      if (cancelled) return;
+      userCacheSubscriptionRef.current = subscribeUserQueryCache(queryClient, authUser.id);
+    });
+    return () => {
+      cancelled = true;
+      userCacheSubscriptionRef.current?.();
+      userCacheSubscriptionRef.current = undefined;
+    };
+  }, [authUser?.id]);
 
   useEffect(() => {
     if (!settingsVisible || !authUser) return;
@@ -2208,6 +2188,7 @@ export function MobileChatScreen() {
   }
 
   async function logout(): Promise<void> {
+    const signedOutUserId = authUser?.id;
     cancelActiveChatRequest();
     selectionGenerationRef.current += 1;
     conversationListGenerationRef.current += 1;
@@ -2221,6 +2202,9 @@ export function MobileChatScreen() {
       await api.logout();
     } catch (error) {
       logoutError = error instanceof Error ? error.message : "Could not reach the server to revoke this session.";
+    }
+    if (signedOutUserId) {
+      await purgeUserCache(signedOutUserId).catch(() => undefined);
     }
     setAuthUser(undefined);
     setDataTransferJob(undefined);
@@ -2401,6 +2385,7 @@ export function MobileChatScreen() {
     dataTransferAbortControllerRef.current = undefined;
     selectionGenerationRef.current += 1;
     conversationListGenerationRef.current += 1;
+    const deletedUserId = authUser?.id;
     try {
       const result = await api.deleteAccount({
         confirmation: "DELETE",
@@ -2420,6 +2405,9 @@ export function MobileChatScreen() {
       setDeletePassword("");
       setAuthMode("restore");
       setAuthError(`Account deletion is scheduled for ${recoveryDate}. Restore it before then to keep your data.`);
+      if (deletedUserId) {
+        await purgeUserCache(deletedUserId).catch(() => undefined);
+      }
       await clearSelectedConversationId().catch(() => undefined);
     } catch (error) {
       setDeleteAccountError(error instanceof Error ? error.message : "Could not schedule account deletion.");
@@ -2467,6 +2455,59 @@ export function MobileChatScreen() {
       : profileSelection === "day"
         ? "Select birth day"
         : "";
+  chatTurnActionHandlersRef.current = {
+    copyPrompt: (turn) => {
+      void copyMessage("Prompt copied.", turn.userMessage);
+    },
+    editPrompt: (turn) => editUserMessage(turn.userMessage),
+    showPromptActions: showUserMessageActions,
+    outputAction: (action) => {
+      void handleOutputAction(action);
+    },
+    resumeBackgroundJob: (turn) => {
+      void resumeBackgroundJob(turn);
+    },
+    copyResponse: (turn) => {
+      void copyMessage("Response copied.", assistantTextForDisplay(turn));
+    },
+    showResponseActions: showAssistantActions
+  };
+  const renderChatTurn = useCallback(({ item: turn }: { item: RenderedTurn }) => {
+    const turnPersona = turn.personaId ? personaById.get(turn.personaId) : activePersona;
+    return (
+      <ChatTurn
+        turn={turn}
+        personaLabel={turnPersona?.shortName ?? turnPersona?.name ?? turn.personaId ?? "P"}
+        personaAccent={turnPersona?.theme.accent ?? theme.accent}
+        theme={theme}
+        expanded={personaCardExpanded}
+        checkingBackgroundJob={resumingJobId === turn.backgroundJobId}
+        checkingLabel={t("chat.checking")}
+        checkStatusLabel={t("chat.checkStatus")}
+        onCopyPrompt={copyTurnPrompt}
+        onEditPrompt={editTurnPrompt}
+        onShowPromptActions={showTurnPromptActions}
+        onOutputAction={handleTurnOutputAction}
+        onResumeBackgroundJob={resumeTurnBackgroundJob}
+        onCopyResponse={copyTurnResponse}
+        onShowResponseActions={showTurnResponseActions}
+      />
+    );
+  }, [
+    activePersona,
+    copyTurnPrompt,
+    copyTurnResponse,
+    editTurnPrompt,
+    handleTurnOutputAction,
+    personaById,
+    personaCardExpanded,
+    resumingJobId,
+    resumeTurnBackgroundJob,
+    showTurnPromptActions,
+    showTurnResponseActions,
+    t,
+    theme
+  ]);
   const handlePersonaExpandedChange = (expanded: boolean): void => {
     setPersonaCardExpanded(expanded);
     if (expanded) setPersonaCardHidden(false);
@@ -2658,87 +2699,7 @@ export function MobileChatScreen() {
                 </View>
               </View>
             )}
-            renderItem={({ item: turn }) => {
-              const turnPersona = turn.personaId
-                ? personas.find((candidate) => candidate.id === turn.personaId)
-                : activePersona;
-              const turnPersonaLabel = turnPersona?.shortName ?? turnPersona?.name ?? turn.personaId ?? "P";
-              return (
-                <View key={turn.id} style={styles.turn}>
-                  <View
-                    style={[
-                      styles.userBubble,
-                      personaCardExpanded ? styles.expandedUserBubble : { backgroundColor: "rgba(255,255,255,0.10)" }
-                    ]}
-                  >
-                    <Text selectable style={[styles.userText, { color: theme.text }]}>{turn.userMessage}</Text>
-                    {turn.userAssets && turn.userAssets.length > 0 ? (
-                      <View style={styles.sentAssetStack}>
-                        {turn.userAssets.map((asset) => (
-                          <View key={asset.id} style={styles.sentAsset}>
-                            <Ionicons name={asset.kind === "image" ? "image-outline" : "document-text-outline"} size={14} color={theme.accent2} />
-                            <Text style={[styles.sentAssetText, { color: theme.muted }]} numberOfLines={1}>{asset.fileName}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    ) : null}
-                  </View>
-                  <MessageActionRow
-                    align="right"
-                    theme={theme}
-                    actions={[
-                      { icon: "copy-outline", label: "Copy prompt", onPress: () => void copyMessage("Prompt copied.", turn.userMessage) },
-                      { icon: "create-outline", label: "Edit prompt", onPress: () => editUserMessage(turn.userMessage) },
-                      { icon: "ellipsis-horizontal", label: "More prompt actions", onPress: () => showUserMessageActions(turn) }
-                    ]}
-                  />
-                  <View style={styles.assistantRow}>
-                    <View style={[styles.assistantMark, { backgroundColor: turnPersona?.theme.accent ?? theme.accent }]}>
-                      <Text style={[styles.assistantMarkText, { color: theme.text }]}>
-                        {turnPersonaLabel[0]}
-                      </Text>
-                    </View>
-                    <View style={[styles.assistantContent, personaCardExpanded ? styles.expandedAssistantBubble : null]}>
-                      <OutputBlocks outputs={turn.outputs} theme={theme} onAction={(action) => void handleOutputAction(action)} />
-                      {isStillRunningTurn(turn)
-                        && !turn.outputs.some((output) => (
-                          output.type === "status"
-                          && output.status === "in_progress"
-                          && /\bthinking\b/i.test(output.message)
-                        )) ? (
-                        <Pressable
-                          accessibilityRole="button"
-                          disabled={resumingJobId === turn.backgroundJobId}
-                          onPress={() => void resumeBackgroundJob(turn)}
-                          style={[
-                            styles.checkStatusButton,
-                            {
-                              borderColor: theme.border,
-                              backgroundColor: resumingJobId === turn.backgroundJobId ? "rgba(255,255,255,0.05)" : "rgba(214,181,94,0.12)"
-                            }
-                          ]}
-                        >
-                          <Ionicons name="refresh" size={16} color={theme.accent2} />
-                          <Text style={[styles.checkStatusText, { color: theme.text }]}>
-                            {resumingJobId === turn.backgroundJobId ? t("chat.checking") : t("chat.checkStatus")}
-                          </Text>
-                        </Pressable>
-                      ) : null}
-                      <MessageActionRow
-                        align="left"
-                        theme={theme}
-                        actions={[
-                          ...(assistantTextForDisplay(turn).trim()
-                            ? [{ icon: "copy-outline" as const, label: "Copy response", onPress: () => void copyMessage("Response copied.", assistantTextForDisplay(turn)) }]
-                            : []),
-                          { icon: "ellipsis-horizontal", label: "More response actions", onPress: () => showAssistantActions(turn) }
-                        ]}
-                      />
-                    </View>
-                  </View>
-                </View>
-              );
-            }}
+            renderItem={renderChatTurn}
           />
 
           {showScrollToBottom && turns.length > 0 ? (
@@ -3615,39 +3576,6 @@ export function MobileChatScreen() {
   );
 }
 
-type MessageAction = {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress: () => void;
-};
-
-function MessageActionRow({
-  actions,
-  align,
-  theme
-}: {
-  actions: MessageAction[];
-  align: "left" | "right";
-  theme: MobileTheme;
-}) {
-  if (actions.length === 0) return null;
-  return (
-    <View style={[styles.messageActions, align === "right" ? styles.messageActionsRight : styles.messageActionsLeft]}>
-      {actions.map((action) => (
-        <Pressable
-          key={action.label}
-          accessibilityRole="button"
-          accessibilityLabel={action.label}
-          onPress={action.onPress}
-          style={[styles.messageActionButton, { backgroundColor: "rgba(255,255,255,0.065)" }]}
-        >
-          <Ionicons name={action.icon} size={15} color={theme.muted} />
-        </Pressable>
-      ))}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   actionSheet: {
     borderTopLeftRadius: 24,
@@ -3771,28 +3699,6 @@ const styles = StyleSheet.create({
   actionSheetTitleNoPadding: {
     paddingHorizontal: 0
   },
-  assistantContent: {
-    flex: 1,
-    gap: 8,
-    minWidth: 0
-  },
-  assistantMark: {
-    alignItems: "center",
-    borderRadius: 999,
-    height: 30,
-    justifyContent: "center",
-    marginTop: 2,
-    width: 30
-  },
-  assistantMarkText: {
-    fontSize: 13,
-    fontWeight: "900",
-    textTransform: "uppercase"
-  },
-  assistantRow: {
-    flexDirection: "row",
-    gap: 10
-  },
   avatarInitials: {
     fontSize: 25,
     fontWeight: "900"
@@ -3818,21 +3724,6 @@ const styles = StyleSheet.create({
   },
   chatPlane: {
     flex: 1
-  },
-  checkStatusButton: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 7,
-    marginTop: 2,
-    paddingHorizontal: 12,
-    paddingVertical: 8
-  },
-  checkStatusText: {
-    fontSize: 13,
-    fontWeight: "800"
   },
   conversationScroll: {
     flex: 1,
@@ -3911,15 +3802,6 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 13,
     lineHeight: 18
-  },
-  expandedAssistantBubble: {
-    backgroundColor: "rgba(9,7,14,0.34)",
-    borderRadius: 22,
-    paddingHorizontal: 13,
-    paddingVertical: 11
-  },
-  expandedUserBubble: {
-    backgroundColor: "rgba(255,255,255,0.18)"
   },
   history: {
     flexGrow: 1,
@@ -4012,26 +3894,6 @@ const styles = StyleSheet.create({
   loginTitle: {
     fontSize: 22,
     fontWeight: "900"
-  },
-  messageActionButton: {
-    alignItems: "center",
-    borderRadius: 999,
-    height: 31,
-    justifyContent: "center",
-    width: 31
-  },
-  messageActions: {
-    flexDirection: "row",
-    gap: 7,
-    marginTop: -8
-  },
-  messageActionsLeft: {
-    alignSelf: "flex-start",
-    marginLeft: 2
-  },
-  messageActionsRight: {
-    alignSelf: "flex-end",
-    marginRight: 8
   },
   overlay: {
     backgroundColor: "#000",
@@ -4190,21 +4052,6 @@ const styles = StyleSheet.create({
   },
   referenceUrl: {
     fontSize: 11
-  },
-  sentAsset: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 6,
-    minWidth: 0
-  },
-  sentAssetStack: {
-    gap: 6,
-    marginTop: 9
-  },
-  sentAssetText: {
-    flexShrink: 1,
-    fontSize: 12,
-    fontWeight: "700"
   },
   scrollToBottomButton: {
     alignItems: "center",
@@ -4478,18 +4325,4 @@ const styles = StyleSheet.create({
   topBarLandscape: {
     paddingHorizontal: 4
   },
-  turn: {
-    gap: 14
-  },
-  userBubble: {
-    alignSelf: "flex-end",
-    borderRadius: 22,
-    maxWidth: "84%",
-    paddingHorizontal: 15,
-    paddingVertical: 11
-  },
-  userText: {
-    fontSize: 16,
-    lineHeight: 22
-  }
 });

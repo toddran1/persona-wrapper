@@ -1,7 +1,14 @@
 import type { Request, Response } from "express";
-import { describe, expect, it } from "vitest";
-import { postChat } from "../controllers/chat.controller.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cancelChatJob, postChat, postChatStream } from "../controllers/chat.controller.js";
 import { getPersona, getPersonas } from "../controllers/persona.controller.js";
+import { backgroundChatJobService } from "../services/backgroundChatJobService.js";
+import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
+import { usageControlService } from "../services/usageControlService.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function createMockResponse() {
   const state: {
@@ -13,6 +20,9 @@ function createMockResponse() {
   };
 
   const response = {
+    locals: {
+      requestId: "controller-test-request"
+    },
     status(code: number) {
       state.statusCode = code;
       return response;
@@ -80,5 +90,79 @@ describe("controllers", () => {
     expect(payload.outputs.some((output) => output.type === "status")).toBe(true);
     expect(payload.diagnostics.backgroundJob?.id).toMatch(/^chat_job_/);
     expect(payload.diagnostics.backgroundJob?.status).toBe("running");
+  });
+
+  it("rejects an unknown persona before creating background work", async () => {
+    const { response } = createMockResponse();
+
+    await expect(postChat(
+      {
+        header: (name: string) => name.toLowerCase() === "x-owner-id" ? "unknown-persona-owner" : undefined,
+        body: {
+          personaId: "missing-persona",
+          provider: "openai",
+          message: "Generate an image.",
+          audio: false,
+          toolOptions: { imageGeneration: true, background: true }
+        }
+      } as Request,
+      response
+    )).rejects.toMatchObject({
+      statusCode: 404
+    });
+  });
+
+  it("releases a streaming usage reservation when request preflight fails", async () => {
+    const check = vi.spyOn(usageControlService, "check").mockResolvedValue("reservation_stream_test");
+    const recordUsage = vi.spyOn(usageControlService, "recordUsage").mockResolvedValue();
+
+    await expect(postChatStream(
+      {
+        header: (name: string) => name.toLowerCase() === "x-owner-id" ? "stream-preflight-owner" : undefined,
+        body: {}
+      } as Request,
+      {
+        locals: { requestId: "request-stream-preflight" }
+      } as unknown as Response
+    )).rejects.toBeDefined();
+
+    expect(check).toHaveBeenCalledWith("stream-preflight-owner");
+    expect(recordUsage).toHaveBeenCalledWith(
+      "stream-preflight-owner",
+      undefined,
+      undefined,
+      "reservation_stream_test"
+    );
+  });
+
+  it("cancels a provider response attached while a background job is being cancelled", async () => {
+    const initialJob = {
+      id: "chat_job_cancel_race",
+      status: "running" as const,
+      updatedAt: new Date().toISOString()
+    };
+    const cancelledJob = {
+      ...initialJob,
+      status: "cancelled" as const,
+      providerResponseId: "resp_attached_during_cancel"
+    };
+    vi.spyOn(backgroundChatJobService, "get").mockResolvedValue(initialJob);
+    vi.spyOn(backgroundChatJobService, "cancel").mockResolvedValue(cancelledJob);
+    const cancelProviderResponse = vi
+      .spyOn(openAIResponseLifecycleService, "cancel")
+      .mockResolvedValue();
+    const { response, state } = createMockResponse();
+
+    await cancelChatJob(
+      {
+        params: { jobId: initialJob.id },
+        header: (name: string) => name.toLowerCase() === "x-owner-id" ? "cancel-race-owner" : undefined
+      } as unknown as Request,
+      response
+    );
+
+    expect(cancelProviderResponse).toHaveBeenCalledWith("resp_attached_during_cancel");
+    expect(state.statusCode).toBe(200);
+    expect(state.body).toEqual(cancelledJob);
   });
 });

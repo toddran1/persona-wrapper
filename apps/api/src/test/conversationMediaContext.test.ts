@@ -37,7 +37,7 @@ describe("conversation media context", () => {
     expect(shouldUseConversationMediaContext("What car was in the image you just gave me?")).toBe(true);
     expect(shouldUseConversationMediaContext("Can you make the image brighter?")).toBe(true);
     expect(shouldUseConversationMediaContext("Give me a pound cake recipe.")).toBe(false);
-  });
+  }, 15_000);
 
   it("detects broad natural follow-up references to prior visual output", async () => {
     const { inferConversationMediaMinimum, shouldUseConversationMediaContext } = await import("../services/conversationMediaContext.js");

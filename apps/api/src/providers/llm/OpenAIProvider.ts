@@ -2,7 +2,15 @@ import OpenAI, { toFile } from "openai";
 import { createReadStream } from "node:fs";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Citation, ContentBlock, LLMInput, LLMOutput, ProviderId, ToolDefinition } from "@persona/shared";
+import {
+  chartOutputSchema,
+  type Citation,
+  type ContentBlock,
+  type LLMInput,
+  type LLMOutput,
+  type ProviderId,
+  type ToolDefinition
+} from "@persona/shared";
 import { llmOutputSchema, MAX_OPENAI_IMAGE_EDIT_BYTES, stripGeneratedFileDownloadPrompt } from "@persona/shared";
 import { env } from "../../config/env.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
@@ -333,7 +341,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
 
   if (input.toolOptions?.codeInterpreter) {
     extraInstructions.push(
-      "The user is requesting data analysis, calculations, charts, dashboards, or generated files. Use Code Interpreter for this work when it is available. If the user asks for a chart, graph, plot, dashboard, CSV, spreadsheet, or downloadable file, create the actual artifact instead of only describing it in text. Keep any explanatory text concise. Do not include a download URL, a 'download here' call to action, MIME type, or provider attribution; the app renders the generated file's download control."
+      "The user is requesting data analysis, calculations, charts, dashboards, or generated files. Use Code Interpreter when calculations, uploaded datasets, transformations, or downloadable files require it. For a chart that can be represented as bar, line, area, scatter, or donut data, call render_chart after determining the exact values so the app can display an accessible native chart. Use raw numeric values and explicit axis units; do not invent missing values. A generated image or file may accompany the native chart when the user requests a complex visualization or downloadable artifact. Keep explanatory text concise. Do not include a download URL, a 'download here' call to action, MIME type, or provider attribution; the app renders generated file controls."
     );
   }
 
@@ -364,6 +372,12 @@ function hasCodeInterpreterCall(response: OpenAIResponse): boolean {
   return ((response.output as OpenAIItem[] | undefined) ?? []).some((item) => item.type === "code_interpreter_call");
 }
 
+function hasFunctionCall(response: OpenAIResponse, name: string): boolean {
+  return ((response.output as OpenAIItem[] | undefined) ?? []).some(
+    (item) => item.type === "function_call" && item.name === name
+  );
+}
+
 function wantsGeneratedImageDescription(message: string): boolean {
   return /\b(describe|caption|explain|summari[sz]e|tell me what|what is (in|on)|what's (in|on))\b/i.test(message);
 }
@@ -391,7 +405,11 @@ export function shouldRetryForImageGeneration(input: LLMInput, response: OpenAIR
 }
 
 function shouldRetryForCodeInterpreter(input: LLMInput, response: OpenAIResponse): boolean {
-  if (!input.toolOptions?.codeInterpreter || hasCodeInterpreterCall(response)) {
+  if (
+    !input.toolOptions?.codeInterpreter ||
+    hasCodeInterpreterCall(response) ||
+    hasFunctionCall(response, "render_chart")
+  ) {
     return false;
   }
 
@@ -827,6 +845,45 @@ function safeJson(value: unknown): Record<string, unknown> {
   }
 }
 
+async function runApplicationFunctionCall(
+  call: OpenAIItem,
+  clientContext: LLMInput["clientContext"]
+): Promise<{ result: unknown; trace: ContentBlock[] }> {
+  const arguments_ = safeJson(call.arguments);
+  try {
+    const result = await executeApplicationTool(call.name, arguments_, clientContext);
+    if (call.name === "render_chart") {
+      const chart = chartOutputSchema.safeParse(result);
+      if (!chart.success) {
+        throw new Error("The chart renderer returned invalid chart data.");
+      }
+      return { result, trace: [chart.data] };
+    }
+    return {
+      result,
+      trace: [
+        { type: "tool_call", toolName: call.name, arguments: arguments_, status: "completed" },
+        { type: "tool_result", toolName: call.name, status: "completed", result }
+      ]
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The application tool failed.";
+    const result = { error: message };
+    if (call.name === "render_chart") {
+      // Chart validation errors are returned to the model so it can repair the
+      // call. They are not user-facing provider diagnostics.
+      return { result, trace: [] };
+    }
+    return {
+      result,
+      trace: [
+        { type: "tool_call", toolName: call.name, arguments: arguments_, status: "failed" },
+        { type: "tool_result", toolName: call.name, status: "failed", result }
+      ]
+    };
+  }
+}
+
 function shouldRetry(error: unknown): boolean {
   const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 0;
   return status === 408 || status === 409 || status === 429 || status >= 500;
@@ -1014,16 +1071,8 @@ export class OpenAIProvider implements LLMProvider {
 
       responseInput.push(...(response.output as OpenAIItem[]));
       for (const call of calls) {
-        let result: unknown;
-        try {
-          result = await executeApplicationTool(call.name, safeJson(call.arguments), input.clientContext);
-        } catch (error) {
-          result = { error: error instanceof Error ? error.message : String(error) };
-        }
-        applicationTrace.push(
-          { type: "tool_call", toolName: call.name, arguments: safeJson(call.arguments), status: "completed" },
-          { type: "tool_result", toolName: call.name, status: "completed", result }
-        );
+        const { result, trace } = await runApplicationFunctionCall(call, input.clientContext);
+        applicationTrace.push(...trace);
         responseInput.push({
           type: "function_call_output",
           call_id: call.call_id,
@@ -1116,16 +1165,8 @@ export class OpenAIProvider implements LLMProvider {
 
       responseInput.push(...(response.output as OpenAIItem[]));
       for (const call of calls) {
-        let result: unknown;
-        try {
-          result = await executeApplicationTool(call.name, safeJson(call.arguments), input.clientContext);
-        } catch (error) {
-          result = { error: error instanceof Error ? error.message : String(error) };
-        }
-        applicationTrace.push(
-          { type: "tool_call", toolName: call.name, arguments: safeJson(call.arguments), status: "completed" },
-          { type: "tool_result", toolName: call.name, status: "completed", result }
-        );
+        const { result, trace } = await runApplicationFunctionCall(call, input.clientContext);
+        applicationTrace.push(...trace);
         responseInput.push({
           type: "function_call_output",
           call_id: call.call_id,

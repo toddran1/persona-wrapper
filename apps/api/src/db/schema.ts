@@ -79,12 +79,19 @@ export const conversations = pgTable("conversations", {
   userId: text("user_id"),
   personaId: text("persona_id"),
   title: text("title"),
+  pinned: boolean("pinned").notNull().default(false),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => ({
   userIdIdx: index("conversations_user_id_idx").on(table.userId),
-  updatedAtIdx: index("conversations_updated_at_idx").on(table.updatedAt)
+  updatedAtIdx: index("conversations_updated_at_idx").on(table.updatedAt),
+  userUpdatedAtIdx: index("conversations_user_updated_at_desc_idx")
+    .on(table.userId, table.updatedAt.desc(), table.id.desc()),
+  userPinnedUpdatedAtIdx: index("conversations_user_pinned_updated_at_desc_idx")
+    .on(table.userId, table.pinned.desc(), table.updatedAt.desc(), table.id.desc()),
+  titleTrigramIdx: index("conversations_title_trgm_idx")
+    .using("gin", table.title.op("gin_trgm_ops"))
 }));
 
 export const messages = pgTable("messages", {

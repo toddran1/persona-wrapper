@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
+import { Image, type ImageSource } from "expo-image";
 import * as MediaLibrary from "expo-media-library/legacy";
 import * as Sharing from "expo-sharing";
 import { stripGeneratedFileDownloadPrompt, type ContentBlock } from "@persona/shared";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { EnrichedMarkdownText, type MarkdownStyle } from "react-native-enriched-markdown";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BarChart, LineChart, PieChart } from "react-native-gifted-charts";
 import { api } from "../../api/client";
 import { saveFileToDevice } from "../../storage/downloadDirectory";
 import type { MobileTheme } from "../../theme/personaTheme";
+import {
+  formatMobileChartValue,
+  MAX_MOBILE_CHART_POINTS,
+  MAX_MOBILE_DONUT_SLICES,
+  MobileChart
+} from "./MobileChart";
 
 type OutputBlocksProps = {
   outputs: ContentBlock[];
@@ -45,6 +51,28 @@ function assertSuccessfulDownload(result: FileSystem.FileSystemDownloadResult): 
     void FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
     throw new Error(`The download failed with status ${result.status}.`);
   }
+}
+
+function stableImageCacheKey(output: Extract<ContentBlock, { type: "image" }>, resolvedUrl: string): string {
+  const metadata = output.metadata ?? {};
+  const identity = [
+    typeof metadata.storageKey === "string" ? metadata.storageKey : undefined,
+    typeof metadata.storage_key === "string" ? metadata.storage_key : undefined,
+    output.fileId,
+    resolvedUrl.split("?")[0]
+  ].find((value): value is string => Boolean(value)) ?? resolvedUrl;
+  const version = [
+    typeof metadata.etag === "string" ? metadata.etag : undefined,
+    typeof metadata.eTag === "string" ? metadata.eTag : undefined,
+    typeof metadata.version === "string" ? metadata.version : undefined
+  ].find((value): value is string => Boolean(value)) ?? "";
+  const value = `${identity}:${version}`;
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `generated-image-v2-${(hash >>> 0).toString(36)}-${value.length.toString(36)}`;
 }
 
 export function OutputBlocks({ outputs, theme, onAction }: OutputBlocksProps) {
@@ -241,30 +269,116 @@ function MobileMarkdownText({ text, theme }: { text: string; theme: MobileTheme 
 }
 
 function MobileChartBlock({ output, theme }: { output: Extract<ContentBlock, { type: "chart" }>; theme: MobileTheme }) {
-  // Keep charts renderable if a cached persona theme predates chartColors.
-  const colors = theme.chartColors.length > 0 ? theme.chartColors : [theme.accent2];
-  const data = output.series.map((point, index) => ({
-    value: point.value,
-    label: point.label,
-    text: point.label,
-    color: colors[index % colors.length] ?? theme.accent2,
-    frontColor: colors[index % colors.length] ?? theme.accent2
-  }));
-  const axisTextStyle = { color: theme.muted, fontSize: 10 };
+  const [dataVisible, setDataVisible] = useState(false);
+  const categories = output.categories.length > 0
+    ? output.categories
+    : output.series.map((point) => point.label);
+  const datasets = output.datasets.length > 0
+    ? output.datasets
+    : [{
+        id: "value",
+        label: output.yAxis?.label || "Value",
+        values: output.series.map((point) => point.value)
+      }];
+  const chartLabel = output.chartType === "pie" ? "donut" : output.chartType;
+  const visualPointCount = output.chartType === "scatter"
+    ? output.datasets.reduce(
+        (count, dataset) => count + dataset.values.filter((value) => typeof value === "object" && value !== null).length,
+        0
+      )
+    : categories.length;
+  const visualPointLimit = chartLabel === "donut" ? MAX_MOBILE_DONUT_SLICES : MAX_MOBILE_CHART_POINTS;
 
   return (
-    <View accessibilityLabel={`${output.title}, ${output.chartType} chart`} style={[styles.dataCard, { borderColor: theme.border }]}>
-      <Text style={[styles.dataEyebrow, { color: theme.accent2 }]}>{output.chartType} chart</Text>
+    <View
+      accessibilityLabel={`${output.title}, ${chartLabel} chart${output.summary ? `. ${output.summary}` : ""}`}
+      style={[styles.dataCard, { borderColor: theme.border }]}
+    >
+      <Text style={[styles.dataEyebrow, { color: theme.accent2 }]}>{chartLabel} chart</Text>
       <Text selectable style={[styles.dataTitle, { color: theme.text }]}>{output.title}</Text>
+      {output.summary ? <Text selectable style={[styles.chartSummary, { color: theme.muted }]}>{output.summary}</Text> : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chartScroll}>
-        {output.chartType === "pie" ? (
-          <PieChart data={data} donut showText textColor={theme.text} radius={92} innerRadius={48} />
-        ) : output.chartType === "line" ? (
-          <LineChart data={data} color={theme.accent2} dataPointsColor={theme.accent} thickness={3} yAxisTextStyle={axisTextStyle} xAxisLabelTextStyle={axisTextStyle} rulesColor="rgba(255,255,255,0.08)" hideDataPoints={false} />
-        ) : (
-          <BarChart data={data} barWidth={28} spacing={24} yAxisTextStyle={axisTextStyle} xAxisLabelTextStyle={axisTextStyle} rulesColor="rgba(255,255,255,0.08)" />
-        )}
+        <MobileChart output={output} theme={theme} />
       </ScrollView>
+      {visualPointCount > visualPointLimit ? (
+        <Text selectable style={[styles.chartLimitNotice, { color: theme.muted }]}>
+          Showing the first {visualPointLimit} of {visualPointCount} points in the visual. View chart data for the complete dataset.
+        </Text>
+      ) : null}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: dataVisible }}
+        onPress={() => setDataVisible((current) => !current)}
+        style={[styles.chartDataToggle, { borderColor: theme.border }]}
+      >
+        <Ionicons name={dataVisible ? "chevron-up" : "chevron-down"} size={16} color={theme.accent2} />
+        <Text style={[styles.chartDataToggleText, { color: theme.text }]}>
+          {dataVisible ? "Hide chart data" : "View chart data"}
+        </Text>
+      </Pressable>
+      {dataVisible ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator>
+          {output.chartType === "scatter" ? (
+            <View>
+              <View style={[styles.tableRow, styles.tableHeader, { borderColor: theme.border }]}>
+                {["Series", output.xAxis?.label || "X", output.yAxis?.label || "Y", "Label"].map((column, columnIndex) => (
+                  <Text selectable key={`${column}-${columnIndex}`} style={[styles.tableCell, styles.tableHeaderText, { color: theme.text }]}>{column}</Text>
+                ))}
+              </View>
+              {datasets.flatMap((dataset) => dataset.values.flatMap((value, index) =>
+                typeof value === "object" && value !== null ? [{
+                  key: `${dataset.id}-${index}`,
+                  cells: [dataset.label, String(value.x), formatMobileChartValue(value.y, output), value.label ?? "—"]
+                }] : []
+              )).map((row, rowIndex) => (
+                <View
+                  key={row.key}
+                  style={[styles.tableRow, {
+                    borderColor: theme.border,
+                    backgroundColor: rowIndex % 2 === 0
+                      ? (theme.mode === "dark" ? "#1b1328" : "#fffaf4")
+                      : (theme.mode === "dark" ? "#241a34" : "#f8efe5")
+                  }]}
+                >
+                  {row.cells.map((cell, cellIndex) => (
+                    <Text selectable key={`${row.key}-${cellIndex}`} style={[styles.tableCell, { color: theme.text }]}>{cell}</Text>
+                  ))}
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View>
+              <View style={[styles.tableRow, styles.tableHeader, { borderColor: theme.border }]}>
+                {[output.xAxis?.label || "Category", ...datasets.map((dataset) => dataset.label)].map((column, columnIndex) => (
+                  <Text selectable key={`${column}-${columnIndex}`} style={[styles.tableCell, styles.tableHeaderText, { color: theme.text }]}>{column}</Text>
+                ))}
+              </View>
+              {categories.map((category, categoryIndex) => (
+                <View
+                  key={`${category}-${categoryIndex}`}
+                  style={[styles.tableRow, {
+                    borderColor: theme.border,
+                    backgroundColor: categoryIndex % 2 === 0
+                      ? (theme.mode === "dark" ? "#1b1328" : "#fffaf4")
+                      : (theme.mode === "dark" ? "#241a34" : "#f8efe5")
+                  }]}
+                >
+                  <Text selectable style={[styles.tableCell, { color: theme.text }]}>{category}</Text>
+                  {datasets.map((dataset) => {
+                    const value = dataset.values[categoryIndex];
+                    return (
+                      <Text selectable key={dataset.id} style={[styles.tableCell, { color: theme.text }]}>
+                        {typeof value === "number" ? formatMobileChartValue(value, output) : "—"}
+                      </Text>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      ) : null}
+      {output.sourceNote ? <Text selectable style={[styles.chartSource, { color: theme.muted }]}>{output.sourceNote}</Text> : null}
     </View>
   );
 }
@@ -453,35 +567,20 @@ function ImageOutputBlock({
   const insets = useSafeAreaInsets();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [imageActionsVisible, setImageActionsVisible] = useState(false);
-  const [localImageUri, setLocalImageUri] = useState<string | undefined>();
+  const [imageSource, setImageSource] = useState<ImageSource>();
   const [imageError, setImageError] = useState<string | undefined>();
-  const cacheKeyRef = useRef(`persona-image-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`);
   const imageUrl = api.resolveUrl(output.url);
   const promptText = output.prompt ?? output.alt;
   const usesProtectedFetch = api.isProtectedMediaUrl(output.url);
-  const displayImageUri = usesProtectedFetch ? localImageUri : imageUrl;
+  const imageCacheKey = stableImageCacheKey(output, imageUrl);
 
   useEffect(() => {
     let cancelled = false;
-    let downloadedUri: string | undefined;
-
-    async function loadProtectedImage(): Promise<void> {
+    async function prepareImageSource(): Promise<void> {
       setImageError(undefined);
-      setLocalImageUri(undefined);
-      if (!usesProtectedFetch || !FileSystem.cacheDirectory) return;
-
       try {
-        const destination = `${FileSystem.cacheDirectory}${cacheKeyRef.current}-${fileNameFromUrl(imageUrl, output.mimeType)}`;
-        const result = await FileSystem.downloadAsync(imageUrl, destination, {
-          headers: await api.mediaHeaders()
-        });
-        assertSuccessfulDownload(result);
-        if (cancelled) {
-          await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => undefined);
-          return;
-        }
-        downloadedUri = result.uri;
-        setLocalImageUri(result.uri);
+        const headers = usesProtectedFetch ? await api.mediaHeaders() : undefined;
+        if (!cancelled) setImageSource({ uri: imageUrl, cacheKey: imageCacheKey, ...(headers ? { headers } : {}) });
       } catch (loadError) {
         if (!cancelled) {
           setImageError(loadError instanceof Error ? loadError.message : "Could not load this image.");
@@ -489,13 +588,13 @@ function ImageOutputBlock({
       }
     }
 
-    void loadProtectedImage();
+    setImageSource(undefined);
+    void prepareImageSource();
 
     return () => {
       cancelled = true;
-      if (downloadedUri) void FileSystem.deleteAsync(downloadedUri, { idempotent: true }).catch(() => undefined);
     };
-  }, [imageUrl, output.mimeType, output.url, usesProtectedFetch]);
+  }, [imageCacheKey, imageUrl, usesProtectedFetch]);
 
   function extensionForMimeType(mimeType?: string): string {
     if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "jpg";
@@ -542,8 +641,15 @@ function ImageOutputBlock({
         Alert.alert("Photos unavailable", "Allow photo access to save generated images.");
         return;
       }
-      if (localImageUri) {
-        await MediaLibrary.saveToLibraryAsync(localImageUri);
+      const cachedImageUri = await Image.getCachePathAsync(imageCacheKey);
+      if (cachedImageUri) {
+        const destination = `${FileSystem.cacheDirectory}download-${Date.now().toString(36)}-${fileNameFromUrl(imageUrl, output.mimeType)}`;
+        await FileSystem.copyAsync({
+          from: cachedImageUri.startsWith("file://") ? cachedImageUri : `file://${cachedImageUri}`,
+          to: destination
+        });
+        temporaryUri = destination;
+        await MediaLibrary.saveToLibraryAsync(destination);
       } else {
         const destination = `${FileSystem.cacheDirectory}download-${Date.now().toString(36)}-${fileNameFromUrl(imageUrl, output.mimeType)}`;
         const downloadOptions = api.isProtectedMediaUrl(output.url) ? { headers: await api.mediaHeaders() } : undefined;
@@ -570,12 +676,22 @@ function ImageOutputBlock({
     <>
       <View style={[styles.mediaCard, { borderColor: theme.border, backgroundColor: "rgba(255,255,255,0.045)" }]}>
         <Pressable accessibilityRole="imagebutton" accessibilityLabel="Open generated image" onPress={() => setViewerOpen(true)} style={styles.imageButton}>
-          {displayImageUri ? (
-            <Image accessible={false} source={{ uri: displayImageUri }} style={styles.image} resizeMode="cover" onError={() => setImageError("Could not load this image.")} />
+          {imageSource ? (
+            <Image
+              accessible={false}
+              source={imageSource}
+              cachePolicy="memory-disk"
+              recyclingKey={imageCacheKey}
+              style={styles.image}
+              contentFit="cover"
+              transition={120}
+              onLoad={() => setImageError(undefined)}
+              onError={() => setImageError("Could not load this image.")}
+            />
           ) : (
             <View style={styles.image} />
           )}
-          {!displayImageUri && !imageError ? (
+          {!imageSource && !imageError ? (
             <View style={styles.imageOverlay}>
               <ActivityIndicator color={theme.accent2} />
             </View>
@@ -615,8 +731,15 @@ function ImageOutputBlock({
               <Ionicons name="ellipsis-horizontal" size={22} color={theme.text} />
             </Pressable>
           </View>
-          {displayImageUri ? (
-            <Image accessibilityLabel={output.alt} source={{ uri: displayImageUri }} style={styles.viewerImage} resizeMode="contain" />
+          {imageSource ? (
+            <Image
+              accessibilityLabel={output.alt}
+              source={imageSource}
+              cachePolicy="memory-disk"
+              recyclingKey={`${imageCacheKey}-viewer`}
+              style={styles.viewerImage}
+              contentFit="contain"
+            />
           ) : (
             <View style={[styles.viewerImage, styles.viewerLoading]}>
               <ActivityIndicator color={theme.accent2} />
@@ -750,6 +873,32 @@ const styles = StyleSheet.create({
     minHeight: 220,
     paddingHorizontal: 4,
     paddingVertical: 10
+  },
+  chartDataToggle: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    minHeight: 40,
+    paddingHorizontal: 12
+  },
+  chartDataToggleText: {
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  chartLimitNotice: {
+    fontSize: 11,
+    lineHeight: 16
+  },
+  chartSource: {
+    fontSize: 11,
+    lineHeight: 16
+  },
+  chartSummary: {
+    fontSize: 13,
+    lineHeight: 19
   },
   dataCard: {
     backgroundColor: "rgba(8,6,14,0.42)",

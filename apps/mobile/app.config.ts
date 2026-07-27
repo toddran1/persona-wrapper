@@ -29,7 +29,7 @@ const config: ExpoConfig = {
     [
       "expo-splash-screen",
       {
-        image: "./assets/branding/For_the_Baddiez_logo_transparent.png",
+        image: "./assets/branding/For_the_Baddiez_logo_runtime.png",
         resizeMode: "contain",
         backgroundColor: "#09060f"
       }

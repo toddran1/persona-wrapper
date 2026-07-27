@@ -12,7 +12,7 @@ import {
   useWindowDimensions,
   View
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OAuthProvider, OAuthProviderStatus } from "@persona/shared";
@@ -21,7 +21,7 @@ import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
 import { useLocalization } from "../../localization/LocalizationProvider";
 import { useNetwork } from "../../network/NetworkProvider";
 
-const APP_LOGO = require("../../../assets/branding/For_the_Baddiez_logo_transparent.png");
+const APP_LOGO = require("../../../assets/branding/FTB_Logo_120x120.png");
 
 export type MobileAuthMode = "login" | "register" | "restore" | "forgot";
 

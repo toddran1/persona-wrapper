@@ -358,7 +358,8 @@ export class DataTransferService {
           userId,
           personaId: conversation.personaId,
           title,
-          metadata: { imported: true, importedAt: new Date().toISOString(), importSource: parsed.source, importFingerprint: fingerprint, ...(conversation.pinned ? { pinned: true } : {}) },
+          pinned: conversation.pinned,
+          metadata: { imported: true, importedAt: new Date().toISOString(), importSource: parsed.source, importFingerprint: fingerprint },
           createdAt,
           updatedAt
         });

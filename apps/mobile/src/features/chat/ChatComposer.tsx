@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MobileTheme } from "../../theme/personaTheme";
 import type { MobilePickedFile } from "./types";
 import { useLocalization } from "../../localization/LocalizationProvider";

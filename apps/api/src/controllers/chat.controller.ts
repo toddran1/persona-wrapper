@@ -70,6 +70,12 @@ export async function postChat(request: Request, response: Response): Promise<vo
   try {
     const payload = await selectTools(await resolveOwnedChatAssets(request));
     if (shouldRunInBackground(payload)) {
+      if (!getPersonaById(payload.personaId)) {
+        // Validate before creating a conversation or durable job. Otherwise an
+        // unknown persona can enqueue orphaned work and only fail while the
+        // pending response is being assembled.
+        throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
+      }
       const requestedConversationId = payload.conversationId ?? `conv_${randomUUID()}`;
       const conversation = await conversationStore.getOrCreate(requestedConversationId, payload.history, {
         userId: identity,
@@ -135,8 +141,11 @@ export async function cancelChatJob(request: Request, response: Response): Promi
   }
 
   const cancelledJob = await backgroundChatJobService.cancel(jobId, undefined, identity);
-  if (job.providerResponseId) {
-    await openAIResponseLifecycleService.cancel(job.providerResponseId);
+  // The provider response may be attached while cancellation is racing with a
+  // running worker, so prefer the post-cancellation snapshot.
+  const providerResponseId = cancelledJob?.providerResponseId ?? job.providerResponseId;
+  if (providerResponseId) {
+    await openAIResponseLifecycleService.cancel(providerResponseId);
   }
 
   response.status(200).json(cancelledJob ?? await backgroundChatJobService.get(jobId, identity));
@@ -146,11 +155,21 @@ export async function postChatStream(request: Request, response: Response): Prom
   const identity = requestIdentity(request);
   const reservationId = await usageControlService.check(identity);
   let reservationReconciled = false;
-  const payload = await selectTools(await resolveOwnedChatAssets(request));
+  let payload: ChatRequest;
+  try {
+    payload = await selectTools(await resolveOwnedChatAssets(request));
+  } catch (error) {
+    // Attachment ownership, request parsing, and tool routing all happen after
+    // quota reservation. Release that reservation before the SSE headers are
+    // committed so ordinary HTTP error handling can return the real error.
+    await releaseUsageReservation(identity, reservationId, response.locals.requestId);
+    throw error;
+  }
   response.status(200);
   response.setHeader("Content-Type", "text/event-stream");
-  response.setHeader("Cache-Control", "no-cache");
+  response.setHeader("Cache-Control", "no-cache, no-transform");
   response.setHeader("Connection", "keep-alive");
+  response.setHeader("X-Accel-Buffering", "no");
   response.flushHeaders();
   const controller = requestAbortController(request);
   try {

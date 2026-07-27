@@ -53,4 +53,24 @@ describe("PersonaEngine", () => {
     expect(prompt).toContain("Birthday: February 29");
     expect(prompt).toContain("do not infer the user's age or pronouns");
   });
+
+  it("makes the native chart renderer available to every persona", () => {
+    const persona = getPersonaById("larae");
+    const engine = new PersonaEngine();
+
+    expect(persona).toBeDefined();
+
+    const input = engine.prepareInput(persona!, {
+      personaId: persona!.id,
+      provider: "openai_persona",
+      message: "Chart this data.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+
+    expect(input.toolDefinitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "render_chart", owner: "application" })
+    ]));
+  });
 });

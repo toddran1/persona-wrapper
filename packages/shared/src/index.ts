@@ -3,6 +3,9 @@ import { initContract } from "@ts-rest/core";
 
 export const MAX_CHAT_ATTACHMENTS = 10;
 export const MAX_OPENAI_IMAGE_EDIT_BYTES = 49_999_999;
+export const MAX_CHART_CATEGORIES = 250;
+export const MAX_CHART_DATASETS = 8;
+export const MAX_DONUT_CATEGORIES = 20;
 
 export const providerSchema = z.enum(["openai", "openai_persona", "claude", "local"]);
 export type ProviderId = z.infer<typeof providerSchema>;
@@ -29,6 +32,7 @@ export const toolNameSchema = z.enum([
   "web_search",
   "file_search",
   "data_analysis",
+  "render_chart",
   "image_generation",
   "current_time"
 ]);
@@ -51,9 +55,180 @@ export type ToolDefinition = z.infer<typeof toolDefinitionSchema>;
 
 export const chartSeriesSchema = z.object({
   label: z.string(),
-  value: z.number()
+  value: z.number().finite()
 });
 export type ChartSeries = z.infer<typeof chartSeriesSchema>;
+
+export const chartTypeSchema = z.enum(["bar", "line", "area", "scatter", "donut", "pie"]);
+export type ChartType = z.infer<typeof chartTypeSchema>;
+
+export const chartScatterPointSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  label: z.string().nullable()
+});
+export type ChartScatterPoint = z.infer<typeof chartScatterPointSchema>;
+
+export const chartDatasetValueSchema = z.union([
+  z.number().finite(),
+  z.null(),
+  chartScatterPointSchema
+]);
+export type ChartDatasetValue = z.infer<typeof chartDatasetValueSchema>;
+
+export const chartDatasetSchema = z.object({
+  id: z.string().min(1).max(80).regex(/^[A-Za-z][A-Za-z0-9_-]*$/, "Dataset ids must start with a letter and contain only letters, numbers, underscores, or hyphens."),
+  label: z.string().min(1).max(160),
+  values: z.array(chartDatasetValueSchema).max(MAX_CHART_CATEGORIES)
+});
+export type ChartDataset = z.infer<typeof chartDatasetSchema>;
+
+export const chartXAxisSchema = z.object({
+  label: z.string().max(160),
+  dataType: z.enum(["category", "date", "number"])
+});
+export type ChartXAxis = z.infer<typeof chartXAxisSchema>;
+
+export const chartYAxisSchema = z.object({
+  label: z.string().max(160),
+  format: z.enum(["number", "currency", "percent", "duration"]),
+  currency: z.string().min(3).max(3).nullable(),
+  unit: z.string().max(40).nullable()
+});
+export type ChartYAxis = z.infer<typeof chartYAxisSchema>;
+
+export const chartToolArgumentsSchema = z.object({
+  version: z.literal(1),
+  title: z.string().min(1).max(240),
+  chartType: chartTypeSchema.exclude(["pie"]),
+  categories: z.array(z.string().max(160)).max(MAX_CHART_CATEGORIES),
+  datasets: z.array(chartDatasetSchema).min(1).max(MAX_CHART_DATASETS),
+  xAxis: chartXAxisSchema,
+  yAxis: chartYAxisSchema,
+  summary: z.string().min(1).max(1_200),
+  sourceNote: z.string().max(500).nullable()
+}).superRefine((chart, context) => {
+  const datasetIds = new Set<string>();
+  for (const [datasetIndex, dataset] of chart.datasets.entries()) {
+    if (dataset.id === "category") {
+      context.addIssue({
+        code: "custom",
+        message: "The dataset id 'category' is reserved.",
+        path: ["datasets", datasetIndex, "id"]
+      });
+    }
+    if (datasetIds.has(dataset.id)) {
+      context.addIssue({
+        code: "custom",
+        message: "Dataset ids must be unique.",
+        path: ["datasets", datasetIndex, "id"]
+      });
+    }
+    datasetIds.add(dataset.id);
+  }
+
+  if (chart.yAxis.format === "currency" && !chart.yAxis.currency) {
+    context.addIssue({
+      code: "custom",
+      message: "Currency charts require a three-letter currency code.",
+      path: ["yAxis", "currency"]
+    });
+  }
+  if (chart.yAxis.format === "duration" && !chart.yAxis.unit?.trim()) {
+    context.addIssue({
+      code: "custom",
+      message: "Duration charts require a unit.",
+      path: ["yAxis", "unit"]
+    });
+  }
+
+  if (chart.chartType === "scatter") {
+    if (chart.categories.length > 0) {
+      context.addIssue({
+        code: "custom",
+        message: "Scatter charts must use x/y points instead of categories.",
+        path: ["categories"]
+      });
+    }
+    for (const [datasetIndex, dataset] of chart.datasets.entries()) {
+      if (dataset.values.length === 0 || dataset.values.some((value) => typeof value !== "object" || value === null)) {
+        context.addIssue({
+          code: "custom",
+          message: "Scatter chart datasets must contain x/y point objects.",
+          path: ["datasets", datasetIndex, "values"]
+        });
+      }
+    }
+    const totalPointCount = chart.datasets.reduce((total, dataset) => total + dataset.values.length, 0);
+    if (totalPointCount > MAX_CHART_CATEGORIES) {
+      context.addIssue({
+        code: "custom",
+        message: `Scatter charts may contain no more than ${MAX_CHART_CATEGORIES} total points.`,
+        path: ["datasets"]
+      });
+    }
+    return;
+  }
+
+  if (chart.categories.length === 0) {
+    context.addIssue({
+      code: "custom",
+      message: "This chart type requires at least one category.",
+      path: ["categories"]
+    });
+  }
+  if (chart.chartType === "donut" && chart.datasets.length !== 1) {
+    context.addIssue({
+      code: "custom",
+      message: "Donut charts require exactly one dataset.",
+      path: ["datasets"]
+    });
+  }
+  if (chart.chartType === "donut" && chart.categories.length > MAX_DONUT_CATEGORIES) {
+    context.addIssue({
+      code: "custom",
+      message: `Donut charts may contain no more than ${MAX_DONUT_CATEGORIES} categories.`,
+      path: ["categories"]
+    });
+  }
+  for (const [datasetIndex, dataset] of chart.datasets.entries()) {
+    if (dataset.values.length !== chart.categories.length) {
+      context.addIssue({
+        code: "custom",
+        message: "Dataset values must match the number of categories.",
+        path: ["datasets", datasetIndex, "values"]
+      });
+    }
+    if (dataset.values.some((value) => typeof value === "object" && value !== null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Only scatter charts may contain x/y point objects.",
+        path: ["datasets", datasetIndex, "values"]
+      });
+    }
+    if (
+      chart.chartType === "donut"
+      && dataset.values.some((value) => typeof value !== "number" || value < 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Donut chart values must be non-negative numbers.",
+        path: ["datasets", datasetIndex, "values"]
+      });
+    }
+    if (
+      chart.chartType === "donut"
+      && dataset.values.every((value) => typeof value !== "number" || value === 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Donut charts require at least one value greater than zero.",
+        path: ["datasets", datasetIndex, "values"]
+      });
+    }
+  }
+});
+export type ChartToolArguments = z.infer<typeof chartToolArgumentsSchema>;
 
 export const textOutputSchema = z.object({
   type: z.literal("text"),
@@ -95,8 +270,15 @@ export const videoOutputSchema = z.object({
 export const chartOutputSchema = z.object({
   type: z.literal("chart"),
   title: z.string(),
-  chartType: z.enum(["bar", "line", "pie"]),
-  series: z.array(chartSeriesSchema)
+  chartType: chartTypeSchema,
+  series: z.array(chartSeriesSchema).default([]),
+  version: z.literal(1).optional(),
+  categories: z.array(z.string()).max(MAX_CHART_CATEGORIES).default([]),
+  datasets: z.array(chartDatasetSchema).max(MAX_CHART_DATASETS).default([]),
+  xAxis: chartXAxisSchema.optional(),
+  yAxis: chartYAxisSchema.optional(),
+  summary: z.string().max(1_200).optional(),
+  sourceNote: z.string().max(500).nullable().optional()
 });
 
 export const fileOutputSchema = z.object({
@@ -933,7 +1115,7 @@ export const apiErrorSchema = z.object({
   requestId: z.string().optional()
 });
 const pageQuerySchema = z.object({
-  cursor: z.string().optional(),
+  cursor: z.string().max(1024).optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   query: z.string().max(120).optional()
 });

@@ -189,15 +189,20 @@ export function buildStubOutput(input: LLMInput, provider: ProviderId, mode: Stu
   }
 
   if (wantsChart) {
+    const categories = ["Laughs", "Gasps", "Quotes"];
+    const values = [91, 76, 84];
     outputs.push({
       type: "chart",
       title: `${input.persona.shortName ?? input.persona.name} Audience Reaction Forecast`,
       chartType: "bar",
-      series: [
-        { label: "Laughs", value: 91 },
-        { label: "Gasps", value: 76 },
-        { label: "Quotes", value: 84 }
-      ]
+      version: 1,
+      categories,
+      datasets: [{ id: "reaction", label: "Reaction score", values }],
+      xAxis: { label: "Reaction", dataType: "category" },
+      yAxis: { label: "Score", format: "number", currency: null, unit: "points" },
+      summary: "Laughs lead the forecast, followed by quotes and gasps.",
+      sourceNote: "Deterministic local stub data.",
+      series: categories.map((label, index) => ({ label, value: values[index] ?? 0 }))
     });
   }
 

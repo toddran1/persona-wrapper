@@ -1,5 +1,97 @@
-import type { ClientContext, ToolDefinition, ToolName } from "@persona/shared";
+import {
+  chartOutputSchema,
+  chartToolArgumentsSchema,
+  MAX_CHART_CATEGORIES,
+  MAX_CHART_DATASETS,
+  MAX_DONUT_CATEGORIES,
+  type ClientContext,
+  type ToolDefinition,
+  type ToolName
+} from "@persona/shared";
 import { z } from "zod";
+
+const chartAxisProperties = {
+  label: { type: "string" },
+  dataType: { type: "string", enum: ["category", "date", "number"] }
+};
+
+const renderChartInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "version",
+    "title",
+    "chartType",
+    "categories",
+    "datasets",
+    "xAxis",
+    "yAxis",
+    "summary",
+    "sourceNote"
+  ],
+  properties: {
+    version: { type: "integer", enum: [1] },
+    title: { type: "string" },
+    chartType: { type: "string", enum: ["bar", "line", "area", "scatter", "donut"] },
+    categories: {
+      type: "array",
+      maxItems: MAX_CHART_CATEGORIES,
+      items: { type: "string" }
+    },
+    datasets: {
+      type: "array",
+      maxItems: MAX_CHART_DATASETS,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "label", "values"],
+        properties: {
+          id: { type: "string" },
+          label: { type: "string" },
+          values: {
+            type: "array",
+            maxItems: MAX_CHART_CATEGORIES,
+            items: {
+              anyOf: [
+                { type: "number" },
+                { type: "null" },
+                {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["x", "y", "label"],
+                  properties: {
+                    x: { type: "number" },
+                    y: { type: "number" },
+                    label: { anyOf: [{ type: "string" }, { type: "null" }] }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    xAxis: {
+      type: "object",
+      additionalProperties: false,
+      required: ["label", "dataType"],
+      properties: chartAxisProperties
+    },
+    yAxis: {
+      type: "object",
+      additionalProperties: false,
+      required: ["label", "format", "currency", "unit"],
+      properties: {
+        label: { type: "string" },
+        format: { type: "string", enum: ["number", "currency", "percent", "duration"] },
+        currency: { anyOf: [{ type: "string" }, { type: "null" }] },
+        unit: { anyOf: [{ type: "string" }, { type: "null" }] }
+      }
+    },
+    summary: { type: "string" },
+    sourceNote: { anyOf: [{ type: "string" }, { type: "null" }] }
+  }
+};
 
 const toolRegistry: Partial<Record<ToolName, ToolDefinition>> = {
   web_search: {
@@ -19,6 +111,13 @@ const toolRegistry: Partial<Record<ToolName, ToolDefinition>> = {
     description: "Analyze structured data and produce numeric summaries or chart-ready series.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     owner: "openai"
+  },
+  render_chart: {
+    name: "render_chart",
+    description:
+      `Render a validated, accessible chart in the chat UI. Use this after determining the exact numeric values. Use raw numbers, keep labels and units explicit, summarize the main takeaway, and never put formatted number strings in dataset values. Supply 1-${MAX_CHART_DATASETS} datasets and no more than ${MAX_CHART_CATEGORIES} categories or total scatter points. Donut charts require one dataset, non-negative values, and no more than ${MAX_DONUT_CATEGORIES} categories. Currency axes require an ISO 4217 code and duration axes require a unit.`,
+    inputSchema: renderChartInputSchema,
+    owner: "application"
   },
   image_generation: {
     name: "image_generation",
@@ -56,22 +155,39 @@ export async function executeApplicationTool(
   rawArguments: unknown,
   clientContext?: ClientContext
 ): Promise<unknown> {
-  if (name !== "current_time") {
-    throw new Error(`Application tool is not registered: ${name}`);
+  if (name === "render_chart") {
+    const chart = chartToolArgumentsSchema.parse(rawArguments);
+    const firstDataset = chart.datasets[0];
+    const legacySeries = firstDataset && chart.chartType !== "scatter"
+      ? chart.categories.flatMap((label, index) => {
+        const value = firstDataset.values[index];
+        return typeof value === "number" ? [{ label, value }] : [];
+      })
+      : [];
+
+    return chartOutputSchema.parse({
+      type: "chart",
+      ...chart,
+      series: legacySeries
+    });
   }
 
-  const arguments_ = currentTimeArgumentsSchema.parse(rawArguments);
-  const timeZone = arguments_.timeZone ?? clientContext?.timeZone ?? "UTC";
-  const date = clientContext?.currentDateTime ? new Date(clientContext.currentDateTime) : new Date();
+  if (name === "current_time") {
+    const arguments_ = currentTimeArgumentsSchema.parse(rawArguments);
+    const timeZone = arguments_.timeZone ?? clientContext?.timeZone ?? "UTC";
+    const date = clientContext?.currentDateTime ? new Date(clientContext.currentDateTime) : new Date();
 
-  return {
-    iso: date.toISOString(),
-    timeZone,
-    locale: clientContext?.locale ?? "en-US",
-    formatted: new Intl.DateTimeFormat(clientContext?.locale ?? "en-US", {
+    return {
+      iso: date.toISOString(),
       timeZone,
-      dateStyle: "full",
-      timeStyle: "long"
-    }).format(date)
-  };
+      locale: clientContext?.locale ?? "en-US",
+      formatted: new Intl.DateTimeFormat(clientContext?.locale ?? "en-US", {
+        timeZone,
+        dateStyle: "full",
+        timeStyle: "long"
+      }).format(date)
+    };
+  }
+
+  throw new Error(`Application tool is not registered: ${name}`);
 }

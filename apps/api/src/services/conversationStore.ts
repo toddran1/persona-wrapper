@@ -19,6 +19,7 @@ import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from "dr
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { conversations, messages as dbMessages } from "../db/schema.js";
+import { HttpError } from "../utils/httpError.js";
 import { estimateChatMessageTokens, estimateTextTokens, trimTextToTokenBudget } from "../utils/tokenBudget.js";
 
 type ConversationRecord = {
@@ -26,6 +27,7 @@ type ConversationRecord = {
   userId?: string | null;
   personaId?: string | null;
   title?: string | null;
+  pinned?: boolean;
   metadata?: Record<string, unknown> | null;
   createdAt?: Date;
   updatedAt?: Date;
@@ -56,6 +58,22 @@ type ConversationOptions = {
   personaId?: string;
   titleSeed?: string;
 };
+
+type Database = NonNullable<ReturnType<typeof getDatabase>>;
+type ConversationSummaryRow = Pick<
+  typeof conversations.$inferSelect,
+  "id" | "personaId" | "title" | "pinned" | "createdAt" | "updatedAt"
+>;
+
+const conversationCursorSchema = z.object({
+  version: z.literal(1),
+  pinned: z.boolean(),
+  updatedAt: z.string().datetime(),
+  id: z.string().min(1).max(256),
+  query: z.string().max(120)
+}).strict();
+
+type ConversationCursor = z.infer<typeof conversationCursorSchema>;
 
 export class ConversationStore {
   private readonly conversations = new Map<string, ConversationRecord>();
@@ -96,6 +114,7 @@ export class ConversationStore {
       userId: options.userId ?? null,
       personaId: options.personaId ?? null,
       title: titleFromMessage(options.titleSeed) ?? "New conversation",
+      pinned: false,
       metadata: {},
       createdAt: now,
       updatedAt: now,
@@ -233,9 +252,9 @@ export class ConversationStore {
     this.conversations.delete(conversationId);
   }
 
-  async list(userId?: string, limit = 100, offset = 0, query?: string): Promise<ConversationSummary[]> {
+  async list(userId?: string, limit = 100, query?: string): Promise<ConversationSummary[]> {
     const boundedLimit = Math.max(1, Math.min(limit, 10000));
-    const normalizedQuery = query?.trim().toLocaleLowerCase();
+    const normalizedQuery = normalizeConversationQuery(query);
     const db = getDatabase();
     if (db) {
       const rows = await db.query.conversations.findMany({
@@ -243,56 +262,81 @@ export class ConversationStore {
           userId ? eq(conversations.userId, userId) : isNull(conversations.userId),
           normalizedQuery ? ilike(conversations.title, `%${escapeLikePattern(normalizedQuery)}%`) : undefined
         ),
-        orderBy: desc(conversations.updatedAt),
-        limit: boundedLimit,
-        offset: Math.max(0, offset)
+        orderBy: [
+          desc(conversations.pinned),
+          desc(conversations.updatedAt),
+          desc(conversations.id)
+        ],
+        limit: boundedLimit
       });
-      const counts = rows.length === 0 ? [] : await db
-        .select({ conversationId: dbMessages.conversationId, count: sql<number>`count(*)::int` })
-        .from(dbMessages)
-        .where(inArray(dbMessages.conversationId, rows.map((row) => row.id)))
-        .groupBy(dbMessages.conversationId);
-      const countsByConversation = new Map(counts.map((row) => [row.conversationId, Number(row.count)]));
-
-      return rows.map((row) => ({
-        id: row.id,
-        ...(row.personaId ? { personaId: row.personaId } : {}),
-        title: row.title || titleFromMessages([]) || "New conversation",
-        pinned: isPinned(metadataRecord(row.metadata)),
-        messageCount: countsByConversation.get(row.id) ?? 0,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString()
-      })).sort(sortConversationSummaries).slice(0, boundedLimit);
+      return databaseConversationSummaries(db, rows);
     }
 
     return [...this.conversations.values()]
       .filter((conversation) => userId ? conversation.userId === userId : !conversation.userId)
       .filter((conversation) => !normalizedQuery || (conversation.title ?? titleFromMessages(conversation.messages) ?? "New conversation").toLocaleLowerCase().includes(normalizedQuery))
-      .sort((left, right) => {
-        const pinnedDelta = Number(isPinned(right.metadata)) - Number(isPinned(left.metadata));
-        if (pinnedDelta !== 0) return pinnedDelta;
-        return (right.updatedAt?.getTime() ?? 0) - (left.updatedAt?.getTime() ?? 0);
-      })
-      .slice(Math.max(0, offset), Math.max(0, offset) + boundedLimit)
-      .map((conversation) => ({
-        id: conversation.id,
-        ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
-        title: conversation.title || titleFromMessages(conversation.messages) || "New conversation",
-        pinned: isPinned(conversation.metadata),
-        messageCount: conversation.messages.length,
-        createdAt: (conversation.createdAt ?? new Date()).toISOString(),
-        updatedAt: (conversation.updatedAt ?? new Date()).toISOString()
-      }));
+      .sort(compareConversationRecords)
+      .slice(0, boundedLimit)
+      .map(memoryConversationSummary);
   }
 
   async listPage(userId?: string, limit = 50, cursor?: string, query?: string): Promise<ConversationListPage> {
     const boundedLimit = Math.max(1, Math.min(limit, 100));
-    const offset = parseCursor(cursor);
-    const rows = await this.list(userId, boundedLimit + 1, offset, query);
+    const normalizedQuery = normalizeConversationQuery(query);
+    const decodedCursor = decodeConversationCursor(cursor, normalizedQuery);
+    const db = getDatabase();
+    let rows: ConversationSummary[];
+
+    if (db) {
+      const cursorDate = decodedCursor ? new Date(decodedCursor.updatedAt) : undefined;
+      const cursorWithinPinnedGroup = decodedCursor && cursorDate
+        ? or(
+            lt(conversations.updatedAt, cursorDate),
+            and(
+              eq(conversations.updatedAt, cursorDate),
+              lt(conversations.id, decodedCursor.id)
+            )
+          )
+        : undefined;
+      const cursorCondition = decodedCursor && cursorWithinPinnedGroup
+        ? decodedCursor.pinned
+          ? or(
+              and(eq(conversations.pinned, true), cursorWithinPinnedGroup),
+              eq(conversations.pinned, false)
+            )
+          : and(eq(conversations.pinned, false), cursorWithinPinnedGroup)
+        : undefined;
+      const databaseRows = await db.query.conversations.findMany({
+        where: and(
+          userId ? eq(conversations.userId, userId) : isNull(conversations.userId),
+          normalizedQuery ? ilike(conversations.title, `%${escapeLikePattern(normalizedQuery)}%`) : undefined,
+          cursorCondition
+        ),
+        orderBy: [
+          desc(conversations.pinned),
+          desc(conversations.updatedAt),
+          desc(conversations.id)
+        ],
+        limit: boundedLimit + 1
+      });
+      rows = await databaseConversationSummaries(db, databaseRows);
+    } else {
+      rows = [...this.conversations.values()]
+        .filter((conversation) => userId ? conversation.userId === userId : !conversation.userId)
+        .filter((conversation) => !normalizedQuery || (conversation.title ?? titleFromMessages(conversation.messages) ?? "New conversation").toLocaleLowerCase().includes(normalizedQuery))
+        .sort(compareConversationRecords)
+        .filter((conversation) => !decodedCursor || conversationFallsAfterCursor(conversation, decodedCursor))
+        .slice(0, boundedLimit + 1)
+        .map(memoryConversationSummary);
+    }
+
     const hasMore = rows.length > boundedLimit;
+    const selected = rows.slice(0, boundedLimit);
     return {
-      conversations: rows.slice(0, boundedLimit),
-      nextCursor: hasMore ? String(offset + boundedLimit) : null
+      conversations: selected,
+      nextCursor: hasMore && selected.length > 0
+        ? encodeConversationCursor(selected[selected.length - 1]!, normalizedQuery)
+        : null
     };
   }
 
@@ -328,7 +372,7 @@ export class ConversationStore {
         id: row.id,
         ...(row.personaId ? { personaId: row.personaId } : {}),
         title: row.title || "New conversation",
-        pinned: isPinned(metadataRecord(row.metadata)),
+        pinned: row.pinned,
         messageCount: Number(messageCountRows[0]?.count ?? 0),
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString()
@@ -370,7 +414,7 @@ export class ConversationStore {
         id: record.id,
         ...(record.personaId ? { personaId: record.personaId } : {}),
         title: record.title || "New conversation",
-        pinned: isPinned(record.metadata),
+        pinned: record.pinned ?? false,
         messageCount: record.messages.length,
         createdAt: (record.createdAt ?? new Date()).toISOString(),
         updatedAt: (record.updatedAt ?? new Date()).toISOString()
@@ -400,7 +444,7 @@ export class ConversationStore {
         id: row.id,
         ...(row.personaId ? { personaId: row.personaId } : {}),
         title: row.title || titleFromMessages(history) || "New conversation",
-        pinned: isPinned(metadataRecord(row.metadata)),
+        pinned: row.pinned,
         messageCount: history.length,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
@@ -420,7 +464,7 @@ export class ConversationStore {
       id: conversation.id,
       ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
       title: conversation.title || titleFromMessages(conversation.messages) || "New conversation",
-      pinned: isPinned(conversation.metadata),
+      pinned: conversation.pinned ?? false,
       messageCount: conversation.messages.length,
       createdAt: (conversation.createdAt ?? new Date()).toISOString(),
       updatedAt: (conversation.updatedAt ?? new Date()).toISOString(),
@@ -465,7 +509,7 @@ export class ConversationStore {
           id: conversations.id,
           personaId: conversations.personaId,
           title: conversations.title,
-          metadata: conversations.metadata,
+          pinned: conversations.pinned,
           createdAt: conversations.createdAt,
           updatedAt: conversations.updatedAt
         });
@@ -479,7 +523,7 @@ export class ConversationStore {
         id: row.id,
         ...(row.personaId ? { personaId: row.personaId } : {}),
         title: row.title || normalizedTitle,
-        pinned: isPinned(metadataRecord(row.metadata)),
+        pinned: row.pinned,
         messageCount: messageCount.length,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString()
@@ -499,7 +543,7 @@ export class ConversationStore {
       id: updated.id,
       ...(updated.personaId ? { personaId: updated.personaId } : {}),
       title: updated.title || normalizedTitle,
-      pinned: isPinned(updated.metadata),
+      pinned: updated.pinned ?? false,
       messageCount: updated.messages.length,
       createdAt: (updated.createdAt ?? new Date()).toISOString(),
       updatedAt: (updated.updatedAt ?? new Date()).toISOString()
@@ -523,9 +567,8 @@ export class ConversationStore {
         }
       });
       if (!row) return undefined;
-      const updatedMetadata = setPinned(metadataRecord(row.metadata), pinned);
       const updated = await db.update(conversations)
-        .set({ metadata: updatedMetadata })
+        .set({ pinned })
         .where(and(
           eq(conversations.id, conversationId),
           userId ? eq(conversations.userId, userId) : isNull(conversations.userId)
@@ -534,7 +577,7 @@ export class ConversationStore {
           id: conversations.id,
           personaId: conversations.personaId,
           title: conversations.title,
-          metadata: conversations.metadata,
+          pinned: conversations.pinned,
           createdAt: conversations.createdAt,
           updatedAt: conversations.updatedAt
         });
@@ -544,7 +587,7 @@ export class ConversationStore {
         id: updatedRow.id,
         ...(updatedRow.personaId ? { personaId: updatedRow.personaId } : {}),
         title: updatedRow.title || "New conversation",
-        pinned: isPinned(metadataRecord(updatedRow.metadata)),
+        pinned: updatedRow.pinned,
         messageCount: row.messages.length,
         createdAt: updatedRow.createdAt.toISOString(),
         updatedAt: updatedRow.updatedAt.toISOString()
@@ -556,14 +599,14 @@ export class ConversationStore {
     if (userId && conversation.userId && conversation.userId !== userId) return undefined;
     const updated: ConversationRecord = {
       ...conversation,
-      metadata: setPinned(conversation.metadata, pinned)
+      pinned
     };
     this.conversations.set(conversationId, updated);
     return {
       id: updated.id,
       ...(updated.personaId ? { personaId: updated.personaId } : {}),
       title: updated.title || titleFromMessages(updated.messages) || "New conversation",
-      pinned: isPinned(updated.metadata),
+      pinned: updated.pinned ?? false,
       messageCount: updated.messages.length,
       createdAt: (updated.createdAt ?? new Date()).toISOString(),
       updatedAt: (updated.updatedAt ?? new Date()).toISOString()
@@ -587,7 +630,6 @@ export class ConversationStore {
       } : {})
     }));
     const metadata = {
-      ...(conversation.pinned ? { pinned: true } : {}),
       imported: true,
       importedAt: new Date().toISOString()
     };
@@ -599,6 +641,7 @@ export class ConversationStore {
           userId,
           ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
           title,
+          pinned: conversation.pinned,
           metadata,
           ...(createdAt ? { createdAt } : {}),
           ...(updatedAt ? { updatedAt } : {})
@@ -619,6 +662,7 @@ export class ConversationStore {
         userId,
         ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
         title,
+        pinned: conversation.pinned,
         metadata,
         createdAt: createdAt ?? new Date(),
         updatedAt: updatedAt ?? new Date(),
@@ -682,6 +726,7 @@ export class ConversationStore {
           userId: nextUserId,
           personaId: nextPersonaId,
           title: existing.title,
+          pinned: existing.pinned,
           metadata: nextMetadata,
           createdAt: existing.createdAt,
           updatedAt: existing.updatedAt,
@@ -719,6 +764,7 @@ export class ConversationStore {
       userId: options.userId ?? null,
       personaId: options.personaId ?? null,
       title: titleFromMessage(options.titleSeed) ?? titleFromMessages(seedHistory) ?? "New conversation",
+      pinned: false,
       metadata: {},
       messages: [...seedHistory],
       turns: buildConversationTurns(seedHistory)
@@ -742,24 +788,93 @@ function metadataRecord(metadata: unknown): Record<string, unknown> | null {
   return metadata as Record<string, unknown>;
 }
 
-function isPinned(metadata: Record<string, unknown> | null | undefined): boolean {
-  return metadata?.pinned === true;
+async function databaseConversationSummaries(
+  db: Database,
+  rows: ConversationSummaryRow[]
+): Promise<ConversationSummary[]> {
+  const counts = rows.length === 0 ? [] : await db
+    .select({ conversationId: dbMessages.conversationId, count: sql<number>`count(*)::int` })
+    .from(dbMessages)
+    .where(inArray(dbMessages.conversationId, rows.map((row) => row.id)))
+    .groupBy(dbMessages.conversationId);
+  const countsByConversation = new Map(counts.map((row) => [row.conversationId, Number(row.count)]));
+
+  return rows.map((row) => ({
+    id: row.id,
+    ...(row.personaId ? { personaId: row.personaId } : {}),
+    title: row.title || "New conversation",
+    pinned: row.pinned,
+    messageCount: countsByConversation.get(row.id) ?? 0,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString()
+  }));
 }
 
-function setPinned(metadata: Record<string, unknown> | null | undefined, pinned: boolean): Record<string, unknown> {
-  const next = { ...(metadata ?? {}) };
-  if (pinned) {
-    next.pinned = true;
-  } else {
-    delete next.pinned;
-  }
-  return next;
+function memoryConversationSummary(conversation: ConversationRecord): ConversationSummary {
+  return {
+    id: conversation.id,
+    ...(conversation.personaId ? { personaId: conversation.personaId } : {}),
+    title: conversation.title || titleFromMessages(conversation.messages) || "New conversation",
+    pinned: conversation.pinned ?? false,
+    messageCount: conversation.messages.length,
+    createdAt: (conversation.createdAt ?? new Date(0)).toISOString(),
+    updatedAt: (conversation.updatedAt ?? new Date(0)).toISOString()
+  };
 }
 
-function sortConversationSummaries(left: ConversationSummary, right: ConversationSummary): number {
-  const pinnedDelta = Number(right.pinned) - Number(left.pinned);
+function compareConversationRecords(left: ConversationRecord, right: ConversationRecord): number {
+  const pinnedDelta = Number(right.pinned ?? false) - Number(left.pinned ?? false);
   if (pinnedDelta !== 0) return pinnedDelta;
-  return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+  const updatedAtDelta = (right.updatedAt?.getTime() ?? 0) - (left.updatedAt?.getTime() ?? 0);
+  if (updatedAtDelta !== 0) return updatedAtDelta;
+  return compareDescendingText(left.id, right.id);
+}
+
+function compareDescendingText(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? 1 : -1;
+}
+
+function normalizeConversationQuery(query: string | undefined): string {
+  return query?.trim().toLocaleLowerCase() ?? "";
+}
+
+function encodeConversationCursor(summary: ConversationSummary, query: string): string {
+  const cursor: ConversationCursor = {
+    version: 1,
+    pinned: summary.pinned,
+    updatedAt: summary.updatedAt,
+    id: summary.id,
+    query
+  };
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeConversationCursor(cursor: string | undefined, query: string): ConversationCursor | undefined {
+  if (!cursor) return undefined;
+  if (cursor.length > 1024) throw new HttpError("Invalid conversation cursor.", 400);
+  try {
+    const decoded = conversationCursorSchema.parse(
+      JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"))
+    );
+    if (decoded.query !== query || Number.isNaN(Date.parse(decoded.updatedAt))) {
+      throw new Error("Cursor does not match the current query.");
+    }
+    return decoded;
+  } catch {
+    throw new HttpError("Invalid conversation cursor.", 400);
+  }
+}
+
+function conversationFallsAfterCursor(record: ConversationRecord, cursor: ConversationCursor): boolean {
+  const pinned = record.pinned ?? false;
+  if (pinned !== cursor.pinned) {
+    return cursor.pinned && !pinned;
+  }
+  const updatedAt = record.updatedAt?.getTime() ?? 0;
+  const cursorUpdatedAt = Date.parse(cursor.updatedAt);
+  if (updatedAt !== cursorUpdatedAt) return updatedAt < cursorUpdatedAt;
+  return record.id < cursor.id;
 }
 
 function buildConversationMetadata(
@@ -1000,12 +1115,6 @@ function normalizeTitle(title: string): string {
   return normalized.length > 120 ? normalized.slice(0, 117).trim() + "..." : normalized;
 }
 
-function parseCursor(cursor: string | undefined): number {
-  if (!cursor) return 0;
-  const value = Number(cursor);
-  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
-}
-
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
@@ -1013,7 +1122,7 @@ function escapeLikePattern(value: string): string {
 function parseSequenceCursor(cursor: string): number {
   const value = Number(cursor);
   if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error("Invalid conversation cursor.");
+    throw new HttpError("Invalid conversation turn cursor.", 400);
   }
   return value;
 }

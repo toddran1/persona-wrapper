@@ -110,7 +110,7 @@ export class PersonaEngine {
       messages,
       baseMessages,
       userMessage: request.message,
-      toolDefinitions: getToolsByNames(persona.defaultTools),
+      toolDefinitions: getToolsByNames([...new Set([...persona.defaultTools, "render_chart"])]),
       requestedOutputs: request.requestedOutputs,
       attachments: request.attachments ?? [],
       toolOptions: request.toolOptions ?? {

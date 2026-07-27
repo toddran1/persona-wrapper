@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useEventListener } from "expo";
 import { AppState, Image, Platform, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
@@ -40,68 +40,120 @@ type PersonaVisualClip = {
 
 function PersonaVideo({
   source,
+  preloadSource,
+  sequence,
   playing,
-  nativeLoop,
   onEnd,
   onError
 }: {
   source: string;
+  preloadSource?: string;
+  sequence: number;
   playing: boolean;
-  nativeLoop: boolean;
   onEnd: (source: string) => void;
   onError: (source: string) => void;
 }) {
-  const endedRef = useRef(false);
-  const player = useVideoPlayer({ uri: source, useCaching: true }, (instance) => {
-    // State clips normally rotate in JS, but native looping guarantees that a
-    // missed end signal can never leave the persona frozen on its final frame.
-    instance.loop = nativeLoop;
+  const activeSourceRef = useRef<string | undefined>(undefined);
+  const completedSequenceRef = useRef<number | undefined>(undefined);
+  const operationRef = useRef<Promise<void>>(Promise.resolve());
+  const onEndRef = useRef(onEnd);
+  const onErrorRef = useRef(onError);
+  const playingRef = useRef(playing);
+  const sequenceRef = useRef(sequence);
+  const player = useVideoPlayer(null, (instance) => {
+    instance.loop = false;
     instance.muted = true;
     instance.keepScreenOnWhilePlaying = false;
     instance.staysActiveInBackground = false;
-    instance.timeUpdateEventInterval = 0.25;
-    if (playing) instance.play();
+  });
+  const preloadPlayer = useVideoPlayer(null, (instance) => {
+    instance.loop = false;
+    instance.muted = true;
+    instance.keepScreenOnWhilePlaying = false;
+    instance.staysActiveInBackground = false;
   });
 
+  playingRef.current = playing;
+  sequenceRef.current = sequence;
+  onEndRef.current = onEnd;
+  onErrorRef.current = onError;
+
   const finishOnce = (): void => {
-    if (endedRef.current) return;
-    endedRef.current = true;
-    onEnd(source);
+    if (completedSequenceRef.current === sequenceRef.current) return;
+    completedSequenceRef.current = sequenceRef.current;
+    onEndRef.current(source);
   };
 
   useEffect(() => {
-    if (playing) player.play();
-    else player.pause();
-  }, [player, playing]);
+    const requestedSequence = sequence;
+    completedSequenceRef.current = undefined;
+    operationRef.current = operationRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          player.pause();
+          if (activeSourceRef.current === source) {
+            player.currentTime = 0;
+          } else {
+            await player.replaceAsync({ uri: source, useCaching: true });
+            activeSourceRef.current = source;
+          }
+          if (requestedSequence === sequenceRef.current && playingRef.current) player.play();
+        } catch {
+          if (requestedSequence === sequenceRef.current) onErrorRef.current(source);
+        }
+      });
+  }, [player, sequence, source]);
 
   useEffect(() => {
-    if (!playing) return;
-    const interval = setInterval(() => {
+    if (!playing || !preloadSource || preloadSource === source) {
+      preloadPlayer.pause();
+      return;
+    }
+    let cancelled = false;
+    void preloadPlayer.replaceAsync({ uri: preloadSource, useCaching: true })
+      .then(() => {
+        if (!cancelled) preloadPlayer.pause();
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      preloadPlayer.pause();
+    };
+  }, [playing, preloadPlayer, preloadSource, source]);
+
+  useEffect(() => {
+    try {
+      if (playing) {
+        if (completedSequenceRef.current !== sequence) player.play();
+      } else {
+        player.pause();
+      }
+    } catch {
+      onErrorRef.current(source);
+    }
+  }, [player, playing, sequence, source]);
+
+  useEffect(() => {
+    if (!playing || completedSequenceRef.current === sequence) return;
+    const watchdog = setInterval(() => {
       const duration = player.duration;
       const currentTime = player.currentTime;
-      if (Number.isFinite(duration) && duration > 0 && currentTime >= duration - 0.35) {
+      if (Number.isFinite(duration) && duration > 0 && currentTime >= duration - 0.2) {
         finishOnce();
       }
-    }, 250);
-    return () => clearInterval(interval);
-  }, [player, playing]);
+    }, 1_500);
+    return () => clearInterval(watchdog);
+  }, [player, playing, sequence]);
 
   useEventListener(player, "playToEnd", finishOnce);
-  useEventListener(player, "timeUpdate", ({ currentTime }) => {
-    // Some native players have failed to emit playToEnd after the final frame.
-    // Advance shortly before the boundary so an idle sequence cannot freeze.
-    const duration = player.duration;
-    if (playing && Number.isFinite(duration) && duration > 0 && currentTime >= duration - 0.35) {
-      finishOnce();
-    }
-  });
   useEventListener(player, "statusChange", ({ status }) => {
-    if (status === "error") onError(source);
-    else if (status === "readyToPlay" && playing && !player.playing) {
+    if (status === "error") onErrorRef.current(source);
+    else if (status === "readyToPlay" && playingRef.current && !player.playing && completedSequenceRef.current !== sequenceRef.current) {
       try {
         player.play();
       } catch {
-        onError(source);
+        onErrorRef.current(source);
       }
     }
   });
@@ -157,6 +209,18 @@ function pickStateClip(profile: PersonaVisualStageProfile, state: PersonaVisualS
   };
 }
 
+function pickPreloadSource(
+  profile: PersonaVisualStageProfile,
+  activeClip: PersonaVisualClip,
+  targetState: PersonaVisualState,
+  failedSources: ReadonlySet<string>
+): string | undefined {
+  if (!hasCompletePersonaVisualVideoSet(profile, failedSources)) return undefined;
+  const nextState = activeClip.kind === "transition" ? targetState : activeClip.state;
+  return profile.loops[nextState].find((source) => source !== activeClip.src && !failedSources.has(source))
+    ?? profile.loops[nextState].find((source) => !failedSources.has(source));
+}
+
 export function PersonaVisualStage({ expanded, hidden, landscape = false, personaName, profile, state, theme, visible, onExpandedChange, onHiddenChange, onAppForeground }: PersonaVisualStageProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const compactLayout = windowWidth < 360 || windowHeight < 700;
@@ -166,7 +230,8 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
   const hiddenTranslate = stageWidth + 24;
   const [activeClip, setActiveClip] = useState<PersonaVisualClip>(() => pickStateClip(profile, state));
   const [mediaUnavailable, setMediaUnavailable] = useState(false);
-  const [playerGeneration, setPlayerGeneration] = useState(0);
+  const [clipSequence, setClipSequence] = useState(0);
+  const [appActive, setAppActive] = useState(AppState.currentState === "active");
   const activeClipRef = useRef<PersonaVisualClip | null>(activeClip);
   const failedSourcesRef = useRef<Set<string>>(new Set());
   const lastPressAtRef = useRef(0);
@@ -174,7 +239,6 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
   const onAppForegroundRef = useRef(onAppForeground);
   const settledStateRef = useRef<PersonaVisualState>(state);
   const targetStateRef = useRef<PersonaVisualState>(state);
-  const wasVisibleRef = useRef(visible);
   const expandedProgress = useSharedValue(expanded ? 1 : 0);
   const translateX = useSharedValue(hidden ? hiddenTranslate : 0);
 
@@ -191,21 +255,12 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
   }, [onAppForeground]);
 
   useEffect(() => {
-    if (visible && !wasVisibleRef.current) {
-      setPlayerGeneration((generation) => generation + 1);
-    }
-    wasVisibleRef.current = visible;
-  }, [visible]);
-
-  useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
       const wasBackgrounded = appStateRef.current === "background" || appStateRef.current === "inactive";
       appStateRef.current = nextAppState;
+      setAppActive(nextAppState === "active");
 
       if (wasBackgrounded && nextAppState === "active") {
-        // Native video surfaces may remain paused or frozen after returning from
-        // the background. Recreate the player and return to idle.
-        setPlayerGeneration((generation) => generation + 1);
         onAppForegroundRef.current();
       }
     });
@@ -250,11 +305,7 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
     setMediaUnavailable(false);
     activeClipRef.current = clip;
     setActiveClip(clip);
-    // `useVideoPlayer` owns a native player initialized from its first source.
-    // Keying each clip forces that native player to be released and recreated
-    // when a state transition selects another source (or repeats a single
-    // source), preventing an ended player from leaving a frozen frame.
-    setPlayerGeneration((generation) => generation + 1);
+    setClipSequence((current) => current + 1);
   }
 
   function finishClip(source: string): void {
@@ -357,14 +408,15 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
       );
     }
 
+    const preloadSource = pickPreloadSource(profile, activeClip, targetStateRef.current, failedSourcesRef.current);
     return (
       <PersonaVideo
-        key={`${activeClip.src}:${playerGeneration}`}
         source={source.uri}
-        playing={visible && (!hidden || expanded)}
-        nativeLoop={activeClip.kind === "state"}
-        onError={handleMediaError}
-        onEnd={finishClip}
+        {...(preloadSource ? { preloadSource: api.resolveUrl(preloadSource) } : {})}
+        sequence={clipSequence}
+        playing={appActive && visible && (!hidden || expanded)}
+        onError={() => handleMediaError(activeClip.src)}
+        onEnd={() => finishClip(activeClip.src)}
       />
     );
   }

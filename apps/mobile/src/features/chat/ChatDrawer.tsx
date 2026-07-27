@@ -1,13 +1,18 @@
-import { useRef, useState, type PropsWithChildren } from "react";
-import { Image, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, type ImageStyle, type TextInput as TextInputType, type TextStyle, type ViewStyle } from "react-native";
+import { useCallback, useRef, useState, type ReactElement } from "react";
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type ImageStyle, type TextInput as TextInputType, type TextStyle, type ViewStyle } from "react-native";
 import type { AuthUser, ConversationSummary, PersonaSummary } from "@persona/shared";
-import { Ionicons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { FlashList } from "@shopify/flash-list";
 import type { MobileTheme } from "../../theme/personaTheme";
 import { useLocalization } from "../../localization/LocalizationProvider";
 import { useNetwork } from "../../network/NetworkProvider";
 import { formatConversationTime } from "./mobileChatUtils";
 
-const APP_LOGO = require("../../../assets/branding/For_the_Baddiez_logo_transparent.png");
+const APP_LOGO = require("../../../assets/branding/FTB_Logo_120x120.png");
+
+function ConversationSeparator(): ReactElement {
+  return <View style={styles.conversationSeparator} />;
+}
 
 type ChatDrawerProps = {
   authUser?: AuthUser | undefined;
@@ -37,69 +42,6 @@ type ChatDrawerProps = {
   onShowLogin: () => void;
   onShowSettings: () => void;
 };
-
-type ResponsiveDrawerContainerProps = PropsWithChildren<{
-  landscape: boolean;
-  refreshing: boolean;
-  tintColor: string;
-  onRefresh: () => void;
-}>;
-
-function ResponsiveDrawerContainer({
-  landscape,
-  refreshing,
-  tintColor,
-  onRefresh,
-  children
-}: ResponsiveDrawerContainerProps) {
-  if (!landscape) return <View style={styles.drawerBody}>{children}</View>;
-
-  return (
-    <ScrollView
-      style={styles.drawerBody}
-      contentContainerStyle={styles.landscapeDrawerContent}
-      directionalLockEnabled
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tintColor} />}
-    >
-      {children}
-    </ScrollView>
-  );
-}
-
-type ResponsiveConversationContainerProps = PropsWithChildren<{
-  landscape: boolean;
-  refreshing: boolean;
-  tintColor: string;
-  onRefresh: () => void;
-}>;
-
-function ResponsiveConversationContainer({
-  landscape,
-  refreshing,
-  tintColor,
-  onRefresh,
-  children
-}: ResponsiveConversationContainerProps) {
-  if (landscape) return <View style={styles.conversationList}>{children}</View>;
-
-  return (
-    <ScrollView
-      style={styles.conversationScroller}
-      contentContainerStyle={styles.conversationList}
-      directionalLockEnabled
-      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-      nestedScrollEnabled
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tintColor} />}
-    >
-      {children}
-    </ScrollView>
-  );
-}
 
 export function ChatDrawer({
   authUser,
@@ -149,27 +91,52 @@ export function ChatDrawer({
     if (isOnline) onRefreshConversations();
   }
 
-  return (
-    <View
-      style={[
-        styles.drawer,
-        {
-          backgroundColor: theme.background,
-          borderRightColor: theme.border,
-          paddingLeft: Math.max(leftInset, 0),
-          paddingRight: Math.max(rightInset, 0),
-          paddingTop: Math.max(topInset + 6, 16),
-          paddingBottom: Math.max(bottomInset, 8)
-        }
-      ]}
-    >
-      <View style={[styles.rail, { backgroundColor: theme.rail }]} />
-      <ResponsiveDrawerContainer
-        landscape={landscape}
-        refreshing={refreshing}
-        tintColor={theme.accent2}
-        onRefresh={refreshDrawer}
+  const renderConversation = useCallback(({ item: conversation }: { item: ConversationSummary }): ReactElement => {
+    const selected = conversation.id === activeConversationId;
+    return (
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => onSelectConversation(conversation.id)}
+        style={[
+          styles.conversationRow,
+          {
+            borderColor: selected ? theme.accent2 : "transparent",
+            backgroundColor: selected ? "rgba(214,181,94,0.13)" : "transparent"
+          }
+        ]}
       >
+        <Ionicons name={conversation.pinned ? "bookmark" : "chatbubble-outline"} size={16} color={selected ? theme.accent2 : theme.muted} />
+        <View style={styles.conversationCopy}>
+          <Text style={[styles.conversationTitle, { color: theme.text }]} numberOfLines={1}>{conversation.title}</Text>
+          <Text style={[styles.subtle, { color: theme.muted }]}>{formatConversationTime(conversation.updatedAt, languageTag)}</Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t("drawer.actions", { title: conversation.title })}
+          onPress={(event) => {
+            event.stopPropagation();
+            onShowConversationActions(conversation);
+          }}
+          style={styles.conversationAction}
+        >
+          <Ionicons name="ellipsis-horizontal" size={18} color={theme.muted} />
+        </Pressable>
+      </Pressable>
+    );
+  }, [
+    activeConversationId,
+    languageTag,
+    onSelectConversation,
+    onShowConversationActions,
+    t,
+    theme.accent2,
+    theme.muted,
+    theme.text
+  ]);
+
+  function renderDrawerHeader(): ReactElement {
+    return (
+      <>
       <View style={styles.header}>
         <View style={styles.brandLockup}>
           <Image accessible={false} accessibilityIgnoresInvertColors source={APP_LOGO} style={styles.brandLogo} resizeMode="contain" />
@@ -265,55 +232,59 @@ export function ChatDrawer({
         <Text style={[styles.sectionLabel, { color: theme.accent2 }]}>{searchVisible && searchQuery.trim() ? t("drawer.searchResults") : t("drawer.chats")}</Text>
         <Text accessibilityLiveRegion="polite" style={[styles.subtle, { color: theme.muted }]}>{loading || searching ? t("drawer.loading") : `${conversations.length}`}</Text>
       </View>
-      <ResponsiveConversationContainer
-        landscape={landscape}
+      </>
+    );
+  }
+
+  const emptyState = (
+    <Text style={[styles.empty, { color: theme.muted }]}>
+      {searchVisible && searchQuery.trim() ? t("drawer.noMatches") : t("drawer.empty")}
+    </Text>
+  );
+  const listFooter = hasMoreConversations ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t("drawer.loadMore")}
+      disabled={!isOnline}
+      onPress={onLoadMoreConversations}
+      style={[styles.loadMore, { borderColor: theme.border }, !isOnline ? styles.disabled : null]}
+    >
+      <Text style={[styles.subtle, { color: theme.text }]}>{t("drawer.loadMore")}</Text>
+    </Pressable>
+  ) : null;
+
+  return (
+    <View
+      style={[
+        styles.drawer,
+        {
+          backgroundColor: theme.background,
+          borderRightColor: theme.border,
+          paddingLeft: Math.max(leftInset, 0),
+          paddingRight: Math.max(rightInset, 0),
+          paddingTop: Math.max(topInset + 6, 16),
+          paddingBottom: Math.max(bottomInset, 8)
+        }
+      ]}
+    >
+      <View style={[styles.rail, { backgroundColor: theme.rail }]} />
+      {!landscape ? renderDrawerHeader() : null}
+      <FlashList
+        data={conversations}
+        keyExtractor={(conversation) => conversation.id}
+        renderItem={renderConversation}
+        ItemSeparatorComponent={ConversationSeparator}
+        style={styles.conversationScroller}
+        contentContainerStyle={[styles.conversationList, landscape ? styles.landscapeDrawerContent : null]}
+        ListHeaderComponent={landscape ? renderDrawerHeader() : null}
+        ListEmptyComponent={emptyState}
+        ListFooterComponent={listFooter}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
         refreshing={refreshing}
-        tintColor={theme.accent2}
         onRefresh={refreshDrawer}
-      >
-        {conversations.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.muted }]}>{searchVisible && searchQuery.trim() ? t("drawer.noMatches") : t("drawer.empty")}</Text>
-        ) : conversations.map((conversation) => {
-          const selected = conversation.id === activeConversationId;
-          return (
-            <Pressable
-              key={conversation.id}
-              accessibilityRole="button"
-              onPress={() => onSelectConversation(conversation.id)}
-              style={[
-                styles.conversationRow,
-                {
-                  borderColor: selected ? theme.accent2 : "transparent",
-                  backgroundColor: selected ? "rgba(214,181,94,0.13)" : "transparent"
-                }
-              ]}
-            >
-              <Ionicons name={conversation.pinned ? "bookmark" : "chatbubble-outline"} size={16} color={selected ? theme.accent2 : theme.muted} />
-              <View style={styles.conversationCopy}>
-                <Text style={[styles.conversationTitle, { color: theme.text }]} numberOfLines={1}>{conversation.title}</Text>
-                <Text style={[styles.subtle, { color: theme.muted }]}>{formatConversationTime(conversation.updatedAt, languageTag)}</Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("drawer.actions", { title: conversation.title })}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  onShowConversationActions(conversation);
-                }}
-                style={styles.conversationAction}
-              >
-                <Ionicons name="ellipsis-horizontal" size={18} color={theme.muted} />
-              </Pressable>
-            </Pressable>
-          );
-        })}
-        {hasMoreConversations ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={t("drawer.loadMore")} disabled={!isOnline} onPress={onLoadMoreConversations} style={[styles.loadMore, { borderColor: theme.border }, !isOnline ? styles.disabled : null]}>
-            <Text style={[styles.subtle, { color: theme.text }]}>{t("drawer.loadMore")}</Text>
-          </Pressable>
-        ) : null}
-      </ResponsiveConversationContainer>
-      </ResponsiveDrawerContainer>
+      />
     </View>
   );
 }
@@ -331,12 +302,12 @@ type DrawerStyles = {
   conversationAction: ViewStyle;
   conversationList: ViewStyle;
   conversationRow: ViewStyle;
+  conversationSeparator: ViewStyle;
   conversationScroller: ViewStyle;
   conversationTitle: TextStyle;
   disabled: ViewStyle;
   loadMore: ViewStyle;
   drawer: ViewStyle;
-  drawerBody: ViewStyle;
   empty: TextStyle;
   header: ViewStyle;
   landscapeDrawerContent: ViewStyle;
@@ -424,9 +395,7 @@ const styles = StyleSheet.create<DrawerStyles>({
     width: 34
   },
   conversationList: {
-    gap: 3,
-    paddingBottom: 18,
-    paddingHorizontal: 10
+    paddingBottom: 18
   },
   conversationRow: {
     alignItems: "center",
@@ -434,8 +403,12 @@ const styles = StyleSheet.create<DrawerStyles>({
     borderWidth: 1,
     flexDirection: "row",
     gap: 10,
+    marginHorizontal: 10,
     minHeight: 48,
     paddingHorizontal: 10
+  },
+  conversationSeparator: {
+    height: 3
   },
   conversationScroller: {
     flex: 1,
@@ -453,15 +426,13 @@ const styles = StyleSheet.create<DrawerStyles>({
     borderRadius: 8,
     borderWidth: 1,
     justifyContent: "center",
+    marginHorizontal: 10,
+    marginTop: 3,
     minHeight: 42,
     paddingHorizontal: 12
   },
   drawer: {
     borderRightWidth: 1,
-    flex: 1,
-    minHeight: 0
-  },
-  drawerBody: {
     flex: 1,
     minHeight: 0
   },

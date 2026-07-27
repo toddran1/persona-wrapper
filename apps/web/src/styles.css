@@ -4366,8 +4366,65 @@ button:disabled {
   width: 100%;
 }
 
+.chart-empty {
+  align-items: center;
+  color: var(--theme-muted, rgba(247, 241, 255, 0.68));
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  margin: 0;
+}
+
 .chart-card figcaption {
   margin-bottom: 8px;
+}
+
+.chart-summary,
+.chart-source {
+  color: var(--theme-muted, rgba(247, 241, 255, 0.72));
+  line-height: 1.55;
+  margin: 8px 0 0;
+}
+
+.chart-source {
+  font-size: 0.82rem;
+}
+
+.chart-data-table {
+  border-top: 1px solid var(--theme-border, rgba(255, 255, 255, 0.12));
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.chart-data-table summary {
+  color: var(--theme-accent-2, #d6b55e);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.chart-table-scroll {
+  margin-top: 10px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.chart-table-scroll table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+
+.chart-table-scroll th,
+.chart-table-scroll td {
+  border: 1px solid var(--theme-border, rgba(255, 255, 255, 0.12));
+  color: var(--theme-text, #f7f1ff);
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.chart-table-scroll thead th {
+  background: color-mix(in srgb, var(--theme-accent-2, #d6b55e) 14%, transparent);
 }
 
 .chart-card .recharts-default-tooltip {

@@ -336,8 +336,31 @@ describe("ConversationStore prompt context", () => {
 
     expect(first.conversations).toHaveLength(2);
     expect(second.conversations).toHaveLength(2);
-    expect(first.nextCursor).toBe("2");
+    expect(first.nextCursor).toEqual(expect.any(String));
+    expect(first.nextCursor).not.toBe("2");
     expect(new Set([...first.conversations, ...second.conversations].map((item) => item.id)).size).toBe(4);
+  });
+
+  it("keeps pinned ordering correct across keyset pages", async () => {
+    const store = new ConversationStore();
+    for (let index = 0; index < 5; index += 1) {
+      await store.getOrCreate(`pinned-page-${index}`, [], { titleSeed: `Chat ${index}` });
+    }
+    await store.setPinned("pinned-page-0", true);
+    await store.setPinned("pinned-page-2", true);
+
+    const first = await store.listPage(undefined, 1);
+    const second = await store.listPage(undefined, 1, first.nextCursor ?? undefined);
+    const third = await store.listPage(undefined, 1, second.nextCursor ?? undefined);
+
+    expect(first.conversations[0]?.pinned).toBe(true);
+    expect(second.conversations[0]?.pinned).toBe(true);
+    expect(third.conversations[0]?.pinned).toBe(false);
+    expect(new Set([
+      ...first.conversations,
+      ...second.conversations,
+      ...third.conversations
+    ].map((conversation) => conversation.id)).size).toBe(3);
   });
 
   it("searches conversation titles with filtered pagination", async () => {
@@ -353,6 +376,21 @@ describe("ConversationStore prompt context", () => {
     expect(second.conversations).toHaveLength(1);
     expect([...first.conversations, ...second.conversations].every((conversation) => conversation.title.toLowerCase().includes("dallas"))).toBe(true);
     expect(new Set([...first.conversations, ...second.conversations].map((conversation) => conversation.id)).size).toBe(2);
+  });
+
+  it("rejects malformed and query-mismatched conversation cursors", async () => {
+    const store = new ConversationStore();
+    await store.getOrCreate("cursor-search-1", [], { titleSeed: "Dallas one" });
+    await store.getOrCreate("cursor-search-2", [], { titleSeed: "Dallas two" });
+
+    await expect(store.listPage(undefined, 1, "not-a-cursor")).rejects.toMatchObject({
+      statusCode: 400
+    });
+
+    const first = await store.listPage(undefined, 1, undefined, "dallas");
+    await expect(store.listPage(undefined, 1, first.nextCursor ?? undefined, "austin")).rejects.toMatchObject({
+      statusCode: 400
+    });
   });
 
   it("loads newest turns first and pages backward through long histories", async () => {
@@ -371,5 +409,16 @@ describe("ConversationStore prompt context", () => {
     expect(newest?.turns.map((turn) => turn.userMessage)).toEqual(["Question 3", "Question 4"]);
     expect(older?.turns.map((turn) => turn.userMessage)).toEqual(["Question 1", "Question 2"]);
     expect(older?.nextCursor).toBe("1");
+  });
+
+  it("rejects malformed turn cursors as client errors", async () => {
+    const store = new ConversationStore();
+    await store.getOrCreate("invalid-turn-cursor-test");
+
+    await expect(
+      store.getTurnsPage("invalid-turn-cursor-test", undefined, 20, "not-a-sequence")
+    ).rejects.toMatchObject({
+      statusCode: 400
+    });
   });
 });

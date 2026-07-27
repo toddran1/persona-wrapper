@@ -78,7 +78,7 @@ export function OutputRenderer({
     case "chart":
       return (
         <Suspense fallback={<StatusBlock status="in_progress" message="Loading chart…" />}>
-          <ChartBlock title={output.title} chartType={output.chartType} series={output.series} />
+          <ChartBlock output={output} />
         </Suspense>
       );
     case "file":
