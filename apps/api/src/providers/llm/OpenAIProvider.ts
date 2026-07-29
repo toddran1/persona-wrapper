@@ -703,7 +703,11 @@ function mapOutput(response: OpenAIResponse, prompt: string): ContentBlock[] {
         alt: "OpenAI generated image",
         prompt,
         mimeType: "image/png",
-        metadata: { id: item.id, status: item.status }
+        metadata: {
+          id: item.id,
+          status: item.status,
+          generationSource: "openai_image_generation"
+        }
       });
     } else if (item.type === "function_call") {
       blocks.push({
@@ -1116,6 +1120,7 @@ export class OpenAIProvider implements LLMProvider {
         mimeType: image.b64_json ? "image/png" : undefined,
         metadata: {
           route: usesImageReferences ? "images_api_edit" : "images_api",
+          generationSource: "openai_image_generation",
           imagePrompt: params.prompt,
           ...(personaReferenceFiles.length > 0 ? { personaVisualReferencePaths: directPersonaVisualReferencePaths(input) } : {}),
           ...(userReferenceFiles.length > 0 ? { userImageReferenceCount: userReferenceFiles.length } : {}),

@@ -462,6 +462,8 @@ export const planIdSchema = z.enum(["bronze", "silver", "gold"]);
 export type PlanId = z.infer<typeof planIdSchema>;
 
 export const customerUsageMeterSchema = z.enum([
+  "total_usage_microusd",
+  "credits",
   "image_outputs",
   "audio_seconds",
   "text_input_tokens",
@@ -491,10 +493,20 @@ export const planUsageSummarySchema = z.object({
     version: z.number().int().positive(),
     displayName: z.string(),
     description: z.string(),
+    monthlyPriceCents: z.number().int().nonnegative().nullable(),
     adsEnabled: z.boolean(),
     priorityQueue: z.boolean(),
     maxConcurrentMediaJobs: z.number().int().positive(),
     personaIds: z.array(z.string())
+  }),
+  totalUsage: z.object({
+    limitMicroUsd: z.number().int().positive(),
+    usedMicroUsd: z.number().int().nonnegative(),
+    reservedMicroUsd: z.number().int().nonnegative(),
+    remainingMicroUsd: z.number().int().nonnegative(),
+    percentRemaining: z.number().int().min(0).max(100),
+    periodStart: z.string().datetime(),
+    periodEnd: z.string().datetime()
   }),
   meters: z.array(planUsageMeterSummarySchema),
   enforcementEnabled: z.boolean()

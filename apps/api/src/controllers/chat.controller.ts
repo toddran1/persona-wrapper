@@ -13,8 +13,17 @@ import { selectTools } from "../services/toolSelectionService.js";
 import { usageControlService } from "../services/usageControlService.js";
 import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
 import { requestOwnerId } from "../utils/requestIdentity.js";
+import { requestAbuseSignals } from "../utils/requestAbuseSignals.js";
 import { logger } from "../utils/logger.js";
 import { customerUsageService } from "../services/customerUsageService.js";
+import {
+  actualImageGenerationCredits,
+  billableGeneratedImageCount,
+  reservedImageGenerationCredits
+} from "../services/usageCreditPolicy.js";
+import { estimateProviderCost } from "../services/providerCostEstimator.js";
+import { env } from "../config/env.js";
+import { shouldPlanHistoricalVisualTransformation } from "../services/conversationMediaContext.js";
 
 export const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -74,11 +83,11 @@ backgroundChatJobService.setExecutor(async (payload, backgroundJob) => {
 
 export async function postChat(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
-  const reservationId = await usageControlService.check(identity);
+  const reservationId = await usageControlService.check(identity, requestAbuseSignals(request));
   let customerUsageOperationId: string | undefined;
   let reservationReconciled = false;
   try {
-    const payload = await selectTools(await resolveOwnedChatAssets(request));
+    const payload = await selectToolsForRequest(await resolveOwnedChatAssets(request), identity);
     if (!getPersonaById(payload.personaId)) {
       throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
     }
@@ -174,12 +183,12 @@ export async function cancelChatJob(request: Request, response: Response): Promi
 
 export async function postChatStream(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
-  const reservationId = await usageControlService.check(identity);
+  const reservationId = await usageControlService.check(identity, requestAbuseSignals(request));
   let customerUsageOperationId: string | undefined;
   let reservationReconciled = false;
   let payload: ChatRequest;
   try {
-    payload = await selectTools(await resolveOwnedChatAssets(request));
+    payload = await selectToolsForRequest(await resolveOwnedChatAssets(request), identity);
     if (!getPersonaById(payload.personaId)) {
       throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
     }
@@ -320,6 +329,32 @@ function requestIdentity(request: Request): string {
   return requestOwnerId(request);
 }
 
+async function selectToolsForRequest(payload: ChatRequest, identity: string): Promise<ChatRequest> {
+  const selected = await selectTools(payload);
+  if (selected.toolOptions?.imageGeneration || !selected.conversationId) return selected;
+  const conversation = await conversationStore.get(selected.conversationId, identity);
+  if (!conversation || !shouldPlanHistoricalVisualTransformation(
+    conversation,
+    selected.message,
+    selected.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0
+  )) {
+    return selected;
+  }
+
+  return {
+    ...selected,
+    toolOptions: {
+      webSearch: selected.toolOptions?.webSearch ?? false,
+      fileSearch: selected.toolOptions?.fileSearch ?? false,
+      codeInterpreter: selected.toolOptions?.codeInterpreter ?? false,
+      imageGeneration: true,
+      appFunctions: selected.toolOptions?.appFunctions ?? true,
+      background: selected.toolOptions?.background ?? false,
+      vectorStoreIds: selected.toolOptions?.vectorStoreIds ?? []
+    }
+  };
+}
+
 async function releaseUsageReservation(identity: string, reservationId: string, requestId?: string): Promise<void> {
   await usageControlService.recordUsage(identity, undefined, undefined, reservationId).catch((error) => {
     // Reconciliation is cleanup for a request that already failed. Keep the
@@ -332,12 +367,43 @@ async function releaseUsageReservation(identity: string, reservationId: string, 
 }
 
 async function reserveCustomerUsage(identity: string, payload: ChatRequest, idempotencyKey: string): Promise<string> {
+  const providerCost = estimateProviderCost({
+    provider: payload.provider,
+    reportedModelCostUsd: (
+      env.OPENAI_MAX_CONTEXT_TOKENS * env.OPENAI_INPUT_COST_PER_MILLION
+      + env.OPENAI_MAX_OUTPUT_TOKENS * env.OPENAI_OUTPUT_COST_PER_MILLION
+    ) / 1_000_000,
+    generatedImageCount: payload.toolOptions?.imageGeneration ? 1 : 0,
+    imageQuality: env.OPENAI_IMAGE_QUALITY,
+    imageSize: env.OPENAI_IMAGE_SIZE,
+    imageInputCount: payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
+    imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
+    audioSeconds: payload.audio ? 60 : 0,
+    audioCostPerMinuteUsd: env.CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD,
+    styleTransferCalls: payload.provider !== "openai_persona" && env.STYLE_TRANSFER_PROVIDER !== "stub" ? 1 : 0,
+    styleTransferCostPerCallUsd: env.CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD,
+    webSearchCalls: payload.toolOptions?.webSearch ? 1 : 0,
+    fileSearchCalls: payload.toolOptions?.fileSearch ? 1 : 0,
+    codeInterpreterSessions: payload.toolOptions?.codeInterpreter ? 1 : 0
+  });
+  warnOnUnpricedCustomerUsage(providerCost.unpricedComponents, {
+    phase: "reservation",
+    provider: payload.provider,
+    requestId: idempotencyKey
+  });
   return customerUsageService.reserve(identity, {
-    // Text is presently unlimited, but reserving a minimal unit creates a
-    // durable operation that can be reconciled to actual provider tokens.
+    total_usage_microusd: Math.max(1, Math.ceil(providerCost.estimatedCostUsd * 1_000_000)),
+    // Detailed operational meters remain useful for provider reconciliation
+    // even though total usage is the cross-capability customer quota.
     text_input_tokens: 1,
     text_output_tokens: 1,
-    ...(payload.toolOptions?.imageGeneration ? { image_outputs: 1 } : {}),
+    ...(payload.toolOptions?.imageGeneration ? {
+      // Keep output count as an internal operational meter for concurrency and
+      // audit trails. The customer-facing allowance is the quality-aware credit
+      // meter below.
+      image_outputs: 1,
+      credits: reservedImageGenerationCredits()
+    } : {}),
     ...(payload.audio ? { audio_seconds: 60 } : {})
   }, {
     idempotencyKey,
@@ -354,18 +420,71 @@ async function settleCustomerUsage(
   const audioCharacters = result.diagnostics.tts?.status === "generated"
     ? result.diagnostics.tts.textCharacters ?? 0
     : 0;
+  const audioSeconds = audioCharacters > 0 ? Math.max(1, Math.ceil(audioCharacters / 15)) : 0;
+  const generatedImageCount = billableGeneratedImageCount(result);
+  const providerCost = estimateProviderCost({
+    provider: result.provider,
+    ...(result.usage?.estimatedCostUsd !== undefined
+      ? { reportedModelCostUsd: result.usage.estimatedCostUsd }
+      : {}),
+    // ChatService may enable image generation after resolving a historical
+    // visual follow-up even when the incoming tool selection was false.
+    // Settle from the actual output provenance so those requests cannot bypass
+    // image credits, while Code Interpreter chart images remain excluded.
+    generatedImageCount,
+    imageQuality: env.OPENAI_IMAGE_QUALITY,
+    imageSize: env.OPENAI_IMAGE_SIZE,
+    imageInputCount: payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
+    imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
+    audioSeconds,
+    audioCostPerMinuteUsd: env.CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD,
+    styleTransferCalls: payload.provider !== "openai_persona"
+      && env.STYLE_TRANSFER_PROVIDER !== "stub"
+      && result.outputs.some((output) => output.type === "text" && output.text.trim())
+      ? 1
+      : 0,
+    styleTransferCostPerCallUsd: env.CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD,
+    webSearchCalls: payload.toolOptions?.webSearch ? 1 : 0,
+    fileSearchCalls: payload.toolOptions?.fileSearch ? 1 : 0,
+    codeInterpreterSessions: payload.toolOptions?.codeInterpreter ? 1 : 0
+  });
+  warnOnUnpricedCustomerUsage(providerCost.unpricedComponents, {
+    phase: "settlement",
+    provider: result.provider,
+    conversationId: result.conversationId,
+    operationId
+  });
   await customerUsageService.settle(operationId, {
+    total_usage_microusd: Math.max(1, Math.ceil(providerCost.estimatedCostUsd * 1_000_000)),
     text_input_tokens: result.usage?.inputTokens ?? 0,
     text_output_tokens: result.usage?.outputTokens ?? 0,
-    image_outputs: result.outputs.filter((output) => output.type === "image").length,
-    audio_seconds: audioCharacters > 0 ? Math.max(1, Math.ceil(audioCharacters / 15)) : 0,
+    image_outputs: generatedImageCount,
+    credits: actualImageGenerationCredits(result),
+    audio_seconds: audioSeconds,
     web_search_calls: payload.toolOptions?.webSearch ? 1 : 0,
     file_analysis_operations: payload.toolOptions?.fileSearch ? 1 : 0
   }, {
     provider: result.provider,
     ...(result.diagnostics.providerModel ? { model: result.diagnostics.providerModel } : {}),
     conversationId: result.conversationId,
-    ...(result.usage?.estimatedCostUsd ? { actualCostUsd: result.usage.estimatedCostUsd } : {})
+    ...(providerCost.estimatedCostUsd > 0 ? { estimatedCostUsd: providerCost.estimatedCostUsd } : {})
+  });
+}
+
+function warnOnUnpricedCustomerUsage(
+  components: string[],
+  context: {
+    phase: "reservation" | "settlement";
+    provider: string;
+    requestId?: string;
+    conversationId?: string;
+    operationId?: string;
+  }
+): void {
+  if (components.length === 0) return;
+  logger.warn("Customer usage estimate has unpriced provider components", {
+    ...context,
+    components
   });
 }
 

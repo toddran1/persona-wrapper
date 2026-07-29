@@ -11,10 +11,20 @@ const planUsage = {
     version: 1,
     displayName: "Bronze",
     description: "Core chat access with a small monthly media allowance.",
+    monthlyPriceCents: null,
     adsEnabled: true,
     priorityQueue: false,
     maxConcurrentMediaJobs: 1,
     personaIds: ["larae"]
+  },
+  totalUsage: {
+    limitMicroUsd: 1_000_000,
+    usedMicroUsd: 180_000,
+    reservedMicroUsd: 0,
+    remainingMicroUsd: 820_000,
+    percentRemaining: 82,
+    periodStart: "2026-07-01T00:00:00.000Z",
+    periodEnd: "2026-08-01T00:00:00.000Z"
   },
   meters: [],
   enforcementEnabled: false
@@ -211,6 +221,11 @@ describe("ConversationSidebar settings", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
     expect(await within(dialog).findByText("Coming soon")).toBeInTheDocument();
+    expect(within(dialog).getByText("82% left")).toBeInTheDocument();
+    expect(within(dialog).getByRole("progressbar", { name: "Total monthly usage remaining" })).toHaveAttribute(
+      "aria-valuenow",
+      "82"
+    );
 
     await user.click(within(dialog).getByRole("button", { name: "Security & sign-in" }));
     expect(await within(dialog).findByRole("heading", { name: "Connected accounts" })).toBeInTheDocument();

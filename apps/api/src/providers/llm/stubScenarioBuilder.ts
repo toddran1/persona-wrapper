@@ -217,7 +217,10 @@ export function buildStubOutput(input: LLMInput, provider: ProviderId, mode: Stu
         input.persona.name
       ),
       alt: `Stylized ${input.persona.name} promo artwork stub`,
-      prompt: `Persona promo art inspired by ${input.persona.visualStyle.slice(0, 3).join(", ")}`
+      prompt: `Persona promo art inspired by ${input.persona.visualStyle.slice(0, 3).join(", ")}`,
+      metadata: {
+        generationSource: "stub_image_generation"
+      }
     });
   }
 

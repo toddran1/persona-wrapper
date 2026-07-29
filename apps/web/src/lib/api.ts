@@ -33,13 +33,12 @@ import type {
 import { initClient } from "@ts-rest/core";
 import { logClientEvent, newClientTraceId } from "./telemetry.js";
 import { authClient } from "./authClient.js";
+import { installationId } from "./installationId.js";
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
 const configuredApiBaseUrl = typeof import.meta.env.VITE_API_URL === "string" ? import.meta.env.VITE_API_URL.trim() : "";
 export const API_BASE_URL = configuredApiBaseUrl || DEFAULT_API_BASE_URL;
-const OWNER_ID_KEY = "persona-wrapper-owner-id";
 const LEGACY_AUTH_TOKENS_KEY = "persona-wrapper-auth-tokens";
-let fallbackOwnerId: string | undefined;
 let authRefreshInFlight: Promise<boolean> | undefined;
 const API_REQUEST_TIMEOUT_MS = 130_000;
 const AUTH_REFRESH_TIMEOUT_MS = 30_000;
@@ -108,16 +107,7 @@ export function resolveApiUrl(pathOrUrl: string): string {
 }
 
 export function ownerId(): string {
-  try {
-    const existing = localStorage.getItem(OWNER_ID_KEY);
-    if (existing) return existing;
-    const created = crypto.randomUUID();
-    localStorage.setItem(OWNER_ID_KEY, created);
-    return created;
-  } catch {
-    fallbackOwnerId ??= crypto.randomUUID();
-    return fallbackOwnerId;
-  }
+  return installationId();
 }
 
 function clearLegacyAuthTokens(): void {
@@ -247,6 +237,7 @@ function requestHeaders(includeJson: boolean, headers?: HeadersInit): HeadersIni
   if (includeJson) next["Content-Type"] = "application/json";
   next["x-client-trace-id"] = newClientTraceId();
   next["x-owner-id"] = ownerId();
+  next["x-device-id"] = ownerId();
 
   if (headers instanceof Headers) {
     headers.forEach((value, key) => {

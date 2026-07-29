@@ -5,14 +5,20 @@ export type PlanDefinition = {
   version: number;
   displayName: string;
   description: string;
+  /** Catalog metadata only until a billing entitlement adapter is connected. */
+  monthlyPriceCents: number | null;
   adsEnabled: boolean;
   priorityQueue: boolean;
   maxConcurrentMediaJobs: number;
   personaIds: string[];
   allowances: Partial<Record<CustomerUsageMeter, number | null>>;
+  monthlyProviderCostBudget: {
+    targetMicroUsd: number;
+    ceilingMicroUsd: number;
+  };
 };
 
-const CURRENT_PLAN_VERSION = 1;
+const CURRENT_PLAN_VERSION = 5;
 const CURRENT_PERSONA_IDS = ["larae"];
 
 export const planCatalog: Record<PlanId, PlanDefinition> = {
@@ -21,13 +27,19 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     version: CURRENT_PLAN_VERSION,
     displayName: "Bronze",
     description: "Core chat access with a small monthly media allowance.",
+    monthlyPriceCents: null,
     adsEnabled: true,
     priorityQueue: false,
     maxConcurrentMediaJobs: 1,
     personaIds: ["larae"],
     allowances: {
-      image_outputs: 15,
-      audio_seconds: 10 * 60
+      total_usage_microusd: 1_000_000,
+      credits: 12,
+      audio_seconds: 5 * 60
+    },
+    monthlyProviderCostBudget: {
+      targetMicroUsd: 500_000,
+      ceilingMicroUsd: 1_000_000
     }
   },
   silver: {
@@ -35,13 +47,19 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     version: CURRENT_PLAN_VERSION,
     displayName: "Silver",
     description: "More media usage, most personas, and no ads.",
+    monthlyPriceCents: 599,
     adsEnabled: false,
     priorityQueue: false,
     maxConcurrentMediaJobs: 2,
     personaIds: CURRENT_PERSONA_IDS,
     allowances: {
-      image_outputs: 80,
-      audio_seconds: 60 * 60
+      total_usage_microusd: 3_000_000,
+      credits: 60,
+      audio_seconds: 30 * 60
+    },
+    monthlyProviderCostBudget: {
+      targetMicroUsd: 1_750_000,
+      ceilingMicroUsd: 3_000_000
     }
   },
   gold: {
@@ -49,13 +67,19 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     version: CURRENT_PLAN_VERSION,
     displayName: "Gold",
     description: "The full persona library and the most generous media limits.",
+    monthlyPriceCents: 999,
     adsEnabled: false,
     priorityQueue: true,
     maxConcurrentMediaJobs: 3,
     personaIds: CURRENT_PERSONA_IDS,
     allowances: {
-      image_outputs: 160,
-      audio_seconds: 120 * 60
+      total_usage_microusd: 5_750_000,
+      credits: 120,
+      audio_seconds: 60 * 60
+    },
+    monthlyProviderCostBudget: {
+      targetMicroUsd: 3_250_000,
+      ceilingMicroUsd: 5_750_000
     }
   }
 };

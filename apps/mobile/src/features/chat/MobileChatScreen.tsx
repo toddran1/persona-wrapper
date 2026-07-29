@@ -388,6 +388,8 @@ export function MobileChatScreen() {
     deleteAccountError,
     setDeleteAccountError
   } = useAccountSettingsController(authUser);
+  const currentAccountIdRef = useRef(authUser?.id);
+  currentAccountIdRef.current = authUser?.id;
   const dataTransferActive = Boolean(
     dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status)
   );
@@ -648,26 +650,34 @@ export function MobileChatScreen() {
   }
 
   async function refreshPlanUsage(): Promise<void> {
+    const requestedAccountId = authUser?.id;
     setPlanUsageLoading(true);
     setPlanUsageError(undefined);
     try {
-      setPlanUsage(await api.getPlanUsage());
+      const usage = await api.getPlanUsage();
+      if (currentAccountIdRef.current === requestedAccountId) setPlanUsage(usage);
     } catch (usageError) {
-      setPlanUsageError(usageError instanceof Error ? usageError.message : "Could not load plan usage.");
+      if (currentAccountIdRef.current === requestedAccountId) {
+        setPlanUsageError(usageError instanceof Error ? usageError.message : "Could not load plan usage.");
+      }
     } finally {
-      setPlanUsageLoading(false);
+      if (currentAccountIdRef.current === requestedAccountId) setPlanUsageLoading(false);
     }
   }
 
   async function refreshMemorySettings(): Promise<void> {
+    const requestedAccountId = authUser?.id;
     setMemoryBusy(true);
     setMemoryError(undefined);
     try {
-      setMemoryEnabled(await api.getMemorySettings());
+      const enabled = await api.getMemorySettings();
+      if (currentAccountIdRef.current === requestedAccountId) setMemoryEnabled(enabled);
     } catch (memoryLoadError) {
-      setMemoryError(memoryLoadError instanceof Error ? memoryLoadError.message : "Could not load memory settings.");
+      if (currentAccountIdRef.current === requestedAccountId) {
+        setMemoryError(memoryLoadError instanceof Error ? memoryLoadError.message : "Could not load memory settings.");
+      }
     } finally {
-      setMemoryBusy(false);
+      if (currentAccountIdRef.current === requestedAccountId) setMemoryBusy(false);
     }
   }
 
@@ -789,14 +799,18 @@ export function MobileChatScreen() {
   }
 
   async function refreshConnectedAccounts(): Promise<void> {
+    const requestedAccountId = authUser?.id;
     setSecurityLoading(true);
     setSecurityError(undefined);
     try {
-      setConnectedAccounts(await api.listConnectedAccounts());
+      const accounts = await api.listConnectedAccounts();
+      if (currentAccountIdRef.current === requestedAccountId) setConnectedAccounts(accounts);
     } catch (accountError) {
-      setSecurityError(accountError instanceof Error ? accountError.message : "Could not load connected accounts.");
+      if (currentAccountIdRef.current === requestedAccountId) {
+        setSecurityError(accountError instanceof Error ? accountError.message : "Could not load connected accounts.");
+      }
     } finally {
-      setSecurityLoading(false);
+      if (currentAccountIdRef.current === requestedAccountId) setSecurityLoading(false);
     }
   }
 
@@ -2364,14 +2378,18 @@ export function MobileChatScreen() {
       setSessionsError("Connect to the internet to refresh active devices.");
       return;
     }
+    const requestedAccountId = authUser?.id;
     setSessionsLoading(true);
     setSessionsError(undefined);
     try {
-      setActiveSessions(await api.listActiveSessions());
+      const sessions = await api.listActiveSessions();
+      if (currentAccountIdRef.current === requestedAccountId) setActiveSessions(sessions);
     } catch (sessionError) {
-      setSessionsError(sessionError instanceof Error ? sessionError.message : "Could not load active sessions.");
+      if (currentAccountIdRef.current === requestedAccountId) {
+        setSessionsError(sessionError instanceof Error ? sessionError.message : "Could not load active sessions.");
+      }
     } finally {
-      setSessionsLoading(false);
+      if (currentAccountIdRef.current === requestedAccountId) setSessionsLoading(false);
     }
   }
 
@@ -3203,6 +3221,44 @@ export function MobileChatScreen() {
                   <View style={[styles.settingsPlanCard, { backgroundColor: "rgba(255,255,255,0.09)", borderColor: theme.border }]}>
                     <Text style={[styles.settingsPlanName, { color: theme.text }]}>{planUsage.plan.displayName}</Text>
                     <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>{planUsage.plan.description}</Text>
+                  </View>
+                  <View style={[styles.settingsTotalUsageCard, { borderColor: theme.border }]}>
+                    <View style={styles.settingsUsageHeading}>
+                      <Text style={[styles.settingsTotalUsageLabel, { color: theme.text }]}>Total usage</Text>
+                      <Text style={[styles.settingsTotalUsageRemaining, { color: theme.muted }]}>
+                        {planUsage.totalUsage.percentRemaining}% left
+                      </Text>
+                    </View>
+                    <View
+                      accessible
+                      accessibilityRole="progressbar"
+                      accessibilityLabel="Total monthly usage remaining"
+                      accessibilityValue={{
+                        min: 0,
+                        max: 100,
+                        now: planUsage.totalUsage.percentRemaining,
+                        text: `${planUsage.totalUsage.percentRemaining}% left`
+                      }}
+                      style={styles.settingsTotalUsageTrack}
+                    >
+                      <View
+                        style={[
+                          styles.settingsTotalUsageFill,
+                          {
+                            backgroundColor: theme.text,
+                            width: `${planUsage.totalUsage.percentRemaining}%`
+                          }
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>
+                      Includes text, searches, file work, charts, images, and audio · Resets{" "}
+                      {new Date(planUsage.totalUsage.periodEnd).toLocaleDateString([], {
+                        month: "long",
+                        day: "numeric",
+                        timeZone: "UTC"
+                      })}
+                    </Text>
                   </View>
                   {planUsage.meters.map((meter) => {
                     const used = meter.used + meter.reserved;
@@ -4521,6 +4577,32 @@ const styles = StyleSheet.create({
   },
   settingsTopBar: {
     minHeight: 60
+  },
+  settingsTotalUsageCard: {
+    backgroundColor: "rgba(255,255,255,0.065)",
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 12,
+    padding: 16
+  },
+  settingsTotalUsageFill: {
+    borderRadius: 999,
+    height: "100%"
+  },
+  settingsTotalUsageLabel: {
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  settingsTotalUsageRemaining: {
+    fontSize: 14,
+    fontVariant: ["tabular-nums"],
+    fontWeight: "800"
+  },
+  settingsTotalUsageTrack: {
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderRadius: 999,
+    height: 9,
+    overflow: "hidden"
   },
   settingsUsageCard: {
     borderRadius: 16,

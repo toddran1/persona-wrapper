@@ -185,6 +185,7 @@ export function ConversationSidebar({
   const importInputRef = useRef<HTMLInputElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
   const settingsDialogRef = useRef<HTMLDivElement>(null);
+  const accountIdRef = useRef(authUser?.id);
   const dataTransferActive = Boolean(dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status));
   const filteredConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -222,6 +223,29 @@ export function ConversationSidebar({
   const usernameHasChanges = username.trim() !== (authUser?.username ?? "");
 
   useEffect(() => {
+    const accountChanged = accountIdRef.current !== authUser?.id;
+    accountIdRef.current = authUser?.id;
+    if (accountChanged) {
+      // This sidebar stays mounted while authentication changes. Discard all
+      // account-scoped state immediately so a slow response from the previous
+      // account cannot be displayed for the next one.
+      setPlanUsage(undefined);
+      setConnectedAccounts([]);
+      setCurrentPassword("");
+      setNewPassword("");
+      setPasswordConfirmation("");
+      setSecurityNotice(undefined);
+      setMemoryEnabled(authUser?.memoryEnabled ?? true);
+      setMemoryNotice(undefined);
+      setMemoryConfirmation(undefined);
+      setDeleteAccountOpen(false);
+      setDeleteConfirmation("");
+      setDeletePassword("");
+      setLocalAuthError(undefined);
+      setAuthBusy(false);
+      setSettingsOpen(false);
+      setAccountMenuOpen(false);
+    }
     setUsername(authUser?.username ?? "");
     setPreferredName(authUser?.preferredName ?? "");
     setGender(authUser?.gender ?? "");
@@ -419,35 +443,47 @@ export function ConversationSidebar({
     setLocalAuthError(undefined);
     setSecurityNotice(undefined);
     if (section === "plan") {
+      const requestedAccountId = authUser?.id;
       setAuthBusy(true);
       try {
-        setPlanUsage(await onGetPlanUsage());
+        const usage = await onGetPlanUsage();
+        if (accountIdRef.current === requestedAccountId) setPlanUsage(usage);
       } catch (error) {
-        setLocalAuthError(error instanceof Error ? error.message : "Could not load plan usage.");
+        if (accountIdRef.current === requestedAccountId) {
+          setLocalAuthError(error instanceof Error ? error.message : "Could not load plan usage.");
+        }
       } finally {
-        setAuthBusy(false);
+        if (accountIdRef.current === requestedAccountId) setAuthBusy(false);
       }
       return;
     }
     if (section === "memory") {
+      const requestedAccountId = authUser?.id;
       setAuthBusy(true);
       try {
-        setMemoryEnabled(await onGetMemorySettings());
+        const enabled = await onGetMemorySettings();
+        if (accountIdRef.current === requestedAccountId) setMemoryEnabled(enabled);
       } catch (error) {
-        setLocalAuthError(error instanceof Error ? error.message : "Could not load memory settings.");
+        if (accountIdRef.current === requestedAccountId) {
+          setLocalAuthError(error instanceof Error ? error.message : "Could not load memory settings.");
+        }
       } finally {
-        setAuthBusy(false);
+        if (accountIdRef.current === requestedAccountId) setAuthBusy(false);
       }
       return;
     }
     if (section !== "security") return;
+    const requestedAccountId = authUser?.id;
     setAuthBusy(true);
     try {
-      setConnectedAccounts(await onListConnectedAccounts());
+      const accounts = await onListConnectedAccounts();
+      if (accountIdRef.current === requestedAccountId) setConnectedAccounts(accounts);
     } catch (error) {
-      setLocalAuthError(error instanceof Error ? error.message : "Could not load connected accounts.");
+      if (accountIdRef.current === requestedAccountId) {
+        setLocalAuthError(error instanceof Error ? error.message : "Could not load connected accounts.");
+      }
     } finally {
-      setAuthBusy(false);
+      if (accountIdRef.current === requestedAccountId) setAuthBusy(false);
     }
   }
 
@@ -466,7 +502,10 @@ export function ConversationSidebar({
     setMemoryNotice(undefined);
     setMemoryConfirmation(undefined);
     setSettingsOpen(true);
-    void onGetPlanUsage().then(setPlanUsage).catch(() => {
+    const requestedAccountId = authUser?.id;
+    void onGetPlanUsage().then((usage) => {
+      if (accountIdRef.current === requestedAccountId) setPlanUsage(usage);
+    }).catch(() => {
       // The dedicated Plan & usage panel exposes a retryable error if opened.
       // Account settings remain usable when usage telemetry is temporarily down.
     });
@@ -1403,6 +1442,31 @@ export function ConversationSidebar({
                         </div>
                         {planUsage ? (
                           <>
+                            <div className="settings-total-usage">
+                              <div className="settings-total-usage-heading">
+                                <strong>Total usage</strong>
+                                <span>{planUsage.totalUsage.percentRemaining}% left</span>
+                              </div>
+                              <div
+                                className="settings-total-usage-track"
+                                role="progressbar"
+                                aria-label="Total monthly usage remaining"
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={planUsage.totalUsage.percentRemaining}
+                                aria-valuetext={`${planUsage.totalUsage.percentRemaining}% left`}
+                              >
+                                <span style={{ width: `${planUsage.totalUsage.percentRemaining}%` }} />
+                              </div>
+                              <small>
+                                Includes text, searches, file work, charts, images, and audio · Resets{" "}
+                                {new Date(planUsage.totalUsage.periodEnd).toLocaleDateString([], {
+                                  month: "long",
+                                  day: "numeric",
+                                  timeZone: "UTC"
+                                })}
+                              </small>
+                            </div>
                             <div className="settings-list">
                               {planUsage.meters.map((meter) => {
                                 const used = meter.used + meter.reserved;

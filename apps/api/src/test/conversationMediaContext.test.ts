@@ -96,6 +96,28 @@ describe("conversation media context", () => {
     expect(inferConversationMediaMinimum("Make the result brighter.")).toBe(1);
   });
 
+  it("preflights historical visual edits without treating inspection or promised uploads as generation", async () => {
+    const { shouldPlanHistoricalVisualTransformation } = await import("../services/conversationMediaContext.js");
+    const conversation = {
+      id: "conv_visual_preflight",
+      turns: [{
+        userMessage: "Create a portrait.",
+        assistantText: "Here it is.",
+        outputs: [{
+          type: "image" as const,
+          url: "data:image/png;base64,dGVzdA==",
+          alt: "Portrait"
+        }]
+      }]
+    };
+
+    expect(shouldPlanHistoricalVisualTransformation(conversation, "Make the background blue.")).toBe(true);
+    expect(shouldPlanHistoricalVisualTransformation(conversation, "What color is the background?")).toBe(false);
+    expect(shouldPlanHistoricalVisualTransformation(conversation, "Start over from scratch with a new image.")).toBe(false);
+    expect(shouldPlanHistoricalVisualTransformation(conversation, "I am uploading a new image to edit.")).toBe(false);
+    expect(shouldPlanHistoricalVisualTransformation({ id: "empty", turns: [] }, "Make the background blue.")).toBe(false);
+  });
+
   it("returns an ambiguity instead of guessing when an ordinal matches multiple visual sets", async () => {
     const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
     const image = (label: string) => ({

@@ -190,7 +190,9 @@ describe("controllers", () => {
       } as unknown as Response
     )).rejects.toBeDefined();
 
-    expect(check).toHaveBeenCalledWith("stream-preflight-owner");
+    expect(check).toHaveBeenCalledWith("stream-preflight-owner", {
+      deviceKey: expect.stringMatching(/^device:[a-f0-9]{64}$/)
+    });
     expect(recordUsage).toHaveBeenCalledWith(
       "stream-preflight-owner",
       undefined,

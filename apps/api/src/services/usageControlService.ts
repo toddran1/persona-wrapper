@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, gte, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, notInArray, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { usageEvents } from "../db/schema.js";
+import type { RequestAbuseSignals } from "../utils/requestAbuseSignals.js";
 import { HttpError } from "../utils/httpError.js";
 
 type LocalReservation = { tokens: number; spendUsd: number };
@@ -13,6 +14,7 @@ type UsageRecord = {
   tokens: number;
   reservations: Map<string, LocalReservation>;
 };
+const MAX_LOCAL_SIGNAL_KEYS = 10_000;
 
 function todayUtcStart(): Date {
   return new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
@@ -25,13 +27,22 @@ function costUsdToMicroUsd(costUsd?: number): number {
 
 export class UsageControlService {
   private readonly records = new Map<string, UsageRecord>();
+  private readonly signalTimestamps = new Map<string, number[]>();
 
   async cleanupExpiredNow(): Promise<void> {
     const db = getDatabase();
     if (!db) return;
     const now = Date.now();
+    const signupEventTypes = ["signup_device_attempt", "signup_ip_attempt"];
     await db.delete(usageEvents).where(or(
-      lt(usageEvents.createdAt, new Date(now - 7 * 24 * 60 * 60 * 1000)),
+      and(
+        inArray(usageEvents.eventType, signupEventTypes),
+        lt(usageEvents.createdAt, new Date(now - env.AUTH_SIGNUP_WINDOW_MS))
+      ),
+      and(
+        notInArray(usageEvents.eventType, signupEventTypes),
+        lt(usageEvents.createdAt, new Date(now - 7 * 24 * 60 * 60 * 1000))
+      ),
       and(
         eq(usageEvents.eventType, "reservation"),
         lt(usageEvents.createdAt, new Date(now - 6 * 60 * 60 * 1000))
@@ -39,23 +50,45 @@ export class UsageControlService {
     ));
   }
 
-  async check(identity: string): Promise<string> {
+  async check(identity: string, signals: RequestAbuseSignals = {}): Promise<string> {
     const db = getDatabase();
     if (db) {
       return db.transaction(async (tx) => {
-        // A transaction-scoped advisory lock serializes quota decisions for
-        // this identity across every API instance.
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);
+        const rateLimits = [
+          {
+            identity,
+            eventType: "request",
+            limit: env.CHAT_RATE_LIMIT_REQUESTS
+          },
+          ...(signals.deviceKey ? [{
+            identity: signals.deviceKey,
+            eventType: "chat_device_request",
+            limit: env.CHAT_DEVICE_RATE_LIMIT_REQUESTS
+          }] : []),
+          ...(signals.ipKey ? [{
+            identity: signals.ipKey,
+            eventType: "chat_ip_request",
+            limit: env.CHAT_IP_RATE_LIMIT_REQUESTS
+          }] : [])
+        ];
+        // Always take multiple advisory locks in the same order. That keeps
+        // account, device, and IP decisions atomic without deadlocking when
+        // concurrent requests share only some signals.
+        for (const key of [...new Set(rateLimits.map((entry) => entry.identity))].sort()) {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
+        }
         const windowStart = new Date(Date.now() - env.CHAT_RATE_LIMIT_WINDOW_MS);
         const dayStart = todayUtcStart();
-        const [requestRow] = await tx.select({ count: sql<number>`count(*)::int` })
-          .from(usageEvents).where(and(
-            eq(usageEvents.identity, identity),
-            eq(usageEvents.eventType, "request"),
-            gte(usageEvents.createdAt, windowStart)
-          ));
-        if (Number(requestRow?.count ?? 0) >= env.CHAT_RATE_LIMIT_REQUESTS) {
-          throw new HttpError("Too many requests. Please wait and try again.", 429);
+        for (const rateLimit of rateLimits) {
+          const [requestRow] = await tx.select({ count: sql<number>`count(*)::int` })
+            .from(usageEvents).where(and(
+              eq(usageEvents.identity, rateLimit.identity),
+              eq(usageEvents.eventType, rateLimit.eventType),
+              gte(usageEvents.createdAt, windowStart)
+            ));
+          if (Number(requestRow?.count ?? 0) >= rateLimit.limit) {
+            throw new HttpError("Too many requests. Please wait and try again.", 429);
+          }
         }
 
         const [usageRow] = await tx.select({
@@ -82,7 +115,11 @@ export class UsageControlService {
 
         const reservationId = `usage_${randomUUID()}`;
         await tx.insert(usageEvents).values([
-          { id: `usage_${randomUUID()}`, identity, eventType: "request" },
+          ...rateLimits.map((rateLimit) => ({
+            id: `usage_${randomUUID()}`,
+            identity: rateLimit.identity,
+            eventType: rateLimit.eventType
+          })),
           {
             id: reservationId,
             identity,
@@ -108,6 +145,25 @@ export class UsageControlService {
     if (record.timestamps.length >= env.CHAT_RATE_LIMIT_REQUESTS) {
       throw new HttpError("Too many requests. Please wait and try again.", 429);
     }
+    const signalLimits = [
+      ...(signals.deviceKey ? [{
+        key: `chat-device:${signals.deviceKey}`,
+        limit: env.CHAT_DEVICE_RATE_LIMIT_REQUESTS
+      }] : []),
+      ...(signals.ipKey ? [{
+        key: `chat-ip:${signals.ipKey}`,
+        limit: env.CHAT_IP_RATE_LIMIT_REQUESTS
+      }] : [])
+    ];
+    const pendingSignalTimestamps = new Map<string, number[]>();
+    for (const signalLimit of signalLimits) {
+      const timestamps = (this.signalTimestamps.get(signalLimit.key) ?? [])
+        .filter((timestamp) => now - timestamp < env.CHAT_RATE_LIMIT_WINDOW_MS);
+      if (timestamps.length >= signalLimit.limit) {
+        throw new HttpError("Too many requests. Please wait and try again.", 429);
+      }
+      pendingSignalTimestamps.set(signalLimit.key, [...timestamps, now]);
+    }
     const reservedTokens = env.OPENAI_MAX_CONTEXT_TOKENS + env.OPENAI_MAX_OUTPUT_TOKENS;
     const reservedSpendUsd = (
       env.OPENAI_MAX_CONTEXT_TOKENS * env.OPENAI_INPUT_COST_PER_MILLION
@@ -122,6 +178,14 @@ export class UsageControlService {
       throw new HttpError("Daily OpenAI token limit reached.", 429);
     }
     record.timestamps.push(now);
+    for (const [key, timestamps] of pendingSignalTimestamps) {
+      this.signalTimestamps.set(key, timestamps);
+    }
+    while (this.signalTimestamps.size > MAX_LOCAL_SIGNAL_KEYS) {
+      const oldestKey = this.signalTimestamps.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      this.signalTimestamps.delete(oldestKey);
+    }
     const reservationId = `local_${randomUUID()}`;
     record.reservations.set(reservationId, { tokens: reservedTokens, spendUsd: reservedSpendUsd });
     this.records.set(identity, record);

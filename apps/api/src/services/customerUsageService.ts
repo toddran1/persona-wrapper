@@ -31,7 +31,7 @@ const DISPLAY_METERS: Array<{
   label: string;
   unit: "credits" | "seconds";
 }> = [
-  { key: "image_outputs", label: "Images", unit: "credits" },
+  { key: "credits", label: "Image credits", unit: "credits" },
   { key: "audio_seconds", label: "Audio", unit: "seconds" }
 ];
 
@@ -60,9 +60,13 @@ function balanceId(userId: string, meter: CustomerUsageMeter, periodStart: Date)
 
 function quotaError(meter: CustomerUsageMeter): HttpError {
   return new HttpError(
-    meter === "image_outputs"
-      ? "Your monthly image allowance has been used. Upgrade options are coming soon."
-      : "Your monthly audio allowance has been used. You can continue chatting without generated audio.",
+    meter === "total_usage_microusd"
+      ? "Your monthly total usage allowance has been reached. It resets at the start of your next billing period."
+      : meter === "credits"
+      ? "Your monthly credits have been used. Upgrade options are coming soon."
+      : meter === "audio_seconds"
+        ? "Your monthly audio allowance has been used. You can continue chatting without generated audio."
+        : "This monthly allowance has been used. Upgrade options are coming soon.",
     429
   );
 }
@@ -128,6 +132,7 @@ export class CustomerUsageService {
       ) {
         throw concurrencyError(plan);
       }
+      const pendingBalances = new Map<string, LocalBalance>();
       for (const [meter, rawQuantity] of Object.entries(normalized) as Array<[CustomerUsageMeter, number]>) {
         const key = `${userId}:${meter}:${period.start.toISOString()}`;
         const balance = this.localBalances.get(key) ?? { used: 0, reserved: 0 };
@@ -135,7 +140,12 @@ export class CustomerUsageService {
         if (env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED && limit !== null && balance.used + balance.reserved + rawQuantity > limit) {
           throw quotaError(meter);
         }
-        balance.reserved += rawQuantity;
+        pendingBalances.set(key, {
+          used: balance.used,
+          reserved: balance.reserved + rawQuantity
+        });
+      }
+      for (const [key, balance] of pendingBalances) {
         this.localBalances.set(key, balance);
       }
       this.localOperations.set(operationId, {
@@ -231,7 +241,13 @@ export class CustomerUsageService {
   async settle(
     operationId: string,
     actual: MeterQuantities,
-    options: { provider?: string; model?: string; conversationId?: string; actualCostUsd?: number } = {}
+    options: {
+      provider?: string;
+      model?: string;
+      conversationId?: string;
+      estimatedCostUsd?: number;
+      actualCostUsd?: number;
+    } = {}
   ): Promise<void> {
     const normalizedActual = normalizeMeterQuantities(actual);
     const local = this.localOperations.get(operationId);
@@ -263,6 +279,11 @@ export class CustomerUsageService {
       const userId = reservations[0]?.userId;
       if (!userId) return;
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`customer-usage:${userId}`}, 0))`);
+      const fallbackPeriod = currentCalendarPeriod();
+      const operationPeriod = {
+        start: reservations[0]?.periodStart ?? fallbackPeriod.start,
+        end: reservations[0]?.periodEnd ?? fallbackPeriod.end
+      };
       const reservationByMeter = new Map(reservations.map((event) => [event.meterKey as CustomerUsageMeter, event]));
       const meters = new Set([
         ...reservationByMeter.keys(),
@@ -274,7 +295,11 @@ export class CustomerUsageService {
         const quantity = positiveInteger(normalizedActual[meter]);
         const period = reservation
           ? { start: reservation.periodStart, end: reservation.periodEnd }
-          : currentCalendarPeriod();
+          // Actual-only meters (for example a tool that was enabled while the
+          // request was running) belong to the period in which the operation
+          // was reserved. Otherwise a job crossing a month boundary can split
+          // one request across two billing periods.
+          : operationPeriod;
         const reservedQuantity = reservation?.quantity ?? 0;
         await tx.insert(customerUsageBalances).values({
           id: balanceId(userId, meter, period.start),
@@ -302,12 +327,23 @@ export class CustomerUsageService {
             ...(options.provider ? { provider: options.provider } : {}),
             ...(options.model ? { model: options.model } : {}),
             ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+            estimatedCostMicroUsd: !costRecorded && options.estimatedCostUsd && options.estimatedCostUsd > 0
+              ? Math.ceil(options.estimatedCostUsd * 1_000_000)
+              : 0,
             actualCostMicroUsd: !costRecorded && options.actualCostUsd && options.actualCostUsd > 0
               ? Math.ceil(options.actualCostUsd * 1_000_000)
               : 0,
             settledAt: new Date()
           }).where(eq(customerUsageEvents.id, reservation.id));
-          if (!costRecorded && options.actualCostUsd && options.actualCostUsd > 0) costRecorded = true;
+          if (
+            !costRecorded
+            && (
+              (options.estimatedCostUsd && options.estimatedCostUsd > 0)
+              || (options.actualCostUsd && options.actualCostUsd > 0)
+            )
+          ) {
+            costRecorded = true;
+          }
         } else if (quantity > 0) {
           await tx.insert(customerUsageEvents).values({
             id: `customer_usage_event_${randomUUID()}`,
@@ -406,6 +442,14 @@ export class CustomerUsageService {
         ))
       : [];
     const persistedByMeter = new Map(persisted.map((row) => [row.meterKey, row]));
+    const totalUsageKey = "total_usage_microusd";
+    const totalUsageLocal = this.localBalances.get(`${userId}:${totalUsageKey}:${period.start.toISOString()}`);
+    const totalUsagePersisted = persistedByMeter.get(totalUsageKey);
+    const totalUsageLimit = plan.allowances.total_usage_microusd
+      ?? plan.monthlyProviderCostBudget.ceilingMicroUsd;
+    const totalUsageUsed = Number(totalUsagePersisted?.used ?? totalUsageLocal?.used ?? 0);
+    const totalUsageReserved = Number(totalUsagePersisted?.reserved ?? totalUsageLocal?.reserved ?? 0);
+    const totalUsageRemaining = Math.max(0, totalUsageLimit - totalUsageUsed - totalUsageReserved);
 
     return {
       plan: {
@@ -413,10 +457,20 @@ export class CustomerUsageService {
         version: plan.version,
         displayName: plan.displayName,
         description: plan.description,
+        monthlyPriceCents: plan.monthlyPriceCents,
         adsEnabled: plan.adsEnabled,
         priorityQueue: plan.priorityQueue,
         maxConcurrentMediaJobs: plan.maxConcurrentMediaJobs,
         personaIds: plan.personaIds
+      },
+      totalUsage: {
+        limitMicroUsd: totalUsageLimit,
+        usedMicroUsd: totalUsageUsed,
+        reservedMicroUsd: totalUsageReserved,
+        remainingMicroUsd: totalUsageRemaining,
+        percentRemaining: Math.max(0, Math.min(100, Math.floor((totalUsageRemaining / totalUsageLimit) * 100))),
+        periodStart: period.start.toISOString(),
+        periodEnd: period.end.toISOString()
       },
       meters: DISPLAY_METERS.map(({ key, label, unit }) => {
         const local = this.localBalances.get(`${userId}:${key}:${period.start.toISOString()}`);

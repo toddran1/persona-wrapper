@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import { estimateProviderCost } from "../services/providerCostEstimator.js";
+
+describe("provider cost estimator", () => {
+  it("combines OpenAI model, image, and hosted-tool estimates", () => {
+    const estimate = estimateProviderCost({
+      provider: "openai_persona",
+      reportedModelCostUsd: 0.02,
+      generatedImageCount: 1,
+      imageQuality: "medium",
+      imageSize: "1024x1024",
+      webSearchCalls: 1,
+      fileSearchCalls: 1,
+      codeInterpreterSessions: 1
+    });
+
+    expect(estimate.estimatedCostUsd).toBe(0.1155);
+    expect(estimate.components).toMatchObject({
+      reported_model_usage: 0.02,
+      image_generation: 0.053,
+      web_search: 0.01,
+      file_search: 0.0025,
+      code_interpreter: 0.03
+    });
+    expect(estimate.unpricedComponents).toEqual([]);
+  });
+
+  it("keeps unknown providers usable while flagging unpriced components", () => {
+    const estimate = estimateProviderCost({
+      provider: "future_provider",
+      reportedModelCostUsd: 0.04,
+      generatedImageCount: 1,
+      webSearchCalls: 1
+    });
+
+    expect(estimate.estimatedCostUsd).toBe(0.04);
+    expect(estimate.unpricedComponents).toEqual(["image_generation", "web_search"]);
+  });
+
+  it("includes configured cross-provider media and style costs in total usage", () => {
+    const estimate = estimateProviderCost({
+      provider: "openai",
+      reportedModelCostUsd: 0.01,
+      imageInputCount: 2,
+      imageInputCostUsd: 0.005,
+      audioSeconds: 90,
+      audioCostPerMinuteUsd: 0.1,
+      styleTransferCalls: 1,
+      styleTransferCostPerCallUsd: 0.02
+    });
+
+    expect(estimate.estimatedCostUsd).toBe(0.19);
+    expect(estimate.components).toMatchObject({
+      reported_model_usage: 0.01,
+      image_input: 0.01,
+      audio_generation: 0.15,
+      style_transfer: 0.02
+    });
+  });
+});

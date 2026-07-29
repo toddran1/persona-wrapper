@@ -82,8 +82,28 @@ services:
         value: "2026-07-24"
       - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS
         value: "30"
+      - key: AUTH_SIGNUP_DEVICE_LIMIT
+        value: "3"
+      - key: AUTH_SIGNUP_IP_LIMIT
+        value: "100"
+      - key: AUTH_SIGNUP_WINDOW_MS
+        value: "2592000000"
+      - key: CHAT_RATE_LIMIT_REQUESTS
+        value: "30"
+      - key: CHAT_RATE_LIMIT_WINDOW_MS
+        value: "60000"
+      - key: CHAT_DEVICE_RATE_LIMIT_REQUESTS
+        value: "45"
+      - key: CHAT_IP_RATE_LIMIT_REQUESTS
+        value: "120"
       - key: CUSTOMER_USAGE_ENFORCEMENT_ENABLED
-        value: "false"
+        value: "true"
+      - key: CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD
+        value: "0.10"
+      - key: CUSTOMER_USAGE_IMAGE_INPUT_COST_USD
+        value: "0.01"
+      - key: CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD
+        value: "0.01"
 
       - key: OPENAI_API_KEY
         sync: false

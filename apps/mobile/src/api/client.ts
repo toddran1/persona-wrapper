@@ -303,13 +303,15 @@ function clientType(): "ios" | "android" | "unknown" {
 }
 
 async function requestHeaders(includeJson: boolean, headers?: HeadersInit): Promise<Record<string, string>> {
+  const installationId = await getOwnerId();
   const next: Record<string, string> = {
-    "x-client-type": clientType()
+    "x-client-type": clientType(),
+    "x-device-id": installationId
   };
   if (includeJson) next["Content-Type"] = "application/json";
   const cookie = authClient.getCookie();
   if (cookie) next.Cookie = cookie;
-  next["x-owner-id"] = await getOwnerId();
+  next["x-owner-id"] = installationId;
   return { ...next, ...(headers as Record<string, string> | undefined ?? {}) };
 }
 
@@ -564,6 +566,7 @@ export const api = {
     }
   },
   register: async (payload: MobileRegisterRequest): Promise<{ user: AuthUser }> => {
+    const installationId = await getOwnerId();
     const email = payload.email?.trim().toLowerCase() ?? `${payload.username?.trim().toLowerCase()}@users.invalid`;
     const signUpPayload = {
       email,
@@ -571,7 +574,13 @@ export const api = {
       name: payload.displayName?.trim() || payload.username?.trim() || email,
       ...(payload.username ? { username: payload.username, displayUsername: payload.username } : {}),
       termsVersionAccepted: payload.policyConsent.termsVersion,
-      privacyVersionAccepted: payload.policyConsent.privacyVersion
+      privacyVersionAccepted: payload.policyConsent.privacyVersion,
+      fetchOptions: {
+        headers: {
+          "x-device-id": installationId,
+          "x-owner-id": installationId
+        }
+      }
     } as Parameters<typeof authClient.signUp.email>[0] & {
       termsVersionAccepted: string;
       privacyVersionAccepted: string;
@@ -581,10 +590,19 @@ export const api = {
     return { user: await requirePersistedAuthUser() };
   },
   login: async (payload: MobileLoginRequest): Promise<{ user: AuthUser }> => {
+    const installationId = await getOwnerId();
     const identifier = payload.identifier.trim().toLowerCase();
     const result = identifier.includes("@")
-      ? await authClient.signIn.email({ email: identifier, password: payload.password })
-      : await authClient.signIn.username({ username: identifier, password: payload.password });
+      ? await authClient.signIn.email({
+          email: identifier,
+          password: payload.password,
+          fetchOptions: { headers: { "x-device-id": installationId, "x-owner-id": installationId } }
+        })
+      : await authClient.signIn.username({
+          username: identifier,
+          password: payload.password,
+          fetchOptions: { headers: { "x-device-id": installationId, "x-owner-id": installationId } }
+        });
     if (result.error || !result.data?.user) throw authError(result.error);
     return { user: await requirePersistedAuthUser() };
   },
@@ -681,7 +699,12 @@ export const api = {
     return response.body.providers;
   },
   oauthLogin: async (provider: OAuthProvider): Promise<{ user: AuthUser }> => {
-    const result = await authClient.signIn.social({ provider, callbackURL: MOBILE_AUTH_CALLBACK_URL });
+    const installationId = await getOwnerId();
+    const result = await authClient.signIn.social({
+      provider,
+      callbackURL: MOBILE_AUTH_CALLBACK_URL,
+      fetchOptions: { headers: { "x-device-id": installationId, "x-owner-id": installationId } }
+    });
     if (result.error) throw authError(result.error);
     const session = await authClient.getSession();
     if (session.error || !session.data?.user) throw authError(session.error ?? { message: "OAuth sign in did not complete." });
@@ -714,7 +737,12 @@ export const api = {
     }));
   },
   linkConnectedAccount: async (provider: OAuthProvider): Promise<void> => {
-    const result = await authClient.linkSocial({ provider, callbackURL: MOBILE_AUTH_CALLBACK_URL });
+    const installationId = await getOwnerId();
+    const result = await authClient.linkSocial({
+      provider,
+      callbackURL: MOBILE_AUTH_CALLBACK_URL,
+      fetchOptions: { headers: { "x-device-id": installationId, "x-owner-id": installationId } }
+    });
     if (result.error) throw authError(result.error);
   },
   unlinkConnectedAccount: async (providerId: string, accountId?: string): Promise<void> => {

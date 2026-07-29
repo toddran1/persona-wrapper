@@ -4,7 +4,7 @@ import { generatedMediaService } from "./generatedMediaService.js";
 import { analyzeImageReferenceRequirement } from "./imageReferenceRequirement.js";
 import { uploadService, type ResolvedUploadAsset } from "./uploadService.js";
 
-type ConversationWithOutputs = {
+export type ConversationWithOutputs = {
   id?: string;
   turns?: Array<{
     userMessage?: string;
@@ -581,6 +581,26 @@ function effectiveConversationMediaMessage(
     return currentMessage;
   }
   return `${clarification.originalRequest.trim()}\nVisual selection clarification: ${currentMessage.trim()}`;
+}
+
+export function shouldPlanHistoricalVisualTransformation(
+  conversation: ConversationWithOutputs,
+  message: string,
+  currentImageCount = 0
+): boolean {
+  const effectiveMessage = effectiveConversationMediaMessage(conversation, message);
+  const requirement = analyzeImageReferenceRequirement(effectiveMessage);
+  const explicitlyReferencesHistory = hasExplicitHistoricalReference(effectiveMessage);
+  if (
+    resetsHistoricalMedia(effectiveMessage) ||
+    !shouldUseConversationMediaContext(effectiveMessage) ||
+    inferVisualIntent(effectiveMessage) !== "transform" ||
+    (currentImageCount > 0 && !explicitlyReferencesHistory) ||
+    (requirement.expectsNewUploads && !explicitlyReferencesHistory)
+  ) {
+    return false;
+  }
+  return conversationImageGroups(conversation).length > 0;
 }
 
 async function resolveGeneratedOutput(

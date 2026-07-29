@@ -4,6 +4,7 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { usageEvents } from "../db/schema.js";
+import { requestAbuseSignals } from "../utils/requestAbuseSignals.js";
 
 type RateLimitEntry = {
   count: number;
@@ -11,6 +12,7 @@ type RateLimitEntry = {
 };
 
 const attempts = new Map<string, RateLimitEntry>();
+const signupAttempts = new Map<string, RateLimitEntry>();
 const oauthPollAttempts = new Map<string, RateLimitEntry>();
 const dataTransferAttempts = new Map<string, RateLimitEntry>();
 const safetyReportAttempts = new Map<string, RateLimitEntry>();
@@ -65,6 +67,68 @@ export function authRateLimit(request: Request, response: Response, next: NextFu
   }
 
   next();
+}
+
+export function signupAbuseRateLimit(request: Request, response: Response, next: NextFunction): void {
+  const signals = requestAbuseSignals(request);
+  const limits = [
+    ...(signals.deviceKey ? [{
+      key: `signup:${signals.deviceKey}`,
+      eventType: "signup_device_attempt",
+      limit: env.AUTH_SIGNUP_DEVICE_LIMIT
+    }] : []),
+    ...(signals.ipKey ? [{
+      key: `signup:${signals.ipKey}`,
+      eventType: "signup_ip_attempt",
+      limit: env.AUTH_SIGNUP_IP_LIMIT
+    }] : [])
+  ];
+  if (limits.length === 0) {
+    response.status(400).json({
+      error: "A valid client network signal is required.",
+      code: "INVALID_CLIENT_SIGNAL",
+      requestId: response.locals.requestId
+    });
+    return;
+  }
+  const message = "Too many accounts were created or attempted from this device or network. Please try again later.";
+  if (getDatabase()) {
+    void Promise.all(limits.map((entry) =>
+      consumeDistributedLimit(entry.key, entry.eventType, entry.limit, env.AUTH_SIGNUP_WINDOW_MS)
+        .then((result) => ({ ...entry, result }))
+    )).then((results) => {
+      const exceeded = results.find((entry) => entry.result.count > entry.limit);
+      if (exceeded) {
+        finishRateLimit(exceeded.result, exceeded.limit, response, next, message);
+        return;
+      }
+      const mostConstrained = results.reduce((selected, entry) =>
+        entry.limit - entry.result.count < selected.limit - selected.result.count ? entry : selected
+      );
+      finishRateLimit(mostConstrained.result, mostConstrained.limit, response, next, message);
+    }).catch(next);
+    return;
+  }
+
+  const now = Date.now();
+  pruneMap(signupAttempts, now);
+  const results = limits.map((limit) => {
+    const current = signupAttempts.get(limit.key);
+    const result = !current || current.resetAt <= now
+      ? { count: 1, resetAt: now + env.AUTH_SIGNUP_WINDOW_MS }
+      : { ...current, count: current.count + 1 };
+    signupAttempts.set(limit.key, result);
+    return { ...limit, result };
+  });
+  const exceeded = results.find((entry) => entry.result.count > entry.limit);
+  if (exceeded) {
+    finishRateLimit(exceeded.result, exceeded.limit, response, next, message);
+    return;
+  }
+  const mostConstrained = results.reduce((selected, entry) =>
+    entry.limit - entry.result.count < selected.limit - selected.result.count ? entry : selected
+  );
+  finishRateLimit(mostConstrained.result, mostConstrained.limit, response, next, message);
 }
 
 export function mobileOAuthPollRateLimit(request: Request, response: Response, next: NextFunction): void {

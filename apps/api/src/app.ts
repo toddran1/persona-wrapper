@@ -11,7 +11,7 @@ import { createExpressEndpoints } from "@ts-rest/express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { authenticateRequest, requireCurrentPolicyConsent } from "./middleware/authMiddleware.js";
-import { authRateLimit, dataTransferRateLimit, safetyReportRateLimit } from "./middleware/authRateLimit.js";
+import { authRateLimit, dataTransferRateLimit, safetyReportRateLimit, signupAbuseRateLimit } from "./middleware/authRateLimit.js";
 import { chatRouter } from "./routes/chat.routes.js";
 import { apiContractRouter } from "./routes/contract.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
@@ -78,6 +78,10 @@ function requireAuthenticatedRequest(request: Request, _response: Response, next
 function rateLimitSensitiveBetterAuthRequest(request: Request, response: Response, next: NextFunction): void {
   const sensitivePath = /^\/(?:sign-in\/(?:email|username)|sign-up\/email|request-password-reset|forget-password|reset-password|change-password)(?:\/|$)/;
   if (request.method === "POST" && sensitivePath.test(request.path)) {
+    if (/^\/sign-up\/email(?:\/|$)/.test(request.path)) {
+      signupAbuseRateLimit(request, response, () => authRateLimit(request, response, next));
+      return;
+    }
     authRateLimit(request, response, next);
     return;
   }
@@ -174,7 +178,7 @@ export function createApp() {
     // Every first-party client adds this correlation header for observability.
     // Keep it in the preflight allow-list or browsers reject requests before
     // they reach the API.
-    allowedHeaders: ["Authorization", "Content-Type", "x-client-type", "x-owner-id", "x-client-trace-id"],
+    allowedHeaders: ["Authorization", "Content-Type", "x-client-type", "x-device-id", "x-owner-id", "x-client-trace-id"],
     credentials: true,
     optionsSuccessStatus: 204
   };
