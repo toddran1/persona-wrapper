@@ -4,17 +4,17 @@ import type {
   PlanId,
   PlanUsageSummary
 } from "@persona/shared";
-import { and, desc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import {
   customerUsageBalances,
   customerUsageEvents,
-  userPlanAssignments,
   users
 } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
-import { getPlanDefinition, planIncludesPersona, type PlanDefinition } from "./planCatalog.js";
+import { accessControlService } from "./accessControlService.js";
+import { planIncludesPersona, type PlanDefinition } from "./planCatalog.js";
 
 type MeterQuantities = Partial<Record<CustomerUsageMeter, number>>;
 type LocalBalance = { used: number; reserved: number };
@@ -84,28 +84,23 @@ export class CustomerUsageService {
   private readonly localIdempotency = new Map<string, string>();
 
   async getPlan(userId: string): Promise<PlanDefinition> {
-    const db = getDatabase();
-    if (!db) return getPlanDefinition(undefined);
-    const [persistedUser] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
-    if (!persistedUser) return getPlanDefinition(undefined);
-    const now = new Date();
-    const [assignment] = await db.select({
-      planId: userPlanAssignments.planId
-    }).from(userPlanAssignments).where(and(
-      eq(userPlanAssignments.userId, userId),
-      eq(userPlanAssignments.status, "active"),
-      lte(userPlanAssignments.effectiveAt, now),
-      or(isNull(userPlanAssignments.expiresAt), gt(userPlanAssignments.expiresAt, now))
-    )).orderBy(desc(userPlanAssignments.effectiveAt)).limit(1);
-    return getPlanDefinition(assignment?.planId);
+    return (await accessControlService.getEffectiveAccess(userId)).plan;
+  }
+
+  async getAccess(userId: string) {
+    return accessControlService.getEffectiveAccess(userId);
+  }
+
+  async isAdmin(userId: string): Promise<boolean> {
+    return (await accessControlService.getEffectiveAccess(userId)).isAdmin;
   }
 
   async assertPersonaAccess(userId: string, personaId: string): Promise<PlanDefinition> {
-    const plan = await this.getPlan(userId);
-    if (!planIncludesPersona(plan, personaId)) {
-      throw new HttpError(`${plan.displayName} does not include this persona.`, 403);
+    const access = await accessControlService.getEffectiveAccess(userId);
+    if (!access.isAdmin && !planIncludesPersona(access.plan, personaId)) {
+      throw new HttpError(`${access.plan.displayName} does not include this persona.`, 403);
     }
-    return plan;
+    return access.plan;
   }
 
   async reserve(
@@ -121,11 +116,13 @@ export class CustomerUsageService {
     if (Object.keys(normalized).length === 0) return operationId;
 
     const db = getDatabase();
-    const plan = await this.getPlan(userId);
+    const access = await accessControlService.getEffectiveAccess(userId);
+    const plan = access.plan;
+    const enforceUsage = env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED && !access.isAdmin;
     const period = currentCalendarPeriod();
     if (!db || !(await this.hasPersistedUser(userId))) {
       if (
-        env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED
+        enforceUsage
         && positiveInteger(normalized.image_outputs) > 0
         && [...this.localOperations.values()].filter((operation) =>
           operation.userId === userId && positiveInteger(operation.reserved.image_outputs) > 0
@@ -138,7 +135,7 @@ export class CustomerUsageService {
         const key = `${userId}:${meter}:${period.start.toISOString()}`;
         const balance = this.localBalances.get(key) ?? { used: 0, reserved: 0 };
         const limit = plan.allowances[meter] ?? null;
-        if (env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED && limit !== null && balance.used + balance.reserved + rawQuantity > limit) {
+        if (enforceUsage && limit !== null && balance.used + balance.reserved + rawQuantity > limit) {
           throw quotaError(meter);
         }
         pendingBalances.set(key, {
@@ -171,7 +168,7 @@ export class CustomerUsageService {
         .limit(1);
       if (existing) return existing.operationId;
 
-      if (env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED && positiveInteger(normalized.image_outputs) > 0) {
+      if (enforceUsage && positiveInteger(normalized.image_outputs) > 0) {
         const [activeMedia] = await tx.select({
           count: sql<number>`count(distinct ${customerUsageEvents.operationId})::int`
         }).from(customerUsageEvents).where(and(
@@ -195,7 +192,7 @@ export class CustomerUsageService {
         )).limit(1);
         const limit = plan.allowances[meter] ?? null;
         if (
-          env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED
+          enforceUsage
           && limit !== null
           && Number(balance?.used ?? 0) + Number(balance?.reserved ?? 0) + quantity > limit
         ) {
@@ -429,7 +426,8 @@ export class CustomerUsageService {
   }
 
   async summary(userId: string): Promise<PlanUsageSummary> {
-    const plan = await this.getPlan(userId);
+    const access = await accessControlService.getEffectiveAccess(userId);
+    const plan = access.plan;
     const period = currentCalendarPeriod();
     const db = getDatabase();
     const persisted = db && await this.hasPersistedUser(userId)
@@ -491,7 +489,7 @@ export class CustomerUsageService {
           periodEnd: period.end.toISOString()
         };
       }),
-      enforcementEnabled: env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED
+      enforcementEnabled: env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED && !access.isAdmin
     };
   }
 

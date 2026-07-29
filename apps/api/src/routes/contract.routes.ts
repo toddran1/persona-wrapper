@@ -98,13 +98,14 @@ const completeUpload = (async (input: unknown) => {
 export const apiContractRouter = server.router(apiContract, {
   personas: {
     list: async ({ req }) => {
-      const plan = await customerUsageService.getPlan(requestOwnerId(req));
+      const ownerId = requestOwnerId(req);
+      const access = await customerUsageService.getAccess(ownerId);
       return {
         status: 200,
         body: {
           personas: listPersonas().map((persona) => ({
             ...persona,
-            available: planIncludesPersona(plan, persona.id)
+            available: access.isAdmin || planIncludesPersona(access.plan, persona.id)
           }))
         }
       };

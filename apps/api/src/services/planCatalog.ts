@@ -21,7 +21,7 @@ export type PlanDefinition = {
 };
 
 const CURRENT_PLAN_VERSION = 1;
-const CURRENT_PERSONA_IDS = ["larae"];
+const CURRENT_PERSONA_IDS = ["larae", "bambam"];
 
 export const planCatalog: Record<PlanId, PlanDefinition> = {
   bronze: {
@@ -89,9 +89,21 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
   }
 };
 
-export function getPlanDefinition(planId: string | undefined): PlanDefinition {
-  if (planId === "silver" || planId === "gold") return planCatalog[planId];
-  return planCatalog.bronze;
+/**
+ * Keep every released catalog version here. Assignment rows retain their
+ * version so grandfathered access continues to resolve against the terms that
+ * were granted rather than silently adopting a future catalog revision.
+ */
+const planCatalogVersions: Record<number, Record<PlanId, PlanDefinition>> = {
+  [CURRENT_PLAN_VERSION]: planCatalog
+};
+
+export function getPlanDefinition(planId: string | undefined, version?: number): PlanDefinition {
+  const catalog = version === undefined
+    ? planCatalog
+    : planCatalogVersions[version] ?? planCatalog;
+  if (planId === "silver" || planId === "gold") return catalog[planId];
+  return catalog.bronze;
 }
 
 export function planIncludesPersona(plan: PlanDefinition, personaId: string): boolean {

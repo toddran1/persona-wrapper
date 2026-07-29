@@ -103,6 +103,7 @@ export const auth = database ? betterAuth({
       image: "avatarUrl"
     },
     additionalFields: {
+      role: { type: "string", required: true, defaultValue: "user", input: false },
       status: { type: "string", required: true, defaultValue: "active", input: false },
       deletionRequestedAt: { type: "date", required: false, input: false },
       deletionScheduledFor: { type: "date", required: false, input: false },

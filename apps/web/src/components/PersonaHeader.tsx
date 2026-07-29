@@ -3,15 +3,40 @@ import type { PersonaDefinition, PersonaSummary } from "@persona/shared";
 type PersonaHeaderProps = {
   personaSummary: PersonaSummary | undefined;
   personaDetail: PersonaDefinition | undefined;
+  loading: boolean;
+  signedIn: boolean;
+  error?: string | undefined;
+  onRetry: () => void;
 };
 
-export function PersonaHeader({ personaSummary, personaDetail }: PersonaHeaderProps) {
+export function PersonaHeader({
+  personaSummary,
+  personaDetail,
+  loading,
+  signedIn,
+  error,
+  onRetry
+}: PersonaHeaderProps) {
   const persona = personaDetail ?? personaSummary;
 
   if (!persona) {
     return (
       <section className="hero-card">
-        <p>Loading persona...</p>
+        {error ? (
+          <>
+            <p>Could not load personas. {error}</p>
+            <button type="button" onClick={onRetry}>Try again</button>
+          </>
+        ) : loading ? (
+          <p>Loading persona...</p>
+        ) : !signedIn ? (
+          <p>Sign in or create an account to explore personas and continue your chats.</p>
+        ) : (
+          <>
+            <p>No persona is currently available.</p>
+            <button type="button" onClick={onRetry}>Try again</button>
+          </>
+        )}
       </section>
     );
   }

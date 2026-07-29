@@ -72,6 +72,8 @@ services:
 
       - key: AUTH_REQUIRED
         value: "true"
+      - key: APP_ADMIN_EMAILS
+        value: "todd@yahoo.com,todd_ran222@yahoo.com,toddran1@gmail.com"
       - key: AUTH_REQUIRE_OWNED_MEDIA_ACCESS
         value: "true"
       - key: AUTH_REFRESH_TOKEN_TTL_DAYS
@@ -134,6 +136,8 @@ services:
       - key: ELEVENLABS_VOICE_ID
         sync: false
       - key: ELEVENLABS_VOICE_ID_LARAE
+        sync: false
+      - key: ELEVENLABS_VOICE_ID_BAMBAM
         sync: false
 
       - key: GOOGLE_OAUTH_CLIENT_ID

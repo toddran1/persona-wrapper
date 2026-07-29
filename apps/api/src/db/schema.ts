@@ -4,6 +4,7 @@ import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex }
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull(),
+  role: text("role").notNull().default("user"),
   username: text("username"),
   displayUsername: text("display_username"),
   displayName: text("display_name").notNull(),
@@ -27,6 +28,7 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => ({
   emailUnique: uniqueIndex("users_email_unique").on(table.email),
+  roleIdx: index("users_role_idx").on(table.role),
   usernameUnique: uniqueIndex("users_username_unique").on(table.username),
   statusIdx: index("users_status_idx").on(table.status),
   deletionScheduledForIdx: index("users_deletion_scheduled_for_idx").on(table.deletionScheduledFor)

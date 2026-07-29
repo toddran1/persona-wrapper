@@ -1,7 +1,8 @@
 import { personaDefinitionSchema, type PersonaDefinition, type PersonaDefinitionInput } from "@persona/shared";
 import { laraePersona } from "./larae.persona.js";
+import { bamBamPersona } from "./bambam.persona.js";
 
-const personaInputs: PersonaDefinitionInput[] = [laraePersona];
+const personaInputs: PersonaDefinitionInput[] = [laraePersona, bamBamPersona];
 const personas: PersonaDefinition[] = personaInputs.map((persona) => personaDefinitionSchema.parse(persona));
 
 export function listPersonas(): PersonaDefinition[] {

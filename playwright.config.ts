@@ -17,6 +17,7 @@ const testEnvironment = {
   ELEVENLABS_API_KEY: "",
   ELEVENLABS_VOICE_ID: "",
   ELEVENLABS_VOICE_ID_LARAE: "",
+  ELEVENLABS_VOICE_ID_BAMBAM: "",
   TTS_PROVIDER: "local",
   VITE_API_URL: "http://127.0.0.1:4100",
   VITE_TEST_MODE: "true",

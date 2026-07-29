@@ -518,8 +518,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         return personasResource.data.find((persona) => persona.available !== false)?.id;
       });
     }
-    if (personasResource.error) setError(personasResource.error.message);
-  }, [personasResource.data, personasResource.error]);
+  }, [personasResource.data]);
 
   useEffect(() => {
     if (personaResource.data?.id === primaryPersonaId) setPersonaDetail(personaResource.data);
@@ -1785,6 +1784,12 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         <PersonaHeader
           personaSummary={personas.find((persona) => persona.id === activePersona?.id)}
           personaDetail={personaDetail?.id === activePersona?.id ? personaDetail : undefined}
+          loading={authLoading || personasResource.isPending}
+          signedIn={Boolean(authUser)}
+          error={personasResource.error?.message}
+          onRetry={() => {
+            void personasResource.refetch();
+          }}
         />
         <section className={`chat-column${hasConversationContent ? "" : " chat-column-empty"}`}>
                 <div

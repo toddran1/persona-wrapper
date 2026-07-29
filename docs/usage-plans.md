@@ -43,6 +43,22 @@ The durable tables are:
 
 Users without an active assignment receive Bronze. The assignment table is ready for a later App Store, Play Store, Stripe, or administrative entitlement adapter.
 
+## Administrative access and plan overrides
+
+Promotional access, testers, customer-support grants, and grandfathered access use durable rows in `user_plan_assignments`. Supported administrative sources are `promotion`, `tester`, `customer_support`, and `grandfathered`. An override records its reason, effective date, optional expiration, plan version, and revocation history. Released definitions must remain in `planCatalogVersions`; this lets grandfathered assignments continue resolving against their stored version after a new catalog ships.
+
+When assignments overlap, the entitlement resolver selects the highest active catalog plan. A later Silver promotion therefore cannot accidentally downgrade an existing Gold subscription. Equivalent plans are resolved by source priority and effective date.
+
+Manage overrides from an environment with database access:
+
+```bash
+npm run plans:override -w @persona/api -- grant --user user@example.com --plan silver --source tester --reason "QA access" --expires 2026-09-01
+npm run plans:override -w @persona/api -- list --user user@example.com
+npm run plans:override -w @persona/api -- revoke --assignment plan_assignment_ID --reason "Testing completed"
+```
+
+Application administrators are persisted with `users.role = 'admin'`. `APP_ADMIN_EMAILS` is a comma-separated bootstrap allowlist for designated accounts and should be kept consistent across application instances. Administrators receive all-persona access and are not blocked by customer plan quotas or media concurrency limits, while their usage is still recorded. Administrative status does **not** bypass owner-scoped authorization for conversations, uploads, exports, or other users' private data.
+
 ## Rollout
 
 `CUSTOMER_USAGE_ENFORCEMENT_ENABLED` defaults to `false`. In this shadow mode the API records and displays usage but does not reject requests for exceeding a product allowance.

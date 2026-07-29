@@ -289,6 +289,7 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
   return {
     id: String(user.id),
     email,
+    role: user.role === "admin" ? "admin" : "user",
     username: typeof user.displayUsername === "string"
       ? user.displayUsername
       : typeof user.username === "string"

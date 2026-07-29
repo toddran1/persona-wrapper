@@ -27,7 +27,8 @@ const child = spawn(
             TTS_PROVIDER: "local",
             ELEVENLABS_API_KEY: "",
             ELEVENLABS_VOICE_ID: "",
-            ELEVENLABS_VOICE_ID_LARAE: ""
+            ELEVENLABS_VOICE_ID_LARAE: "",
+            ELEVENLABS_VOICE_ID_BAMBAM: ""
           }
         : {})
     }

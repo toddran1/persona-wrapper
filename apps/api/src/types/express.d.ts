@@ -8,6 +8,7 @@ declare global {
         sessionId: string;
         clientType: AuthClientType;
         policyConsentRequired: boolean;
+        isAdmin?: boolean;
       };
     }
   }

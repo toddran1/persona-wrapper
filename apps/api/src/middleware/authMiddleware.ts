@@ -5,6 +5,7 @@ import { auth } from "../auth.js";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { users } from "../db/schema.js";
+import { isConfiguredAdminEmail } from "../services/accessControlService.js";
 import { HttpError } from "../utils/httpError.js";
 
 function policyConsentIsCurrent(termsVersion: string | null | undefined, privacyVersion: string | null | undefined): boolean {
@@ -48,6 +49,7 @@ export async function authenticateRequest(request: Request, _response: Response,
       userId: authenticated.user.id,
       sessionId: authenticated.session.id,
       policyConsentRequired,
+      isAdmin: authenticated.user.role === "admin" || isConfiguredAdminEmail(authenticated.user.email),
       clientType: authenticated.session.clientType === "web"
         || authenticated.session.clientType === "desktop"
         || authenticated.session.clientType === "ios"
