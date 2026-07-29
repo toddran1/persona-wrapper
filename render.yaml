@@ -77,9 +77,9 @@ services:
       - key: AUTH_REFRESH_TOKEN_TTL_DAYS
         value: "30"
       - key: TERMS_POLICY_VERSION
-        value: "2026-07-24"
+        value: "2026-07-29"
       - key: PRIVACY_POLICY_VERSION
-        value: "2026-07-24"
+        value: "2026-07-29"
       - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS
         value: "30"
       - key: AUTH_SIGNUP_DEVICE_LIMIT

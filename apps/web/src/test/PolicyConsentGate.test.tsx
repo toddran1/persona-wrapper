@@ -9,8 +9,8 @@ describe("PolicyConsentGate", () => {
     render(
       <PolicyConsentGate
         policies={{
-          termsVersion: "2026-07-24",
-          privacyVersion: "2026-07-24",
+          termsVersion: "2026-07-29",
+          privacyVersion: "2026-07-29",
           termsPath: "/terms",
           privacyPath: "/privacy"
         }}

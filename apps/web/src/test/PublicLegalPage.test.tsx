@@ -56,10 +56,20 @@ describe("PublicLegalPage", () => {
     render(<PublicLegalPage path="/terms" />);
     expect(screen.getByText("You may not import another person’s account archive", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("you may use AI-generated output produced for you for lawful personal or commercial purposes", { exact: false })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "8. Intellectual-property complaints" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "9. Intellectual-property complaints" })).toBeInTheDocument();
     expect(screen.getByText("Use the response actions in the app to report unsafe", { exact: false })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "16. Changes to these Terms" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "17. Changes to these Terms" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Standard Licensed Application End User License Agreement" })).toHaveAttribute("href", "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/");
+  });
+
+  it("explains plan credits, combined quotas, image quality, and future subscriptions", () => {
+    render(<PublicLegalPage path="/terms" />);
+    expect(screen.getByRole("heading", { name: "5. Plans, credits, usage limits, and subscriptions" })).toBeInTheDocument();
+    expect(screen.getByText("They are not money, stored value, property", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("Images and audio may also consume category-specific", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("Bronze and Silver image generation is limited to no more than medium", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("does not guarantee high quality", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("Deleting an account does not itself cancel a third-party subscription.", { exact: false })).toBeInTheDocument();
   });
 
   it("provides a retention schedule and regional privacy supplements", () => {
@@ -78,5 +88,14 @@ describe("PublicLegalPage", () => {
     for (const provider of ["OpenAI:", "ElevenLabs:", "Amazon Web Services and Amazon S3:", "Render:", "Google and Facebook OAuth:", "Google Gmail SMTP:", "Configured OpenTelemetry providers:"]) {
       expect(screen.getByText(provider, { exact: false })).toBeInTheDocument();
     }
+  });
+
+  it("discloses plan metering, pseudonymous abuse signals, and usage retention", () => {
+    render(<PublicLegalPage path="/privacy" />);
+    expect(screen.getByText("plan identifier and version", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("deployment-keyed cryptographic function", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("Measure plan usage; reserve, settle, release, and reconcile usage", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("currently retained for up to 400 days", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("If paid plans are introduced", { exact: false })).toBeInTheDocument();
   });
 });

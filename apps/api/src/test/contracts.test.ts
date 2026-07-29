@@ -101,8 +101,8 @@ describe("shared schemas", () => {
 
   it("requires versioned Terms and Privacy consent at registration", () => {
     const policies = currentPoliciesResponseSchema.parse({
-      termsVersion: "2026-07-24",
-      privacyVersion: "2026-07-24",
+      termsVersion: "2026-07-29",
+      privacyVersion: "2026-07-29",
       termsPath: "/terms",
       privacyPath: "/privacy"
     });
@@ -115,8 +115,8 @@ describe("shared schemas", () => {
       },
       clientType: "web"
     }).policyConsent).toEqual({
-      termsVersion: "2026-07-24",
-      privacyVersion: "2026-07-24"
+      termsVersion: "2026-07-29",
+      privacyVersion: "2026-07-29"
     });
     expect(() => registerRequestSchema.parse({
       email: "new@example.com",

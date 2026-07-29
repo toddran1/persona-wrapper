@@ -127,8 +127,8 @@ describe("ConversationSidebar settings", () => {
         personas={[]}
         onSelectPersona={vi.fn()}
         currentPolicies={{
-          termsVersion: "2026-07-24",
-          privacyVersion: "2026-07-24",
+          termsVersion: "2026-07-29",
+          privacyVersion: "2026-07-29",
           termsPath: "/terms",
           privacyPath: "/privacy"
         }}
@@ -174,8 +174,8 @@ describe("ConversationSidebar settings", () => {
     await waitFor(() => expect(onRegister).toHaveBeenCalledWith(expect.objectContaining({
       email: "new@example.com",
       policyConsent: expect.objectContaining({
-        termsVersion: "2026-07-24",
-        privacyVersion: "2026-07-24"
+        termsVersion: "2026-07-29",
+        privacyVersion: "2026-07-29"
       })
     })));
   });
