@@ -6,13 +6,13 @@ The application has a billing-independent entitlement and usage foundation. Paym
 
 Plan definitions are versioned in `apps/api/src/services/planCatalog.ts`.
 
-| Plan | Intended monthly price | Total monthly usage ceiling | Image credits / month | Medium-image equivalent | Audio / month | Internal provider-cost target / ceiling | Personas | Ads | Concurrent media jobs |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: |
-| Bronze | Free | $1.00 internal cost | 12 | 6 | 5 minutes | $0.50 / $1.00 | LaRae | Planned | 1 |
-| Silver | $5.99 | $3.00 internal cost | 60 | 30 | 30 minutes | $1.75 / $3.00 | Most/current configured personas | No | 2 |
-| Gold | $9.99 | $5.75 internal cost | 120 | 60 | 60 minutes | $3.25 / $5.75 | All/current configured personas | No | 3 |
+| Plan | Intended monthly price | Total monthly usage ceiling | Image credits / month | Medium-image equivalent | Image quality | Audio / month | Internal provider-cost target / ceiling | Personas | Ads | Concurrent media jobs |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | ---: |
+| Bronze | Free | $3.00 internal cost | 24 | 12 | Auto, capped at medium | 10 minutes | $1.25 / $3.00 | LaRae | Planned | 1 |
+| Silver | $7.99 | $5.00 internal cost | 90 | 45 | Auto, capped at medium | 45 minutes | $2.75 / $5.00 | Most/current configured personas | No | 2 |
+| Gold | $11.99 | $8.00 internal cost | 180 | 90 | Unrestricted auto | 75 minutes | $4.50 / $8.00 | All/current configured personas | No | 3 |
 
-These are initial product assumptions, not billing promises. Change limits by introducing a new plan version rather than rewriting historical usage events.
+This catalog is the version 1 product baseline. These are initial product assumptions, not billing promises. Future material entitlement or allowance changes should introduce a new plan version rather than rewriting historical usage events.
 
 The catalog includes intended monthly prices as metadata only; payment providers and paid entitlement assignment are not connected yet. The provider-cost ceilings remain below the planned post-store revenue so paid tiers retain room for app-store/payment fees, storage and egress, Render/AWS infrastructure, retries, support, taxes where applicable, and profit.
 
@@ -25,13 +25,14 @@ The catalog includes intended monthly prices as metadata only; payment providers
 - Background jobs retain reservations while retrying and settle or release at their terminal state.
 - Every provider-backed chat request consumes the total-usage allowance. The total includes model tokens, searches, file search, Code Interpreter/chart sessions, generated images, image inputs, generated audio, and non-stub style-transfer calls when their provider pricing is configured.
 - Images consume both total usage and image credits. Audio consumes both total usage and audio time. A remaining category allowance cannot bypass an exhausted total-usage allowance.
+- Image quality is enforced by the API, not trusted from clients. OpenAI does not expose an auto-with-a-maximum-quality parameter, so Bronze and Silver send `medium` as their capped-auto provider value. Gold sends `auto`, which may select any provider-supported quality.
 - Total usage is stored in micro-USD for atomic integer accounting, but clients expose only the percentage remaining. Provider dollars are not shown to customers.
 - Image generation currently charges the image-credit meter: `low = 1`, `auto/medium = 2`, and `high = 8` credits per generated image. The same quality setting is used by both the direct Images API and the hosted Responses image tool.
 - Image output counts, text tokens, searches, file analysis, provider/model, and estimated provider cost remain as detailed ledger meters for reconciliation and analytics.
 - Product allowances and provider cost are intentionally separate. Customers receive stable product units even when a provider changes prices; provider-specific pricing adapters translate normalized usage into an internal USD estimate.
 - The monthly provider-cost target is an operating target. The ceiling is the total-usage quota and becomes enforceable with the other product allowances when `CUSTOMER_USAGE_ENFORCEMENT_ENABLED=true`.
 - TTS, image-input, and style-transfer estimates are provider-neutral environment settings. Review them whenever those providers or contracts change. Unknown provider features are reported as unpriced rather than silently assigned an invented cost.
-- Using the July 2026 OpenAI reference price for a 1024×1024 `gpt-image-2` medium output ($0.053 before prompt or reference-image input), the image allowance alone is approximately $0.32 / $1.59 / $3.18 for Bronze / Silver / Gold.
+- Using the July 2026 OpenAI reference price for a 1024×1024 `gpt-image-2` medium output ($0.053 before prompt or reference-image input), the image allowance alone is approximately $0.64 / $2.39 / $4.77 for Bronze / Silver / Gold.
 - Reservations older than six hours are released by background cleanup. Settled usage events are retained for 400 days.
 
 The durable tables are:

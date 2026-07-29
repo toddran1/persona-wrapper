@@ -1,4 +1,4 @@
-import type { CustomerUsageMeter, PlanId } from "@persona/shared";
+import type { CustomerUsageMeter, ImageGenerationQuality, PlanId } from "@persona/shared";
 
 export type PlanDefinition = {
   id: PlanId;
@@ -10,6 +10,8 @@ export type PlanDefinition = {
   adsEnabled: boolean;
   priorityQueue: boolean;
   maxConcurrentMediaJobs: number;
+  /** Effective provider value. Medium is the capped-auto policy for Bronze/Silver. */
+  imageQuality: Extract<ImageGenerationQuality, "auto" | "medium">;
   personaIds: string[];
   allowances: Partial<Record<CustomerUsageMeter, number | null>>;
   monthlyProviderCostBudget: {
@@ -18,7 +20,7 @@ export type PlanDefinition = {
   };
 };
 
-const CURRENT_PLAN_VERSION = 5;
+const CURRENT_PLAN_VERSION = 1;
 const CURRENT_PERSONA_IDS = ["larae"];
 
 export const planCatalog: Record<PlanId, PlanDefinition> = {
@@ -31,15 +33,16 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     adsEnabled: true,
     priorityQueue: false,
     maxConcurrentMediaJobs: 1,
+    imageQuality: "medium",
     personaIds: ["larae"],
     allowances: {
-      total_usage_microusd: 1_000_000,
-      credits: 12,
-      audio_seconds: 5 * 60
+      total_usage_microusd: 3_000_000,
+      credits: 24,
+      audio_seconds: 10 * 60
     },
     monthlyProviderCostBudget: {
-      targetMicroUsd: 500_000,
-      ceilingMicroUsd: 1_000_000
+      targetMicroUsd: 1_250_000,
+      ceilingMicroUsd: 3_000_000
     }
   },
   silver: {
@@ -47,19 +50,20 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     version: CURRENT_PLAN_VERSION,
     displayName: "Silver",
     description: "More media usage, most personas, and no ads.",
-    monthlyPriceCents: 599,
+    monthlyPriceCents: 799,
     adsEnabled: false,
     priorityQueue: false,
     maxConcurrentMediaJobs: 2,
+    imageQuality: "medium",
     personaIds: CURRENT_PERSONA_IDS,
     allowances: {
-      total_usage_microusd: 3_000_000,
-      credits: 60,
-      audio_seconds: 30 * 60
+      total_usage_microusd: 5_000_000,
+      credits: 90,
+      audio_seconds: 45 * 60
     },
     monthlyProviderCostBudget: {
-      targetMicroUsd: 1_750_000,
-      ceilingMicroUsd: 3_000_000
+      targetMicroUsd: 2_750_000,
+      ceilingMicroUsd: 5_000_000
     }
   },
   gold: {
@@ -67,19 +71,20 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     version: CURRENT_PLAN_VERSION,
     displayName: "Gold",
     description: "The full persona library and the most generous media limits.",
-    monthlyPriceCents: 999,
+    monthlyPriceCents: 1199,
     adsEnabled: false,
     priorityQueue: true,
     maxConcurrentMediaJobs: 3,
+    imageQuality: "auto",
     personaIds: CURRENT_PERSONA_IDS,
     allowances: {
-      total_usage_microusd: 5_750_000,
-      credits: 120,
-      audio_seconds: 60 * 60
+      total_usage_microusd: 8_000_000,
+      credits: 180,
+      audio_seconds: 75 * 60
     },
     monthlyProviderCostBudget: {
-      targetMicroUsd: 3_250_000,
-      ceilingMicroUsd: 5_750_000
+      targetMicroUsd: 4_500_000,
+      ceilingMicroUsd: 8_000_000
     }
   }
 };

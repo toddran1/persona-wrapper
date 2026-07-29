@@ -165,6 +165,10 @@ function compactObject<T extends Record<string, unknown>>(value: T): Partial<T> 
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
 
+function imageQuality(input: LLMInput) {
+  return input.toolOptions?.imageQuality ?? env.OPENAI_IMAGE_QUALITY;
+}
+
 function applicationFunctionTools(definitions: ToolDefinition[]): OpenAIItem[] {
   return definitions
     .filter((definition) => definition.owner === "application")
@@ -201,7 +205,7 @@ export function buildOpenAITools(input: LLMInput): OpenAIItem[] {
       model: env.OPENAI_IMAGE_MODEL,
       moderation: env.OPENAI_IMAGE_MODERATION,
       size: env.OPENAI_IMAGE_SIZE,
-      quality: env.OPENAI_IMAGE_QUALITY
+      quality: imageQuality(input)
     });
   }
   if (options.appFunctions) {
@@ -244,7 +248,7 @@ export function buildDirectImageApiParams(input: LLMInput): OpenAIItem {
     }),
     moderation: env.OPENAI_IMAGE_MODERATION,
     size: env.OPENAI_IMAGE_SIZE,
-    quality: env.OPENAI_IMAGE_QUALITY,
+    quality: imageQuality(input),
     n: 1
   });
 }
@@ -1142,7 +1146,7 @@ export class OpenAIProvider implements LLMProvider {
         route: usesImageReferences ? "images_api_edit" : "images_api",
         imageModeration: env.OPENAI_IMAGE_MODERATION,
         imageSize: env.OPENAI_IMAGE_SIZE,
-        imageQuality: env.OPENAI_IMAGE_QUALITY
+        imageQuality: imageQuality(input)
       }
     };
 

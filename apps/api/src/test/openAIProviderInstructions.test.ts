@@ -172,6 +172,28 @@ describe("OpenAIProvider instructions", () => {
     });
   });
 
+  it("uses the server-selected image quality for hosted and direct image requests", () => {
+    const input = inputForLaRae();
+    input.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: true,
+      imageQuality: "medium",
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+
+    expect(buildOpenAITools(input)).toContainEqual(expect.objectContaining({
+      type: "image_generation",
+      quality: "medium"
+    }));
+    expect(buildDirectImageApiParams(input)).toEqual(expect.objectContaining({
+      quality: "medium"
+    }));
+  });
+
   it("honors a selected web-search tool without applying a second keyword veto", () => {
     const input = inputForLaRae();
     input.userMessage = "Tell me more about that topic.";

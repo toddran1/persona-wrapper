@@ -18,11 +18,11 @@ const planUsage = {
     personaIds: ["larae"]
   },
   totalUsage: {
-    limitMicroUsd: 1_000_000,
+    limitMicroUsd: 3_000_000,
     usedMicroUsd: 180_000,
     reservedMicroUsd: 0,
-    remainingMicroUsd: 820_000,
-    percentRemaining: 82,
+    remainingMicroUsd: 2_820_000,
+    percentRemaining: 94,
     periodStart: "2026-07-01T00:00:00.000Z",
     periodEnd: "2026-08-01T00:00:00.000Z"
   },
@@ -221,10 +221,10 @@ describe("ConversationSidebar settings", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
     expect(await within(dialog).findByText("Coming soon")).toBeInTheDocument();
-    expect(within(dialog).getByText("82% left")).toBeInTheDocument();
+    expect(within(dialog).getByText("94% left")).toBeInTheDocument();
     expect(within(dialog).getByRole("progressbar", { name: "Total monthly usage remaining" })).toHaveAttribute(
       "aria-valuenow",
-      "82"
+      "94"
     );
 
     await user.click(within(dialog).getByRole("button", { name: "Security & sign-in" }));

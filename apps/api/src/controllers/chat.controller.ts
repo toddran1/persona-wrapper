@@ -24,6 +24,7 @@ import {
 import { estimateProviderCost } from "../services/providerCostEstimator.js";
 import { env } from "../config/env.js";
 import { shouldPlanHistoricalVisualTransformation } from "../services/conversationMediaContext.js";
+import { applyPlanImageQuality } from "../services/planImageQualityPolicy.js";
 
 export const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -87,11 +88,12 @@ export async function postChat(request: Request, response: Response): Promise<vo
   let customerUsageOperationId: string | undefined;
   let reservationReconciled = false;
   try {
-    const payload = await selectToolsForRequest(await resolveOwnedChatAssets(request), identity);
+    let payload = await selectToolsForRequest(await resolveOwnedChatAssets(request), identity);
     if (!getPersonaById(payload.personaId)) {
       throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
     }
-    await customerUsageService.assertPersonaAccess(identity, payload.personaId);
+    const plan = await customerUsageService.assertPersonaAccess(identity, payload.personaId);
+    payload = applyPlanImageQuality(payload, plan);
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
       payload,
@@ -113,6 +115,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
           fileSearch: payload.toolOptions?.fileSearch ?? false,
           codeInterpreter: payload.toolOptions?.codeInterpreter ?? false,
           imageGeneration: payload.toolOptions?.imageGeneration ?? false,
+          ...(payload.toolOptions?.imageQuality ? { imageQuality: payload.toolOptions.imageQuality } : {}),
           appFunctions: payload.toolOptions?.appFunctions ?? true,
           background: true,
           vectorStoreIds: payload.toolOptions?.vectorStoreIds ?? []
@@ -192,7 +195,8 @@ export async function postChatStream(request: Request, response: Response): Prom
     if (!getPersonaById(payload.personaId)) {
       throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
     }
-    await customerUsageService.assertPersonaAccess(identity, payload.personaId);
+    const plan = await customerUsageService.assertPersonaAccess(identity, payload.personaId);
+    payload = applyPlanImageQuality(payload, plan);
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
       payload,
@@ -374,7 +378,7 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
       + env.OPENAI_MAX_OUTPUT_TOKENS * env.OPENAI_OUTPUT_COST_PER_MILLION
     ) / 1_000_000,
     generatedImageCount: payload.toolOptions?.imageGeneration ? 1 : 0,
-    imageQuality: env.OPENAI_IMAGE_QUALITY,
+    imageQuality: payload.toolOptions?.imageQuality ?? env.OPENAI_IMAGE_QUALITY,
     imageSize: env.OPENAI_IMAGE_SIZE,
     imageInputCount: payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
     imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
@@ -402,7 +406,7 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
       // audit trails. The customer-facing allowance is the quality-aware credit
       // meter below.
       image_outputs: 1,
-      credits: reservedImageGenerationCredits()
+      credits: reservedImageGenerationCredits(payload.toolOptions?.imageQuality)
     } : {}),
     ...(payload.audio ? { audio_seconds: 60 } : {})
   }, {
@@ -432,7 +436,7 @@ async function settleCustomerUsage(
     // Settle from the actual output provenance so those requests cannot bypass
     // image credits, while Code Interpreter chart images remain excluded.
     generatedImageCount,
-    imageQuality: env.OPENAI_IMAGE_QUALITY,
+    imageQuality: payload.toolOptions?.imageQuality ?? env.OPENAI_IMAGE_QUALITY,
     imageSize: env.OPENAI_IMAGE_SIZE,
     imageInputCount: payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
     imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
@@ -459,7 +463,7 @@ async function settleCustomerUsage(
     text_input_tokens: result.usage?.inputTokens ?? 0,
     text_output_tokens: result.usage?.outputTokens ?? 0,
     image_outputs: generatedImageCount,
-    credits: actualImageGenerationCredits(result),
+    credits: actualImageGenerationCredits(result, payload.toolOptions?.imageQuality),
     audio_seconds: audioSeconds,
     web_search_calls: payload.toolOptions?.webSearch ? 1 : 0,
     file_analysis_operations: payload.toolOptions?.fileSearch ? 1 : 0

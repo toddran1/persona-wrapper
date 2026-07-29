@@ -392,11 +392,15 @@ export const uploadedAssetSchema = z.object({
 });
 export type UploadedAsset = z.infer<typeof uploadedAssetSchema>;
 
+export const imageGenerationQualitySchema = z.enum(["auto", "low", "medium", "high"]);
+export type ImageGenerationQuality = z.infer<typeof imageGenerationQualitySchema>;
+
 export const toolOptionsSchema = z.object({
   webSearch: z.boolean().default(false),
   fileSearch: z.boolean().default(false),
   codeInterpreter: z.boolean().default(false),
   imageGeneration: z.boolean().default(false),
+  imageQuality: imageGenerationQualitySchema.optional(),
   appFunctions: z.boolean().default(false),
   background: z.boolean().default(false),
   vectorStoreIds: z.array(z.string()).default([])

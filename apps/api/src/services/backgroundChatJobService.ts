@@ -456,6 +456,7 @@ function sanitizeStoredRequest(request: ChatRequest | undefined): Record<string,
           fileSearch: request.toolOptions.fileSearch === true,
           codeInterpreter: request.toolOptions.codeInterpreter === true,
           imageGeneration: request.toolOptions.imageGeneration === true,
+          imageQuality: request.toolOptions.imageQuality,
           appFunctions: request.toolOptions.appFunctions === true,
           background: request.toolOptions.background === true,
           vectorStoreCount: request.toolOptions.vectorStoreIds?.length ?? 0

@@ -1,7 +1,5 @@
-import type { ChatResponse, ContentBlock } from "@persona/shared";
+import type { ChatResponse, ContentBlock, ImageGenerationQuality } from "@persona/shared";
 import { env } from "../config/env.js";
-
-export type ImageGenerationQuality = "auto" | "low" | "medium" | "high";
 
 /**
  * Customer-facing credits are intentionally separate from provider dollars.
@@ -24,8 +22,8 @@ export function imageGenerationCredits(
 }
 
 /** Reserve one output because both current OpenAI image paths request n: 1. */
-export function reservedImageGenerationCredits(): number {
-  return imageGenerationCredits(1);
+export function reservedImageGenerationCredits(quality?: ImageGenerationQuality): number {
+  return imageGenerationCredits(1, quality);
 }
 
 export function isBillableGeneratedImage(output: ContentBlock): boolean {
@@ -46,6 +44,9 @@ export function billableGeneratedImageCount(response: ChatResponse): number {
   return response.outputs.filter(isBillableGeneratedImage).length;
 }
 
-export function actualImageGenerationCredits(response: ChatResponse): number {
-  return imageGenerationCredits(billableGeneratedImageCount(response));
+export function actualImageGenerationCredits(
+  response: ChatResponse,
+  quality?: ImageGenerationQuality
+): number {
+  return imageGenerationCredits(billableGeneratedImageCount(response), quality);
 }

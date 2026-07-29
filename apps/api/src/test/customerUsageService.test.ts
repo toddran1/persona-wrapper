@@ -10,15 +10,15 @@ describe("customer usage plans", () => {
     expect(summary.plan.id).toBe("bronze");
     expect(summary.plan.adsEnabled).toBe(true);
     expect(summary.totalUsage).toMatchObject({
-      limitMicroUsd: 1_000_000,
+      limitMicroUsd: 3_000_000,
       usedMicroUsd: 0,
       reservedMicroUsd: 0,
-      remainingMicroUsd: 1_000_000,
+      remainingMicroUsd: 3_000_000,
       percentRemaining: 100
     });
     expect(summary.meters).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "credits", label: "Image credits", limit: 12, used: 0, reserved: 0 }),
-      expect.objectContaining({ key: "audio_seconds", limit: 300, used: 0, reserved: 0 })
+      expect.objectContaining({ key: "credits", label: "Image credits", limit: 24, used: 0, reserved: 0 }),
+      expect.objectContaining({ key: "audio_seconds", limit: 600, used: 0, reserved: 0 })
     ]));
   });
 
@@ -45,8 +45,8 @@ describe("customer usage plans", () => {
     expect(summary.totalUsage).toMatchObject({
       usedMicroUsd: 0,
       reservedMicroUsd: 180_000,
-      remainingMicroUsd: 820_000,
-      percentRemaining: 82
+      remainingMicroUsd: 2_820_000,
+      percentRemaining: 94
     });
     expect(summary.meters.find((meter) => meter.key === "credits")?.reserved).toBe(2);
     expect(summary.meters.find((meter) => meter.key === "audio_seconds")?.reserved).toBe(60);
@@ -61,8 +61,8 @@ describe("customer usage plans", () => {
     expect(summary.totalUsage).toMatchObject({
       usedMicroUsd: 125_000,
       reservedMicroUsd: 0,
-      remainingMicroUsd: 875_000,
-      percentRemaining: 87
+      remainingMicroUsd: 2_875_000,
+      percentRemaining: 95
     });
     expect(summary.meters.find((meter) => meter.key === "credits")).toMatchObject({ used: 2, reserved: 0 });
     expect(summary.meters.find((meter) => meter.key === "audio_seconds")).toMatchObject({ used: 42, reserved: 0 });
@@ -79,16 +79,22 @@ describe("customer usage plans", () => {
   });
 
   it("keeps persona entitlement rules in the versioned plan catalog", () => {
+    expect(getPlanDefinition("bronze").version).toBe(1);
+    expect(getPlanDefinition("silver").version).toBe(1);
+    expect(getPlanDefinition("gold").version).toBe(1);
     expect(planIncludesPersona(getPlanDefinition("bronze"), "larae")).toBe(true);
     expect(planIncludesPersona(getPlanDefinition("bronze"), "future-gold-persona")).toBe(false);
     expect(getPlanDefinition("gold").maxConcurrentMediaJobs).toBeGreaterThan(
       getPlanDefinition("bronze").maxConcurrentMediaJobs
     );
     expect(getPlanDefinition("bronze").monthlyProviderCostBudget).toEqual({
-      targetMicroUsd: 500_000,
-      ceilingMicroUsd: 1_000_000
+      targetMicroUsd: 1_250_000,
+      ceilingMicroUsd: 3_000_000
     });
-    expect(getPlanDefinition("silver").monthlyPriceCents).toBe(599);
-    expect(getPlanDefinition("gold").monthlyPriceCents).toBe(999);
+    expect(getPlanDefinition("silver").monthlyPriceCents).toBe(799);
+    expect(getPlanDefinition("gold").monthlyPriceCents).toBe(1199);
+    expect(getPlanDefinition("bronze").imageQuality).toBe("medium");
+    expect(getPlanDefinition("silver").imageQuality).toBe("medium");
+    expect(getPlanDefinition("gold").imageQuality).toBe("auto");
   });
 });

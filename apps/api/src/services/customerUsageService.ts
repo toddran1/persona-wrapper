@@ -100,11 +100,12 @@ export class CustomerUsageService {
     return getPlanDefinition(assignment?.planId);
   }
 
-  async assertPersonaAccess(userId: string, personaId: string): Promise<void> {
+  async assertPersonaAccess(userId: string, personaId: string): Promise<PlanDefinition> {
     const plan = await this.getPlan(userId);
     if (!planIncludesPersona(plan, personaId)) {
       throw new HttpError(`${plan.displayName} does not include this persona.`, 403);
     }
+    return plan;
   }
 
   async reserve(

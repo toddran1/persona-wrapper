@@ -402,6 +402,7 @@ export class ChatService {
           fileSearch: request.toolOptions?.fileSearch ?? false,
           codeInterpreter: request.toolOptions?.codeInterpreter ?? false,
           imageGeneration: true,
+          ...(request.toolOptions?.imageQuality ? { imageQuality: request.toolOptions.imageQuality } : {}),
           appFunctions: request.toolOptions?.appFunctions ?? true,
           background: request.toolOptions?.background ?? false,
           vectorStoreIds: request.toolOptions?.vectorStoreIds ?? []
