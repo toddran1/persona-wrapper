@@ -17,7 +17,7 @@ function expandReferencePhrases(
 export const bamBamPersona: PersonaDefinitionInput = {
   id: "bambam",
   name: "Bam Bam",
-  shortName: "Bam Bam",
+  shortName: "Bam",
   legalName: "Asant Brandon Brooks",
   age: "27",
   height: "6 ft",

@@ -463,6 +463,11 @@ describe("ConversationStore prompt context", () => {
       "First answer"
     ]);
     expect(switched.turns?.[0]?.personaId).toBe("larae");
+    expect(store.getPromptHistory(switched)[1]).toMatchObject({
+      role: "assistant",
+      content: "First answer",
+      personaId: "larae"
+    });
 
     const updated = await store.appendTurn(switched, [
       { role: "user", content: "Second question" },
@@ -473,6 +478,10 @@ describe("ConversationStore prompt context", () => {
       }
     ]);
     expect(updated.turns?.map((turn) => turn.personaId)).toEqual(["larae", "second-persona"]);
+    expect(store.getPromptHistory(updated)
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.personaId))
+      .toEqual(["larae", "second-persona"]);
   });
 
   it("restores per-turn personas from a portable mixed-persona conversation", async () => {
@@ -490,6 +499,47 @@ describe("ConversationStore prompt context", () => {
 
     const restored = await store.get(imported.id, "user_test");
     expect(restored?.turns.map((turn) => turn.personaId)).toEqual(["larae", "future-persona"]);
+    expect(restored?.history
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.personaId))
+      .toEqual(["larae", "future-persona"]);
+  });
+
+  it("keeps persona attribution in compacted memory for mixed-persona chats", async () => {
+    env.OPENAI_MAX_CONTEXT_MESSAGES = 2;
+    env.OPENAI_MAX_CONTEXT_CHARACTERS = 10000;
+    env.OPENAI_MAX_CONTEXT_TOKENS = 10000;
+    env.CONVERSATION_MEMORY_SUMMARY_AFTER_MESSAGES = 2;
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate(`mixed-persona-memory-${randomUUID()}`, [], {
+      personaId: "larae"
+    });
+    const first = await store.appendTurn(conversation, [
+      { role: "user", content: "What is your favorite city?" },
+      {
+        role: "assistant",
+        content: "Miami is my answer.",
+        metadata: { personaId: "larae" }
+      }
+    ]);
+    const switched = await store.getOrCreate(first.id, [], { personaId: "bambam" });
+    const updated = await store.appendTurn(switched, [
+      { role: "user", content: "And what is your answer?" },
+      {
+        role: "assistant",
+        content: "Atlanta is my answer.",
+        metadata: { personaId: "bambam" }
+      }
+    ]);
+
+    const context = store.getPromptContext(updated);
+    expect(context[0]?.content).toContain("Assistant (LaRae the Baddest): Miami is my answer.");
+    expect(context[0]?.content).toContain("never attribute one persona's statements to another");
+    expect(context.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "Atlanta is my answer.",
+      personaId: "bambam"
+    });
   });
 
   it("falls back to plain text when saved render metadata is malformed", async () => {

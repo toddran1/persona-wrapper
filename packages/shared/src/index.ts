@@ -41,7 +41,8 @@ export type ToolName = z.infer<typeof toolNameSchema>;
 export const chatMessageSchema = z.object({
   role: z.enum(["system", "user", "assistant", "tool"]),
   content: z.string(),
-  name: z.string().optional()
+  name: z.string().optional(),
+  personaId: z.string().min(1).max(120).optional()
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 

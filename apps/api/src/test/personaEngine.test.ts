@@ -92,4 +92,35 @@ describe("PersonaEngine", () => {
 
     expect(input.conciseAudioResponse).toBe(false);
   });
+
+  it("keeps mixed-persona history attributed while answering as the active persona", () => {
+    const persona = getPersonaById("bambam");
+    const engine = new PersonaEngine();
+
+    expect(persona).toBeDefined();
+
+    const input = engine.prepareInput(persona!, {
+      personaId: persona!.id,
+      provider: "openai_persona",
+      message: "How does your answer compare?",
+      audio: false,
+      testMode: false,
+      history: [
+        { role: "user", content: "What is your favorite team?" },
+        { role: "assistant", content: "The Miami Heat.", personaId: "larae" },
+        { role: "user", content: "What did the other persona say?" },
+        { role: "assistant", content: "A retired answer.", personaId: "retired-persona" }
+      ]
+    });
+
+    expect(input.systemPrompt).toContain("Conversation history can contain assistant replies from multiple personas.");
+    expect(input.systemPrompt).toContain("Answer the current user only as Bam Bam");
+    expect(input.messages[2]?.content).toBe(
+      "[Assistant persona: LaRae the Baddest | id=larae]\nThe Miami Heat."
+    );
+    expect(input.messages[4]?.content).toBe(
+      "[Assistant persona: Unavailable or retired persona | id=retired-persona]\nA retired answer."
+    );
+    expect(input.messages[2]).not.toHaveProperty("personaId");
+  });
 });

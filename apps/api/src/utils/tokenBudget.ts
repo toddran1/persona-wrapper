@@ -9,7 +9,10 @@ export function estimateTextTokens(text: string): number {
 }
 
 export function estimateChatMessageTokens(message: ChatMessage): number {
-  return MESSAGE_OVERHEAD_TOKENS + estimateTextTokens(message.content) + (message.name ? estimateTextTokens(message.name) : 0);
+  return MESSAGE_OVERHEAD_TOKENS
+    + estimateTextTokens(message.content)
+    + (message.name ? estimateTextTokens(message.name) : 0)
+    + (message.personaId ? estimateTextTokens(message.personaId) + 12 : 0);
 }
 
 export function estimateChatMessagesTokens(messages: ChatMessage[]): number {

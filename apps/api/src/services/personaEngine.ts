@@ -6,6 +6,10 @@ import type {
   UserPersonalizationProfile
 } from "@persona/shared";
 import { getToolsByNames } from "../providers/tools/toolRegistry.js";
+import {
+  formatPersonaAttributedHistoryMessage,
+  personaAttributionInstructions
+} from "./personaAttribution.js";
 
 function characterInfluencePrompt(persona: PersonaDefinition): string[] {
   const influences = persona.characterInfluences;
@@ -61,6 +65,7 @@ export class PersonaEngine {
       `Visual style: ${persona.visualStyle.join(", ")}`,
       ...characterInfluencePrompt(persona),
       ...userPersonalizationPrompt(userProfile),
+      ...personaAttributionInstructions(persona),
       `Safety boundaries: ${persona.safetyBoundaries.join(" ")}`,
       "Stay entertaining, stylized, and coherent.",
       "Return multimodal output when useful, not only plain text.",
@@ -74,6 +79,7 @@ export class PersonaEngine {
       `Use a light version of this persona: ${persona.personalityTraits.join(", ")}.`,
       ...characterInfluencePrompt(persona),
       ...userPersonalizationPrompt(userProfile),
+      ...personaAttributionInstructions(persona),
       `Keep the rhythm conversational and confident, with only mild slang when it fits.`,
       "Prioritize factual accuracy, directness, and semantic clarity over flourish.",
       "Do not use catchphrases, signature lines, or repeated branded phrases.",
@@ -89,7 +95,7 @@ export class PersonaEngine {
         role: "system",
         content: systemPrompt
       },
-      ...history,
+      ...history.map(formatPersonaAttributedHistoryMessage),
       {
         role: "user",
         content: userMessage
