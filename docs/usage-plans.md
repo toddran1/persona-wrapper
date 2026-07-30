@@ -14,6 +14,8 @@ Plan definitions are versioned in `apps/api/src/services/planCatalog.ts`.
 
 This catalog is the version 1 product baseline. These are initial product assumptions, not billing promises. Future material entitlement or allowance changes should introduce a new plan version rather than rewriting historical usage events.
 
+Bronze and Silver persona access is derived from each registered persona's `minimumPlan` field. Gold is an all-personas entitlement, including personas added after the plan definition was released. This keeps catalog additions and removals from requiring duplicate ID lists in the plan service; deleting a persona simply removes it from the resolved entitlement summary.
+
 The catalog includes intended monthly prices as metadata only; payment providers and paid entitlement assignment are not connected yet. The provider-cost ceilings remain below the planned post-store revenue so paid tiers retain room for app-store/payment fees, storage and egress, Render/AWS infrastructure, retries, support, taxes where applicable, and profit.
 
 ## Metering model

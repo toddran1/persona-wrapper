@@ -735,7 +735,10 @@ export function hasCompletePersonaVisualVideoSet(
 }
 
 export const personaSummarySchema = z.object({
-  id: z.string(),
+  id: z.string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/, "Persona IDs must be stable lowercase slugs."),
   name: z.string(),
   shortName: z.string().min(1).max(80).optional(),
   legalName: z.string().optional(),
@@ -753,7 +756,7 @@ export const personaSummarySchema = z.object({
   documentTitle: z.string().default("For the Baddiez"),
   promptPlaceholder: z.string().default("Ask anything"),
   suggestedPrompts: z.array(z.string()).default([]),
-  supportedProviders: z.array(providerSchema),
+  supportedProviders: z.array(providerSchema).min(1),
   minimumPlan: planIdSchema.default("bronze"),
   available: z.boolean().default(true)
 });

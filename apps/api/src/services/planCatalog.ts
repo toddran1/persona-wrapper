@@ -1,4 +1,5 @@
 import type { CustomerUsageMeter, ImageGenerationQuality, PlanId } from "@persona/shared";
+import { getPersonaById } from "../personas/index.js";
 
 export type PlanDefinition = {
   id: PlanId;
@@ -12,6 +13,8 @@ export type PlanDefinition = {
   maxConcurrentMediaJobs: number;
   /** Effective provider value. Medium is the capped-auto policy for Bronze/Silver. */
   imageQuality: Extract<ImageGenerationQuality, "auto" | "medium">;
+  /** "minimum_plan" derives access from each persona profile; "all" includes future personas. */
+  personaAccess: "listed" | "minimum_plan" | "all";
   personaIds: string[];
   allowances: Partial<Record<CustomerUsageMeter, number | null>>;
   monthlyProviderCostBudget: {
@@ -21,7 +24,11 @@ export type PlanDefinition = {
 };
 
 const CURRENT_PLAN_VERSION = 1;
-const CURRENT_PERSONA_IDS = ["larae", "bambam"];
+const PLAN_RANK: Record<PlanId, number> = {
+  bronze: 0,
+  silver: 1,
+  gold: 2
+};
 
 export const planCatalog: Record<PlanId, PlanDefinition> = {
   bronze: {
@@ -34,7 +41,8 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     priorityQueue: false,
     maxConcurrentMediaJobs: 1,
     imageQuality: "medium",
-    personaIds: ["larae"],
+    personaAccess: "minimum_plan",
+    personaIds: [],
     allowances: {
       total_usage_microusd: 3_000_000,
       credits: 24,
@@ -55,7 +63,8 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     priorityQueue: false,
     maxConcurrentMediaJobs: 2,
     imageQuality: "medium",
-    personaIds: CURRENT_PERSONA_IDS,
+    personaAccess: "minimum_plan",
+    personaIds: [],
     allowances: {
       total_usage_microusd: 5_000_000,
       credits: 90,
@@ -76,7 +85,8 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     priorityQueue: true,
     maxConcurrentMediaJobs: 3,
     imageQuality: "auto",
-    personaIds: CURRENT_PERSONA_IDS,
+    personaAccess: "all",
+    personaIds: [],
     allowances: {
       total_usage_microusd: 8_000_000,
       credits: 180,
@@ -107,5 +117,12 @@ export function getPlanDefinition(planId: string | undefined, version?: number):
 }
 
 export function planIncludesPersona(plan: PlanDefinition, personaId: string): boolean {
-  return plan.personaIds.includes(personaId);
+  if (plan.personaAccess === "all") return true;
+  if (plan.personaAccess === "listed") return plan.personaIds.includes(personaId);
+  const persona = getPersonaById(personaId);
+  return Boolean(persona && PLAN_RANK[plan.id] >= PLAN_RANK[persona.minimumPlan]);
+}
+
+export function personaIdsForPlan(plan: PlanDefinition, catalogPersonaIds: readonly string[]): string[] {
+  return catalogPersonaIds.filter((personaId) => planIncludesPersona(plan, personaId));
 }

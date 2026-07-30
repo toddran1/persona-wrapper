@@ -53,6 +53,7 @@ import { useLocalization } from "../../localization/LocalizationProvider";
 import { useNetwork } from "../../network/NetworkProvider";
 import {
   clearSelectedConversationId,
+  clearSelectedPersonaId,
   getSelectedConversationId,
   getSelectedPersonaId,
   setSelectedConversationId,
@@ -522,6 +523,47 @@ export function MobileChatScreen() {
   useEffect(() => {
     if (personasResource.error) setError(personasResource.error.message);
   }, [personasResource.error]);
+
+  useEffect(() => {
+    if (!personasResource.isSuccess) return;
+    const availablePersona = personas.find((candidate) => candidate.available !== false);
+    const selectedPersona = persona
+      && personas.find((candidate) => candidate.id === persona.id && candidate.available !== false);
+
+    if (!availablePersona) {
+      setPersona(undefined);
+      void clearSelectedPersonaId().catch(() => undefined);
+      return;
+    }
+    if (!authUser) return;
+
+    const nextPersonaId = selectedPersona?.id ?? availablePersona.id;
+    let cancelled = false;
+    void queryClient.fetchQuery({
+      ...personaQueryOptions(nextPersonaId, authUser.id),
+      staleTime: 0
+    }).then((detail) => {
+      if (cancelled) return;
+      setPersona(detail);
+      setProvider((current) => detail.supportedProviders.includes(current)
+        ? current
+        : detail.supportedProviders[0] ?? "openai");
+      void setSelectedPersonaId(detail.id).catch(() => undefined);
+    }).catch((reconcileError) => {
+      if (cancelled) return;
+      if (!selectedPersona) {
+        setPersona(undefined);
+        void clearSelectedPersonaId().catch(() => undefined);
+      }
+      setError(reconcileError instanceof Error
+        ? `Could not refresh the persona profile. ${reconcileError.message}`
+        : "Could not refresh the persona profile.");
+      void personasResource.refetch();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.id, personasResource.dataUpdatedAt, personasResource.isSuccess]);
 
   useEffect(() => {
     turnsRef.current = turns;
@@ -2737,7 +2779,7 @@ export function MobileChatScreen() {
     return (
       <ChatTurn
         turn={turn}
-        personaLabel={turnPersona?.shortName ?? turnPersona?.name ?? turn.personaId ?? "P"}
+        personaLabel={turnPersona?.shortName ?? turnPersona?.name ?? (turn.personaId ? "Retired persona" : "Persona")}
         personaAccent={turnPersona?.theme.accent ?? theme.accent}
         theme={theme}
         expanded={personaCardExpanded}

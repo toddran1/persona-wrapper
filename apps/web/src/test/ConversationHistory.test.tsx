@@ -98,6 +98,7 @@ describe("ConversationHistory pending state", () => {
     const { container } = render(
       <ConversationHistory
         personaId="current-persona"
+        personaNamesById={{ larae: "LaRae" }}
         turns={[
           {
             personaId: "larae",
@@ -116,7 +117,7 @@ describe("ConversationHistory pending state", () => {
     );
 
     expect(Array.from(container.querySelectorAll(".chat-avatar-assistant")).map((node) => node.textContent))
-      .toEqual(["larae", "future-persona"]);
+      .toEqual(["LaRae", "Retired persona"]);
   });
 
   it("renders markdown text and exposes references from the response action menu", async () => {

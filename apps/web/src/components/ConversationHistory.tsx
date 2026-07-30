@@ -542,6 +542,7 @@ export function ConversationHistory({
   conversationId,
   personaId = "persona",
   personaShortName = "Persona",
+  personaNamesById = {},
   turns,
   pendingPrompt,
   pendingAssets = [],
@@ -561,6 +562,7 @@ export function ConversationHistory({
   conversationId?: string | undefined;
   personaId?: string;
   personaShortName?: string;
+  personaNamesById?: Readonly<Record<string, string>>;
   turns: RenderedTurn[];
   pendingPrompt?: string | undefined;
   pendingAssets?: UserPromptAsset[] | undefined;
@@ -689,6 +691,8 @@ export function ConversationHistory({
           ) : null}
           {turns.map((turn, turnIndex) => {
             const turnPersonaId = turn.personaId ?? personaId;
+            const turnPersonaName = personaNamesById[turnPersonaId]
+              ?? (turnPersonaId === personaId ? personaShortName : "Retired persona");
             const isThinking = turn.outputs.some(isThinkingStatus);
             const inlineOutputs = turn.outputs.filter((output) => shouldRenderInlineOutput(output) && !isThinkingStatus(output));
             const sources = turn.outputs.filter((output): output is Extract<ContentBlock, { type: "source_list" }> => output.type === "source_list");
@@ -709,12 +713,12 @@ export function ConversationHistory({
                   <UserMessageActions message={turn.userMessage} files={turn.userFiles ?? []} onEdit={onEditUserPrompt} />
                 </article>
                 <article ref={turnIndex === turns.length - 1 ? newestAssistantRef : undefined} className="chat-row chat-row-assistant">
-                  <div className="chat-avatar chat-avatar-assistant">{turnPersonaId}</div>
+                  <div className="chat-avatar chat-avatar-assistant" title={turnPersonaName}>{turnPersonaName}</div>
                   <div className="chat-bubble chat-bubble-assistant">
                     <span className="history-role">{isThinking ? "Thinking" : "Reply"}</span>
                     {assistantText ? <MarkdownText text={assistantText} className="message-text markdown-text" /> : null}
                     {isThinking ? (
-                      <div className="thinking-indicator" aria-live="polite" aria-label={`${turnPersonaId} is thinking`}>
+                      <div className="thinking-indicator" aria-live="polite" aria-label={`${turnPersonaName} is thinking`}>
                         <span />
                         <span />
                         <span />

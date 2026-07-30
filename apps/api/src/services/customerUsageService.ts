@@ -14,7 +14,8 @@ import {
 } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { accessControlService } from "./accessControlService.js";
-import { planIncludesPersona, type PlanDefinition } from "./planCatalog.js";
+import { personaIdsForPlan, planIncludesPersona, type PlanDefinition } from "./planCatalog.js";
+import { listPersonas } from "../personas/index.js";
 
 type MeterQuantities = Partial<Record<CustomerUsageMeter, number>>;
 type LocalBalance = { used: number; reserved: number };
@@ -460,7 +461,7 @@ export class CustomerUsageService {
         adsEnabled: plan.adsEnabled,
         priorityQueue: plan.priorityQueue,
         maxConcurrentMediaJobs: plan.maxConcurrentMediaJobs,
-        personaIds: plan.personaIds
+        personaIds: personaIdsForPlan(plan, listPersonas().map((persona) => persona.id))
       },
       totalUsage: {
         limitMicroUsd: totalUsageLimit,

@@ -34,3 +34,7 @@ export async function getSelectedPersonaId(): Promise<string | undefined> {
 export async function setSelectedPersonaId(personaId: string): Promise<void> {
   await SecureStore.setItemAsync(SELECTED_PERSONA_ID_KEY, personaId);
 }
+
+export async function clearSelectedPersonaId(): Promise<void> {
+  await SecureStore.deleteItemAsync(SELECTED_PERSONA_ID_KEY);
+}

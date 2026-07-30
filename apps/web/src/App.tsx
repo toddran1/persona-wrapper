@@ -1,6 +1,6 @@
 import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, CurrentPoliciesResponse, DataTransferJob, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, PolicyVersions, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "./lib/api.js";
@@ -528,13 +528,16 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }, [personaResource.data, personaResource.error, primaryPersonaId]);
 
   useEffect(() => {
-    if (!selectedPersonaId) return;
     try {
-      window.localStorage.setItem(WEB_SELECTED_PERSONA_KEY, selectedPersonaId);
+      if (selectedPersonaId) {
+        window.localStorage.setItem(WEB_SELECTED_PERSONA_KEY, selectedPersonaId);
+      } else if (personasResource.isSuccess) {
+        window.localStorage.removeItem(WEB_SELECTED_PERSONA_KEY);
+      }
     } catch {
       // Local storage can be unavailable in hardened browser modes.
     }
-  }, [selectedPersonaId]);
+  }, [personasResource.isSuccess, selectedPersonaId]);
 
   useEffect(() => {
     if (!conversationsResource.data) return;
@@ -626,7 +629,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setLoading(true);
     setError(undefined);
     try {
-      const detail = await queryClient.fetchQuery(personaQueryOptions(personaId));
+      if (!authUser) throw new Error("Sign in before switching personas.");
+      const detail = await queryClient.fetchQuery(personaQueryOptions(personaId, authUser.id));
       if (selectionGeneration !== personaSelectionGenerationRef.current) return;
       setSelectedPersonaId(detail.id);
       setPersonaDetail(detail);
@@ -1643,6 +1647,13 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     : personas.find((persona) => persona.id === selectedPersonaId && persona.available !== false)
       ?? personas.find((persona) => persona.available !== false);
   const activeTheme = activePersona?.theme;
+  const personaNamesById = useMemo(
+    () => Object.fromEntries(personas.map((candidate) => [
+      candidate.id,
+      candidate.shortName ?? candidate.name
+    ])),
+    [personas]
+  );
   const hasConversationContent = renderedTurns.length > 0 || pendingPrompt !== undefined || loading;
   const personaVisualState = audioEnabled
     ? personaAudioPlaying
@@ -1803,6 +1814,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
               conversationId={conversationId}
               personaId={activePersona?.id ?? "persona"}
               personaShortName={activePersona?.shortName ?? activePersona?.name ?? "Persona"}
+              personaNamesById={personaNamesById}
               turns={renderedTurns}
               hasEarlierTurns={Boolean(turnsCursor)}
               loadingEarlierTurns={loadingEarlierTurns}

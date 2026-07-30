@@ -11,7 +11,8 @@ export const personasQueryOptions = (accountId = "anonymous") => queryOptions({
 export const personaQueryOptions = (id: string, accountId = "anonymous") => queryOptions({
   queryKey: ["personas", "detail", accountId, id],
   queryFn: () => api.getPersona(id),
-  staleTime: 5 * 60_000
+  staleTime: 5 * 60_000,
+  refetchOnMount: "always"
 });
 
 export const conversationsPageQueryOptions = (cursor?: string, query?: string, accountId = "anonymous") => queryOptions({
