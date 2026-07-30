@@ -324,15 +324,17 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }, [loadCurrentPolicies]);
 
   const personasResource = useQuery({
-    ...personasQueryOptions(),
+    ...personasQueryOptions(authUser?.id),
     retry: (failureCount, queryError) => failureCount < 12 && isTransientApiBootError(queryError)
   });
   const primaryPersonaId = personasResource.data?.some((persona) => persona.id === selectedPersonaId && persona.available !== false)
     ? selectedPersonaId
     : personasResource.data?.find((persona) => persona.available !== false)?.id;
   const personaResource = useQuery({
-    ...personaQueryOptions(primaryPersonaId ?? ""),
-    enabled: Boolean(primaryPersonaId),
+    ...personaQueryOptions(primaryPersonaId ?? "", authUser?.id),
+    // Anonymous visitors can render the public persona summary. The detailed
+    // profile remains behind the entitlement-aware authenticated endpoint.
+    enabled: Boolean(primaryPersonaId && authUser),
     retry: (failureCount, queryError) => failureCount < 12 && isTransientApiBootError(queryError)
   });
   const conversationsResource = useQuery({

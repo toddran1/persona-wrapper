@@ -1,4 +1,9 @@
-import { apiContract, type UploadPresignRequest } from "@persona/shared";
+import {
+  apiContract,
+  personaSummarySchema,
+  type PersonaSummary,
+  type UploadPresignRequest
+} from "@persona/shared";
 import { initServer } from "@ts-rest/express";
 import type { Request, Response } from "express";
 import { acceptPolicies, clearAccountMemory, deleteAccount, getAccountUsage, getCurrentPolicies, getMemorySettings, getOAuthProviders, restoreAccount, updateMemorySettings, updateProfile } from "../controllers/account.controller.js";
@@ -34,9 +39,25 @@ import { postUnsafeOutputReport } from "../controllers/safety.controller.js";
 import { uploadService } from "../services/uploadService.js";
 import { requestOwnerId } from "../utils/requestIdentity.js";
 import { customerUsageService } from "../services/customerUsageService.js";
-import { planIncludesPersona } from "../services/planCatalog.js";
+import { getPlanDefinition, planIncludesPersona, type PlanDefinition } from "../services/planCatalog.js";
 
 const server = initServer();
+
+/**
+ * The persona catalog is intentionally visible before sign-in so visitors can
+ * enter the app and see the personas they may use. Entitlements still control
+ * which personas are selectable and every protected API operation verifies
+ * access again server-side.
+ */
+export function personaSummariesForAccess(
+  plan: PlanDefinition = getPlanDefinition("bronze"),
+  isAdmin = false
+): PersonaSummary[] {
+  return listPersonas().map((persona) => personaSummarySchema.parse({
+    ...persona,
+    available: isAdmin || planIncludesPersona(plan, persona.id)
+  }));
+}
 
 type CapturedResponse = { status: number; body: unknown };
 
@@ -98,15 +119,12 @@ const completeUpload = (async (input: unknown) => {
 export const apiContractRouter = server.router(apiContract, {
   personas: {
     list: async ({ req }) => {
-      const ownerId = requestOwnerId(req);
-      const access = await customerUsageService.getAccess(ownerId);
+      const ownerId = req.auth?.userId;
+      const access = ownerId ? await customerUsageService.getAccess(ownerId) : undefined;
       return {
         status: 200,
         body: {
-          personas: listPersonas().map((persona) => ({
-            ...persona,
-            available: access.isAdmin || planIncludesPersona(access.plan, persona.id)
-          }))
+          personas: personaSummariesForAccess(access?.plan, access?.isAdmin)
         }
       };
     },

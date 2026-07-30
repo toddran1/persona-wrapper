@@ -7,6 +7,7 @@ import { backgroundChatJobService } from "../services/backgroundChatJobService.j
 import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
 import { usageControlService } from "../services/usageControlService.js";
 import { requireCurrentPolicyConsent } from "../middleware/authMiddleware.js";
+import { personaSummariesForAccess } from "../routes/contract.routes.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -90,6 +91,17 @@ describe("controllers", () => {
     expect(state.statusCode).toBe(200);
     expect(personas[0]).toBeDefined();
     expect(personas[0]?.id).toBe("larae");
+  });
+
+  it("makes the Bronze persona catalog available before sign-in", () => {
+    const personas = personaSummariesForAccess();
+    const larae = personas.find((persona) => persona.id === "larae");
+
+    expect(larae?.available).toBe(true);
+    expect(personas.find((persona) => persona.id === "bambam")?.available).toBe(false);
+    expect(larae).not.toHaveProperty("directResponseInstructions");
+    expect(larae).not.toHaveProperty("voiceProfile");
+    expect(larae).not.toHaveProperty("phraseReplacements");
   });
 
   it("returns a single persona by id", () => {

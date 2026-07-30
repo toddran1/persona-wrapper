@@ -16,12 +16,13 @@ import { createPortal } from "react-dom";
 
 const REGISTER_PASSWORD_MIN_LENGTH = 10;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
-type SettingsSection = "account" | "plan" | "security" | "memory" | "data" | "about" | "delete";
+type SettingsSection = "account" | "plan" | "audio" | "security" | "memory" | "data" | "about" | "delete";
 
 function SettingsGlyph({ section }: { section: SettingsSection }) {
   const paths: Record<SettingsSection, React.ReactNode> = {
     account: <><circle cx="12" cy="8" r="3" /><path d="M5.5 19c.8-3.2 3-5 6.5-5s5.7 1.8 6.5 5" /></>,
     plan: <><path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" /><path d="m6 10.5 6 3.5 6-3.5M6 14l6 3.5 6-3.5" /></>,
+    audio: <><path d="M5 10v4h3l4 4V6L8 10H5Z" /><path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7.5 7.5 0 0 1 0 10" /></>,
     security: <><path d="M12 3 5.5 5.8v5.1c0 4.2 2.4 7.5 6.5 9.1 4.1-1.6 6.5-4.9 6.5-9.1V5.8L12 3Z" /><path d="m9.5 11.5 1.7 1.7 3.7-4" /></>,
     memory: <><path d="M8 5.5A3.5 3.5 0 0 1 14.3 3.4 3.8 3.8 0 0 1 19 7.1a3.7 3.7 0 0 1-.8 2.3 4 4 0 0 1-1.7 6.9A3.5 3.5 0 0 1 10 18a3.7 3.7 0 0 1-5-3.5 3.6 3.6 0 0 1 1-2.5A4 4 0 0 1 8 5.5Z" /><path d="M9 8.5c1.8.2 3 1.2 3 3v5.8M15 7.5c-1.7.4-2.8 1.4-3 3" /></>,
     data: <><path d="M12 3v12" /><path d="m8.5 7 3.5-4 3.5 4" /><path d="M5 14v5h14v-5" /></>,
@@ -175,6 +176,8 @@ export function ConversationSidebar({
   const [usernameEditing, setUsernameEditing] = useState(false);
   const [profileNotice, setProfileNotice] = useState<string | undefined>();
   const [memoryEnabled, setMemoryEnabled] = useState(authUser?.memoryEnabled ?? true);
+  const [conciseAudioResponses, setConciseAudioResponses] = useState(authUser?.conciseAudioResponses ?? true);
+  const [audioNotice, setAudioNotice] = useState<string | undefined>();
   const [memoryNotice, setMemoryNotice] = useState<string | undefined>();
   const [memoryConfirmation, setMemoryConfirmation] = useState<"chat" | "all" | undefined>();
   const [planUsage, setPlanUsage] = useState<PlanUsageSummary | undefined>();
@@ -236,6 +239,8 @@ export function ConversationSidebar({
       setPasswordConfirmation("");
       setSecurityNotice(undefined);
       setMemoryEnabled(authUser?.memoryEnabled ?? true);
+      setConciseAudioResponses(authUser?.conciseAudioResponses ?? true);
+      setAudioNotice(undefined);
       setMemoryNotice(undefined);
       setMemoryConfirmation(undefined);
       setDeleteAccountOpen(false);
@@ -246,18 +251,25 @@ export function ConversationSidebar({
       setSettingsOpen(false);
       setAccountMenuOpen(false);
     }
+    setConciseAudioResponses(authUser?.conciseAudioResponses ?? true);
     setUsername(authUser?.username ?? "");
     setPreferredName(authUser?.preferredName ?? "");
     setGender(authUser?.gender ?? "");
     setBirthMonth(authUser?.birthday?.month.toString() ?? "");
     setBirthDay(authUser?.birthday?.day.toString() ?? "");
-  }, [authUser?.id, authUser?.username, authUser?.preferredName, authUser?.gender, authUser?.birthday?.month, authUser?.birthday?.day]);
+  }, [authUser?.id, authUser?.username, authUser?.preferredName, authUser?.gender, authUser?.birthday?.month, authUser?.birthday?.day, authUser?.conciseAudioResponses]);
 
   useEffect(() => {
     if (!profileNotice) return;
     const timer = window.setTimeout(() => setProfileNotice(undefined), 2400);
     return () => window.clearTimeout(timer);
   }, [profileNotice]);
+
+  useEffect(() => {
+    if (!audioNotice) return;
+    const timer = window.setTimeout(() => setAudioNotice(undefined), 2400);
+    return () => window.clearTimeout(timer);
+  }, [audioNotice]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -521,6 +533,22 @@ export function ConversationSidebar({
       setMemoryNotice(next ? "Chat memory is on." : "Chat memory is off.");
     } catch (error) {
       setLocalAuthError(error instanceof Error ? error.message : "Could not update memory settings.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function toggleConciseAudioResponses(): Promise<void> {
+    const next = !conciseAudioResponses;
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    setAudioNotice(undefined);
+    try {
+      await onUpdateProfile({ conciseAudioResponses: next });
+      setConciseAudioResponses(next);
+      setAudioNotice(next ? "Shorter audio responses are on." : "Full-length audio responses are on.");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not update audio settings.");
     } finally {
       setAuthBusy(false);
     }
@@ -1252,6 +1280,7 @@ export function ConversationSidebar({
                     {([
                       ["account", "Account"],
                       ["plan", "Plan & usage"],
+                      ["audio", "Audio"],
                       ["security", "Security & sign-in"],
                       ["memory", "Memory"],
                       ["data", "Your data"],
@@ -1540,6 +1569,41 @@ export function ConversationSidebar({
                             ))}
                           </div>
                         </div>
+                      </div>
+                    ) : null}
+
+                    {settingsSection === "audio" ? (
+                      <div className="settings-section">
+                        <div className="settings-section-heading">
+                          <span className="settings-section-eyebrow">Listening mode</span>
+                          <h3>Audio</h3>
+                          <p>Choose how long spoken persona replies can be when audio is enabled.</p>
+                        </div>
+                        {audioNotice ? <div className="settings-notice" role="status">{audioNotice}</div> : null}
+                        <div className="settings-audio-card">
+                          <div className="settings-audio-card-copy">
+                            <span className="settings-recommended-badge">Recommended</span>
+                            <strong>Shorter audio responses</strong>
+                            <small>Keep spoken replies concise—usually around 80 seconds—while preserving the main answer.</small>
+                          </div>
+                          <button
+                            type="button"
+                            className={`settings-memory-switch${conciseAudioResponses ? " settings-memory-switch-on" : ""}`}
+                            role="switch"
+                            aria-label="Use shorter audio responses"
+                            aria-checked={conciseAudioResponses}
+                            disabled={authBusy}
+                            onClick={() => void toggleConciseAudioResponses()}
+                          >
+                            <span />
+                          </button>
+                        </div>
+                        {!conciseAudioResponses ? (
+                          <div className="settings-audio-warning" role="note">
+                            <strong>Full-length audio is on</strong>
+                            <p>Longer spoken replies can use several times more audio allowance and total usage credits. A request may be unavailable when your remaining allowance is too low.</p>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
 

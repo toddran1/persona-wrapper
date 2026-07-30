@@ -18,10 +18,12 @@ describe("shared schemas", () => {
   it("validates profile updates and real month/day combinations", () => {
     expect(updateUserProfileRequestSchema.parse({
       username: "Baddie.Test",
-      birthday: { month: 2, day: 29 }
+      birthday: { month: 2, day: 29 },
+      conciseAudioResponses: false
     })).toEqual({
       username: "Baddie.Test",
-      birthday: { month: 2, day: 29 }
+      birthday: { month: 2, day: 29 },
+      conciseAudioResponses: false
     });
     expect(() => updateUserProfileRequestSchema.parse({ birthday: { month: 2, day: 30 } })).toThrow();
     expect(() => updateUserProfileRequestSchema.parse({ username: "not allowed" })).toThrow();

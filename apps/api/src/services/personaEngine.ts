@@ -123,6 +123,7 @@ export class PersonaEngine {
         vectorStoreIds: []
       },
       audio: request.audio,
+      conciseAudioResponse: request.conciseAudioResponse ?? true,
       clientContext: request.clientContext
     };
   }

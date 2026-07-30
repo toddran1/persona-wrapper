@@ -7,7 +7,7 @@ import type {
   PlanUsageSummary
 } from "@persona/shared";
 
-export type SettingsPanel = "main" | "profile" | "plan" | "security" | "sessions" | "memory" | "about" | "data";
+export type SettingsPanel = "main" | "profile" | "plan" | "audio" | "security" | "sessions" | "memory" | "about" | "data";
 export type ProfileSelectionKind = "gender" | "month" | "day";
 
 export function useAccountSettingsController(authUser: AuthUser | undefined) {
@@ -41,6 +41,10 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
   const [memoryBusy, setMemoryBusy] = useState(false);
   const [memoryError, setMemoryError] = useState<string | undefined>();
   const [memoryNotice, setMemoryNotice] = useState<string | undefined>();
+  const [conciseAudioResponses, setConciseAudioResponses] = useState(true);
+  const [audioSettingsBusy, setAudioSettingsBusy] = useState(false);
+  const [audioSettingsError, setAudioSettingsError] = useState<string | undefined>();
+  const [audioSettingsNotice, setAudioSettingsNotice] = useState<string | undefined>();
   const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -80,6 +84,10 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
       setMemoryBusy(false);
       setMemoryError(undefined);
       setMemoryNotice(undefined);
+      setConciseAudioResponses(true);
+      setAudioSettingsBusy(false);
+      setAudioSettingsError(undefined);
+      setAudioSettingsNotice(undefined);
       setDataTransferJob(undefined);
       setDeleteAccountVisible(false);
       setDeleteConfirmation("");
@@ -95,13 +103,15 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
     setProfileGender(authUser?.gender ?? "");
     setBirthMonth(authUser?.birthday?.month.toString() ?? "");
     setBirthDay(authUser?.birthday?.day.toString() ?? "");
+    setConciseAudioResponses(authUser?.conciseAudioResponses ?? true);
   }, [
     authUser?.id,
     authUser?.username,
     authUser?.preferredName,
     authUser?.gender,
     authUser?.birthday?.month,
-    authUser?.birthday?.day
+    authUser?.birthday?.day,
+    authUser?.conciseAudioResponses
   ]);
 
   useEffect(() => {
@@ -109,6 +119,12 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
     const timer = setTimeout(() => setProfileNotice(undefined), 2400);
     return () => clearTimeout(timer);
   }, [profileNotice]);
+
+  useEffect(() => {
+    if (!audioSettingsNotice) return;
+    const timer = setTimeout(() => setAudioSettingsNotice(undefined), 2400);
+    return () => clearTimeout(timer);
+  }, [audioSettingsNotice]);
 
   return {
     settingsVisible,
@@ -171,6 +187,14 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
     setMemoryError,
     memoryNotice,
     setMemoryNotice,
+    conciseAudioResponses,
+    setConciseAudioResponses,
+    audioSettingsBusy,
+    setAudioSettingsBusy,
+    audioSettingsError,
+    setAudioSettingsError,
+    audioSettingsNotice,
+    setAudioSettingsNotice,
     dataTransferJob,
     setDataTransferJob,
     deleteAccountVisible,

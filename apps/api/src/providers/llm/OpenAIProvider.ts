@@ -21,6 +21,7 @@ import { buildImageGenerationPrompt, directPersonaVisualReferencePaths } from ".
 import { storageService } from "../../services/storageService.js";
 import { analyzeImageReferenceRequirement } from "../../services/imageReferenceRequirement.js";
 import { HttpError } from "../../utils/httpError.js";
+import { maxOutputTokensForRequest } from "../../services/audioResponsePolicy.js";
 import type { LLMProgressCallbacks, LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
 
@@ -328,6 +329,17 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
     );
   }
 
+  if (input.audio && input.conciseAudioResponse) {
+    extraInstructions.push(
+      [
+        "Audio response length requirement:",
+        `Keep the complete visible response at or below ${env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS} characters so its spoken version is approximately one minute.`,
+        "Answer the user's main question directly, retain essential facts and safety information, and omit repetitive commentary, exhaustive alternatives, and long checklists.",
+        "Do not mention this character limit or say that the response was shortened."
+      ].join("\n")
+    );
+  }
+
   if (shouldRequestInlineTtsScript(input, promptMode)) {
     const ttsModelId = input.persona.voiceProfile.elevenLabs?.modelId ?? env.ELEVENLABS_MODEL_ID;
     extraInstructions.push(
@@ -344,6 +356,9 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         "For tts_script, add natural speech pacing using sentence breaks, paragraph breaks, commas, dashes, ellipses, and occasional short pauses. Keep pauses tasteful and do not overdo them.",
         "For tts_script, carry the configured persona emotion and delivery through word choice and punctuation.",
         "For tts_script, preserve all names, dates, numbers, quotes, and factual claims. Do not add facts not present in visible_text.",
+        ...(input.conciseAudioResponse
+          ? [`Keep tts_script at or below ${env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS} characters.`]
+          : ["The user allows full-length audio. Keep tts_script aligned with the complete visible response."]),
         ...personaVoicePromptInstructions(input.persona, ttsModelId),
         "Make the tts_script sound like a human performance script, not a transcript copy."
       ].join("\n")
@@ -1445,7 +1460,7 @@ export class OpenAIProvider implements LLMProvider {
       parallel_tool_calls: true,
       prompt_cache_key: `persona-${input.persona.id}`,
       prompt_cache_retention: "24h",
-      max_output_tokens: env.OPENAI_MAX_OUTPUT_TOKENS,
+      max_output_tokens: maxOutputTokensForRequest(input.audio, input.conciseAudioResponse),
       ...controls,
       ...(Object.keys(text).length > 0 ? { text } : {}),
       metadata: {

@@ -445,14 +445,15 @@ export type UserBirthday = z.infer<typeof userBirthdaySchema>;
 export const userPersonalizationProfileSchema = z.object({
   preferredName: z.string().trim().min(1).max(80).nullable().optional(),
   gender: userGenderSchema.nullable().optional(),
-  birthday: userBirthdaySchema.nullable().optional()
+  birthday: userBirthdaySchema.nullable().optional(),
+  conciseAudioResponses: z.boolean().optional()
 });
 export type UserPersonalizationProfile = z.infer<typeof userPersonalizationProfileSchema>;
 
 export const updateUserProfileRequestSchema = userPersonalizationProfileSchema.extend({
   username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_.]+$/, "Use letters, numbers, periods, or underscores only.").optional()
 }).refine(
-  (value) => value.preferredName !== undefined || value.gender !== undefined || value.birthday !== undefined || value.username !== undefined,
+  (value) => value.preferredName !== undefined || value.gender !== undefined || value.birthday !== undefined || value.username !== undefined || value.conciseAudioResponses !== undefined,
   { message: "At least one profile field must be provided." }
 );
 export type UpdateUserProfileRequest = z.infer<typeof updateUserProfileRequestSchema>;
@@ -545,6 +546,7 @@ export const authUserSchema = z.object({
   gender: userGenderSchema.nullable().optional(),
   birthday: userBirthdaySchema.nullable().optional(),
   memoryEnabled: z.boolean().optional(),
+  conciseAudioResponses: z.boolean().optional(),
   termsVersionAccepted: z.string().nullable().optional(),
   termsAcceptedAt: z.string().nullable().optional(),
   privacyVersionAccepted: z.string().nullable().optional(),
@@ -655,6 +657,7 @@ export const chatRequestSchema = z.object({
   message: z.string(),
   provider: providerSchema.default("openai"),
   audio: z.boolean().default(false),
+  conciseAudioResponse: z.boolean().default(true),
   testMode: z.boolean().default(false),
   conversationId: z.string().optional(),
   history: z.array(chatMessageSchema).default([]),
@@ -869,6 +872,7 @@ export const llmInputSchema = z.object({
   }).optional(),
   toolOptions: toolOptionsSchema.optional(),
   audio: z.boolean().default(false),
+  conciseAudioResponse: z.boolean().default(true),
   clientContext: clientContextSchema.optional()
 });
 export type LLMInput = z.infer<typeof llmInputSchema>;

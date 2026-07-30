@@ -73,4 +73,23 @@ describe("PersonaEngine", () => {
       expect.objectContaining({ name: "render_chart", owner: "application" })
     ]));
   });
+
+  it("preserves the server-stamped audio response policy for queued work", () => {
+    const persona = getPersonaById("larae");
+    const engine = new PersonaEngine();
+
+    expect(persona).toBeDefined();
+
+    const input = engine.prepareInput(persona!, {
+      personaId: persona!.id,
+      provider: "openai_persona",
+      message: "Give me the full answer.",
+      audio: true,
+      conciseAudioResponse: false,
+      testMode: false,
+      history: []
+    });
+
+    expect(input.conciseAudioResponse).toBe(false);
+  });
 });

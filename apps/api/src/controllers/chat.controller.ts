@@ -25,6 +25,12 @@ import { estimateProviderCost } from "../services/providerCostEstimator.js";
 import { env } from "../config/env.js";
 import { shouldPlanHistoricalVisualTransformation } from "../services/conversationMediaContext.js";
 import { applyPlanImageQuality } from "../services/planImageQualityPolicy.js";
+import {
+  audioUsageReservationSeconds,
+  estimatedAudioSecondsForCharacters,
+  maxOutputTokensForRequest
+} from "../services/audioResponsePolicy.js";
+import { conciseAudioResponsesForUser } from "../services/accountPreferenceService.js";
 
 export const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -94,6 +100,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
     }
     const plan = await customerUsageService.assertPersonaAccess(identity, payload.personaId);
     payload = applyPlanImageQuality(payload, plan);
+    payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
       payload,
@@ -197,6 +204,7 @@ export async function postChatStream(request: Request, response: Response): Prom
     }
     const plan = await customerUsageService.assertPersonaAccess(identity, payload.personaId);
     payload = applyPlanImageQuality(payload, plan);
+    payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
       payload,
@@ -371,18 +379,21 @@ async function releaseUsageReservation(identity: string, reservationId: string, 
 }
 
 async function reserveCustomerUsage(identity: string, payload: ChatRequest, idempotencyKey: string): Promise<string> {
+  const reservedAudioSeconds = payload.audio
+    ? audioUsageReservationSeconds(payload.conciseAudioResponse)
+    : 0;
   const providerCost = estimateProviderCost({
     provider: payload.provider,
     reportedModelCostUsd: (
       env.OPENAI_MAX_CONTEXT_TOKENS * env.OPENAI_INPUT_COST_PER_MILLION
-      + env.OPENAI_MAX_OUTPUT_TOKENS * env.OPENAI_OUTPUT_COST_PER_MILLION
+      + maxOutputTokensForRequest(payload.audio, payload.conciseAudioResponse) * env.OPENAI_OUTPUT_COST_PER_MILLION
     ) / 1_000_000,
     generatedImageCount: payload.toolOptions?.imageGeneration ? 1 : 0,
     imageQuality: payload.toolOptions?.imageQuality ?? env.OPENAI_IMAGE_QUALITY,
     imageSize: env.OPENAI_IMAGE_SIZE,
     imageInputCount: payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
     imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
-    audioSeconds: payload.audio ? 60 : 0,
+    audioSeconds: reservedAudioSeconds,
     audioCostPerMinuteUsd: env.CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD,
     styleTransferCalls: payload.provider !== "openai_persona" && env.STYLE_TRANSFER_PROVIDER !== "stub" ? 1 : 0,
     styleTransferCostPerCallUsd: env.CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD,
@@ -408,7 +419,7 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
       image_outputs: 1,
       credits: reservedImageGenerationCredits(payload.toolOptions?.imageQuality)
     } : {}),
-    ...(payload.audio ? { audio_seconds: 60 } : {})
+    ...(payload.audio ? { audio_seconds: reservedAudioSeconds } : {})
   }, {
     idempotencyKey,
     provider: payload.provider
@@ -424,7 +435,7 @@ async function settleCustomerUsage(
   const audioCharacters = result.diagnostics.tts?.status === "generated"
     ? result.diagnostics.tts.textCharacters ?? 0
     : 0;
-  const audioSeconds = audioCharacters > 0 ? Math.max(1, Math.ceil(audioCharacters / 15)) : 0;
+  const audioSeconds = estimatedAudioSecondsForCharacters(audioCharacters);
   const generatedImageCount = billableGeneratedImageCount(result);
   const providerCost = estimateProviderCost({
     provider: result.provider,

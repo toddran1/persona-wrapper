@@ -97,6 +97,18 @@ describe("OpenAIProvider instructions", () => {
     expect(baseInstructions).not.toContain("Silent style checklist before finalizing");
   });
 
+  it("only applies the short audio instruction when the account preference is enabled", () => {
+    const conciseInput = inputForLaRae(true);
+    const fullLengthInput = { ...conciseInput, conciseAudioResponse: false };
+
+    expect(buildOpenAIResponseInstructions(conciseInput, "full")).toContain(
+      `at or below ${env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS} characters`
+    );
+    expect(buildOpenAIResponseInstructions(fullLengthInput, "full")).not.toContain(
+      "Audio response length requirement:"
+    );
+  });
+
   it("reads direct performance direction from the active persona profile rather than its id", () => {
     const input = inputForLaRae();
     input.persona = {

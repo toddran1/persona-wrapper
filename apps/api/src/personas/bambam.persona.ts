@@ -70,7 +70,7 @@ export const bamBamPersona: PersonaDefinitionInput = {
   promptPlaceholder: "Ask and receive...",
   suggestedPrompts: [
     "Bam Bam, introduce yourself.",
-    "Help me plan a a night out in Atlanta.",
+    "Help me plan a night out in Atlanta.",
     "Help me put together an outfit for Pride.",
   ],
   supportedProviders: ["openai", "openai_persona", "claude", "local"],

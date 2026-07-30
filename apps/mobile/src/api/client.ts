@@ -376,6 +376,7 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
       ? { month: user.birthMonth, day: user.birthDay }
       : null,
     memoryEnabled: typeof user.memoryEnabled === "boolean" ? user.memoryEnabled : true,
+    conciseAudioResponses: typeof user.conciseAudioResponses === "boolean" ? user.conciseAudioResponses : true,
     termsVersionAccepted: typeof user.termsVersionAccepted === "string" ? user.termsVersionAccepted : null,
     termsAcceptedAt: user.termsAcceptedAt ? new Date(user.termsAcceptedAt as string | Date).toISOString() : null,
     privacyVersionAccepted: typeof user.privacyVersionAccepted === "string" ? user.privacyVersionAccepted : null,

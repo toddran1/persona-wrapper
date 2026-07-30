@@ -1285,6 +1285,49 @@ textarea {
   background: var(--theme-accent);
 }
 
+.settings-audio-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1rem;
+  border: 1px solid rgba(214, 181, 94, 0.24);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(91, 54, 121, 0.22), rgba(255, 255, 255, 0.035));
+}
+
+.settings-audio-card-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.settings-audio-card-copy small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.settings-recommended-badge {
+  width: fit-content;
+  color: var(--accent-2);
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-audio-warning {
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(255, 107, 122, 0.34);
+  border-radius: 12px;
+  background: rgba(190, 55, 79, 0.11);
+}
+
+.settings-audio-warning p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .settings-memory-danger strong {
   color: var(--theme-danger);
 }

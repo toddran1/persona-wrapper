@@ -42,6 +42,7 @@ function toAuthUser(user: typeof users.$inferSelect): AuthUser {
       ? { month: user.birthMonth, day: user.birthDay }
       : null,
     memoryEnabled: user.memoryEnabled,
+    conciseAudioResponses: user.conciseAudioResponses,
     termsVersionAccepted: user.termsVersionAccepted,
     termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
     privacyVersionAccepted: user.privacyVersionAccepted,
@@ -142,6 +143,9 @@ export async function updateProfile(request: Request, response: Response): Promi
         birthMonth: payload.birthday?.month ?? null,
         birthDay: payload.birthday?.day ?? null
       } : {}),
+      ...(payload.conciseAudioResponses !== undefined
+        ? { conciseAudioResponses: payload.conciseAudioResponses }
+        : {}),
       updatedAt: new Date()
     }).where(and(eq(users.id, request.auth.userId), eq(users.status, "active"))).returning();
   } catch (error) {

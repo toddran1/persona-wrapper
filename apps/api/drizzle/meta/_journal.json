@@ -120,6 +120,13 @@
       "when": 1785446400000,
       "tag": "0016_admin_access",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785532800000,
+      "tag": "0017_concise_audio_preferences",
+      "breakpoints": true
     }
   ]
 }

@@ -16,6 +16,7 @@ import { measureOperation } from "../utils/observability.js";
 import { generatedMediaService } from "./generatedMediaService.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
 import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
+import { limitAudioResponseText } from "./audioResponsePolicy.js";
 import { CONVERSATION_MEDIA_UNAVAILABLE_TEXT, resolveConversationMediaContext } from "./conversationMediaContext.js";
 import { openAIArtifactService } from "./openAIArtifactService.js";
 import { applyPersonaPhraseReplacements } from "./personaPhraseReplacementService.js";
@@ -52,24 +53,6 @@ function insertToolContext(input: ChatMessage[], toolContext: ToolContext | unde
 
 function shouldUseStyleTransfer(provider: ChatRequest["provider"]): boolean {
   return provider !== "openai_persona";
-}
-
-const MAX_TTS_SCRIPT_CHARACTERS = 4800;
-
-function truncateForTts(text: string): string {
-  if (text.length <= MAX_TTS_SCRIPT_CHARACTERS) {
-    return text;
-  }
-
-  const truncated = text.slice(0, MAX_TTS_SCRIPT_CHARACTERS);
-  const sentenceBoundary = Math.max(
-    truncated.lastIndexOf(". "),
-    truncated.lastIndexOf("! "),
-    truncated.lastIndexOf("? "),
-    truncated.lastIndexOf("\n")
-  );
-
-  return `${(sentenceBoundary > 1200 ? truncated.slice(0, sentenceBoundary + 1) : truncated).trim()} ...`;
 }
 
 function isErrorLikeText(text: string): boolean {
@@ -415,6 +398,10 @@ export class ChatService {
       conversationId: conversation.id,
       history: this.conversationStore.getPromptContext(conversation)
     }, userProfile);
+    // The controller stamps the account preference onto the request before it
+    // reserves usage. Keep that value stable for background jobs so generation
+    // cannot exceed the reservation if the user changes the setting meanwhile.
+    llmInput.conciseAudioResponse = request.conciseAudioResponse;
     if (
       conversationMediaAttachments.promptContext &&
       conversationMediaAttachments.source !== "none"
@@ -577,14 +564,17 @@ export class ChatService {
 
     const styledTextBeforePhraseReplacements = styleTransferOutput.styledText || neutralText;
     const phraseReplacementResult = applyPersonaPhraseReplacements(styledTextBeforePhraseReplacements, persona);
+    const responseText = request.audio
+      ? limitAudioResponseText(phraseReplacementResult.text, request.conciseAudioResponse)
+      : phraseReplacementResult.text;
     let styledPrimaryText = false;
     const styledLlmOutput = llmOutputSchema.parse({
       ...llmOutput,
-      rawText: phraseReplacementResult.text || llmOutput.rawText,
+      rawText: responseText || llmOutput.rawText,
       content: llmOutput.content.map((block) => {
         if (block.type !== "text" || styledPrimaryText) return block;
         styledPrimaryText = true;
-        return { ...block, text: phraseReplacementResult.text };
+        return { ...block, text: responseText };
       }),
       metadata: {
         ...(llmOutput.metadata ?? {}),
@@ -644,7 +634,10 @@ export class ChatService {
             ? { script: inlineTtsScript, mode: "openai_inline" as const }
             : await buildTtsScriptForSpeech(speechText, persona);
           ttsScriptMode = ttsScriptResult.mode;
-          ttsScript = truncateForTts(ttsScriptResult.script.trim());
+          ttsScript = limitAudioResponseText(
+            ttsScriptResult.script.trim(),
+            request.conciseAudioResponse
+          );
           if (ttsScript) {
             ttsScriptLog = {
               mode: ttsScriptMode,

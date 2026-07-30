@@ -1,14 +1,15 @@
 import { queryOptions } from "@tanstack/react-query";
 import { api } from "./client";
 
-export const personasQueryOptions = () => queryOptions({
-  queryKey: ["personas"],
+export const personasQueryOptions = (accountId = "anonymous") => queryOptions({
+  queryKey: ["personas", "catalog-v2", accountId],
   queryFn: () => api.getPersonas(),
-  staleTime: 5 * 60_000
+  staleTime: 5 * 60_000,
+  refetchOnMount: "always"
 });
 
-export const personaQueryOptions = (id: string) => queryOptions({
-  queryKey: ["personas", id],
+export const personaQueryOptions = (id: string, accountId = "anonymous") => queryOptions({
+  queryKey: ["personas", "detail", accountId, id],
   queryFn: () => api.getPersona(id),
   staleTime: 5 * 60_000
 });

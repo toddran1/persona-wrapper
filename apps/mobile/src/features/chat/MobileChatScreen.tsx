@@ -375,6 +375,14 @@ export function MobileChatScreen() {
     setMemoryError,
     memoryNotice,
     setMemoryNotice,
+    conciseAudioResponses,
+    setConciseAudioResponses,
+    audioSettingsBusy,
+    setAudioSettingsBusy,
+    audioSettingsError,
+    setAudioSettingsError,
+    audioSettingsNotice,
+    setAudioSettingsNotice,
     dataTransferJob,
     setDataTransferJob,
     deleteAccountVisible,
@@ -428,7 +436,7 @@ export function MobileChatScreen() {
     paddingRight: Math.max(insets.right + 16, 16)
   };
 
-  const personasResource = useQuery(personasQueryOptions());
+  const personasResource = useQuery(personasQueryOptions(authUser?.id));
   const personas = personasResource.data ?? [];
   const activePersona = persona && personas.some((candidate) => candidate.id === persona.id && candidate.available !== false)
     ? persona
@@ -694,6 +702,26 @@ export function MobileChatScreen() {
       setMemoryError(memoryUpdateError instanceof Error ? memoryUpdateError.message : "Could not update memory settings.");
     } finally {
       setMemoryBusy(false);
+    }
+  }
+
+  async function updateConciseAudioResponses(enabled: boolean): Promise<void> {
+    setAudioSettingsBusy(true);
+    setAudioSettingsError(undefined);
+    setAudioSettingsNotice(undefined);
+    try {
+      const updatedUser = await api.updateProfile({ conciseAudioResponses: enabled });
+      setAuthUser(updatedUser);
+      setConciseAudioResponses(updatedUser.conciseAudioResponses ?? enabled);
+      setAudioSettingsNotice(enabled
+        ? "Shorter audio responses are on."
+        : "Full-length audio responses are on.");
+    } catch (audioSettingsUpdateError) {
+      setAudioSettingsError(audioSettingsUpdateError instanceof Error
+        ? audioSettingsUpdateError.message
+        : "Could not update audio settings.");
+    } finally {
+      setAudioSettingsBusy(false);
     }
   }
 
@@ -1171,17 +1199,17 @@ export function MobileChatScreen() {
       setAuthError(undefined);
       setAuthChecked(false);
       try {
-        const [user, providers, policies, personaList, savedPersonaId, savedConversationId] = await Promise.all([
+        const [user, providers, policies, savedPersonaId, savedConversationId] = await Promise.all([
           loadAuthenticatedUser(),
           api.getOAuthProviders().catch(() => []),
           api.getCurrentPolicies(),
-          queryClient.fetchQuery(personasQueryOptions()),
           getSelectedPersonaId().catch(() => undefined),
           getSelectedConversationId().catch(() => undefined)
         ]);
         setAuthUser(user);
         setOAuthProviders(providers);
         setCurrentPolicies(policies);
+        const personaList = await queryClient.fetchQuery(personasQueryOptions(user?.id));
 
         const selected = personaList.find((candidate) => candidate.id === savedPersonaId && candidate.available !== false)
           ?? (persona && persona.available !== false && personaList.some((candidate) => candidate.id === persona.id) ? persona : undefined)
@@ -1191,7 +1219,7 @@ export function MobileChatScreen() {
           hydrateCachedAccountData(user.id);
         }
         const [detail, nextConversations] = await Promise.all([
-          selected ? queryClient.fetchQuery(personaQueryOptions(selected.id)) : undefined,
+          selected && user ? queryClient.fetchQuery(personaQueryOptions(selected.id, user.id)) : undefined,
           hasCurrentPolicyConsent(user, policies) ? refreshConversations(user!.id) : []
         ]);
         if (detail) {
@@ -1851,11 +1879,10 @@ export function MobileChatScreen() {
       setError(undefined);
       setAuthError(undefined);
       try {
-        const [user, providers, policies, personaList, savedPersonaId, savedConversationId] = await Promise.all([
+        const [user, providers, policies, savedPersonaId, savedConversationId] = await Promise.all([
           loadAuthenticatedUser(),
           api.getOAuthProviders().catch(() => []),
           api.getCurrentPolicies(),
-          queryClient.fetchQuery(personasQueryOptions()),
           getSelectedPersonaId().catch(() => undefined),
           getSelectedConversationId().catch(() => undefined)
         ]);
@@ -1864,6 +1891,8 @@ export function MobileChatScreen() {
         setAuthChecked(true);
         setOAuthProviders(providers);
         setCurrentPolicies(policies);
+        const personaList = await queryClient.fetchQuery(personasQueryOptions(user?.id));
+        if (!mounted) return;
 
         const selected = personaList.find((candidate) => candidate.id === savedPersonaId && candidate.available !== false)
           ?? personaList.find((candidate) => candidate.available !== false);
@@ -1873,7 +1902,7 @@ export function MobileChatScreen() {
           hydrateCachedAccountData(user.id);
         }
         const [detail, nextConversations] = await Promise.all([
-          selected ? queryClient.fetchQuery(personaQueryOptions(selected.id)) : undefined,
+          selected && user ? queryClient.fetchQuery(personaQueryOptions(selected.id, user.id)) : undefined,
           hasCurrentPolicyConsent(user, policies) ? refreshConversations(user!.id) : []
         ]);
         if (!mounted) return;
@@ -1970,7 +1999,10 @@ export function MobileChatScreen() {
     setLoadingEarlierTurns(false);
     try {
       setLoading(true);
-      const detail = await queryClient.fetchQuery(personaQueryOptions(personaId));
+      if (!authUser) {
+        throw new Error("Sign in before switching personas.");
+      }
+      const detail = await queryClient.fetchQuery(personaQueryOptions(personaId, authUser.id));
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setPersona(detail);
       setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
@@ -3003,7 +3035,7 @@ export function MobileChatScreen() {
             </Pressable>
             {settingsPanel !== "main" ? (
               <Text style={[styles.settingsPanelTitle, { color: theme.text }]}>
-                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "plan" ? "Plan & usage" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "memory" ? "Memory" : settingsPanel === "about" ? "About" : "Your data"}
+                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "plan" ? "Plan & usage" : settingsPanel === "audio" ? "Audio" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "memory" ? "Memory" : settingsPanel === "about" ? "About" : "Your data"}
               </Text>
             ) : null}
           </View>
@@ -3053,6 +3085,14 @@ export function MobileChatScreen() {
                   <View style={styles.settingsRowCopy}>
                     <Text style={[styles.settingsRowText, { color: theme.text }]}>Plan &amp; usage</Text>
                     <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Media allowances and reset dates</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open audio settings" onPress={() => openSettingsPanel("audio")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="volume-high-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Audio</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Spoken response length and usage</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
                 </Pressable>
@@ -3210,6 +3250,41 @@ export function MobileChatScreen() {
                   <Text style={{ color: theme.text, fontWeight: "800" }}>{profileNotice}</Text>
                 </View>
               ) : null}
+            </View>
+          ) : null}
+          {settingsPanel === "audio" ? (
+            <View style={styles.settingsSection}>
+              <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>
+                Choose how long persona replies can be when audio is enabled.
+              </Text>
+              {audioSettingsError ? <Text style={[styles.settingsPanelDescription, { color: theme.danger }]} accessibilityRole="alert">{audioSettingsError}</Text> : null}
+              {audioSettingsNotice ? <Text style={[styles.settingsPanelDescription, { color: theme.accent2 }]} accessibilityLiveRegion="polite">{audioSettingsNotice}</Text> : null}
+              <View style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", borderColor: "rgba(214,181,94,0.32)", borderWidth: 1 }]}>
+                <Ionicons name="volume-medium-outline" size={22} color={theme.accent2} />
+                <View style={styles.settingsRowCopy}>
+                  <Text style={[styles.settingsRowHint, { color: theme.accent2, textTransform: "uppercase", letterSpacing: 1 }]}>Recommended</Text>
+                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Shorter audio responses</Text>
+                  <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Usually around 80 seconds while preserving the main answer</Text>
+                </View>
+                <Switch
+                  accessibilityLabel="Use shorter audio responses"
+                  disabled={audioSettingsBusy}
+                  value={conciseAudioResponses}
+                  onValueChange={(enabled) => void updateConciseAudioResponses(enabled)}
+                  trackColor={{ false: "rgba(255,255,255,0.18)", true: theme.accent }}
+                  thumbColor={theme.text}
+                />
+              </View>
+              {!conciseAudioResponses ? (
+                <View style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)", borderColor: theme.danger, borderWidth: 1 }]}>
+                  <Ionicons name="warning-outline" size={22} color={theme.danger} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.danger }]}>Full-length audio is on</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Long replies can use several times more audio allowance and total usage credits. A request may be unavailable when your remaining allowance is too low.</Text>
+                  </View>
+                </View>
+              ) : null}
+              {audioSettingsBusy ? <ActivityIndicator color={theme.accent2} /> : null}
             </View>
           ) : null}
           {settingsPanel === "plan" ? (
