@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useEventListener } from "expo";
-import { AppState, Image, Platform, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { AppState, Image, Platform, Pressable, StyleSheet, useWindowDimensions, View, type LayoutChangeEvent } from "react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -28,6 +28,7 @@ type PersonaVisualStageProps = {
   onExpandedChange: (expanded: boolean) => void;
   onHiddenChange: (hidden: boolean) => void;
   onAppForeground: () => void;
+  onDockedLayout: (layout: { y: number; height: number }) => void;
 };
 
 type PersonaVisualClip = {
@@ -237,7 +238,7 @@ function pickPreloadSource(
     ?? profile.loops[nextState].find((source) => !failedSources.has(source));
 }
 
-export function PersonaVisualStage({ expanded, hidden, landscape = false, personaName, profile, state, theme, visible, onExpandedChange, onHiddenChange, onAppForeground }: PersonaVisualStageProps) {
+export function PersonaVisualStage({ expanded, hidden, landscape = false, personaName, profile, state, theme, visible, onExpandedChange, onHiddenChange, onAppForeground, onDockedLayout }: PersonaVisualStageProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const compactLayout = windowWidth < 360 || windowHeight < 700;
   const tabletLayout = Math.min(windowWidth, windowHeight) >= 600;
@@ -471,6 +472,10 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
     <GestureDetector gesture={Gesture.Simultaneous(panGesture, doubleTapGesture)}>
       <Animated.View
         accessibilityLabel={`${personaName} visual state: ${stateLabels[state]}`}
+        onLayout={(event: LayoutChangeEvent) => {
+          const { y, height } = event.nativeEvent.layout;
+          onDockedLayout({ y, height });
+        }}
         style={[
           styles.stage,
           { top: stageTop, width: stageWidth, borderColor: theme.border, backgroundColor: "rgba(7,5,12,0.62)" },

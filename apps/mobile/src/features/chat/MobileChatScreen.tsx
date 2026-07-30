@@ -18,7 +18,8 @@ import {
   TextInput,
   useWindowDimensions,
   View,
-  type GestureResponderEvent
+  type GestureResponderEvent,
+  type LayoutChangeEvent
 } from "react-native";
 import { LinearGradient, type LinearGradientProps } from "expo-linear-gradient";
 import * as Clipboard from "expo-clipboard";
@@ -80,6 +81,10 @@ import type { MobilePickedFile, RenderedTurn } from "./types";
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
+const DEFAULT_RESPONSE_FOCUS_OFFSET = 132;
+const DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET = 236;
+const DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET_LANDSCAPE = 220;
+const PERSONA_RESPONSE_FOCUS_GAP = 12;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 // Keep this aligned with `scheme` in app.config.ts. OAuth must not depend on
 // Expo Constants because the native manifest can be unavailable during startup.
@@ -270,6 +275,7 @@ export function MobileChatScreen() {
   const [voiceInputActive, setVoiceInputActive] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [responseFocusTurnId, setResponseFocusTurnId] = useState<string | undefined>();
+  const [responseFocusLayoutVersion, setResponseFocusLayoutVersion] = useState(0);
   const [composerHeight, setComposerHeight] = useState(62);
   const [personaVisualState, setPersonaVisualState] = useState<PersonaVisualState>("idle");
   const [personaCardExpanded, setPersonaCardExpanded] = useState(false);
@@ -290,6 +296,10 @@ export function MobileChatScreen() {
   const conversationSearchGenerationRef = useRef(0);
   const nearConversationBottomRef = useRef(true);
   const lastFocusedResponseTurnIdRef = useRef<string | undefined>(undefined);
+  const responseFocusTurnIdRef = useRef<string | undefined>(undefined);
+  const assistantOffsetByTurnIdRef = useRef(new Map<string, number>());
+  const personaCardLayoutRef = useRef<{ y: number; height: number } | undefined>(undefined);
+  const conversationLayoutRef = useRef<{ y: number; height: number } | undefined>(undefined);
   const currentComposerDraftRef = useRef("");
   const speechBaseDraftRef = useRef("");
   const speechRuntimeRef = useRef<SpeechRecognitionRuntime | undefined>(undefined);
@@ -442,6 +452,34 @@ export function MobileChatScreen() {
     ? persona
     : personas.find((candidate) => candidate.available !== false);
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
+  const personaCardIsDocked = Boolean(
+    activePersona?.visualStage
+    && !personaCardHidden
+    && !personaCardExpanded
+    && !drawerInteractive
+    && !settingsVisible
+  );
+  const responseFocusViewOffset = personaCardIsDocked
+    ? landscapeLayout ? DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET_LANDSCAPE : DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET
+    : DEFAULT_RESPONSE_FOCUS_OFFSET;
+  const handleAssistantLayout = useCallback((turnId: string, offsetY: number) => {
+    assistantOffsetByTurnIdRef.current.set(turnId, offsetY);
+    if (responseFocusTurnIdRef.current === turnId) {
+      setResponseFocusLayoutVersion((version) => version + 1);
+    }
+  }, []);
+  const handlePersonaCardLayout = useCallback((layout: { y: number; height: number }) => {
+    personaCardLayoutRef.current = layout;
+  }, []);
+  const handleConversationLayout = useCallback((event: LayoutChangeEvent) => {
+    const { y, height } = event.nativeEvent.layout;
+    conversationLayoutRef.current = { y, height };
+  }, []);
+  const handleConversationContentSizeChange = useCallback(() => {
+    if (responseFocusTurnIdRef.current) {
+      setResponseFocusLayoutVersion((version) => version + 1);
+    }
+  }, []);
   const personaById = useMemo(
     () => new Map(personas.map((candidate) => [candidate.id, candidate] as const)),
     [personas]
@@ -574,6 +612,7 @@ export function MobileChatScreen() {
     // to the message the user just sent.
     if (!nearConversationBottomRef.current && !sending) return;
     lastFocusedResponseTurnIdRef.current = turnId;
+    responseFocusTurnIdRef.current = turnId;
     setResponseFocusTurnId(turnId);
   }
 
@@ -1612,6 +1651,8 @@ export function MobileChatScreen() {
     // across navigation can suppress the initial scroll when a chat is opened
     // again and leave the list at the previous conversation's offset.
     lastFocusedResponseTurnIdRef.current = undefined;
+    responseFocusTurnIdRef.current = undefined;
+    assistantOffsetByTurnIdRef.current.clear();
     setResponseFocusTurnId(undefined);
     nearConversationBottomRef.current = true;
     setShowScrollToBottom(false);
@@ -1956,14 +1997,45 @@ export function MobileChatScreen() {
     if (!responseFocusTurnId) return;
     const index = turns.findIndex((turn) => turn.id === responseFocusTurnId);
     if (index < 0) return;
-    const frame = requestAnimationFrame(() => {
-      // Each list cell contains the prompt followed by its reply. This offset
-      // places the reply at the reading position instead of the cell bottom.
-      scrollRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0, viewOffset: 132 });
-      setResponseFocusTurnId(undefined);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [responseFocusTurnId, turns]);
+    let frame: number | undefined;
+    const timer = setTimeout(() => {
+      frame = requestAnimationFrame(() => {
+        const list = scrollRef.current;
+        if (!list) return;
+
+        const itemLayout = list.getLayout(index);
+        const assistantOffset = assistantOffsetByTurnIdRef.current.get(responseFocusTurnId);
+        const personaCardLayout = personaCardLayoutRef.current;
+        const conversationLayout = conversationLayoutRef.current;
+
+        if (personaCardIsDocked && itemLayout && assistantOffset !== undefined && personaCardLayout && conversationLayout) {
+          const responseViewportY = Math.max(
+            PERSONA_RESPONSE_FOCUS_GAP,
+            personaCardLayout.y + personaCardLayout.height - conversationLayout.y + PERSONA_RESPONSE_FOCUS_GAP
+          );
+          list.scrollToOffset({
+            animated: true,
+            offset: Math.max(0, list.getFirstItemOffset() + itemLayout.y + assistantOffset - responseViewportY),
+            skipFirstItemOffset: true
+          });
+        } else {
+          void list.scrollToIndex({
+            index,
+            animated: true,
+            viewPosition: 0,
+            viewOffset: personaCardIsDocked ? -responseFocusViewOffset : responseFocusViewOffset
+          });
+        }
+
+        responseFocusTurnIdRef.current = undefined;
+        setResponseFocusTurnId((current) => current === responseFocusTurnId ? undefined : current);
+      });
+    }, 80);
+    return () => {
+      clearTimeout(timer);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, [personaCardIsDocked, responseFocusLayoutVersion, responseFocusTurnId, responseFocusViewOffset, turns]);
 
   useEffect(() => {
     if (lastFocusedResponseTurnIdRef.current === turns[turns.length - 1]?.id) return;
@@ -2679,6 +2751,7 @@ export function MobileChatScreen() {
         onResumeBackgroundJob={resumeTurnBackgroundJob}
         onCopyResponse={copyTurnResponse}
         onShowResponseActions={showTurnResponseActions}
+        onAssistantLayout={handleAssistantLayout}
       />
     );
   }, [
@@ -2687,6 +2760,7 @@ export function MobileChatScreen() {
     copyTurnResponse,
     editTurnPrompt,
     handleTurnOutputAction,
+    handleAssistantLayout,
     personaById,
     personaCardExpanded,
     resumingJobId,
@@ -2815,6 +2889,7 @@ export function MobileChatScreen() {
               onExpandedChange={handlePersonaExpandedChange}
               onHiddenChange={setPersonaCardHidden}
               onAppForeground={markPersonaIdle}
+              onDockedLayout={handlePersonaCardLayout}
             />
           ) : null}
 
@@ -2856,7 +2931,9 @@ export function MobileChatScreen() {
             style={StyleSheet.flatten([styles.conversationScroll, personaCardExpanded ? styles.layerAbovePersonaBackground : undefined])}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={80}
+            onLayout={handleConversationLayout}
             onScroll={handleConversationScroll}
+            onContentSizeChange={handleConversationContentSizeChange}
             maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 0.15 }}
             ListHeaderComponent={turnsCursor ? (
               <Pressable accessibilityRole="button" accessibilityLabel={t("chat.loadEarlier")} disabled={!isOnline || loadingEarlierTurns} onPress={() => void loadEarlierTurns()} style={[styles.loadEarlierButton, { borderColor: theme.border, opacity: isOnline ? 1 : 0.45 }]}>

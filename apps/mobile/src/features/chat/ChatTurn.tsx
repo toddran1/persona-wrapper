@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import { stripGeneratedFileDownloadPrompt, type ContentBlock } from "@persona/shared";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { MobileTheme } from "../../theme/personaTheme";
@@ -24,6 +24,7 @@ export type ChatTurnProps = {
   onResumeBackgroundJob: (turn: RenderedTurn) => void;
   onCopyResponse: (turn: RenderedTurn) => void;
   onShowResponseActions: (turn: RenderedTurn) => void;
+  onAssistantLayout: (turnId: string, offsetY: number) => void;
 };
 
 type MessageAction = {
@@ -87,7 +88,8 @@ function ChatTurnView({
   onOutputAction,
   onResumeBackgroundJob,
   onCopyResponse,
-  onShowResponseActions
+  onShowResponseActions,
+  onAssistantLayout
 }: ChatTurnProps) {
   const responseText = responseTextForDisplay(turn);
   const promptActions = useMemo<MessageAction[]>(() => [
@@ -124,7 +126,10 @@ function ChatTurnView({
         ) : null}
       </View>
       <MessageActionRow align="right" theme={theme} actions={promptActions} />
-      <View style={styles.assistantRow}>
+      <View
+        style={styles.assistantRow}
+        onLayout={(event: LayoutChangeEvent) => onAssistantLayout(turn.id, event.nativeEvent.layout.y)}
+      >
         <View style={[styles.assistantMark, { backgroundColor: personaAccent }]}>
           <Text style={[styles.assistantMarkText, { color: theme.text }]}>{personaLabel[0] ?? "P"}</Text>
         </View>
