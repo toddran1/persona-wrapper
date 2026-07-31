@@ -308,6 +308,8 @@ export function MobileChatScreen() {
   const activeChatAbortControllerRef = useRef<AbortController | undefined>(undefined);
   const activeChatTurnIdRef = useRef<string | undefined>(undefined);
   const activeBackgroundJobIdRef = useRef<string | undefined>(undefined);
+  const activeChatPersonaIdRef = useRef<string | undefined>(undefined);
+  const activePersonaIdRef = useRef<string | undefined>(undefined);
   const activeSubmissionRef = useRef<{ message: string; files: MobilePickedFile[] } | undefined>(undefined);
   const chatTurnActionHandlersRef = useRef<ChatTurnActionHandlers | undefined>(undefined);
   const dataTransferAbortControllerRef = useRef<AbortController | undefined>(undefined);
@@ -485,6 +487,10 @@ export function MobileChatScreen() {
     () => new Map(personas.map((candidate) => [candidate.id, candidate] as const)),
     [personas]
   );
+
+  useEffect(() => {
+    activePersonaIdRef.current = activePersona?.id;
+  }, [activePersona?.id]);
   const [selectedFiles, setSelectedFiles] = useState<MobilePickedFile[]>([]);
   const deleteConversationMutation = useMutation({
     mutationFn: api.deleteConversation,
@@ -1687,6 +1693,7 @@ export function MobileChatScreen() {
     activeChatAbortControllerRef.current = undefined;
     activeChatTurnIdRef.current = undefined;
     activeBackgroundJobIdRef.current = undefined;
+    activeChatPersonaIdRef.current = undefined;
     activeSubmissionRef.current = undefined;
     controller?.abort();
     // Response-focus state belongs to the current conversation. Keeping it
@@ -1818,7 +1825,9 @@ export function MobileChatScreen() {
     // authoritative, so clear any transient reconnect banner with it.
     setError(undefined);
     setConversationId(response.conversationId);
-    markPersonaSpeaking(response.outputs);
+    if (activePersonaIdRef.current === response.persona.id) {
+      markPersonaSpeaking(response.outputs);
+    }
     playGeneratedPersonaAudio(response.outputs);
     setTurns((current) => current.map((turn) => (
       turn.id === turnId ? completedTurn : turn
@@ -1871,9 +1880,12 @@ export function MobileChatScreen() {
     activeChatAbortControllerRef.current = controller;
     activeChatTurnIdRef.current = turn.id;
     activeBackgroundJobIdRef.current = turn.backgroundJobId;
+    activeChatPersonaIdRef.current = turn.personaId;
     setResumingJobId(turn.backgroundJobId);
     clearVisualStateTimer();
-    setPersonaVisualState("thinking");
+    if (turn.personaId === activePersonaIdRef.current) {
+      setPersonaVisualState("thinking");
+    }
     setError(undefined);
     try {
       const firstJob = await api.getChatJob(turn.backgroundJobId, controller.signal);
@@ -1894,7 +1906,7 @@ export function MobileChatScreen() {
     } catch (resumeError) {
       if (isRequestCancellation(resumeError)) return;
       if (resumeError instanceof BackgroundPollingTimeoutError) {
-        markPersonaIdle();
+        if (turn.personaId === activePersonaIdRef.current) markPersonaIdle();
         updateTurnOutputs(turn.id, [{
           type: "status",
           status: "in_progress",
@@ -1904,7 +1916,7 @@ export function MobileChatScreen() {
       }
       if (resumeError instanceof BackgroundJobStateError) {
         const failedStatus = resumeError.job.status === "cancelled" ? "cancelled" : "failed";
-        markPersonaIdle();
+        if (turn.personaId === activePersonaIdRef.current) markPersonaIdle();
         updateTurnOutputs(turn.id, [{
           type: "status",
           status: failedStatus,
@@ -1913,13 +1925,14 @@ export function MobileChatScreen() {
         setError(resumeError.message);
         return;
       }
-      markPersonaIdle();
+      if (turn.personaId === activePersonaIdRef.current) markPersonaIdle();
       setError(resumeError instanceof Error ? resumeError.message : "Could not check background job.");
     } finally {
       if (activeChatAbortControllerRef.current === controller) {
         activeChatAbortControllerRef.current = undefined;
         activeChatTurnIdRef.current = undefined;
         activeBackgroundJobIdRef.current = undefined;
+        activeChatPersonaIdRef.current = undefined;
         setResumingJobId(undefined);
       }
     }
@@ -2104,29 +2117,30 @@ export function MobileChatScreen() {
       closeDrawer();
       return;
     }
-    if (sending || uploadingAttachments || resumingJobId) {
-      setError("Wait for the current response to finish or cancel it before switching personas.");
-      closeDrawer();
-      return;
-    }
+    const requestInFlight = Boolean(activeChatAbortControllerRef.current);
     const selectionGeneration = ++selectionGenerationRef.current;
     setLoadingEarlierTurns(false);
     try {
-      setLoading(true);
+      if (!requestInFlight) setLoading(true);
       if (!authUser) {
         throw new Error("Sign in before switching personas.");
       }
       const detail = await queryClient.fetchQuery(personaQueryOptions(personaId, authUser.id));
       if (selectionGeneration !== selectionGenerationRef.current) return;
+      activePersonaIdRef.current = detail.id;
       setPersona(detail);
       setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
       void setSelectedPersonaId(detail.id).catch(() => undefined);
+      if (activeChatPersonaIdRef.current) {
+        clearVisualStateTimer();
+        setPersonaVisualState(activeChatPersonaIdRef.current === detail.id ? "thinking" : "idle");
+      }
       closeDrawer();
     } catch (selectError) {
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setError(selectError instanceof Error ? selectError.message : "Could not switch persona.");
     } finally {
-      if (selectionGeneration === selectionGenerationRef.current) setLoading(false);
+      if (!requestInFlight && selectionGeneration === selectionGenerationRef.current) setLoading(false);
     }
   }
 
@@ -2250,7 +2264,12 @@ export function MobileChatScreen() {
       return;
     }
     const controller = new AbortController();
+    const submittedPersona = activePersona;
+    const submittedProvider = provider;
+    const submittedAudioEnabled = audioEnabled;
+    const submittedConversationId = conversationId;
     activeChatAbortControllerRef.current = controller;
+    activeChatPersonaIdRef.current = submittedPersona.id;
     activeChatTurnIdRef.current = undefined;
     activeBackgroundJobIdRef.current = undefined;
     setSending(true);
@@ -2306,7 +2325,7 @@ export function MobileChatScreen() {
       setUploadingAttachments(false);
       optimistic = {
         id: `pending-${Date.now()}`,
-        personaId: activePersona.id,
+        personaId: submittedPersona.id,
         userMessage: message,
         userAssets: mapUploadedAssetsToUserAssets(attachments),
         assistantText: "",
@@ -2323,14 +2342,14 @@ export function MobileChatScreen() {
       });
       chatRequestStarted = true;
       const response = await api.sendChat({
-        personaId: activePersona.id,
+        personaId: submittedPersona.id,
         message,
-        provider,
-        audio: audioEnabled,
+        provider: submittedProvider,
+        audio: submittedAudioEnabled,
         clientContext: getClientContext(),
         toolOptions: resolvedToolOptions,
         ...(attachments.length > 0 ? { attachments } : {}),
-        ...(conversationId ? { conversationId } : {})
+        ...(submittedConversationId ? { conversationId: submittedConversationId } : {})
       }, controller.signal);
       const backgroundJob = response.diagnostics.backgroundJob;
       if (backgroundJob) {
@@ -2352,7 +2371,9 @@ export function MobileChatScreen() {
         userAssets: mapUploadedAssetsToUserAssets(attachments)
       };
       setError(undefined);
-      markPersonaSpeaking(finalResponse.outputs);
+      if (activePersonaIdRef.current === submittedPersona.id) {
+        markPersonaSpeaking(finalResponse.outputs);
+      }
       playGeneratedPersonaAudio(finalResponse.outputs);
       setTurns((current) => current.map((turn) => (
         turn.id === optimistic?.id ? completedTurn : turn
@@ -2416,6 +2437,7 @@ export function MobileChatScreen() {
         activeChatAbortControllerRef.current = undefined;
         activeChatTurnIdRef.current = undefined;
         activeBackgroundJobIdRef.current = undefined;
+        activeChatPersonaIdRef.current = undefined;
         activeSubmissionRef.current = undefined;
         setUploadingAttachments(false);
         setSending(false);

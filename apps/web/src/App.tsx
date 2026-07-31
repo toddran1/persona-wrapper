@@ -290,6 +290,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
   const [evalError, setEvalError] = useState<string | undefined>();
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>();
+  const [pendingPersonaId, setPendingPersonaId] = useState<string | undefined>();
   const [pendingPromptAssets, setPendingPromptAssets] = useState<UserPromptAsset[]>([]);
   const [pendingPromptFiles, setPendingPromptFiles] = useState<File[]>([]);
   const [composerDraft, setComposerDraft] = useState<string | undefined>();
@@ -297,6 +298,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const activeRequestRef = useRef<AbortController | undefined>(undefined);
   const activeBackgroundJobIdRef = useRef<string | undefined>(undefined);
+  const activeRequestPersonaIdRef = useRef<string | undefined>(undefined);
+  const selectedPersonaIdRef = useRef<string | undefined>(selectedPersonaId);
   const personaSelectionGenerationRef = useRef(0);
   const dataTransferAbortRef = useRef<AbortController | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
@@ -342,6 +345,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     enabled: hasCurrentPolicyConsent(authUser, currentPolicies),
     staleTime: 15_000
   });
+
+  useEffect(() => {
+    selectedPersonaIdRef.current = selectedPersonaId;
+  }, [selectedPersonaId]);
   const deleteConversationMutation = useMutation({
     mutationFn: api.deleteConversation,
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["conversations", authUser?.id] })
@@ -406,6 +413,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         if (cancelled) return;
         if (job.status === "completed" && job.response) {
           activeRequestRef.current?.abort();
+          activeRequestPersonaIdRef.current = undefined;
           replaceBackgroundTurnWithResult(job.id, job.response);
           clearStoredBackgroundJob(job.id);
           activeBackgroundJobIdRef.current = undefined;
@@ -415,6 +423,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         }
         if (job.status === "failed" || job.status === "cancelled") {
           activeRequestRef.current?.abort();
+          activeRequestPersonaIdRef.current = undefined;
           const reason = job.failureReason ?? (job.status === "cancelled" ? "manual_cancel" : "provider_failure");
           markCurrentTurnSilent();
           replaceBackgroundTurnWithError(job, reason);
@@ -620,18 +629,15 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       setMobileSidebarOpen(false);
       return;
     }
-    if (activeRequestRef.current) {
-      setError("Wait for the current response to finish or cancel it before switching personas.");
-      setMobileSidebarOpen(false);
-      return;
-    }
+    const requestInFlight = Boolean(activeRequestRef.current);
     const selectionGeneration = ++personaSelectionGenerationRef.current;
-    setLoading(true);
+    if (!requestInFlight) setLoading(true);
     setError(undefined);
     try {
       if (!authUser) throw new Error("Sign in before switching personas.");
       const detail = await queryClient.fetchQuery(personaQueryOptions(personaId, authUser.id));
       if (selectionGeneration !== personaSelectionGenerationRef.current) return;
+      selectedPersonaIdRef.current = detail.id;
       setSelectedPersonaId(detail.id);
       setPersonaDetail(detail);
       setProvider((current) => detail.supportedProviders.includes(current)
@@ -642,7 +648,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       if (selectionGeneration !== personaSelectionGenerationRef.current) return;
       setError(selectError instanceof Error ? selectError.message : "Could not switch persona.");
     } finally {
-      if (selectionGeneration === personaSelectionGenerationRef.current) setLoading(false);
+      if (!requestInFlight && selectionGeneration === personaSelectionGenerationRef.current) setLoading(false);
     }
   }
 
@@ -670,6 +676,14 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
 
     if (loading) {
+      if (
+        activeRequestPersonaIdRef.current
+        && activeRequestPersonaIdRef.current !== selectedPersonaId
+      ) {
+        completedTurnCountRef.current = renderedTurns.length;
+        setNonAudioVisualState("idle");
+        return;
+      }
       if (suppressAudioVisualForCurrentTurnRef.current) {
         setNonAudioVisualState("idle");
         return;
@@ -681,6 +695,11 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
 
     if (renderedTurns.length > completedTurnCountRef.current) {
       completedTurnCountRef.current = renderedTurns.length;
+      const completedPersonaId = renderedTurns.at(-1)?.personaId;
+      if (completedPersonaId && completedPersonaId !== selectedPersonaId) {
+        setNonAudioVisualState("idle");
+        return;
+      }
       if (lastCompletedTurnWasImageOnlyRef.current || suppressAudioVisualForCurrentTurnRef.current) {
         lastCompletedTurnWasImageOnlyRef.current = false;
         suppressAudioVisualForCurrentTurnRef.current = false;
@@ -716,6 +735,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     suppressAudioVisualForCurrentTurnRef.current = false;
     setError(undefined);
     setPendingPrompt(message);
+    setPendingPersonaId(personaDetail.id);
     setComposerDraft(undefined);
     setComposerDraftAttachments(undefined);
     const localPendingAssets = mapFilesToPendingPromptAssets(files);
@@ -726,7 +746,12 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setPendingPromptAssets(pendingAssets);
     setPendingPromptFiles(files);
     const requestController = new AbortController();
+    const submittedPersona = personaDetail;
+    const submittedProvider = provider;
+    const submittedAudioEnabled = audioEnabled;
+    const submittedConversationId = conversationId;
     activeRequestRef.current = requestController;
+    activeRequestPersonaIdRef.current = submittedPersona.id;
     let keepBackgroundJob = false;
     let backgroundJobId: string | undefined;
     let uploadedAttachments: UploadedAsset[] = [];
@@ -747,15 +772,15 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         resolvedToolOptions = { ...toolOptions, vectorStoreIds: [vectorStore.id] };
       }
       const payload = {
-        personaId: personaDetail.id,
+        personaId: submittedPersona.id,
         message,
-        provider,
-        audio: audioEnabled,
+        provider: submittedProvider,
+        audio: submittedAudioEnabled,
         testMode: testModeEnabled,
         clientContext: getClientContext(),
         attachments,
         toolOptions: resolvedToolOptions,
-        ...(conversationId ? { conversationId } : {})
+        ...(submittedConversationId ? { conversationId: submittedConversationId } : {})
       };
       setLatestRequest(payload);
       chatRequestStarted = true;
@@ -774,12 +799,13 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         saveBackgroundJob({
           jobId: backgroundJob.id,
           conversationId: result.conversationId,
-          ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
+          personaId: submittedPersona.id,
           userMessage: message,
           userAssets
         });
         setConversationId(result.conversationId);
         setPendingPrompt(undefined);
+        setPendingPersonaId(undefined);
         setPendingPromptAssets([]);
         setPendingPromptFiles([]);
         releasePendingPromptAssets(localPendingAssets);
@@ -797,6 +823,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       void refreshConversationList(finalResult.conversationId);
       activeBackgroundJobIdRef.current = undefined;
       setPendingPrompt(undefined);
+      setPendingPersonaId(undefined);
       setPendingPromptAssets([]);
       setPendingPromptFiles([]);
       releasePendingPromptAssets(localPendingAssets);
@@ -811,6 +838,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       }
       const messageText = submitError instanceof Error ? submitError.message : "Failed to generate response";
       setPendingPrompt(undefined);
+      setPendingPersonaId(undefined);
       setPendingPromptAssets([]);
       setPendingPromptFiles([]);
       if (submitError instanceof BackgroundPollingTimeoutError) {
@@ -856,6 +884,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     } finally {
       const isCurrentRequest = activeRequestRef.current === requestController;
       if (isCurrentRequest) activeRequestRef.current = undefined;
+      if (isCurrentRequest) activeRequestPersonaIdRef.current = undefined;
       if (!keepBackgroundJob && !requestController.signal.aborted) activeBackgroundJobIdRef.current = undefined;
       if (requestController.signal.aborted) releasePendingPromptAssets(localPendingAssets);
       if (isCurrentRequest) setLoading(false);
@@ -1024,6 +1053,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setLoading(true);
     setError(undefined);
     setPendingPrompt(undefined);
+    setPendingPersonaId(undefined);
     setPendingPromptAssets([]);
     setPendingPromptFiles([]);
     setPersonaAudioPlaying(false);
@@ -1240,8 +1270,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
 
   async function resumeBackgroundJob(jobId: string): Promise<void> {
     const requestController = new AbortController();
+    const requestPersonaId = renderedTurns.find((turn) => turn.backgroundJobId === jobId)?.personaId;
     activeRequestRef.current = requestController;
     activeBackgroundJobIdRef.current = jobId;
+    activeRequestPersonaIdRef.current = requestPersonaId;
     setLoading(true);
     setPersonaAudioPlaying(false);
     setError(undefined);
@@ -1276,7 +1308,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       markCurrentTurnSilent();
       setError(messageText);
     } finally {
-      if (activeRequestRef.current === requestController) activeRequestRef.current = undefined;
+      if (activeRequestRef.current === requestController) {
+        activeRequestRef.current = undefined;
+        activeRequestPersonaIdRef.current = undefined;
+      }
       if (!requestController.signal.aborted) activeBackgroundJobIdRef.current = undefined;
       setLoading(false);
     }
@@ -1398,6 +1433,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setLoading(false);
     setPersonaAudioPlaying(false);
     setPendingPrompt(undefined);
+    setPendingPersonaId(undefined);
     setPendingPromptAssets([]);
     setPendingPromptFiles([]);
     const appendCancelledTurn = cancelledPrompt !== undefined
@@ -1438,8 +1474,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     activeRequestRef.current?.abort();
     activeRequestRef.current = undefined;
     activeBackgroundJobIdRef.current = undefined;
+    activeRequestPersonaIdRef.current = undefined;
     setLoading(false);
     setPendingPrompt(undefined);
+    setPendingPersonaId(undefined);
     setPendingPromptAssets([]);
     setPendingPromptFiles([]);
   }
@@ -1458,6 +1496,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setEvalSavedMessage(undefined);
     setEvalError(undefined);
     setPendingPrompt(undefined);
+    setPendingPersonaId(undefined);
     setPendingPromptAssets([]);
     setPendingPromptFiles([]);
     setComposerDraft(undefined);
@@ -1814,6 +1853,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
               conversationId={conversationId}
               personaId={activePersona?.id ?? "persona"}
               personaShortName={activePersona?.shortName ?? activePersona?.name ?? "Persona"}
+              pendingPersonaShortName={pendingPersonaId
+                ? personaNamesById[pendingPersonaId] ?? "Retired persona"
+                : undefined}
               personaNamesById={personaNamesById}
               turns={renderedTurns}
               hasEarlierTurns={Boolean(turnsCursor)}
@@ -1825,8 +1867,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
               thinking={loading && pendingPrompt !== undefined}
               testMode={testModeEnabled}
               autoPlayAudioTurnIndex={autoPlayAudioTurnIndex}
-              onAudioPlaybackChange={audioEnabled ? (playing) => {
+              onAudioPlaybackChange={audioEnabled ? (playing, turnPersonaId) => {
                 if (suppressAudioVisualForCurrentTurnRef.current) return;
+                if (turnPersonaId !== selectedPersonaIdRef.current) return;
                 setPersonaAudioPlaying(playing);
               } : undefined}
               onEditUserPrompt={(message, files) => {

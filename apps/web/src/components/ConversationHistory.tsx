@@ -326,7 +326,7 @@ function AssistantActions({
   audioBlocks: Extract<ContentBlock, { type: "audio" }>[];
   personaId: string;
   autoPlayAudio?: boolean;
-  onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
+  onAudioPlaybackChange?: ((playing: boolean, personaId: string) => void) | undefined;
   onRetry?: (() => void) | undefined;
   onReport?: (() => void) | undefined;
 }) {
@@ -389,10 +389,10 @@ function AssistantActions({
           ref={audioRef}
           src={resolvedAudioUrl}
           preload="metadata"
-          onPlay={() => onAudioPlaybackChange?.(true)}
-          onPause={() => onAudioPlaybackChange?.(false)}
-          onEnded={() => onAudioPlaybackChange?.(false)}
-          onError={() => onAudioPlaybackChange?.(false)}
+          onPlay={() => onAudioPlaybackChange?.(true, personaId)}
+          onPause={() => onAudioPlaybackChange?.(false, personaId)}
+          onEnded={() => onAudioPlaybackChange?.(false, personaId)}
+          onError={() => onAudioPlaybackChange?.(false, personaId)}
         />
       ) : null}
       {text ? (
@@ -542,6 +542,7 @@ export function ConversationHistory({
   conversationId,
   personaId = "persona",
   personaShortName = "Persona",
+  pendingPersonaShortName,
   personaNamesById = {},
   turns,
   pendingPrompt,
@@ -562,6 +563,7 @@ export function ConversationHistory({
   conversationId?: string | undefined;
   personaId?: string;
   personaShortName?: string;
+  pendingPersonaShortName?: string | undefined;
   personaNamesById?: Readonly<Record<string, string>>;
   turns: RenderedTurn[];
   pendingPrompt?: string | undefined;
@@ -570,7 +572,7 @@ export function ConversationHistory({
   thinking?: boolean | undefined;
   testMode?: boolean | undefined;
   autoPlayAudioTurnIndex?: number | undefined;
-  onAudioPlaybackChange?: ((playing: boolean) => void) | undefined;
+  onAudioPlaybackChange?: ((playing: boolean, personaId: string) => void) | undefined;
   onOutputAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
   onEditUserPrompt?: ((message: string, files: File[]) => void) | undefined;
   onRetryAssistantTurn?: ((turn: RenderedTurn) => void) | undefined;
@@ -769,10 +771,10 @@ export function ConversationHistory({
           ) : null}
           {thinking ? (
             <article className="chat-row chat-row-assistant">
-              <div className="chat-avatar chat-avatar-assistant">{personaShortName}</div>
+              <div className="chat-avatar chat-avatar-assistant">{pendingPersonaShortName ?? personaShortName}</div>
               <div className="chat-bubble chat-bubble-assistant">
                 <span className="history-role">Thinking</span>
-                <div className="thinking-indicator" aria-live="polite" aria-label={`${personaShortName} is thinking`}>
+                <div className="thinking-indicator" aria-live="polite" aria-label={`${pendingPersonaShortName ?? personaShortName} is thinking`}>
                   <span />
                   <span />
                   <span />

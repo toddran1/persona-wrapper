@@ -49,6 +49,21 @@ describe("ConversationHistory pending state", () => {
     expect(screen.getByText("The final styled answer.")).toBeInTheDocument();
   });
 
+  it("keeps an in-flight response attributed to its submitted persona after selection changes", () => {
+    render(
+      <ConversationHistory
+        personaShortName="Bam Bam"
+        pendingPersonaShortName="LaRae"
+        turns={[]}
+        pendingPrompt="Finish the request LaRae started."
+        thinking
+      />
+    );
+
+    expect(screen.getByLabelText("LaRae is thinking")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Bam Bam is thinking")).not.toBeInTheDocument();
+  });
+
   it("renders an attachment-only pending turn while the response is running", () => {
     render(
       <ConversationHistory
@@ -527,10 +542,10 @@ describe("ConversationHistory pending state", () => {
     expect(audio).toBeInstanceOf(HTMLAudioElement);
 
     fireEvent.play(audio as HTMLAudioElement);
-    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(true);
+    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(true, "persona");
 
     fireEvent.ended(audio as HTMLAudioElement);
-    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(false);
+    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(false, "persona");
 
     playSpy.mockRestore();
   });
