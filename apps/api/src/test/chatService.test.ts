@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
 import { ChatService } from "../services/chatService.js";
 import { ConversationStore } from "../services/conversationStore.js";
+import { generatedAudioService } from "../services/generatedAudioService.js";
 
 const originalAppTestMode = env.APP_TEST_MODE;
 const originalTtsProvider = env.TTS_PROVIDER;
@@ -11,6 +12,7 @@ afterEach(() => {
   env.APP_TEST_MODE = originalAppTestMode;
   env.TTS_PROVIDER = originalTtsProvider;
   env.FISH_AUDIO_API_KEY = originalFishAudioApiKey;
+  vi.restoreAllMocks();
 });
 
 describe("ChatService", () => {
@@ -131,6 +133,39 @@ describe("ChatService", () => {
       status: "failed",
       message: publicMessage
     });
+  });
+
+  it("associates generated audio only after the assistant message is persisted", async () => {
+    env.APP_TEST_MODE = true;
+    const conversationStore = new ConversationStore();
+    const appendTurn = conversationStore.appendTurn.bind(conversationStore);
+    let appendCompleted = false;
+    vi.spyOn(conversationStore, "appendTurn").mockImplementation(async (...args) => {
+      const conversation = await appendTurn(...args);
+      appendCompleted = true;
+      return conversation;
+    });
+    const associateSpy = vi.spyOn(generatedAudioService, "associateWithMessage").mockImplementation(
+      async () => {
+        expect(appendCompleted).toBe(true);
+        return true;
+      }
+    );
+
+    const response = await new ChatService(conversationStore).handleChat({
+      personaId: "larae",
+      provider: "openai_persona",
+      message: "Give me a short spoken greeting.",
+      audio: true,
+      testMode: true,
+      history: []
+    });
+
+    expect(associateSpy).toHaveBeenCalledWith(
+      "https://example.com/local-audio/larae.wav",
+      expect.stringMatching(/^msg_/)
+    );
+    expect(response.outputs.some((output) => output.type === "audio")).toBe(true);
   });
 
   it("stops before generation when the request is cancelled", async () => {

@@ -14,6 +14,7 @@ import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
 import { measureOperation } from "../utils/observability.js";
 import { generatedMediaService } from "./generatedMediaService.js";
+import { generatedAudioService } from "./generatedAudioService.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
 import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
 import { limitAudioResponseText } from "./audioResponsePolicy.js";
@@ -670,8 +671,7 @@ export class ChatService {
               text: ttsScript,
               persona,
               ...(options.ownerId ? { ownerId: options.ownerId } : {}),
-              conversationId: conversation.id,
-              messageId: assistantMessageId
+              conversationId: conversation.id
             }, signal));
             ttsDiagnostic = {
               status: "generated",
@@ -864,6 +864,19 @@ export class ChatService {
         }
       }
     ]);
+
+    // Generated audio is created before the assistant turn is persisted so it
+    // can be included in that turn's outputs. Link the optional message foreign
+    // key only after appendTurn has inserted the assistant message.
+    if (ttsOutput) {
+      await generatedAudioService.associateWithMessage(ttsOutput.url, assistantMessageId).catch((error) => {
+        logger.warn("Generated audio message ownership update failed after chat persistence", {
+          conversationId: updatedConversation.id,
+          messageId: assistantMessageId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
 
     // `openai_artifacts.message_id` references `messages.id`. The assistant
     // message must exist before linking the artifact to it, otherwise a

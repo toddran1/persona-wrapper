@@ -13,6 +13,7 @@ import { storageService } from "./storageService.js";
 type GeneratedAudio = {
   token: string;
   ownerId?: string | null;
+  messageId?: string | null;
   fileName: string;
   localPath?: string | null;
   storageKey?: string | null;
@@ -22,6 +23,17 @@ type GeneratedAudio = {
 
 function safeFileName(fileName: string): string {
   return fileName.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_").slice(0, 96) || "generated-audio.mp3";
+}
+
+function tokenFromGeneratedAudioUrl(url: string): string | undefined {
+  const match = /^\/api\/generated-audio\/([^/?#]+)$/.exec(url.trim());
+  if (!match?.[1]) return undefined;
+  try {
+    const token = decodeURIComponent(match[1]);
+    return /^[a-zA-Z0-9_-]+$/.test(token) ? token : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export class GeneratedAudioService {
@@ -47,26 +59,27 @@ export class GeneratedAudioService {
     try {
       if (db) {
         await db.insert(generatedAudio).values({
-        token,
-        ...(options.ownerId ? { ownerId: options.ownerId } : {}),
-        ...(options.conversationId ? { conversationId: options.conversationId } : {}),
-        ...(options.messageId ? { messageId: options.messageId } : {}),
-        fileName,
-        localPath: stored.localPath,
-        storageKey: stored.storageKey,
-        publicUrl,
-        mimeType: options.mimeType,
-        expiresAt
+          token,
+          ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+          ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+          ...(options.messageId ? { messageId: options.messageId } : {}),
+          fileName,
+          localPath: stored.localPath,
+          storageKey: stored.storageKey,
+          publicUrl,
+          mimeType: options.mimeType,
+          expiresAt
         });
       } else {
         this.files.set(token, {
-        token,
-        ...(options.ownerId ? { ownerId: options.ownerId } : {}),
-        fileName,
-        ...(stored.localPath ? { localPath: stored.localPath } : {}),
-        storageKey: stored.storageKey,
-        mimeType: options.mimeType,
-        expiresAt: expiresAt.getTime()
+          token,
+          ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+          ...(options.messageId ? { messageId: options.messageId } : {}),
+          fileName,
+          ...(stored.localPath ? { localPath: stored.localPath } : {}),
+          storageKey: stored.storageKey,
+          mimeType: options.mimeType,
+          expiresAt: expiresAt.getTime()
         });
       }
     } catch (error) {
@@ -80,6 +93,25 @@ export class GeneratedAudioService {
     }
 
     return publicUrl;
+  }
+
+  async associateWithMessage(publicUrl: string, messageId: string): Promise<boolean> {
+    const token = tokenFromGeneratedAudioUrl(publicUrl);
+    if (!token || !messageId.trim()) return false;
+
+    const db = getDatabase();
+    if (db) {
+      const updated = await db.update(generatedAudio)
+        .set({ messageId })
+        .where(eq(generatedAudio.token, token))
+        .returning({ token: generatedAudio.token });
+      return updated.length > 0;
+    }
+
+    const file = this.files.get(token);
+    if (!file) return false;
+    this.files.set(token, { ...file, messageId });
+    return true;
   }
 
   async download(token: string, ownerId?: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {

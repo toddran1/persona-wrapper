@@ -67,4 +67,20 @@ describe("generatedAudioService", () => {
     await expect(generatedAudioService.download(token ?? "", "owner-a"))
       .rejects.toThrow("Generated audio not found.");
   });
+
+  it("associates stored audio with a message only for generated-audio URLs", async () => {
+    const { generatedAudioService } = await import("../services/generatedAudioService.js");
+    const url = await generatedAudioService.register(Buffer.from("associated-audio"), {
+      fileName: "voice.mp3",
+      mimeType: "audio/mpeg",
+      ownerId: "owner-a"
+    });
+
+    await expect(generatedAudioService.associateWithMessage(url, "msg-existing"))
+      .resolves.toBe(true);
+    await expect(generatedAudioService.associateWithMessage("https://example.com/audio.mp3", "msg-existing"))
+      .resolves.toBe(false);
+    await expect(generatedAudioService.associateWithMessage("/api/generated-audio/../secret", "msg-existing"))
+      .resolves.toBe(false);
+  });
 });
