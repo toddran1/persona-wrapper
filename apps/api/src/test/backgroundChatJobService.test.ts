@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { env } from "../config/env.js";
 import { BackgroundChatJobService } from "../services/backgroundChatJobService.js";
 import { jobQueueService } from "../services/jobQueueService.js";
 import { usageControlService } from "../services/usageControlService.js";
+
+const originalChatJobExecutionTimeoutMs = env.CHAT_JOB_EXECUTION_TIMEOUT_MS;
 
 function waitForAbort(signal: AbortSignal): Promise<never> {
   return new Promise((_, reject) => {
@@ -13,6 +16,7 @@ function waitForAbort(signal: AbortSignal): Promise<never> {
 
 describe("BackgroundChatJobService", () => {
   afterEach(() => {
+    env.CHAT_JOB_EXECUTION_TIMEOUT_MS = originalChatJobExecutionTimeoutMs;
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -149,14 +153,18 @@ describe("BackgroundChatJobService", () => {
     expect(recordUsage).toHaveBeenCalledWith("owner-retry", undefined, undefined, "usage-reservation-retry");
   });
 
-  it("does not prune an active job merely because it has run for an hour", async () => {
+  it("fails and aborts a job that exceeds the overall execution deadline", async () => {
     vi.useFakeTimers();
+    env.CHAT_JOB_EXECUTION_TIMEOUT_MS = 1000;
     const service = new BackgroundChatJobService();
     const job = await service.start({}, async (runningJob) => waitForAbort(runningJob.abortController.signal));
     await Promise.resolve();
-    vi.advanceTimersByTime(61 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(1001);
 
-    expect((await service.get(job.id))?.status).toBe("running");
-    await service.cancel(job.id, "Test cleanup.");
+    expect(await service.get(job.id)).toMatchObject({
+      status: "failed",
+      failureReason: "job_execution_timeout",
+      error: "This response took too long and was stopped. Please try again."
+    });
   });
 });

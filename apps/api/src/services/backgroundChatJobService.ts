@@ -8,10 +8,12 @@ import {
   type ChatResponse
 } from "@persona/shared";
 import { and, eq, inArray, lte } from "drizzle-orm";
+import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { backgroundJobs } from "../db/schema.js";
 import { logger } from "../utils/logger.js";
 import { jobQueueService } from "./jobQueueService.js";
+import { openAIResponseLifecycleService } from "./openAIResponseLifecycleService.js";
 import { usageControlService } from "./usageControlService.js";
 import { customerUsageService } from "./customerUsageService.js";
 
@@ -138,9 +140,32 @@ export class BackgroundChatJobService {
     await this.prune();
     const db = getDatabase();
     if (db) {
-      const persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
+      let persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
       if (!persisted || persisted.kind !== "chat") return undefined;
       if (ownerId && persisted.ownerId !== ownerId) return undefined;
+      if (isActiveStatus(persisted.status) && hasExceededExecutionDeadline(persisted.createdAt)) {
+        const inMemoryJob = this.jobs.get(id);
+        const timeoutError = executionTimeoutError(id);
+        inMemoryJob?.abortController.abort(timeoutError);
+        await this.recordTerminalFailure(inMemoryJob ?? {
+          id: persisted.id,
+          status: parseJobStatus(persisted.status),
+          createdAt: persisted.createdAt.toISOString(),
+          updatedAt: persisted.updatedAt.toISOString(),
+          ...(persisted.ownerId ? { ownerId: persisted.ownerId } : {}),
+          ...(typeof persisted.metadata.usageReservationId === "string"
+            ? { usageReservationId: persisted.metadata.usageReservationId }
+            : {}),
+          ...(typeof persisted.metadata.customerUsageOperationId === "string"
+            ? { customerUsageOperationId: persisted.metadata.customerUsageOperationId }
+            : {}),
+          ...(persisted.providerResponseId ? { providerResponseId: persisted.providerResponseId } : {}),
+          ...(persisted.providerStatus ? { providerStatus: persisted.providerStatus } : {}),
+          abortController: new AbortController()
+        }, timeoutError);
+        persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
+        if (!persisted) return undefined;
+      }
       return {
         id: persisted.id,
         status: parseJobStatus(persisted.status),
@@ -154,7 +179,12 @@ export class BackgroundChatJobService {
     }
     const job = this.jobs.get(id);
     if (!job || (ownerId && job.ownerId !== ownerId)) return undefined;
-    return toChatJobResponse(job);
+    if (isActiveStatus(job.status) && hasExceededExecutionDeadline(job.createdAt)) {
+      const timeoutError = executionTimeoutError(job.id);
+      job.abortController.abort(timeoutError);
+      await this.recordTerminalFailure(job, timeoutError);
+    }
+    return toChatJobResponse(this.jobs.get(id) ?? job);
   }
 
   async trackProviderResponse(id: string, providerResponseId: string, providerStatus?: string): Promise<void> {
@@ -265,7 +295,7 @@ export class BackgroundChatJobService {
     try {
       await this.execute(job, () => this.executor?.(payload.request, job) as Promise<ChatResponse>, terminalAttempt);
     } catch (error) {
-      if (!terminalAttempt) {
+      if (!terminalAttempt && isDurablyRetryable(error)) {
         logger.warn("Background chat job will be retried", {
           jobId: job.id,
           queueJobId,
@@ -273,6 +303,10 @@ export class BackgroundChatJobService {
           retryLimit: queueMetadata.retryLimit,
           error: error instanceof Error ? error.message : String(error)
         });
+      } else if (!terminalAttempt) {
+        // The app job has already been moved to a terminal state. Completing
+        // the pg-boss entry prevents a duplicate provider request and charge.
+        return;
       }
       throw error;
     } finally {
@@ -283,41 +317,58 @@ export class BackgroundChatJobService {
 
   private async execute(job: BackgroundChatJob, executor: () => Promise<ChatResponse>, recordTerminalFailure = true): Promise<void> {
     if (!await this.transitionActive(job.id, { status: "running" })) return;
+    let executionTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const response = await executor();
+      const timeout = new Promise<never>((_, reject) => {
+        executionTimer = setTimeout(() => {
+          const error = executionTimeoutError(job.id);
+          job.abortController.abort(error);
+          reject(error);
+        }, env.CHAT_JOB_EXECUTION_TIMEOUT_MS);
+      });
+      const response = await Promise.race([executor(), timeout]);
       if (await this.isCancelled(job.id)) return;
       await this.transitionActive(job.id, { status: "completed", response });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       if (await this.isCancelled(job.id)) return;
-      if (!recordTerminalFailure) throw error;
-      const failureReason = classifyFailureReason(message);
-      const failed = await this.transitionActive(job.id, { status: "failed", error: message, failureReason });
-      if (!failed) return;
-      if (job.ownerId && job.usageReservationId) {
-        await usageControlService.recordUsage(job.ownerId, undefined, undefined, job.usageReservationId).catch((usageError) => {
-          logger.warn("Could not release usage reservation after background job failure", {
-            jobId: job.id,
-            error: usageError instanceof Error ? usageError.message : String(usageError)
-          });
-        });
-      }
-      if (job.customerUsageOperationId) {
-        await customerUsageService.release(job.customerUsageOperationId).catch((usageError) => {
-          logger.warn("Could not release customer usage reservation after background job failure", {
-            jobId: job.id,
-            error: usageError instanceof Error ? usageError.message : String(usageError)
-          });
-        });
-      }
-      logger.warn("Background chat job failed", {
-        jobId: job.id,
-        error: message,
-        failureReason,
-        ...(job.providerResponseId ? { providerResponseId: job.providerResponseId } : {})
-      });
+      if (!recordTerminalFailure && isDurablyRetryable(error)) throw error;
+      await this.recordTerminalFailure(job, error);
       throw error;
+    } finally {
+      if (executionTimer) clearTimeout(executionTimer);
     }
+  }
+
+  private async recordTerminalFailure(job: BackgroundChatJob, error: unknown): Promise<void> {
+    const message = error instanceof Error ? error.message : String(error);
+    const failureReason = classifyFailureReason(message);
+    const failed = await this.transitionActive(job.id, { status: "failed", error: message, failureReason });
+    if (!failed) return;
+    if (job.providerResponseId && (failureReason === "job_execution_timeout" || failureReason === "openai_background_timeout")) {
+      void openAIResponseLifecycleService.cancel(job.providerResponseId);
+    }
+    if (job.ownerId && job.usageReservationId) {
+      await usageControlService.recordUsage(job.ownerId, undefined, undefined, job.usageReservationId).catch((usageError) => {
+        logger.warn("Could not release usage reservation after background job failure", {
+          jobId: job.id,
+          error: usageError instanceof Error ? usageError.message : String(usageError)
+        });
+      });
+    }
+    if (job.customerUsageOperationId) {
+      await customerUsageService.release(job.customerUsageOperationId).catch((usageError) => {
+        logger.warn("Could not release customer usage reservation after background job failure", {
+          jobId: job.id,
+          error: usageError instanceof Error ? usageError.message : String(usageError)
+        });
+      });
+    }
+    logger.warn("Background chat job failed", {
+      jobId: job.id,
+      error: message,
+      failureReason,
+      ...(job.providerResponseId ? { providerResponseId: job.providerResponseId } : {})
+    });
   }
 
   private async isCancelled(id: string): Promise<boolean> {
@@ -488,6 +539,9 @@ function toChatJobResponse(job: BackgroundChatJob): ChatJobResponse {
 function publicJobError(error: string): string {
   // The stored error is kept for operator logs, but database-driver messages
   // can expose SQL, identifiers, and parameter values to the mobile client.
+  if (/background chat job exceeded its execution deadline|openai background response timed out/i.test(error)) {
+    return "This response took too long and was stopped. Please try again.";
+  }
   if (/failed query:|openai_artifacts|foreign key|violates .*constraint|duplicate key/i.test(error)) {
     return "The response finished, but we could not save it. Please try again.";
   }
@@ -496,10 +550,48 @@ function publicJobError(error: string): string {
 
 function classifyFailureReason(message: string): ChatJobFailureReason {
   const normalized = message.toLowerCase();
+  if (normalized.includes("background chat job exceeded its execution deadline")) {
+    return "job_execution_timeout";
+  }
   if (normalized.includes("openai background response timed out") || normalized.includes("background response timed out")) {
     return "openai_background_timeout";
   }
   return "provider_failure";
+}
+
+function isActiveStatus(status: string): boolean {
+  return status === "queued" || status === "running";
+}
+
+function hasExceededExecutionDeadline(createdAt: Date | string): boolean {
+  const timestamp = createdAt instanceof Date ? createdAt.getTime() : Date.parse(createdAt);
+  return Number.isFinite(timestamp) && Date.now() - timestamp >= env.CHAT_JOB_EXECUTION_TIMEOUT_MS;
+}
+
+function executionTimeoutError(jobId: string): Error {
+  return new Error(
+    `Background chat job exceeded its execution deadline after ${Math.round(env.CHAT_JOB_EXECUTION_TIMEOUT_MS / 1000)} seconds. Job ID: ${jobId}`
+  );
+}
+
+function isDurablyRetryable(error: unknown): boolean {
+  const status = typeof error === "object" && error !== null && "status" in error
+    ? Number((error as { status?: unknown }).status)
+    : typeof error === "object" && error !== null && "statusCode" in error
+      ? Number((error as { statusCode?: unknown }).statusCode)
+      : Number.NaN;
+  if (status === 408 || status === 425 || status === 429 || status >= 500) return true;
+
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  if (
+    message.includes("background response timed out")
+    || message.includes("execution deadline")
+    || message.includes("cancelled")
+    || message.includes("aborted")
+  ) {
+    return false;
+  }
+  return /temporar(?:y|ily)|unavailable|rate.?limit|econnreset|etimedout|socket hang up|network error/.test(message);
 }
 
 export const backgroundChatJobService = new BackgroundChatJobService();

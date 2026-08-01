@@ -988,6 +988,7 @@ export type ChatResponse = z.infer<typeof chatResponseSchema>;
 
 export const chatJobFailureReasonSchema = z.enum([
   "frontend_poll_timeout",
+  "job_execution_timeout",
   "openai_background_timeout",
   "manual_cancel",
   "provider_failure"

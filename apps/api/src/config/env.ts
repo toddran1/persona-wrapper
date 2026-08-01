@@ -43,6 +43,7 @@ const envSchema = z.object({
   API_HEADERS_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
   API_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   API_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  CHAT_JOB_EXECUTION_TIMEOUT_MS: z.coerce.number().int().positive().default(660000),
   API_TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   APP_TEST_MODE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   APP_ADMIN_EMAILS: z.preprocess(optionalTrimmedString, z.string().default("")),

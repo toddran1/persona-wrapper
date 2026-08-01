@@ -123,6 +123,10 @@ services:
         value: "true"
       - key: OPENAI_ENABLE_IMAGE_GENERATION
         value: "true"
+      # Prevent a provider or post-processing stage from leaving a chat job
+      # permanently running. The mobile client reconciles the terminal state.
+      - key: CHAT_JOB_EXECUTION_TIMEOUT_MS
+        value: "660000"
       - key: OPENAI_DIRECT_IMAGE_API_ENABLED
         value: "true"
       # Kept below the OpenAI Images API 50 MB per-input-image limit.
