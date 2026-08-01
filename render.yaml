@@ -144,7 +144,7 @@ services:
       - key: FISH_AUDIO_REFERENCE_ID_BAMBAM
         sync: false
       - key: FISH_AUDIO_MODEL
-        value: "s2.1-pro"
+        value: "s2.1-pro-free"
       - key: ELEVENLABS_API_KEY
         sync: false
       - key: ELEVENLABS_VOICE_ID

@@ -1,6 +1,14 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const testMode = process.argv.slice(2).includes("--test-mode") || process.env.npm_config_test_mode === "true";
+
+const sharedBuild = spawnSync("npm", ["run", "build", "-w", "@persona/shared"], {
+  stdio: "inherit"
+});
+
+if (sharedBuild.status !== 0) {
+  process.exit(sharedBuild.status ?? 1);
+}
 
 console.log(`[dev] test mode: ${testMode ? "enabled" : "disabled"}`);
 

@@ -854,7 +854,7 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
     fishAudio: z.object({
       referenceId: z.string().optional(),
       referenceIdEnvVar: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
-      model: z.enum(["s1", "s2-pro", "s2.1-pro"]).optional(),
+      model: z.enum(["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"]).optional(),
       format: z.enum(["mp3", "wav", "opus"]).optional(),
       latency: z.enum(["low", "normal", "balanced"]).optional(),
       speed: z.number().min(0.5).max(2).optional(),

@@ -9,7 +9,7 @@ type FishAudioFormat = "mp3" | "wav" | "opus";
 
 type FishAudioVoiceConfig = {
   referenceId?: string;
-  model: "s1" | "s2-pro" | "s2.1-pro";
+  model: "s1" | "s2-pro" | "s2.1-pro" | "s2.1-pro-free";
   format: FishAudioFormat;
   sampleRate: number;
   latency: "low" | "normal" | "balanced";

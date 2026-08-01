@@ -174,7 +174,7 @@ const envSchema = z.object({
   FISH_AUDIO_REFERENCE_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   FISH_AUDIO_REFERENCE_ID_LARAE: z.preprocess(optionalTrimmedString, z.string().optional()),
   FISH_AUDIO_REFERENCE_ID_BAMBAM: z.preprocess(optionalTrimmedString, z.string().optional()),
-  FISH_AUDIO_MODEL: z.enum(["s1", "s2.1-pro"]).default("s2.1-pro"),
+  FISH_AUDIO_MODEL: z.enum(["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"]).default("s2.1-pro"),
   FISH_AUDIO_FORMAT: z.enum(["mp3", "wav", "opus"]).default("mp3"),
   FISH_AUDIO_SAMPLE_RATE: z.coerce.number().int().refine((value) => [8000, 16000, 24000, 32000, 44100, 48000].includes(value), {
     message: "FISH_AUDIO_SAMPLE_RATE is not supported."
