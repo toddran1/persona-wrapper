@@ -105,8 +105,14 @@ const UNIT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\b(\d+(?:\.\d+)?)\s?TB\b/g, "$1 terabytes"]
 ];
 
-function elevenLabsModelId(persona: PersonaDefinition): string {
-  return persona.voiceProfile.elevenLabs?.modelId ?? env.ELEVENLABS_MODEL_ID;
+function activeTtsModelId(persona: PersonaDefinition): string {
+  if (env.TTS_PROVIDER === "fish_audio") {
+    return persona.voiceProfile.fishAudio?.model ?? env.FISH_AUDIO_MODEL;
+  }
+  if (env.TTS_PROVIDER === "elevenlabs") {
+    return persona.voiceProfile.elevenLabs?.modelId ?? env.ELEVENLABS_MODEL_ID;
+  }
+  return env.TTS_PROVIDER;
 }
 
 function stripMarkdownForSpeech(text: string): string {
@@ -192,7 +198,7 @@ function addPacing(text: string): string {
 }
 
 function addPersonaPerformanceCues(text: string, persona: PersonaDefinition): string {
-  const modelId = elevenLabsModelId(persona);
+  const modelId = activeTtsModelId(persona);
   return applyPersonaVoicePerformance(text, persona, modelId);
 }
 

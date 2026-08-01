@@ -11,9 +11,19 @@ type AudioPlaybackSubscription = { remove: () => void };
 function audioFileExtension(mimeType: string): string {
   if (mimeType.includes("wav")) return "wav";
   if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("opus")) return "opus";
   if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
   if (mimeType.includes("mp4")) return "m4a";
+  if (mimeType.includes("basic")) return "ulaw";
   return "audio";
+}
+
+function playbackErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Could not play this audio response.";
+  if (/status\s+(401|403|404|410)\b/i.test(message)) {
+    return "This saved audio is no longer available. Retry the response to generate new audio with the current voice provider.";
+  }
+  return message;
 }
 
 function isManagedAudioCacheUri(uri: string | undefined): uri is string {
@@ -115,7 +125,7 @@ export function usePersonaAudio() {
       if (isManagedAudioCacheUri(pendingAudioUri)) {
         await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
       }
-      Alert.alert("Audio playback failed", playbackError instanceof Error ? playbackError.message : "Could not play this audio response.");
+      Alert.alert("Audio playback failed", playbackErrorMessage(playbackError));
     }
   }, [prepareAudioUri, release]);
 

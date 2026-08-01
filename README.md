@@ -248,6 +248,8 @@ Included providers:
 - `ClaudeProvider`
 - `LocalModelProvider`
 - `OpenAITTSProvider`
+- `FishAudioTTSProvider`
+- `ElevenLabsTTSProvider`
 - `LocalTTSProvider`
 
 The OpenAI provider uses the Responses API when `OPENAI_API_KEY` is configured
@@ -332,6 +334,11 @@ points are:
     defaultVoiceId: "alloy",
     speakingStyle: "Concise speaking direction.",
     performancePreset: "neutral",
+    fishAudio: {
+      // Use either a direct referenceId or an environment-variable name.
+      referenceIdEnvVar: "FISH_AUDIO_REFERENCE_ID_PERSONA",
+      model: "s2-pro"
+    },
     elevenLabs: {
       // Use either a direct voiceId or an environment-variable name.
       voiceIdEnvVar: "ELEVENLABS_VOICE_ID_PERSONA"
@@ -380,6 +387,17 @@ interface TTSProvider {
 
 3. Register the provider in `apps/api/src/providers/tts/providerFactory.ts`.
 4. Extend the persona definition if the new provider needs persona-specific voice metadata.
+
+Set `TTS_PROVIDER=fish_audio` to use Fish Audio. Configure `FISH_AUDIO_API_KEY`
+and, for stable persona voices, a per-persona `FISH_AUDIO_REFERENCE_ID_*` value.
+The reference ID is the Fish Audio voice model ID; if it is omitted, Fish Audio
+uses its default voice. App-deliverable Fish output is limited to MP3, WAV, and
+Opus; raw PCM is rejected because the web and mobile players require a playable
+container. Successful responses are MIME-, signature-, and size-validated
+before storage. Automatic retries are limited to explicit 425/429 responses,
+honor `Retry-After`, and are capped by `FISH_AUDIO_RETRY_MAX_MS` to avoid
+duplicating potentially billable synthesis after an ambiguous transport or
+server failure. ElevenLabs and OpenAI remain selectable adapters.
 
 ## Future Bot / Media Expansion
 

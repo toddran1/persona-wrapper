@@ -81,7 +81,7 @@ services:
       - key: TERMS_POLICY_VERSION
         value: "2026-07-29"
       - key: PRIVACY_POLICY_VERSION
-        value: "2026-07-29"
+        value: "2026-07-31"
       - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS
         value: "30"
       - key: AUTH_SIGNUP_DEVICE_LIMIT
@@ -101,7 +101,7 @@ services:
       - key: CUSTOMER_USAGE_ENFORCEMENT_ENABLED
         value: "true"
       - key: CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD
-        value: "0.10"
+        value: "0.021"
       - key: CUSTOMER_USAGE_IMAGE_INPUT_COST_USD
         value: "0.01"
       - key: CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD
@@ -130,7 +130,17 @@ services:
         value: "49999999"
 
       - key: TTS_PROVIDER
-        value: elevenlabs
+        value: fish_audio
+      - key: FISH_AUDIO_API_KEY
+        sync: false
+      - key: FISH_AUDIO_REFERENCE_ID
+        sync: false
+      - key: FISH_AUDIO_REFERENCE_ID_LARAE
+        sync: false
+      - key: FISH_AUDIO_REFERENCE_ID_BAMBAM
+        sync: false
+      - key: FISH_AUDIO_MODEL
+        value: "s2-pro"
       - key: ELEVENLABS_API_KEY
         sync: false
       - key: ELEVENLABS_VOICE_ID

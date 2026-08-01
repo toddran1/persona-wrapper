@@ -31,7 +31,7 @@ function optionalWhitespaceFreeSecret(value: unknown): unknown {
 const reasoningEffortSchema = z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const reasoningSummarySchema = z.enum(["auto", "concise", "detailed"]);
 const textVerbositySchema = z.enum(["low", "medium", "high"]);
-const ttsProviderSchema = z.enum(["openai", "elevenlabs", "local"]);
+const ttsProviderSchema = z.enum(["openai", "elevenlabs", "fish_audio", "local"]);
 const openAIImageModerationSchema = z.enum(["auto", "low"]);
 const openAIImageQualitySchema = z.enum(["auto", "low", "medium", "high"]);
 const openAIImageSizeSchema = z.enum(["auto", "1024x1024", "1536x1024", "1024x1536"]);
@@ -129,7 +129,7 @@ const envSchema = z.object({
   AUTH_REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   AUTH_PASSWORD_MIN_LENGTH: z.coerce.number().int().min(8).max(128).default(10),
   TERMS_POLICY_VERSION: z.preprocess(optionalTrimmedString, z.string().min(1).max(80).default("2026-07-29")),
-  PRIVACY_POLICY_VERSION: z.preprocess(optionalTrimmedString, z.string().min(1).max(80).default("2026-07-29")),
+  PRIVACY_POLICY_VERSION: z.preprocess(optionalTrimmedString, z.string().min(1).max(80).default("2026-07-31")),
   BETTER_AUTH_SECRET: z.preprocess(optionalTrimmedString, z.string().min(32).optional()),
   GMAIL_SMTP_USER: z.preprocess(optionalTrimmedString, z.string().email().optional()),
   GMAIL_SMTP_APP_PASSWORD: z.preprocess(optionalWhitespaceFreeSecret, z.string().min(16).optional()),
@@ -166,8 +166,30 @@ const envSchema = z.object({
   LOCAL_LLM_MODEL: z.string().default("llama3.2:3b"),
   LOCAL_LLM_NUM_CTX: z.coerce.number().int().positive().default(8192),
   LOCAL_LLM_NUM_PREDICT: z.coerce.number().int().positive().default(1024),
-  TTS_PROVIDER: z.preprocess(emptyStringToUndefined, ttsProviderSchema.default("openai")),
+  TTS_PROVIDER: z.preprocess(emptyStringToUndefined, ttsProviderSchema.default("fish_audio")),
   OPENAI_TTS_VOICE: z.string().default("alloy"),
+  FISH_AUDIO_API_KEY: z.preprocess(optionalWhitespaceFreeSecret, z.string().optional()),
+  FISH_AUDIO_API_URL: z.preprocess(emptyStringToUndefined, z.string().url().default("https://api.fish.audio/v1/tts")),
+  FISH_AUDIO_REFERENCE_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
+  FISH_AUDIO_REFERENCE_ID_LARAE: z.preprocess(optionalTrimmedString, z.string().optional()),
+  FISH_AUDIO_REFERENCE_ID_BAMBAM: z.preprocess(optionalTrimmedString, z.string().optional()),
+  FISH_AUDIO_MODEL: z.enum(["s1", "s2-pro"]).default("s2-pro"),
+  FISH_AUDIO_FORMAT: z.enum(["mp3", "wav", "opus"]).default("mp3"),
+  FISH_AUDIO_SAMPLE_RATE: z.coerce.number().int().refine((value) => [8000, 16000, 24000, 32000, 44100, 48000].includes(value), {
+    message: "FISH_AUDIO_SAMPLE_RATE is not supported."
+  }).default(44100),
+  FISH_AUDIO_MP3_BITRATE: z.coerce.number().int().refine((value) => [64, 128, 192].includes(value), {
+    message: "FISH_AUDIO_MP3_BITRATE must be 64, 128, or 192."
+  }).default(128),
+  FISH_AUDIO_LATENCY: z.enum(["low", "normal", "balanced"]).default("balanced"),
+  FISH_AUDIO_SPEED: z.coerce.number().min(0.5).max(2).default(1),
+  FISH_AUDIO_VOLUME: z.coerce.number().min(-20).max(20).default(0),
+  FISH_AUDIO_TEMPERATURE: z.coerce.number().min(0).max(1).default(0.7),
+  FISH_AUDIO_TOP_P: z.coerce.number().min(0).max(1).default(0.7),
+  FISH_AUDIO_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
+  FISH_AUDIO_RETRY_BASE_MS: z.coerce.number().int().positive().default(400),
+  FISH_AUDIO_RETRY_MAX_MS: z.coerce.number().int().positive().default(10_000),
+  FISH_AUDIO_MAX_RESPONSE_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
   ELEVENLABS_API_KEY: z.preprocess(emptyStringToUndefined, z.string().optional()),
   ELEVENLABS_VOICE_ID: z.preprocess(emptyStringToUndefined, z.string().optional()),
   ELEVENLABS_VOICE_ID_LARAE: z.preprocess(emptyStringToUndefined, z.string().optional()),
@@ -185,6 +207,25 @@ const envSchema = z.object({
   STYLE_TRANSFER_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   STYLE_TRANSFER_MODEL_ID: z.preprocess(emptyStringToUndefined, z.string().optional())
 }).superRefine((value, context) => {
+  const supportedFishAudioSampleRates: Record<typeof value.FISH_AUDIO_FORMAT, number[]> = {
+    mp3: [32000, 44100],
+    opus: [48000],
+    wav: [8000, 16000, 24000, 32000, 44100]
+  };
+  if (!supportedFishAudioSampleRates[value.FISH_AUDIO_FORMAT].includes(value.FISH_AUDIO_SAMPLE_RATE)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["FISH_AUDIO_SAMPLE_RATE"],
+      message: `FISH_AUDIO_SAMPLE_RATE is not supported for ${value.FISH_AUDIO_FORMAT} output.`
+    });
+  }
+  if (value.NODE_ENV === "production" && value.TTS_PROVIDER === "fish_audio" && !value.FISH_AUDIO_API_KEY) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["FISH_AUDIO_API_KEY"],
+      message: "FISH_AUDIO_API_KEY is required when Fish Audio is the production TTS provider."
+    });
+  }
   if (value.NODE_ENV === "production" && !value.AUTH_REQUIRED) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

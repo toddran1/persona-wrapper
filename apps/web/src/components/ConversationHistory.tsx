@@ -101,7 +101,10 @@ function UserPromptAssetPreview({ asset }: { asset: UserPromptAsset }) {
 function audioFileExtension(mimeType: string): string {
   if (mimeType.includes("wav")) return "wav";
   if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("opus")) return "opus";
   if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
+  if (mimeType.includes("mp4")) return "m4a";
+  if (mimeType.includes("basic")) return "ulaw";
   return "audio";
 }
 

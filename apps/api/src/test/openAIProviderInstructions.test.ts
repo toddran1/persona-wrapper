@@ -138,16 +138,16 @@ describe("OpenAIProvider instructions", () => {
 
     expect(directInstructions).toContain("Audio response format requirement");
     expect(directInstructions).toContain("\"visible_text\":\"normal response for the UI\"");
-    expect(directInstructions).toContain("\"tts_script\":\"ElevenLabs-optimized narration script\"");
+    expect(directInstructions).toContain("\"tts_script\":\"provider-optimized narration script\"");
     expect(directInstructions).toContain("visible_text is the normal user-facing answer");
-    expect(directInstructions).toContain("tts_script is hidden and will be sent only to ElevenLabs");
+    expect(directInstructions).toContain("tts_script is hidden and will be sent only to the configured speech provider");
     expect(directInstructions).toContain("it should NOT simply copy visible_text");
     expect(directInstructions).toContain("performance-ready narration script");
     expect(directInstructions).toContain("normalize text for speech");
     expect(directInstructions).toContain("add natural speech pacing");
     expect(directInstructions).toContain("carry the configured persona emotion and delivery");
     expect(directInstructions).toContain("Do not include bracketed emotion tags");
-    expect(directInstructions).toContain("<break time=\"0.4s\" />");
+    expect(directInstructions).toContain("without provider-specific markup");
     expect(directInstructions).toContain("sassy, animated, rapid-fire confessional style");
     expect(directInstructions).toContain("Haha, Heh, Ahaha!, HA!, or Oh, pfft");
     expect(directInstructions).toContain("Ugh..., Oh... god..., *sniff*, or No... no...");
@@ -155,7 +155,6 @@ describe("OpenAIProvider instructions", () => {
     expect(directInstructions).toContain("ALL CAPS");
     expect(directInstructions).toContain("?! for sharp upward bewildered inflection");
     expect(directInstructions).toContain("Listen..., Look—, Baby..., or Bitch—");
-    expect(directInstructions).toContain("<break time=\"0.3s\" />");
 
     env.OPENAI_TTS_SCRIPT_ENABLED = original;
   });

@@ -2,7 +2,8 @@ import type { TTSInput, TTSOutput } from "@persona/shared";
 import type { TTSProvider } from "./TTSProvider.js";
 
 export class LocalTTSProvider implements TTSProvider {
-  async synthesize(input: TTSInput): Promise<TTSOutput> {
+  async synthesize(input: TTSInput, signal?: AbortSignal): Promise<TTSOutput> {
+    signal?.throwIfAborted();
     return {
       provider: "local_tts",
       url: `https://example.com/local-audio/${encodeURIComponent(input.persona.id)}.wav`,
@@ -11,4 +12,3 @@ export class LocalTTSProvider implements TTSProvider {
     };
   }
 }
-

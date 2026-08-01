@@ -14,18 +14,29 @@ async function openAccountMenu(page: import("@playwright/test").Page) {
   await expect(menu).toBeVisible();
 }
 
+async function openSettings(page: import("@playwright/test").Page) {
+  await openAccountMenu(page);
+  await page.getByRole("menuitem", { name: "Settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
 test.describe("For the Baddiez browser E2E", () => {
-  test("test-mode OAuth completes for Google and Facebook", async ({ browser }) => {
-    for (const provider of ["google", "facebook"] as const) {
-      const context = await browser.newContext();
-      const page = await context.newPage();
-      await page.goto("/");
-      await openAuth(page, "login");
-      await page.getByTestId(`oauth-${provider}`).click();
-      await expect(page).toHaveURL(/127\.0\.0\.1:5173\/?$/);
-      await expect(page.getByTestId("account-menu-toggle")).toBeVisible();
-      await context.close();
-    }
+  test("external OAuth providers stay disabled in the isolated test environment", async ({ page }) => {
+    await page.goto("/");
+    await openAuth(page, "login");
+    await expect(page.getByTestId("oauth-google")).toHaveCount(0);
+    await expect(page.getByTestId("oauth-facebook")).toHaveCount(0);
+
+    const providerResponse = await page.request.get("http://127.0.0.1:4100/api/account/oauth/providers");
+    expect(providerResponse.ok()).toBe(true);
+    await expect(providerResponse.json()).resolves.toEqual({
+      providers: [
+        { provider: "google", enabled: false },
+        { provider: "facebook", enabled: false }
+      ]
+    });
   });
 
   test("password login, chat, background work, upload, data transfer, deletion, and restoration", async ({ page }) => {
@@ -38,6 +49,7 @@ test.describe("For the Baddiez browser E2E", () => {
     await page.getByTestId("auth-register-email").fill(email);
     await page.getByTestId("auth-register-username").fill(`e2e_${suffix}`);
     await page.getByTestId("auth-register-password").fill(password);
+    await page.getByTestId("auth-register-consent").check();
     await page.getByTestId("auth-submit").click();
     await expect(page.getByTestId("account-menu-toggle")).toBeVisible();
 
@@ -55,15 +67,17 @@ test.describe("For the Baddiez browser E2E", () => {
     await expect(page.getByText("Run this long-running task in the background for the E2E test.", { exact: true })).toBeVisible();
     await expect(page.locator(".chat-row-assistant").last()).toBeVisible({ timeout: 30_000 });
 
-    await openAccountMenu(page);
+    const settings = await openSettings(page);
+    await settings.getByRole("button", { name: "Your data" }).click();
     const accountDownload = page.waitForEvent("download");
-    await page.getByRole("menuitem", { name: "Export account data" }).click();
+    await settings.getByRole("button", { name: /Export account data/ }).click();
     const accountExport = await accountDownload;
     expect(accountExport.suggestedFilename()).toContain("for-the-baddiez-account-");
 
-    await page.getByRole("menuitem", { name: "Import conversations" }).click();
+    await settings.getByRole("button", { name: /Import conversations/ }).click();
     await page.getByTestId("conversation-import-input").setInputFiles(fixture("chatgpt-export.json"));
     await expect(page.getByText("Imported E2E ChatGPT conversation")).toBeVisible();
+    await settings.getByRole("button", { name: "Close settings" }).click();
 
     const firstConversationActions = page.locator('[data-testid^="conversation-actions-"]').first();
     await firstConversationActions.click();
@@ -80,8 +94,9 @@ test.describe("For the Baddiez browser E2E", () => {
     await page.getByTestId("auth-submit").click();
     await expect(page.getByTestId("account-menu-toggle")).toBeVisible();
 
-    await openAccountMenu(page);
-    await page.getByRole("menuitem", { name: "Delete account", exact: true }).click();
+    const deletionSettings = await openSettings(page);
+    await deletionSettings.getByRole("button", { name: "Delete account" }).click();
+    await deletionSettings.getByRole("button", { name: "Continue to deletion" }).click();
     await page.getByTestId("delete-confirmation").fill("DELETE");
     await page.getByTestId("delete-password").fill(password);
     await page.getByTestId("confirm-delete-account").click();

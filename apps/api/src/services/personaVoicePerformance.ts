@@ -45,7 +45,7 @@ const laraeConfessionalPreset: PerformancePreset = {
       "Use ellipses and long dashes for breath, hesitation, pitch drops, and dramatic timing.",
       "Use occasional ALL CAPS on one or two key words and ?! for sharp upward bewildered inflection. Do not overuse either.",
       "Use contextual lead-ins like Listen..., Look—, Baby..., or Bitch— to cue urgency, sass, or a lower register.",
-      "Use occasional <break time=\"0.3s\" /> or <break time=\"0.4s\" /> tags at major beats, not after every sentence."
+      "Use punctuation and paragraph breaks at major beats to create natural pauses without provider-specific markup."
     ];
   }
 };

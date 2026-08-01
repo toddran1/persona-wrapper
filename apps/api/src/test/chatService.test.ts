@@ -1,6 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { env } from "../config/env.js";
 import { ChatService } from "../services/chatService.js";
 import { ConversationStore } from "../services/conversationStore.js";
+
+const originalAppTestMode = env.APP_TEST_MODE;
+const originalTtsProvider = env.TTS_PROVIDER;
+const originalFishAudioApiKey = env.FISH_AUDIO_API_KEY;
+
+afterEach(() => {
+  env.APP_TEST_MODE = originalAppTestMode;
+  env.TTS_PROVIDER = originalTtsProvider;
+  env.FISH_AUDIO_API_KEY = originalFishAudioApiKey;
+});
 
 describe("ChatService", () => {
   it("does not echo the raw user prompt as the assistant reply", async () => {
@@ -92,6 +103,34 @@ describe("ChatService", () => {
     expect(response.diagnostics.neutralResponse).toBe(assistantText);
     expect(assistantText).toContain("I’m LaRae the Baddest");
     expect(assistantText).not.toContain("Bitch, be serious.");
+  });
+
+  it("returns and persists a public-safe status when requested audio generation fails", async () => {
+    env.APP_TEST_MODE = false;
+    env.TTS_PROVIDER = "fish_audio";
+    env.FISH_AUDIO_API_KEY = undefined;
+
+    const conversationStore = new ConversationStore();
+    const response = await new ChatService(conversationStore).handleChat({
+      personaId: "larae",
+      provider: "openai_persona",
+      message: "Give me a short spoken greeting.",
+      audio: true,
+      testMode: true,
+      history: []
+    });
+
+    const publicMessage = "Audio could not be generated. You can retry this response or continue with the text reply.";
+    expect(response.outputs).toContainEqual({ type: "status", status: "failed", message: publicMessage });
+    expect(response.outputs.some((output) => output.type === "audio")).toBe(false);
+    expect(response.diagnostics.tts).toMatchObject({ status: "failed", error: publicMessage });
+    expect(response.diagnostics.tts?.error).not.toContain("API key");
+    const persistedConversation = await conversationStore.get(response.conversationId);
+    expect(persistedConversation?.turns.at(-1)?.outputs).toContainEqual({
+      type: "status",
+      status: "failed",
+      message: publicMessage
+    });
   });
 
   it("stops before generation when the request is cancelled", async () => {

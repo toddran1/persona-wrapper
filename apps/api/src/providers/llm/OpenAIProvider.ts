@@ -102,7 +102,6 @@ function shouldRequestInlineTtsScript(input: LLMInput, promptMode: OpenAIPromptM
   return promptMode === "full" &&
     input.audio === true &&
     env.OPENAI_TTS_SCRIPT_ENABLED &&
-    input.persona.voiceProfile.elevenLabs !== undefined &&
     !input.toolOptions?.imageGeneration &&
     !input.toolOptions?.codeInterpreter;
 }
@@ -123,7 +122,7 @@ function dualTextResponseFormat(): OpenAIItem {
         },
         tts_script: {
           type: "string",
-          description: "The same response meaning and facts, rewritten as an ElevenLabs narration script with speech pacing, normalized pronunciation, and emotional delivery cues appropriate for the configured model."
+          description: "The same response meaning and facts, rewritten as a provider-neutral narration script with speech pacing, normalized pronunciation, and emotional delivery cues appropriate for the configured voice."
         }
       }
     }
@@ -341,15 +340,19 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
   }
 
   if (shouldRequestInlineTtsScript(input, promptMode)) {
-    const ttsModelId = input.persona.voiceProfile.elevenLabs?.modelId ?? env.ELEVENLABS_MODEL_ID;
+    const ttsModelId = env.TTS_PROVIDER === "fish_audio"
+      ? input.persona.voiceProfile.fishAudio?.model ?? env.FISH_AUDIO_MODEL
+      : env.TTS_PROVIDER === "elevenlabs"
+        ? input.persona.voiceProfile.elevenLabs?.modelId ?? env.ELEVENLABS_MODEL_ID
+        : env.TTS_PROVIDER;
     extraInstructions.push(
       [
         "Audio response format requirement:",
         "Because audio is enabled, your text response must be a single strict JSON object with exactly these keys:",
-        "{\"visible_text\":\"normal response for the UI\",\"tts_script\":\"ElevenLabs-optimized narration script\"}",
+        "{\"visible_text\":\"normal response for the UI\",\"tts_script\":\"provider-optimized narration script\"}",
         "Do not wrap the JSON in markdown fences. Do not add text before or after the JSON.",
         "visible_text is the normal user-facing answer and may use markdown when useful.",
-        "tts_script is hidden and will be sent only to ElevenLabs. It must preserve the same meaning and facts as visible_text, but it should NOT simply copy visible_text.",
+        "tts_script is hidden and will be sent only to the configured speech provider. It must preserve the same meaning and facts as visible_text, but it should NOT simply copy visible_text.",
         `Write tts_script as a performance-ready narration script for the current voice. Configured speaking style: ${input.persona.voiceProfile.speakingStyle}.`,
         "For tts_script, remove markdown syntax, raw source citations, code fences, tables, image/file markup, and raw links unless the link itself must be spoken.",
         "For tts_script, normalize text for speech: expand abbreviations and units, spell out awkward symbols, rewrite URLs as source names or omit them, and make numbers, dates, money, percentages, times, and acronyms easier to pronounce while preserving their exact factual value.",

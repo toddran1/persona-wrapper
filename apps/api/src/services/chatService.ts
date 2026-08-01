@@ -36,6 +36,8 @@ export type ChatServiceOptions = {
   ownerId?: string;
 };
 
+const PUBLIC_TTS_FAILURE_MESSAGE = "Audio could not be generated. You can retry this response or continue with the text reply.";
+
 function insertToolContext(input: ChatMessage[], toolContext: ToolContext | undefined): ChatMessage[] {
   if (!toolContext) {
     return input;
@@ -668,8 +670,9 @@ export class ChatService {
               text: ttsScript,
               persona,
               ...(options.ownerId ? { ownerId: options.ownerId } : {}),
-              conversationId: conversation.id
-            }));
+              conversationId: conversation.id,
+              messageId: assistantMessageId
+            }, signal));
             ttsDiagnostic = {
               status: "generated",
               provider: ttsOutput.provider,
@@ -680,9 +683,10 @@ export class ChatService {
             };
           }
         } catch (error) {
+          if (signal?.aborted) throw error;
           ttsDiagnostic = {
             status: "failed",
-            error: error instanceof Error ? error.message : String(error),
+            error: PUBLIC_TTS_FAILURE_MESSAGE,
             textCharacters: ttsScript.length,
             scriptMode: ttsScriptMode
           };
@@ -808,9 +812,22 @@ export class ChatService {
         },
     );
 
-    const firstTextBlock = responseLlmOutput.content.find((block) => block.type === "text");
-    const assistantText = firstTextBlock?.type === "text" ? firstTextBlock.text : responseLlmOutput.rawText;
-    const persistedOutputs: ContentBlock[] = [...responseLlmOutput.content];
+    const responseOutputWithTtsStatus = ttsDiagnostic?.status === "failed"
+      ? llmOutputSchema.parse({
+          ...responseLlmOutput,
+          content: [
+            ...responseLlmOutput.content,
+            {
+              type: "status",
+              status: "failed",
+              message: PUBLIC_TTS_FAILURE_MESSAGE
+            }
+          ]
+        })
+      : responseLlmOutput;
+    const firstTextBlock = responseOutputWithTtsStatus.content.find((block) => block.type === "text");
+    const assistantText = firstTextBlock?.type === "text" ? firstTextBlock.text : responseOutputWithTtsStatus.rawText;
+    const persistedOutputs: ContentBlock[] = [...responseOutputWithTtsStatus.content];
     if (request.audio && ttsOutput) {
       persistedOutputs.push({
         type: "audio",
@@ -867,7 +884,7 @@ export class ChatService {
 
     return this.responseFormatter.format({
       persona,
-      llmOutput: responseLlmOutput,
+      llmOutput: responseOutputWithTtsStatus,
       conversationId: updatedConversation.id,
       history: updatedConversation.messages,
       includeAudio: request.audio,

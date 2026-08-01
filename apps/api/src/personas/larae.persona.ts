@@ -740,6 +740,16 @@ export const laraePersona: PersonaDefinitionInput = {
     defaultVoiceId: "larae-glam",
     speakingStyle: "sassy, animated, rapid-fire, and theatrical",
     performancePreset: "larae-confessional",
+    fishAudio: {
+      referenceIdEnvVar: "FISH_AUDIO_REFERENCE_ID_LARAE",
+      model: "s2-pro",
+      format: "mp3",
+      latency: "balanced",
+      speed: 1.06,
+      volume: 0,
+      temperature: 0.7,
+      topP: 0.7
+    },
     elevenLabs: {
       voiceIdEnvVar: "ELEVENLABS_VOICE_ID_LARAE",
       modelId: "eleven_flash_v2_5",

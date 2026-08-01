@@ -26,7 +26,7 @@ describe("buildTtsScript", () => {
     expect(script).not.toContain("...");
   });
 
-  it("normalizes common speech-hostile tokens before sending to ElevenLabs", () => {
+  it("normalizes common speech-hostile tokens before sending to the configured TTS provider", () => {
     const script = buildTtsScript(
       "Meet at 8:00 PM with a $25 budget, 42% confidence, 5GB file, and this URL: https://example.com/test.",
       larae

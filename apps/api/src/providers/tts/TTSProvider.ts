@@ -1,6 +1,5 @@
 import type { TTSInput, TTSOutput } from "@persona/shared";
 
 export interface TTSProvider {
-  synthesize(input: TTSInput): Promise<TTSOutput>;
+  synthesize(input: TTSInput, signal?: AbortSignal): Promise<TTSOutput>;
 }
-

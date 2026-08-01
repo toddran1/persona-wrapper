@@ -519,6 +519,30 @@ describe("ConversationHistory pending state", () => {
     playSpy.mockRestore();
   });
 
+  it("renders a nonfatal audio generation failure alongside the text reply", () => {
+    render(
+      <ConversationHistory
+        turns={[
+          {
+            userMessage: "Say this out loud.",
+            assistantText: "The text reply is still available.",
+            outputs: [
+              { type: "text", text: "The text reply is still available." },
+              {
+                type: "status",
+                status: "failed",
+                message: "Audio could not be generated. You can retry this response or continue with the text reply."
+              }
+            ]
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("The text reply is still available.")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Audio could not be generated");
+  });
+
   it("reports generated audio playback state changes", () => {
     const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const onAudioPlaybackChange = vi.fn();

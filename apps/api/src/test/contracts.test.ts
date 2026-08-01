@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, currentPoliciesResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, hasCompletePersonaVisualVideoSet, llmInputSchema, personaVisualStageSchema, registerRequestSchema, restoreAccountRequestSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, contentBlockSchema, currentPoliciesResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, hasCompletePersonaVisualVideoSet, llmInputSchema, personaVisualStageSchema, registerRequestSchema, restoreAccountRequestSchema, ttsOutputSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
   it("defaults omitted persona videos to image-only stages", () => {
@@ -135,6 +135,25 @@ describe("shared schemas", () => {
     expect(parsed.provider).toBe("openai");
     expect(parsed.audio).toBe(false);
     expect(parsed.history).toEqual([]);
+  });
+
+  it("keeps current and legacy TTS provider records compatible with provider-neutral audio blocks", () => {
+    expect(ttsOutputSchema.parse({
+      provider: "fish_audio_tts",
+      url: "/api/generated-audio/fish-token",
+      mimeType: "audio/opus"
+    }).provider).toBe("fish_audio_tts");
+    expect(ttsOutputSchema.parse({
+      provider: "elevenlabs_tts",
+      url: "/api/generated-audio/legacy-token",
+      mimeType: "audio/mpeg"
+    }).provider).toBe("elevenlabs_tts");
+    expect(contentBlockSchema.parse({
+      type: "audio",
+      url: "/api/generated-audio/legacy-token",
+      mimeType: "audio/mpeg",
+      transcript: "Legacy saved response."
+    })).toMatchObject({ type: "audio", mimeType: "audio/mpeg" });
   });
 
   it("accepts an attachment-only chat turn without inventing message text", () => {

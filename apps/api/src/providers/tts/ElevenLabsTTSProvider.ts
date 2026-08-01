@@ -28,8 +28,24 @@ function inferExtension(mimeType: string): string {
   return "mp3";
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", handleAbort);
+      resolve();
+    }, ms);
+    const handleAbort = () => {
+      clearTimeout(timeout);
+      reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+  });
+}
+
+function requestSignal(signal?: AbortSignal): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(env.API_REQUEST_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -83,7 +99,8 @@ function buildVoiceSettings(config: ElevenLabsVoiceConfig): Record<string, numbe
 }
 
 export class ElevenLabsTTSProvider implements TTSProvider {
-  async synthesize(input: TTSInput): Promise<TTSOutput> {
+  async synthesize(input: TTSInput, signal?: AbortSignal): Promise<TTSOutput> {
+    signal?.throwIfAborted();
     const voiceConfig = getVoiceConfig(input);
     const voiceId = input.voiceId ?? voiceConfig.voiceId ?? env.ELEVENLABS_VOICE_ID;
     if (!env.ELEVENLABS_API_KEY) throw new HttpError("ElevenLabs API key is not configured.", 503);
@@ -114,13 +131,14 @@ export class ElevenLabsTTSProvider implements TTSProvider {
       try {
         response = await fetch(endpoint, {
           ...requestInit,
-          signal: AbortSignal.timeout(env.API_REQUEST_TIMEOUT_MS)
+          signal: requestSignal(signal)
         });
         if (response.ok) break;
         const errorText = await readErrorText(response);
         lastError = new HttpError(`ElevenLabs TTS failed: ${errorText || response.statusText}`, response.status);
         if (!isRetryableStatus(response.status) || attempt === env.ELEVENLABS_MAX_RETRIES) break;
       } catch (error) {
+        if (signal?.aborted) throw error;
         lastError = error;
         if (attempt === env.ELEVENLABS_MAX_RETRIES) break;
       }
@@ -131,7 +149,7 @@ export class ElevenLabsTTSProvider implements TTSProvider {
         nextAttempt: attempt + 2,
         delayMs
       });
-      await sleep(delayMs);
+      await sleep(delayMs, signal);
     }
 
     if (!response?.ok) {

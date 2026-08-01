@@ -850,6 +850,17 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
       similarityBoost: z.number().min(0).max(1).optional(),
       style: z.number().min(0).max(1).optional(),
       useSpeakerBoost: z.boolean().optional()
+    }).optional(),
+    fishAudio: z.object({
+      referenceId: z.string().optional(),
+      referenceIdEnvVar: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
+      model: z.enum(["s1", "s2-pro"]).optional(),
+      format: z.enum(["mp3", "wav", "opus"]).optional(),
+      latency: z.enum(["low", "normal", "balanced"]).optional(),
+      speed: z.number().min(0.5).max(2).optional(),
+      volume: z.number().min(-20).max(20).optional(),
+      temperature: z.number().min(0).max(1).optional(),
+      topP: z.number().min(0).max(1).optional()
     }).optional()
   }),
   defaultTools: z.array(toolNameSchema)
@@ -924,7 +935,7 @@ export const ttsInputSchema = z.object({
 export type TTSInput = z.infer<typeof ttsInputSchema>;
 
 export const ttsOutputSchema = z.object({
-  provider: z.enum(["openai_tts", "elevenlabs_tts", "local_tts"]),
+  provider: z.enum(["openai_tts", "elevenlabs_tts", "fish_audio_tts", "local_tts"]),
   url: z.string(),
   mimeType: z.string(),
   durationMs: z.number().int().nonnegative().optional()
