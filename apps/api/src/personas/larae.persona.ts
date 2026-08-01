@@ -742,7 +742,7 @@ export const laraePersona: PersonaDefinitionInput = {
     performancePreset: "larae-confessional",
     fishAudio: {
       referenceIdEnvVar: "FISH_AUDIO_REFERENCE_ID_LARAE",
-      model: "s2-pro",
+      model: "s2.1-pro",
       format: "mp3",
       latency: "balanced",
       speed: 1.06,

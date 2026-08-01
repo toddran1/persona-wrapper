@@ -337,7 +337,7 @@ points are:
     fishAudio: {
       // Use either a direct referenceId or an environment-variable name.
       referenceIdEnvVar: "FISH_AUDIO_REFERENCE_ID_PERSONA",
-      model: "s2-pro"
+      model: "s2.1-pro"
     },
     elevenLabs: {
       // Use either a direct voiceId or an environment-variable name.

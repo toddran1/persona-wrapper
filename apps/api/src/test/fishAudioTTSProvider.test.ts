@@ -89,7 +89,7 @@ describe("FishAudioTTSProvider", () => {
     expect(url).toBe("https://api.fish.audio/v1/tts");
     expect(init.headers).toMatchObject({
       authorization: "Bearer test-fish-key",
-      model: "s2-pro"
+      model: "s2.1-pro"
     });
     expect(JSON.parse(String(init.body))).toMatchObject({
       text: "Hey baby!",
