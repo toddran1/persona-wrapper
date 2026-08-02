@@ -678,7 +678,12 @@ export class ChatService {
               text: ttsScript,
               persona,
               ...(options.ownerId ? { ownerId: options.ownerId } : {}),
-              conversationId: conversation.id
+              conversationId: conversation.id,
+              audit: {
+                scriptMode: ttsScriptMode,
+                sourceProvider: request.provider,
+                visibleTextCharacters: speechText.length
+              }
             }, signal));
             ttsDiagnostic = {
               status: "generated",

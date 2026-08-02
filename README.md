@@ -405,7 +405,11 @@ normalization, prosody, latency, and request features such as `quality-guard`.
 Persona `voiceProfile.fishAudio` fields can override these defaults. When
 `OPENAI_TTS_SCRIPT_ENABLED=true`, audio requests produce separate visible text
 and a hidden Fish-optimized narration script; S2 bracket cues and emoji cleanup
-apply only to the hidden script. ElevenLabs and OpenAI remain selectable adapters.
+apply only to the hidden script. With `TTS_AUDIT_LOG_ENABLED=true`, the final
+speech script and non-secret Fish request settings are stored in the private
+`generated_audio.metadata` record in full for up to the generated-audio retention
+period; they are never returned by the app API. ElevenLabs and OpenAI remain
+selectable adapters.
 
 ## Future Bot / Media Expansion
 

@@ -107,6 +107,7 @@ const envSchema = z.object({
   OPENAI_IMAGE_SIZE: z.preprocess(emptyStringToUndefined, openAIImageSizeSchema.default("auto")),
   OPENAI_IMAGE_QUALITY: z.preprocess(emptyStringToUndefined, openAIImageQualitySchema.default("auto")),
   OPENAI_TTS_SCRIPT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  TTS_AUDIT_LOG_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_INPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(1),
   OPENAI_OUTPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(6),
   OPENAI_DAILY_SPEND_LIMIT_USD: z.coerce.number().nonnegative().default(5),

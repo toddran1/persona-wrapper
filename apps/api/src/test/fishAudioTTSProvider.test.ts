@@ -16,6 +16,7 @@ const originalAppTestMode = env.APP_TEST_MODE;
 const originalTtsProvider = env.TTS_PROVIDER;
 const originalGenericReferenceId = env.FISH_AUDIO_REFERENCE_ID;
 const originalLaraeReferenceId = process.env.FISH_AUDIO_REFERENCE_ID_LARAE;
+const originalTtsAuditLogEnabled = env.TTS_AUDIT_LOG_ENABLED;
 
 const validMp3 = Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00]);
 
@@ -41,6 +42,7 @@ afterEach(() => {
   env.APP_TEST_MODE = originalAppTestMode;
   env.TTS_PROVIDER = originalTtsProvider;
   env.FISH_AUDIO_REFERENCE_ID = originalGenericReferenceId;
+  env.TTS_AUDIT_LOG_ENABLED = originalTtsAuditLogEnabled;
   if (originalLaraeReferenceId === undefined) delete process.env.FISH_AUDIO_REFERENCE_ID_LARAE;
   else process.env.FISH_AUDIO_REFERENCE_ID_LARAE = originalLaraeReferenceId;
   vi.restoreAllMocks();
@@ -115,7 +117,19 @@ describe("FishAudioTTSProvider", () => {
       mimeType: "audio/mpeg",
       ownerId: "user-test",
       conversationId: "conv-test",
-      messageId: "msg-test"
+      messageId: "msg-test",
+      metadata: expect.objectContaining({
+        ttsAudit: expect.objectContaining({
+          provider: "fish_audio_tts",
+          script: "Hey baby!",
+          scriptCharacters: 9,
+          request: expect.objectContaining({
+            model: "s2.1-pro-free",
+            format: "mp3",
+            features: ["quality-guard"]
+          })
+        })
+      })
     }));
     expect(output).toEqual({
       provider: "fish_audio_tts",
@@ -131,6 +145,20 @@ describe("FishAudioTTSProvider", () => {
       text: "Hey baby!",
       persona: larae
     })).rejects.toMatchObject({ statusCode: 503 });
+  });
+
+  it("can omit private speech audit text when audit logging is disabled", async () => {
+    env.FISH_AUDIO_API_KEY = "test-fish-key";
+    env.FISH_AUDIO_MAX_RETRIES = 0;
+    env.TTS_AUDIT_LOG_ENABLED = false;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(audioResponse()));
+    vi.spyOn(generatedAudioService, "register").mockResolvedValue("/api/generated-audio/test-token");
+
+    await new FishAudioTTSProvider().synthesize({ text: "Private narration", persona: larae });
+
+    expect(generatedAudioService.register).toHaveBeenCalledWith(expect.any(Buffer), expect.not.objectContaining({
+      metadata: expect.anything()
+    }));
   });
 
   it("fails before calling Fish when the persona reference ID is missing", async () => {

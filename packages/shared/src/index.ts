@@ -942,7 +942,12 @@ export const ttsInputSchema = z.object({
   voiceId: z.string().optional(),
   ownerId: z.string().optional(),
   conversationId: z.string().optional(),
-  messageId: z.string().optional()
+  messageId: z.string().optional(),
+  audit: z.object({
+    scriptMode: z.enum(["mechanical", "openai_inline"]),
+    sourceProvider: providerSchema,
+    visibleTextCharacters: z.number().int().nonnegative()
+  }).optional()
 });
 export type TTSInput = z.infer<typeof ttsInputSchema>;
 

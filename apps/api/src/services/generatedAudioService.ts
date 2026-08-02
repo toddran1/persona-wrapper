@@ -19,6 +19,7 @@ type GeneratedAudio = {
   storageKey?: string | null;
   mimeType: string;
   expiresAt: number;
+  metadata?: Record<string, unknown>;
 };
 
 function safeFileName(fileName: string): string {
@@ -41,7 +42,14 @@ export class GeneratedAudioService {
 
   async register(
     buffer: Buffer,
-    options: { fileName: string; mimeType: string; ownerId?: string; conversationId?: string; messageId?: string }
+    options: {
+      fileName: string;
+      mimeType: string;
+      ownerId?: string;
+      conversationId?: string;
+      messageId?: string;
+      metadata?: Record<string, unknown>;
+    }
   ): Promise<string> {
     await this.cleanup();
     const token = randomUUID();
@@ -68,7 +76,8 @@ export class GeneratedAudioService {
           storageKey: stored.storageKey,
           publicUrl,
           mimeType: options.mimeType,
-          expiresAt
+          expiresAt,
+          ...(options.metadata ? { metadata: options.metadata } : {})
         });
       } else {
         this.files.set(token, {
@@ -79,7 +88,8 @@ export class GeneratedAudioService {
           ...(stored.localPath ? { localPath: stored.localPath } : {}),
           storageKey: stored.storageKey,
           mimeType: options.mimeType,
-          expiresAt: expiresAt.getTime()
+          expiresAt: expiresAt.getTime(),
+          ...(options.metadata ? { metadata: options.metadata } : {})
         });
       }
     } catch (error) {

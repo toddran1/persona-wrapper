@@ -30,6 +30,47 @@ type FishAudioVoiceConfig = {
   features: string[];
 };
 
+function ttsAuditMetadata(input: TTSInput, text: string, config: FishAudioVoiceConfig): Record<string, unknown> | undefined {
+  if (!env.TTS_AUDIT_LOG_ENABLED) return undefined;
+
+  return {
+    ttsAudit: {
+      version: 1,
+      provider: "fish_audio_tts",
+      // This is a private, owner-scoped audit record. Keep the exact body sent
+      // to Fish so voice behavior can be reproduced and tuned later.
+      script: text,
+      scriptCharacters: text.length,
+      ...(input.audit ? {
+        scriptMode: input.audit.scriptMode,
+        sourceProvider: input.audit.sourceProvider,
+        visibleTextCharacters: input.audit.visibleTextCharacters
+      } : {}),
+      request: {
+        model: config.model,
+        format: config.format,
+        sampleRate: config.sampleRate,
+        ...(config.format === "mp3" ? { mp3Bitrate: config.mp3Bitrate } : {}),
+        ...(config.format === "opus" ? { opusBitrate: config.opusBitrate } : {}),
+        latency: config.latency,
+        speed: config.speed,
+        volume: config.volume,
+        normalize: config.normalize,
+        normalizeLoudness: config.normalizeLoudness,
+        temperature: config.temperature,
+        topP: config.topP,
+        chunkLength: config.chunkLength,
+        maxNewTokens: config.maxNewTokens,
+        repetitionPenalty: config.repetitionPenalty,
+        minChunkLength: config.minChunkLength,
+        conditionOnPreviousChunks: config.conditionOnPreviousChunks,
+        earlyStopThreshold: config.earlyStopThreshold,
+        features: config.features
+      }
+    }
+  };
+}
+
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
   return new Promise((resolve, reject) => {
@@ -290,12 +331,14 @@ export class FishAudioTTSProvider implements TTSProvider {
     }
 
     const { buffer, mimeType } = await readValidatedAudio(response, voiceConfig.format);
+    const auditMetadata = ttsAuditMetadata(input, text, voiceConfig);
     const url = await generatedAudioService.register(buffer, {
       fileName: `${input.persona.id}-voice.${inferExtension(voiceConfig.format)}`,
       mimeType,
       ...(input.ownerId ? { ownerId: input.ownerId } : {}),
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
-      ...(input.messageId ? { messageId: input.messageId } : {})
+      ...(input.messageId ? { messageId: input.messageId } : {}),
+      ...(auditMetadata ? { metadata: auditMetadata } : {})
     });
 
     return {
