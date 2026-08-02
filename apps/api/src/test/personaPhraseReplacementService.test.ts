@@ -23,7 +23,7 @@ const persona: Pick<PersonaDefinition, "responseStyle"> = {
       {
         id: "my-bro",
         replaceWith: "my bro",
-        phrases: ["the man", "this gentleman", "my buddy"],
+        phrases: ["the man", "this gentleman", "my buddy", "man", "guy"],
         preserveCase: true,
         maxReplacements: 16
       },
@@ -37,7 +37,7 @@ const persona: Pick<PersonaDefinition, "responseStyle"> = {
       {
         id: "the-bros",
         replaceWith: "the bros",
-        phrases: ["those guys", "those fellas"],
+        phrases: ["those guys", "those fellas", "men"],
         preserveCase: true,
         maxReplacements: 16
       }
@@ -92,6 +92,26 @@ describe("applyPersonaPhraseReplacements", () => {
     expect(result.text).toContain('"Little Women"');
     expect(result.text).toContain("| Women | 4 |");
     expect(result.text).toContain("const girls = ['A'];");
+  });
+
+  it("protects hyphenated compounds, unquoted proper names, titles, brands, and named entities", () => {
+    const input = [
+      "A man and a guy discussed Spider-Man and X-Men.",
+      "Wonder Woman, Men in Black, and The Running Man stayed unchanged.",
+      "The movie Leading Man opened beside the brand Modern Man.",
+      "The character Guy joined Acme Woman Studios.",
+      "A single 'woman and man' quotation stays verbatim.",
+      "I'm sure a man knows he's talking to a woman."
+    ].join("\n");
+
+    const result = applyPersonaPhraseReplacements(input, persona);
+
+    expect(result.text).toContain("A my bro and a my bro discussed Spider-Man and X-Men.");
+    expect(result.text).toContain("Wonder Woman, Men in Black, and The Running Man stayed unchanged.");
+    expect(result.text).toContain("The movie Leading Man opened beside the brand Modern Man.");
+    expect(result.text).toContain("The character Guy joined Acme Woman Studios.");
+    expect(result.text).toContain("'woman and man'");
+    expect(result.text).toContain("I'm sure a my bro knows he's talking to a baddie.");
   });
 
   it("leaves structured JSON unchanged", () => {

@@ -11,8 +11,10 @@ type PhraseCandidate = {
   rule: PersonaPhraseReplacementRule;
 };
 
-const INLINE_PROTECTED_PATTERN = /(`+[^`\n]*`+|!?\[[^\]\n]*\]\([^\n)]+\)|<https?:\/\/[^>\n]+>|https?:\/\/[^\s<]+|www\.[^\s<]+|“[^”\n]*”|"[^"\n]*")/giu;
+const INLINE_PROTECTED_PATTERN = /(`+[^`\n]*`+|!?\[[^\]\n]*\]\([^\n)]+\)|<https?:\/\/[^>\n]+>|https?:\/\/[^\s<]+|www\.[^\s<]+|“[^”\n]*”|‘[^’\n]*’|"[^"\n]*"|(?<![\p{L}\p{N}])'[^'\n]+'(?![\p{L}\p{N}]))/giu;
 const MARKDOWN_TABLE_SEPARATOR_PATTERN = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+const NAME_CONTEXT_PATTERN = /(?:app|artist|book|brand|called|character|company|film|game|known as|model|movie|named|novel|organization|organisation|performer|person|platform|product|series|service|show|song|team|titled)\s+(?:the\s+)?$/iu;
+const TITLE_CONNECTOR_PATTERN = /^(?:a|an|and|for|in|of|on|or|the|to|with)$/iu;
 
 function escapeRegularExpression(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -28,6 +30,51 @@ function phrasePattern(value: string): string {
     .split(/[ \t]+/)
     .map(escapeRegularExpression)
     .join("[ \\t]+");
+}
+
+function isNameLikeWord(value: string): boolean {
+  const letters = value.match(/\p{L}/gu) ?? [];
+  if (letters.length === 0) return false;
+  const first = letters[0] ?? "";
+  if (first !== first.toLocaleUpperCase("en-US")) return false;
+  return letters.slice(1).some((letter) => letter === letter.toLocaleLowerCase("en-US"))
+    || letters.every((letter) => letter === letter.toLocaleUpperCase("en-US"));
+}
+
+function adjacentWord(value: string, offset: number, direction: "before" | "after"): string | undefined {
+  const context = direction === "before" ? value.slice(0, offset) : value.slice(offset);
+  const match = direction === "before"
+    ? context.match(/([\p{L}\p{N}][\p{L}\p{N}'’.]*)\s*$/u)
+    : context.match(/^\s*([\p{L}\p{N}][\p{L}\p{N}'’.]*)/u);
+  return match?.[1];
+}
+
+function isProtectedNameOrTitle(value: string, offset: number, matchedPhrase: string): boolean {
+  const phraseWords = matchedPhrase.match(/[\p{L}\p{N}][\p{L}\p{N}'’.]*/gu) ?? [];
+  const nameLikePhrase = phraseWords.length > 0 && phraseWords.every(isNameLikeWord);
+  if (!nameLikePhrase) return false;
+
+  // Multiword title-cased matches (for example, a configured phrase that is
+  // also a work or product title) are safer left untouched.
+  if (phraseWords.length > 1) return true;
+
+  const before = value.slice(0, offset);
+  const afterOffset = offset + matchedPhrase.length;
+  const previousWord = adjacentWord(value, offset, "before");
+  const nextWord = adjacentWord(value, afterOffset, "after");
+  if (previousWord && isNameLikeWord(previousWord)) return true;
+  if (nextWord && isNameLikeWord(nextWord)) return true;
+  if (NAME_CONTEXT_PATTERN.test(before)) return true;
+
+  // Preserve title patterns such as "Men in Black" where a lowercase joining
+  // word sits between title-cased words.
+  const followingTitlePart = value.slice(afterOffset).match(/^\s+([\p{L}]+)\s+([\p{Lu}][\p{L}\p{N}'’.]*)/u);
+  return Boolean(
+    followingTitlePart?.[1]
+    && TITLE_CONNECTOR_PATTERN.test(followingTitlePart[1])
+    && followingTitlePart[2]
+    && isNameLikeWord(followingTitlePart[2])
+  );
 }
 
 function preserveReplacementCase(replacement: string, matchedPhrase: string): string {
@@ -105,7 +152,7 @@ export function applyPersonaPhraseReplacements(
   }
 
   const replacementPattern = new RegExp(
-    `(?<![\\p{L}\\p{N}_])(${candidates.map((candidate) => phrasePattern(candidate.normalizedPhrase)).join("|")})(?![\\p{L}\\p{N}_]|['’]s\\b)`,
+    `(?<![\\p{L}\\p{N}_\\p{Pd}/])(${candidates.map((candidate) => phrasePattern(candidate.normalizedPhrase)).join("|")})(?![\\p{L}\\p{N}_\\p{Pd}/]|['’]s\\b)`,
     "giu"
   );
   const lines = text.split("\n");
@@ -118,8 +165,9 @@ export function applyPersonaPhraseReplacements(
     .split(INLINE_PROTECTED_PATTERN)
     .map((segment, index) => {
       if (index % 2 === 1) return segment;
-      return segment.replace(replacementPattern, (matchedPhrase) => {
+      return segment.replace(replacementPattern, (matchedPhrase, _capturedPhrase, offset: number) => {
         if (totalReplacements >= style.maxPhraseReplacements) return matchedPhrase;
+        if (isProtectedNameOrTitle(segment, offset, matchedPhrase)) return matchedPhrase;
         const candidate = candidatesByPhrase.get(normalizePhrase(matchedPhrase));
         if (!candidate) return matchedPhrase;
 

@@ -78,9 +78,9 @@ describe("OpenAIProvider instructions", () => {
     expect(directInstructions).toContain("It should almost feel like it cannot be enough");
     expect(directInstructions).toContain("LaRae is an adults-only persona");
     expect(directInstructions).toContain("do not make the answer child-safe");
-    expect(directInstructions).toContain("ratchet, messy, funny, loud");
+    expect(directInstructions).toContain("ratchet, sassy, funny, loud");
     expect(directInstructions).toContain("funnier and sassier than a normal assistant");
-    expect(directInstructions).toContain("quick jokes, side-eye, playful reads");
+    expect(directInstructions).toContain("quick mean-girl jokes, side-eye, playful reads");
     expect(directInstructions).toContain("Did I add humor, sass, side-eye, and quick punchlines?");
     expect(directInstructions).toContain("Avoid sounding sanitized");
     expect(directInstructions).toContain("Style density requirement");
@@ -146,10 +146,10 @@ describe("OpenAIProvider instructions", () => {
     expect(directInstructions).toContain("normalize text for speech");
     expect(directInstructions).toContain("add natural speech pacing");
     expect(directInstructions).toContain("carry the configured persona emotion and delivery");
-    expect(directInstructions).toContain("Use Fish Audio S2 bracket cues");
+    expect(directInstructions).toContain("For Fish Audio S2 and S2.1 models");
     expect(directInstructions).toContain("Do not include emoji");
     expect(directInstructions).toContain("sassy, animated, rapid-fire confessional style");
-    expect(directInstructions).toContain("one primary emotion per sentence");
+    expect(directInstructions).toContain("two or three related sentences share one emotional direction");
     expect(directInstructions).toContain("Do not put Fish Audio cues in visible_text");
 
     env.OPENAI_TTS_SCRIPT_ENABLED = original;

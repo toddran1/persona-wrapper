@@ -11,9 +11,14 @@ function isFishS2Model(modelId: string): boolean {
 
 function fishS2PromptInstructions(): string[] {
   return [
-    "Use Fish Audio S2 bracket cues in the hidden tts_script when they materially improve delivery, such as [confident], [amused], [whispering], [chuckling], [sighing], [break], or a short natural-language direction.",
-    "Usually use no more than one primary emotion per sentence. Put sentence-level cues near the beginning of the sentence and space emotional changes out naturally.",
-    "Do not put Fish Audio cues in visible_text. Do not include emoji, markdown, stage directions outside brackets, or cues that conflict with the meaning of the response in tts_script."
+    "Write the hidden tts_script for the ear, not the screen. Use conversational contractions, natural spoken sentence structure, and shorter spoken thoughts when visible_text contains long written sentences.",
+    "Create a coherent emotional arc across the response instead of assigning an unrelated performance to every sentence. Keep the persona recognizable without exaggerating the delivery into a caricature; prioritize clarity, believable rhythm, warmth, and emotional continuity.",
+    "For Fish Audio S2 and S2.1 models (including s2-pro, s2.1-pro, and s2.1-pro-free), use a bracket cue only when it materially changes how a line should be performed, such as [confident], [amused], [excited], [serious], [whispering], [chuckling], [sighing], or [break].",
+    "Do not place a cue on every sentence, stack multiple cues, or repeat one cue mechanically. Usually let two or three related sentences share one emotional direction, and reserve [break] for a meaningful transition, reveal, or punchline.",
+    "Treat supported bracket cues as silent performance controls. Everything outside a supported bracket must be text that should actually be spoken aloud.",
+    "Use punctuation for micro-pacing: commas for brief breaths, em dashes for interruptions or pivots, ellipses for genuine hesitation or suspense, and paragraph breaks for larger emotional transitions. Do not overuse ellipses, exclamation marks, capitalization, filler words, vocal reactions, or dramatic pauses.",
+    "Resolve difficult pronunciations in tts_script when needed while preserving the visible spelling, exact identity, and factual meaning in visible_text.",
+    "Do not put Fish Audio cues in visible_text. Do not include emoji, markdown, URLs, citations, source markers, interface language, stage directions outside supported brackets, or cues that conflict with the response meaning in tts_script."
   ];
 }
 
@@ -27,7 +32,7 @@ const neutralPreset: PerformancePreset = {
 const laraeConfessionalPreset: PerformancePreset = {
   transformMechanicalScript: (text, modelId) => {
     if (modelId === "eleven_v3") {
-      return `[sassy, excited]\n${text.replace(/\b(bitch|hoe|clock it|be serious)\b/gi, "$& [laughs]")}`;
+      return `[sassy, mean-girl humor, excited]\n${text.replace(/\b(bitch|hoe|clock it|be serious)\b/gi, "$& [laughs]")}`;
     }
 
     return text
