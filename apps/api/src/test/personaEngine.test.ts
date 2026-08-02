@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPersonaById } from "../personas/index.js";
+import { stripPersonaAttributionMarkers } from "../services/personaAttribution.js";
 import { PersonaEngine } from "../services/personaEngine.js";
 
 describe("PersonaEngine", () => {
@@ -114,6 +115,7 @@ describe("PersonaEngine", () => {
     });
 
     expect(input.systemPrompt).toContain("Conversation history can contain assistant replies from multiple personas.");
+    expect(input.systemPrompt).toContain("Never repeat, quote, paraphrase, or include an [Assistant persona: ...] marker");
     expect(input.systemPrompt).toContain("Answer the current user only as Bam Bam");
     expect(input.messages[2]?.content).toBe(
       "[Assistant persona: LaRae the Baddest | id=larae]\nThe Miami Heat."
@@ -122,5 +124,16 @@ describe("PersonaEngine", () => {
       "[Assistant persona: Unavailable or retired persona | id=retired-persona]\nA retired answer."
     );
     expect(input.messages[2]).not.toHaveProperty("personaId");
+  });
+
+  it("removes leaked internal persona attribution markers from user-facing text", () => {
+    expect(stripPersonaAttributionMarkers(
+      "[Assistant persona: LaRae the Baddest | id=larae]\nThe visible answer."
+    )).toBe("The visible answer.");
+    expect(stripPersonaAttributionMarkers(
+      "Intro.\n**[Assistant persona: Bam Bam | id=bambam]**\nContinue."
+    )).toBe("Intro.\nContinue.");
+    expect(stripPersonaAttributionMarkers("A normal response mentioning an assistant persona generally."))
+      .toBe("A normal response mentioning an assistant persona generally.");
   });
 });

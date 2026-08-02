@@ -856,11 +856,23 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
       referenceIdEnvVar: z.string().regex(/^[A-Z][A-Z0-9_]*$/).optional(),
       model: z.enum(["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"]).optional(),
       format: z.enum(["mp3", "wav", "opus"]).optional(),
+      sampleRate: z.union([z.literal(8000), z.literal(16000), z.literal(24000), z.literal(32000), z.literal(44100), z.literal(48000)]).optional(),
+      mp3Bitrate: z.union([z.literal(64), z.literal(128), z.literal(192)]).optional(),
+      opusBitrate: z.union([z.literal(-1000), z.literal(24000), z.literal(32000), z.literal(48000), z.literal(64000)]).optional(),
       latency: z.enum(["low", "normal", "balanced"]).optional(),
       speed: z.number().min(0.5).max(2).optional(),
       volume: z.number().min(-20).max(20).optional(),
+      normalizeLoudness: z.boolean().optional(),
+      normalize: z.boolean().optional(),
       temperature: z.number().min(0).max(1).optional(),
-      topP: z.number().min(0).max(1).optional()
+      topP: z.number().min(0).max(1).optional(),
+      chunkLength: z.number().int().min(100).max(300).optional(),
+      maxNewTokens: z.number().int().positive().optional(),
+      repetitionPenalty: z.number().min(0).optional(),
+      minChunkLength: z.number().int().min(0).max(100).optional(),
+      conditionOnPreviousChunks: z.boolean().optional(),
+      earlyStopThreshold: z.number().min(0).max(1).optional(),
+      features: z.array(z.string().min(1)).max(20).optional()
     }).optional()
   }),
   defaultTools: z.array(toolNameSchema)

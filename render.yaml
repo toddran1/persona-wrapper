@@ -145,6 +145,8 @@ services:
         sync: false
       - key: FISH_AUDIO_MODEL
         value: "s2.1-pro-free"
+      - key: OPENAI_TTS_SCRIPT_ENABLED
+        value: "true"
       - key: ELEVENLABS_API_KEY
         sync: false
       - key: ELEVENLABS_VOICE_ID

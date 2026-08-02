@@ -137,6 +137,14 @@ function stripMarkdownForSpeech(text: string): string {
     .trim();
 }
 
+function stripEmojiForSpeech(text: string): string {
+  return text
+    .replace(/\p{Regional_Indicator}{2}/gu, " ")
+    .replace(/[0-9#*]\uFE0F?\u20E3/gu, " ")
+    .replace(/\p{Extended_Pictographic}(?:[\uFE0E\uFE0F])?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:[\uFE0E\uFE0F])?(?:\p{Emoji_Modifier})?)*/gu, " ")
+    .replace(/[\u200D\uFE0E\uFE0F]/g, " ");
+}
+
 function normalizeMoney(text: string): string {
   return text
     .replace(/\$(\d+(?:,\d{3})*(?:\.\d+)?)([KMBT])\b/gi, (_match, amount: string, suffix: string) => {
@@ -203,7 +211,7 @@ function addPersonaPerformanceCues(text: string, persona: PersonaDefinition): st
 }
 
 export function buildTtsScript(text: string, persona: PersonaDefinition): string {
-  const cleanText = stripMarkdownForSpeech(text);
+  const cleanText = stripEmojiForSpeech(stripMarkdownForSpeech(text));
   const normalizedText = normalizeSymbols(normalizeOrdinals(normalizeTimes(normalizePercentages(normalizeMoney(cleanText)))));
   const expandedText = applyCommonSpeechReplacements(expandStateAbbreviations(normalizedText));
   return addPersonaPerformanceCues(addPacing(expandedText), persona);

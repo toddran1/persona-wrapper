@@ -15,8 +15,9 @@ import { logger } from "../utils/logger.js";
 import { measureOperation } from "../utils/observability.js";
 import { generatedMediaService } from "./generatedMediaService.js";
 import { generatedAudioService } from "./generatedAudioService.js";
+import { stripPersonaAttributionMarkers } from "./personaAttribution.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
-import { buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
+import { buildTtsScript, buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
 import { limitAudioResponseText } from "./audioResponsePolicy.js";
 import { CONVERSATION_MEDIA_UNAVAILABLE_TEXT, resolveConversationMediaContext } from "./conversationMediaContext.js";
 import { openAIArtifactService } from "./openAIArtifactService.js";
@@ -492,10 +493,11 @@ export class ChatService {
       throw error;
     }
     const firstNeutralTextBlock = llmOutput.content.find((block) => block.type === "text");
-    const neutralText =
+    const rawNeutralText =
       firstNeutralTextBlock?.type === "text" && firstNeutralTextBlock.text.trim().length > 0
         ? firstNeutralTextBlock.text
         : llmOutput.rawText;
+    const neutralText = stripPersonaAttributionMarkers(rawNeutralText);
     if (streamCallbacks && !llmProvider.generateResponseStream && neutralText) {
       streamCallbacks.onTextDelta(neutralText);
     }
@@ -565,7 +567,9 @@ export class ChatService {
       });
     }
 
-    const styledTextBeforePhraseReplacements = styleTransferOutput.styledText || neutralText;
+    const styledTextBeforePhraseReplacements = stripPersonaAttributionMarkers(
+      styleTransferOutput.styledText || neutralText
+    );
     const phraseReplacementResult = applyPersonaPhraseReplacements(styledTextBeforePhraseReplacements, persona);
     const responseText = request.audio
       ? limitAudioResponseText(phraseReplacementResult.text, request.conciseAudioResponse)
@@ -575,7 +579,8 @@ export class ChatService {
       ...llmOutput,
       rawText: responseText || llmOutput.rawText,
       content: llmOutput.content.map((block) => {
-        if (block.type !== "text" || styledPrimaryText) return block;
+        if (block.type !== "text") return block;
+        if (styledPrimaryText) return { ...block, text: stripPersonaAttributionMarkers(block.text) };
         styledPrimaryText = true;
         return { ...block, text: responseText };
       }),
@@ -626,9 +631,11 @@ export class ChatService {
       const textBlock = responseLlmOutput.content.find((block) => block.type === "text");
       const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
       if (speechText) {
-        const rawInlineTtsScript = typeof llmOutput.metadata?.ttsScript === "string" ? llmOutput.metadata.ttsScript.trim() : "";
+        const rawInlineTtsScript = typeof llmOutput.metadata?.ttsScript === "string"
+          ? stripPersonaAttributionMarkers(llmOutput.metadata.ttsScript.trim())
+          : "";
         const inlineTtsScript = rawInlineTtsScript
-          ? applyPersonaPhraseReplacements(rawInlineTtsScript, persona).text
+          ? buildTtsScript(applyPersonaPhraseReplacements(rawInlineTtsScript, persona).text, persona)
           : "";
         let ttsScript = "";
         let ttsScriptMode: "mechanical" | "openai_inline" = inlineTtsScript ? "openai_inline" : "mechanical";

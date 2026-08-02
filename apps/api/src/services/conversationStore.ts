@@ -21,7 +21,7 @@ import { getDatabase } from "../db/client.js";
 import { conversations, messages as dbMessages } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { estimateChatMessageTokens, estimateTextTokens, trimTextToTokenBudget } from "../utils/tokenBudget.js";
-import { personaMemoryLabel } from "./personaAttribution.js";
+import { personaMemoryLabel, stripPersonaAttributionMarkers } from "./personaAttribution.js";
 
 type ConversationRecord = {
   id: string;
@@ -141,6 +141,7 @@ export class ConversationStore {
 
     const id = conversationId ?? `conv_${randomUUID()}`;
     const now = new Date();
+    const sanitizedSeedHistory = seedHistory.map(sanitizeChatMessage);
     const record: ConversationRecord = {
       id,
       userId: options.userId ?? null,
@@ -150,7 +151,7 @@ export class ConversationStore {
       metadata: {},
       createdAt: now,
       updatedAt: now,
-      messages: [...seedHistory],
+      messages: sanitizedSeedHistory,
       memoryEnabled: options.memoryEnabled ?? true
     };
 
@@ -448,7 +449,7 @@ export class ConversationStore {
         ),
         orderBy: asc(dbMessages.sequence)
       });
-      const history = pageRows.map(rowToChatMessage);
+      const history = pageRows.map(rowToChatMessage).map(sanitizeChatMessage);
       return {
         conversation: summary,
         turns: buildConversationTurns(
@@ -499,7 +500,7 @@ export class ConversationStore {
         }
       });
       if (!row) return undefined;
-      const history = row.messages.map(rowToChatMessage);
+      const history = row.messages.map(rowToChatMessage).map(sanitizeChatMessage);
       return {
         id: row.id,
         ...(row.personaId ? { personaId: row.personaId } : {}),
@@ -527,7 +528,7 @@ export class ConversationStore {
       messageCount: conversation.messages.length,
       createdAt: (conversation.createdAt ?? new Date()).toISOString(),
       updatedAt: (conversation.updatedAt ?? new Date()).toISOString(),
-      history: conversation.messages,
+      history: conversation.messages.map(sanitizeChatMessage),
       turns: conversation.turns ?? buildConversationTurns(
         conversation.messages,
         [],
@@ -786,9 +787,9 @@ export class ConversationStore {
           metadata: nextMetadata,
           createdAt: existing.createdAt,
           updatedAt: existing.updatedAt,
-          messages: existing.messages.map(rowToChatMessage),
+          messages: existing.messages.map(rowToChatMessage).map(sanitizeChatMessage),
           turns: buildConversationTurns(
-            existing.messages.map(rowToChatMessage),
+            existing.messages.map(rowToChatMessage).map(sanitizeChatMessage),
             existing.messages.map(rowToMessageMetadata),
             legacyTurnPersonaId(nextMetadata, existing.personaId)
           ),
@@ -829,8 +830,8 @@ export class ConversationStore {
       title: titleFromMessage(options.titleSeed) ?? titleFromMessages(seedHistory) ?? "New conversation",
       pinned: false,
       metadata: {},
-      messages: [...seedHistory],
-      turns: buildConversationTurns(seedHistory),
+      messages: seedHistory.map(sanitizeChatMessage),
+      turns: buildConversationTurns(seedHistory.map(sanitizeChatMessage)),
       memoryEnabled: options.memoryEnabled ?? true
     };
   }
@@ -1444,14 +1445,18 @@ function buildConversationTurns(
         break;
       }
     }
+    const assistantText = stripPersonaAttributionMarkers(assistant?.content ?? "");
+    const outputs = sanitizeConversationOutputs(
+      assistantMetadata?.outputs ?? (assistantText ? [{ type: "text", text: assistantText }] : [])
+    );
     turns.push({
       ...(assistantMetadata?.personaId || fallbackPersonaId
         ? { personaId: assistantMetadata?.personaId ?? fallbackPersonaId }
         : {}),
       userMessage: message.content,
       userAssets: userMetadata?.userAssets ?? [],
-      assistantText: assistant?.content ?? "",
-      outputs: assistantMetadata?.outputs ?? (assistant?.content ? [{ type: "text", text: assistant.content }] : []),
+      assistantText,
+      outputs,
       ...(assistantMetadata?.visualClarification ? { visualClarification: assistantMetadata.visualClarification } : {}),
       ...(assistantMetadata?.provider ? { provider: assistantMetadata.provider } : {}),
       ...(assistantMetadata?.providerModel ? { providerModel: assistantMetadata.providerModel } : {}),
@@ -1462,6 +1467,23 @@ function buildConversationTurns(
     });
   }
   return turns;
+}
+
+function sanitizeChatMessage(message: ChatMessage): ChatMessage {
+  if (message.role !== "assistant") return message;
+  return { ...message, content: stripPersonaAttributionMarkers(message.content) };
+}
+
+function sanitizeConversationOutputs(outputs: ConversationTurn["outputs"]): ConversationTurn["outputs"] {
+  return outputs.map((output) => {
+    if (output.type === "text") {
+      return { ...output, text: stripPersonaAttributionMarkers(output.text) };
+    }
+    if (output.type === "audio" && output.transcript) {
+      return { ...output, transcript: stripPersonaAttributionMarkers(output.transcript) };
+    }
+    return output;
+  });
 }
 
 function legacyTurnPersonaId(

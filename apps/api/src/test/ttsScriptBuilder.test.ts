@@ -39,6 +39,15 @@ describe("buildTtsScript", () => {
     expect(script).not.toContain("https://example.com/test");
   });
 
+  it("removes emoji only from the hidden speech script while preserving Fish S2 cues", () => {
+    const script = buildTtsScript("[confident] I run the itinerary. 💅🏾✨ [chuckling] Period.", larae);
+
+    expect(script).toContain("[confident]");
+    expect(script).toContain("[chuckling]");
+    expect(script).not.toContain("💅");
+    expect(script).not.toContain("✨");
+  });
+
   it("uses mechanical mode when no inline OpenAI TTS script is available", async () => {
     const result = await buildTtsScriptForSpeech("Dallas, **TX** is loud.", larae);
 

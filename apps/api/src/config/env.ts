@@ -28,6 +28,13 @@ function optionalWhitespaceFreeSecret(value: unknown): unknown {
   return value;
 }
 
+function commaSeparatedStrings(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return value;
+  return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
 const reasoningEffortSchema = z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const reasoningSummarySchema = z.enum(["auto", "concise", "detailed"]);
 const textVerbositySchema = z.enum(["low", "medium", "high"]);
@@ -99,7 +106,7 @@ const envSchema = z.object({
   OPENAI_IMAGE_MODERATION: z.preprocess(emptyStringToUndefined, openAIImageModerationSchema.default("low")),
   OPENAI_IMAGE_SIZE: z.preprocess(emptyStringToUndefined, openAIImageSizeSchema.default("auto")),
   OPENAI_IMAGE_QUALITY: z.preprocess(emptyStringToUndefined, openAIImageQualitySchema.default("auto")),
-  OPENAI_TTS_SCRIPT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  OPENAI_TTS_SCRIPT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
   OPENAI_INPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(1),
   OPENAI_OUTPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(6),
   OPENAI_DAILY_SPEND_LIMIT_USD: z.coerce.number().nonnegative().default(5),
@@ -182,11 +189,23 @@ const envSchema = z.object({
   FISH_AUDIO_MP3_BITRATE: z.coerce.number().int().refine((value) => [64, 128, 192].includes(value), {
     message: "FISH_AUDIO_MP3_BITRATE must be 64, 128, or 192."
   }).default(128),
+  FISH_AUDIO_OPUS_BITRATE: z.coerce.number().int().refine((value) => [-1000, 24000, 32000, 48000, 64000].includes(value), {
+    message: "FISH_AUDIO_OPUS_BITRATE must be -1000, 24000, 32000, 48000, or 64000."
+  }).default(-1000),
   FISH_AUDIO_LATENCY: z.enum(["low", "normal", "balanced"]).default("balanced"),
   FISH_AUDIO_SPEED: z.coerce.number().min(0.5).max(2).default(1),
   FISH_AUDIO_VOLUME: z.coerce.number().min(-20).max(20).default(0),
+  FISH_AUDIO_NORMALIZE_LOUDNESS: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  FISH_AUDIO_NORMALIZE: z.preprocess(stringToBoolean, z.boolean().default(true)),
   FISH_AUDIO_TEMPERATURE: z.coerce.number().min(0).max(1).default(0.7),
   FISH_AUDIO_TOP_P: z.coerce.number().min(0).max(1).default(0.7),
+  FISH_AUDIO_CHUNK_LENGTH: z.coerce.number().int().min(100).max(300).default(300),
+  FISH_AUDIO_MAX_NEW_TOKENS: z.coerce.number().int().positive().default(1024),
+  FISH_AUDIO_REPETITION_PENALTY: z.coerce.number().min(0).default(1.2),
+  FISH_AUDIO_MIN_CHUNK_LENGTH: z.coerce.number().int().min(0).max(100).default(50),
+  FISH_AUDIO_CONDITION_ON_PREVIOUS_CHUNKS: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  FISH_AUDIO_EARLY_STOP_THRESHOLD: z.coerce.number().min(0).max(1).default(1),
+  FISH_AUDIO_FEATURES: z.preprocess(commaSeparatedStrings, z.array(z.string().min(1)).default(["quality-guard"])),
   FISH_AUDIO_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
   FISH_AUDIO_RETRY_BASE_MS: z.coerce.number().int().positive().default(400),
   FISH_AUDIO_RETRY_MAX_MS: z.coerce.number().int().positive().default(10_000),

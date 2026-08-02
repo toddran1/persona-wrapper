@@ -397,7 +397,15 @@ container. Successful responses are MIME-, signature-, and size-validated
 before storage. Automatic retries are limited to explicit 425/429 responses,
 honor `Retry-After`, and are capped by `FISH_AUDIO_RETRY_MAX_MS` to avoid
 duplicating potentially billable synthesis after an ambiguous transport or
-server failure. ElevenLabs and OpenAI remain selectable adapters.
+server failure. The Fish adapter exposes the documented S2.1 request controls
+for sampling (`TEMPERATURE`, `TOP_P`), output and chunking (`FORMAT`, sample and
+bit rates, `CHUNK_LENGTH`, `MIN_CHUNK_LENGTH`, `MAX_NEW_TOKENS`), continuity
+(`CONDITION_ON_PREVIOUS_CHUNKS`, `REPETITION_PENALTY`, `EARLY_STOP_THRESHOLD`),
+normalization, prosody, latency, and request features such as `quality-guard`.
+Persona `voiceProfile.fishAudio` fields can override these defaults. When
+`OPENAI_TTS_SCRIPT_ENABLED=true`, audio requests produce separate visible text
+and a hidden Fish-optimized narration script; S2 bracket cues and emoji cleanup
+apply only to the hidden script. ElevenLabs and OpenAI remain selectable adapters.
 
 ## Future Bot / Media Expansion
 

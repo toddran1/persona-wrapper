@@ -146,15 +146,11 @@ describe("OpenAIProvider instructions", () => {
     expect(directInstructions).toContain("normalize text for speech");
     expect(directInstructions).toContain("add natural speech pacing");
     expect(directInstructions).toContain("carry the configured persona emotion and delivery");
-    expect(directInstructions).toContain("Do not include bracketed emotion tags");
-    expect(directInstructions).toContain("without provider-specific markup");
+    expect(directInstructions).toContain("Use Fish Audio S2 bracket cues");
+    expect(directInstructions).toContain("Do not include emoji");
     expect(directInstructions).toContain("sassy, animated, rapid-fire confessional style");
-    expect(directInstructions).toContain("Haha, Heh, Ahaha!, HA!, or Oh, pfft");
-    expect(directInstructions).toContain("Ugh..., Oh... god..., *sniff*, or No... no...");
-    expect(directInstructions).toContain("ellipses and long dashes");
-    expect(directInstructions).toContain("ALL CAPS");
-    expect(directInstructions).toContain("?! for sharp upward bewildered inflection");
-    expect(directInstructions).toContain("Listen..., Look—, Baby..., or Bitch—");
+    expect(directInstructions).toContain("one primary emotion per sentence");
+    expect(directInstructions).toContain("Do not put Fish Audio cues in visible_text");
 
     env.OPENAI_TTS_SCRIPT_ENABLED = original;
   });

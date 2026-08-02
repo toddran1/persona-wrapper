@@ -12,11 +12,22 @@ type FishAudioVoiceConfig = {
   model: "s1" | "s2-pro" | "s2.1-pro" | "s2.1-pro-free";
   format: FishAudioFormat;
   sampleRate: number;
+  mp3Bitrate: 64 | 128 | 192;
+  opusBitrate: -1000 | 24000 | 32000 | 48000 | 64000;
   latency: "low" | "normal" | "balanced";
   speed: number;
   volume: number;
+  normalizeLoudness: boolean;
+  normalize: boolean;
   temperature: number;
   topP: number;
+  chunkLength: number;
+  maxNewTokens: number;
+  repetitionPenalty: number;
+  minChunkLength: number;
+  conditionOnPreviousChunks: boolean;
+  earlyStopThreshold: number;
+  features: string[];
 };
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -170,20 +181,31 @@ function getVoiceConfig(input: TTSInput): FishAudioVoiceConfig {
     : undefined;
   const referenceId = input.voiceId ?? personaEnvironmentReferenceId ?? personaConfig?.referenceId ?? env.FISH_AUDIO_REFERENCE_ID;
   const format = personaConfig?.format ?? env.FISH_AUDIO_FORMAT;
-  const sampleRate = format === env.FISH_AUDIO_FORMAT
+  const sampleRate = personaConfig?.sampleRate ?? (format === env.FISH_AUDIO_FORMAT
     ? env.FISH_AUDIO_SAMPLE_RATE
-    : format === "opus" ? 48000 : 44100;
+    : format === "opus" ? 48000 : 44100);
 
   return {
     ...(referenceId ? { referenceId } : {}),
     model: personaConfig?.model ?? env.FISH_AUDIO_MODEL,
     format,
     sampleRate,
+    mp3Bitrate: personaConfig?.mp3Bitrate ?? env.FISH_AUDIO_MP3_BITRATE as 64 | 128 | 192,
+    opusBitrate: personaConfig?.opusBitrate ?? env.FISH_AUDIO_OPUS_BITRATE as -1000 | 24000 | 32000 | 48000 | 64000,
     latency: personaConfig?.latency ?? env.FISH_AUDIO_LATENCY,
     speed: personaConfig?.speed ?? env.FISH_AUDIO_SPEED,
     volume: personaConfig?.volume ?? env.FISH_AUDIO_VOLUME,
+    normalizeLoudness: personaConfig?.normalizeLoudness ?? env.FISH_AUDIO_NORMALIZE_LOUDNESS,
+    normalize: personaConfig?.normalize ?? env.FISH_AUDIO_NORMALIZE,
     temperature: personaConfig?.temperature ?? env.FISH_AUDIO_TEMPERATURE,
-    topP: personaConfig?.topP ?? env.FISH_AUDIO_TOP_P
+    topP: personaConfig?.topP ?? env.FISH_AUDIO_TOP_P,
+    chunkLength: personaConfig?.chunkLength ?? env.FISH_AUDIO_CHUNK_LENGTH,
+    maxNewTokens: personaConfig?.maxNewTokens ?? env.FISH_AUDIO_MAX_NEW_TOKENS,
+    repetitionPenalty: personaConfig?.repetitionPenalty ?? env.FISH_AUDIO_REPETITION_PENALTY,
+    minChunkLength: personaConfig?.minChunkLength ?? env.FISH_AUDIO_MIN_CHUNK_LENGTH,
+    conditionOnPreviousChunks: personaConfig?.conditionOnPreviousChunks ?? env.FISH_AUDIO_CONDITION_ON_PREVIOUS_CHUNKS,
+    earlyStopThreshold: personaConfig?.earlyStopThreshold ?? env.FISH_AUDIO_EARLY_STOP_THRESHOLD,
+    features: personaConfig?.features ?? env.FISH_AUDIO_FEATURES
   };
 }
 
@@ -211,16 +233,24 @@ export class FishAudioTTSProvider implements TTSProvider {
         reference_id: voiceConfig.referenceId,
         format: voiceConfig.format,
         sample_rate: voiceConfig.sampleRate,
-        ...(voiceConfig.format === "mp3" ? { mp3_bitrate: env.FISH_AUDIO_MP3_BITRATE } : {}),
+        ...(voiceConfig.format === "mp3" ? { mp3_bitrate: voiceConfig.mp3Bitrate } : {}),
+        ...(voiceConfig.format === "opus" ? { opus_bitrate: voiceConfig.opusBitrate } : {}),
         latency: voiceConfig.latency,
-        normalize: true,
+        normalize: voiceConfig.normalize,
         prosody: {
           speed: voiceConfig.speed,
           volume: voiceConfig.volume,
-          normalize_loudness: true
+          normalize_loudness: voiceConfig.normalizeLoudness
         },
         temperature: voiceConfig.temperature,
-        top_p: voiceConfig.topP
+        top_p: voiceConfig.topP,
+        chunk_length: voiceConfig.chunkLength,
+        max_new_tokens: voiceConfig.maxNewTokens,
+        repetition_penalty: voiceConfig.repetitionPenalty,
+        min_chunk_length: voiceConfig.minChunkLength,
+        condition_on_previous_chunks: voiceConfig.conditionOnPreviousChunks,
+        early_stop_threshold: voiceConfig.earlyStopThreshold,
+        ...(voiceConfig.features.length > 0 ? { features: voiceConfig.features } : {})
       })
     };
 

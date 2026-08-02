@@ -358,6 +358,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         "For tts_script, normalize text for speech: expand abbreviations and units, spell out awkward symbols, rewrite URLs as source names or omit them, and make numbers, dates, money, percentages, times, and acronyms easier to pronounce while preserving their exact factual value.",
         "For tts_script, add natural speech pacing using sentence breaks, paragraph breaks, commas, dashes, ellipses, and occasional short pauses. Keep pauses tasteful and do not overdo them.",
         "For tts_script, carry the configured persona emotion and delivery through word choice and punctuation.",
+        "For tts_script, omit emoji and pictographs. Keep emoji only in visible_text; use words, punctuation, pauses, or supported provider performance cues to convey their intended emotion in speech.",
         "For tts_script, preserve all names, dates, numbers, quotes, and factual claims. Do not add facts not present in visible_text.",
         ...(input.conciseAudioResponse
           ? [`Keep tts_script at or below ${env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS} characters.`]

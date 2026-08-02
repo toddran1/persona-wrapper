@@ -48,6 +48,24 @@ describe("ConversationStore prompt context", () => {
     expect(history.map((message) => message.content)).toEqual(["make an image", "describe the image"]);
   });
 
+  it("hides leaked persona attribution metadata from restored conversations", async () => {
+    const store = new ConversationStore();
+    const conversation = await store.getOrCreate("attribution-leak-test", [
+      { role: "user", content: "Who is your best friend?" },
+      {
+        role: "assistant",
+        content: "[Assistant persona: LaRae the Baddest | id=larae]\nThe visible answer.",
+        personaId: "larae"
+      }
+    ]);
+
+    const restored = await store.get(conversation.id);
+    expect(restored?.history.at(-1)?.content).toBe("The visible answer.");
+    expect(restored?.turns.at(-1)?.assistantText).toBe("The visible answer.");
+    expect(restored?.turns.at(-1)?.outputs).toContainEqual({ type: "text", text: "The visible answer." });
+    expect(store.getPromptHistory(conversation).at(-1)?.content).toBe("The visible answer.");
+  });
+
   it("does not expose or transfer a conversation between owners", async () => {
     const store = new ConversationStore();
     const conversation = await store.getOrCreate(`owner-isolation-${randomUUID()}`, [], {

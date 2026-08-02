@@ -95,8 +95,20 @@ describe("FishAudioTTSProvider", () => {
       text: "Hey baby!",
       reference_id: "fish-larae-reference",
       format: "mp3",
+      sample_rate: 44100,
+      mp3_bitrate: 128,
       latency: "balanced",
-      prosody: { speed: 1.06, volume: 0, normalize_loudness: true }
+      normalize: true,
+      prosody: { speed: 1.06, volume: 0, normalize_loudness: true },
+      temperature: 0.7,
+      top_p: 0.7,
+      chunk_length: 300,
+      max_new_tokens: 1024,
+      repetition_penalty: 1.2,
+      min_chunk_length: 50,
+      condition_on_previous_chunks: true,
+      early_stop_threshold: 1,
+      features: ["quality-guard"]
     });
     expect(generatedAudioService.register).toHaveBeenCalledWith(expect.any(Buffer), expect.objectContaining({
       fileName: "larae-voice.mp3",
