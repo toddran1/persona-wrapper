@@ -18,7 +18,6 @@ export function createTTSProvider(providerId: ProviderId): TTSProvider {
     case "openai":
     case "openai_persona":
     case "claude":
-    case "gemini":
       return new OpenAITTSProvider();
     case "local":
       return new LocalTTSProvider();

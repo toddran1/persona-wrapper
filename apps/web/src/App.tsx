@@ -290,7 +290,6 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [evalSavedMessage, setEvalSavedMessage] = useState<string | undefined>();
   const [evalError, setEvalError] = useState<string | undefined>();
   const [pendingPrompt, setPendingPrompt] = useState<string | undefined>();
-  const [pendingAssistantText, setPendingAssistantText] = useState("");
   const [pendingPersonaId, setPendingPersonaId] = useState<string | undefined>();
   const [pendingPromptAssets, setPendingPromptAssets] = useState<UserPromptAsset[]>([]);
   const [pendingPromptFiles, setPendingPromptFiles] = useState<File[]>([]);
@@ -736,7 +735,6 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     suppressAudioVisualForCurrentTurnRef.current = false;
     setError(undefined);
     setPendingPrompt(message);
-    setPendingAssistantText("");
     setPendingPersonaId(personaDetail.id);
     setComposerDraft(undefined);
     setComposerDraftAttachments(undefined);
@@ -786,18 +784,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       };
       setLatestRequest(payload);
       chatRequestStarted = true;
-      let streamedText = "";
-      const canStream = submittedProvider !== "openai" && submittedProvider !== "local"
-        && !resolvedToolOptions.imageGeneration
-        && !resolvedToolOptions.codeInterpreter;
-      const result = canStream
-        ? await api.sendChatStream(payload, {
-            onTextDelta: (delta) => {
-              streamedText += delta;
-              setPendingAssistantText(streamedText);
-            }
-          }, requestController.signal)
-        : await api.sendChat(payload, requestController.signal);
+      const result = await api.sendChat(payload, requestController.signal);
       const backgroundJob = result.diagnostics.backgroundJob;
       activeBackgroundJobIdRef.current = backgroundJob?.id;
       if (backgroundJob) {
@@ -836,7 +823,6 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       void refreshConversationList(finalResult.conversationId);
       activeBackgroundJobIdRef.current = undefined;
       setPendingPrompt(undefined);
-      setPendingAssistantText("");
       setPendingPersonaId(undefined);
       setPendingPromptAssets([]);
       setPendingPromptFiles([]);
@@ -852,7 +838,6 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       }
       const messageText = submitError instanceof Error ? submitError.message : "Failed to generate response";
       setPendingPrompt(undefined);
-      setPendingAssistantText("");
       setPendingPersonaId(undefined);
       setPendingPromptAssets([]);
       setPendingPromptFiles([]);
@@ -1877,7 +1862,6 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
               loadingEarlierTurns={loadingEarlierTurns}
               onLoadEarlierTurns={() => void loadEarlierTurns()}
               pendingPrompt={pendingPrompt}
-              pendingAssistantText={pendingAssistantText}
               pendingAssets={pendingPromptAssets}
               pendingFiles={pendingPromptFiles}
               thinking={loading && pendingPrompt !== undefined}

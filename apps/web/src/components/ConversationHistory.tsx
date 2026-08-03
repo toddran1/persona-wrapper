@@ -549,7 +549,6 @@ export function ConversationHistory({
   personaNamesById = {},
   turns,
   pendingPrompt,
-  pendingAssistantText = "",
   pendingAssets = [],
   pendingFiles = [],
   thinking,
@@ -571,7 +570,6 @@ export function ConversationHistory({
   personaNamesById?: Readonly<Record<string, string>>;
   turns: RenderedTurn[];
   pendingPrompt?: string | undefined;
-  pendingAssistantText?: string | undefined;
   pendingAssets?: UserPromptAsset[] | undefined;
   pendingFiles?: File[] | undefined;
   thinking?: boolean | undefined;
@@ -601,8 +599,6 @@ export function ConversationHistory({
   const shouldFollowRef = useRef(true);
   const previousThinkingRef = useRef(thinking);
   const focusResponseUntilRef = useRef(0);
-  const streamingDraftActiveRef = useRef(false);
-  const hasStreamingDraft = thinking && pendingAssistantText.length > 0;
 
   useEffect(() => {
     const updateFollowState = () => {
@@ -647,27 +643,8 @@ export function ConversationHistory({
   }, [hasPendingTurn]);
 
   useEffect(() => {
-    if (!hasStreamingDraft || streamingDraftActiveRef.current) return;
-    streamingDraftActiveRef.current = true;
-    shouldFollowRef.current = true;
-    focusResponseUntilRef.current = Number.POSITIVE_INFINITY;
-    const frame = requestAnimationFrame(() => {
-      newestAssistantRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [hasStreamingDraft]);
-
-  useEffect(() => {
     const responseJustCompleted = previousThinkingRef.current && !thinking;
     previousThinkingRef.current = thinking;
-    if (responseJustCompleted && streamingDraftActiveRef.current) {
-      // The streaming draft was already anchored. Preserve that exact reading
-      // position when the persisted final response replaces it.
-      streamingDraftActiveRef.current = false;
-      focusResponseUntilRef.current = 0;
-      shouldFollowRef.current = false;
-      return;
-    }
     if (!shouldFollowRef.current || messageCount === 0) return;
     const frame = requestAnimationFrame(() => {
       if (responseJustCompleted && newestAssistantRef.current) {
@@ -796,19 +773,15 @@ export function ConversationHistory({
             </article>
           ) : null}
           {thinking ? (
-            <article ref={newestAssistantRef} className="chat-row chat-row-assistant">
+            <article className="chat-row chat-row-assistant">
               <div className="chat-avatar chat-avatar-assistant">{pendingPersonaShortName ?? personaShortName}</div>
               <div className="chat-bubble chat-bubble-assistant">
-                <span className="history-role">{pendingAssistantText ? "Reply" : "Thinking"}</span>
-                {pendingAssistantText ? (
-                  <MarkdownText text={pendingAssistantText} className="message-text markdown-text" />
-                ) : (
-                  <div className="thinking-indicator" aria-live="polite" aria-label={`${pendingPersonaShortName ?? personaShortName} is thinking`}>
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                )}
+                <span className="history-role">Thinking</span>
+                <div className="thinking-indicator" aria-live="polite" aria-label={`${pendingPersonaShortName ?? personaShortName} is thinking`}>
+                  <span />
+                  <span />
+                  <span />
+                </div>
               </div>
             </article>
           ) : null}

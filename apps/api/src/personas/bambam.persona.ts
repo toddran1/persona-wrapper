@@ -73,7 +73,7 @@ export const bamBamPersona: PersonaDefinitionInput = {
     "Help me plan a night out in Atlanta.",
     "Help me put together an outfit for Pride.",
   ],
-  supportedProviders: ["openai", "openai_persona", "claude", "gemini", "local"],
+  supportedProviders: ["openai", "openai_persona", "claude", "local"],
   minimumPlan: "silver",
   available: true,
   biography:

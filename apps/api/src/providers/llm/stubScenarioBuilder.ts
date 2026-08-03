@@ -62,7 +62,6 @@ function buildText(params: {
     openai: catchphrase ?? `${personaName} is on it.`,
     openai_persona: catchphrase ?? `${personaName} is on it.`,
     claude: `${personaName} is bringing the answer with personality.`,
-    gemini: `${personaName} is bringing the answer with personality.`,
     local: `${personaName} local persona mode is active.`
   };
 
@@ -70,7 +69,6 @@ function buildText(params: {
     openai: "Here’s the answer, plain and polished.",
     openai_persona: "Here’s the answer, plain and polished.",
     claude: "Here’s the clean version with a little attitude.",
-    gemini: "Here’s the clean version with a little attitude.",
     local: "Here’s the direct version with a light persona touch."
   };
 

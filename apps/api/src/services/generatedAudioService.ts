@@ -178,16 +178,9 @@ export class GeneratedAudioService {
     const now = Date.now();
     for (const file of this.files.values()) {
       if (file.expiresAt <= now) {
-        try {
-          if (file.storageKey) await storageService.delete(file.storageKey);
-          else if (file.localPath) rmSync(file.localPath, { force: true });
-          this.files.delete(file.token);
-        } catch (error) {
-          logger.warn("Expired generated audio cleanup will be retried", {
-            token: file.token,
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
+        if (file.storageKey) await storageService.delete(file.storageKey);
+        else if (file.localPath) rmSync(file.localPath, { force: true });
+        this.files.delete(file.token);
       }
     }
   }

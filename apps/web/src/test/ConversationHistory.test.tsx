@@ -5,60 +5,6 @@ import { ConversationHistory } from "../components/ConversationHistory";
 import { MarkdownText } from "../components/MarkdownText";
 
 describe("ConversationHistory pending state", () => {
-  it("renders an incremental assistant draft while a response is streaming", () => {
-    render(
-      <ConversationHistory
-        turns={[]}
-        pendingPrompt="Tell me something"
-        pendingAssistantText="Here is the beginning"
-        thinking
-      />
-    );
-
-    expect(screen.getByText("Here is the beginning")).toBeInTheDocument();
-    expect(screen.queryByLabelText(/is thinking/i)).not.toBeInTheDocument();
-  });
-
-  it("anchors a streaming response once without bouncing when it finalizes", async () => {
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView
-    });
-    const { rerender } = render(
-      <ConversationHistory
-        turns={[]}
-        pendingPrompt="Tell me something"
-        thinking
-      />
-    );
-    scrollIntoView.mockClear();
-
-    rerender(
-      <ConversationHistory
-        turns={[]}
-        pendingPrompt="Tell me something"
-        pendingAssistantText="The streamed beginning"
-        thinking
-      />
-    );
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" }));
-    scrollIntoView.mockClear();
-
-    rerender(
-      <ConversationHistory
-        turns={[{
-          userMessage: "Tell me something",
-          assistantText: "The streamed beginning and ending",
-          outputs: [{ type: "text", text: "The streamed beginning and ending" }]
-        }]}
-      />
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(scrollIntoView).not.toHaveBeenCalled();
-  });
-
   it("renders fenced code in a copyable code block", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);

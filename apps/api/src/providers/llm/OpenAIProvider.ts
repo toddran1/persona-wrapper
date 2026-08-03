@@ -868,67 +868,6 @@ export function displayTextFromDualText(rawText: string): string {
   return rawText;
 }
 
-/**
- * Extracts only the user-visible JSON string while a dual text payload is
- * still arriving. The hidden tts_script must never be forwarded to clients.
- */
-export class VisibleTextStreamExtractor {
-  private rawText = "";
-  private emittedText = "";
-
-  push(delta: string): string {
-    this.rawText += delta;
-    const visiblePrefix = streamedJsonStringValue(this.rawText, "visible_text");
-    if (!visiblePrefix || visiblePrefix.length <= this.emittedText.length) return "";
-    const next = visiblePrefix.slice(this.emittedText.length);
-    this.emittedText = visiblePrefix;
-    return next;
-  }
-}
-
-function streamedJsonStringValue(input: string, key: string): string {
-  const keyMatch = new RegExp(`"${key}"\\s*:\\s*"`).exec(input);
-  if (!keyMatch) return "";
-  const start = keyMatch.index + keyMatch[0].length;
-  let value = "";
-
-  for (let index = start; index < input.length; index += 1) {
-    const character = input[index]!;
-    if (character === "\"") break;
-    if (character !== "\\") {
-      value += character;
-      continue;
-    }
-
-    const escaped = input[index + 1];
-    if (!escaped) break;
-    const simpleEscapes: Record<string, string> = {
-      "\"": "\"",
-      "\\": "\\",
-      "/": "/",
-      b: "\b",
-      f: "\f",
-      n: "\n",
-      r: "\r",
-      t: "\t"
-    };
-    if (escaped === "u") {
-      const digits = input.slice(index + 2, index + 6);
-      if (!/^[0-9a-fA-F]{4}$/.test(digits)) break;
-      value += String.fromCharCode(Number.parseInt(digits, 16));
-      index += 5;
-      continue;
-    }
-    if (!(escaped in simpleEscapes)) break;
-    value += simpleEscapes[escaped]!;
-    index += 1;
-  }
-
-  // Do not emit a dangling high surrogate before its matching low surrogate.
-  const lastCodeUnit = value.charCodeAt(value.length - 1);
-  return lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff ? value.slice(0, -1) : value;
-}
-
 function safeJson(value: unknown): Record<string, unknown> {
   if (typeof value === "object" && value !== null) return value as Record<string, unknown>;
   if (typeof value !== "string") return {};
@@ -1456,15 +1395,11 @@ export class OpenAIProvider implements LLMProvider {
     });
     let completedResponse: OpenAIResponse | undefined;
     let streamedText = "";
-    const visibleTextExtractor = shouldRequestInlineTtsScript(input, this.promptMode)
-      ? new VisibleTextStreamExtractor()
-      : undefined;
 
     for await (const event of stream as any) {
       if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
         streamedText += event.delta;
-        const visibleDelta = visibleTextExtractor?.push(event.delta) ?? event.delta;
-        if (visibleDelta) callbacks.onTextDelta(visibleDelta);
+        callbacks.onTextDelta(event.delta);
       } else if (event.type === "response.completed") {
         completedResponse = event.response;
         if (typeof completedResponse?.id === "string") {

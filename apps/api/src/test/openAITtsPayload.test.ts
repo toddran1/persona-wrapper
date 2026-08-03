@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { displayTextFromDualText, parseDualTextPayload, VisibleTextStreamExtractor } from "../providers/llm/OpenAIProvider.js";
+import { displayTextFromDualText, parseDualTextPayload } from "../providers/llm/OpenAIProvider.js";
 
 describe("OpenAI inline TTS payload parsing", () => {
   it("parses visible text and hidden TTS script from strict JSON", () => {
@@ -43,26 +43,5 @@ describe("OpenAI inline TTS payload parsing", () => {
 
     expect(result.status).toBe("invalid_payload");
     expect(displayTextFromDualText("{\"tts_script\":\"No visible text\"}")).toContain("response formatting issue");
-  });
-
-  it("streams only visible text and never exposes the hidden TTS script", () => {
-    const extractor = new VisibleTextStreamExtractor();
-    const raw = JSON.stringify({
-      visible_text: "Hey, baby.\nThat is “clean”. 💅",
-      tts_script: "(whispering) This must stay hidden."
-    });
-    let visible = "";
-    for (const chunk of raw.match(/.{1,3}/gu) ?? []) visible += extractor.push(chunk);
-
-    expect(visible).toBe("Hey, baby.\nThat is “clean”. 💅");
-    expect(visible).not.toContain("whispering");
-    expect(visible).not.toContain("tts_script");
-  });
-
-  it("waits for a complete escaped character before emitting it", () => {
-    const extractor = new VisibleTextStreamExtractor();
-    expect(extractor.push("{\"visible_text\":\"Line one\\")).toBe("Line one");
-    expect(extractor.push("nLine two\",\"tts_script\":\"hidden\"}"))
-      .toBe("\nLine two");
   });
 });

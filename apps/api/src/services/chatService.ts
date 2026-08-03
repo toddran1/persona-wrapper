@@ -28,7 +28,6 @@ import { analyzeImageReferenceRequirement, missingImageReferenceMessage } from "
 
 export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
-  onPhase?: (phase: "generating_text" | "styling" | "persisting" | "generating_audio") => void;
 };
 
 export type ChatProgressCallbacks = {
@@ -57,7 +56,7 @@ function insertToolContext(input: ChatMessage[], toolContext: ToolContext | unde
 }
 
 function shouldUseStyleTransfer(provider: ChatRequest["provider"]): boolean {
-  return provider === "openai" || provider === "local";
+  return provider !== "openai_persona";
 }
 
 function isErrorLikeText(text: string): boolean {
@@ -538,7 +537,6 @@ export class ChatService {
       userMessage: request.message,
       provider: llmOutput.provider
     };
-    if (useStyleTransfer) streamCallbacks?.onPhase?.("styling");
     const styleTransferOutput = useStyleTransfer
       ? neutralText.trim()
         ? await measureOperation("provider.style_transfer", { provider: request.provider }, () =>
@@ -600,7 +598,6 @@ export class ChatService {
       provider: llmOutput.provider,
       personaId: persona.id
     };
-    streamCallbacks?.onPhase?.("persisting");
     const persistedMediaContent = await generatedMediaService.normalizeContentBlocks(styledLlmOutput.content, {
       ...(options.ownerId ? { ownerId: options.ownerId } : {}),
       conversationId: conversation.id,
@@ -631,7 +628,6 @@ export class ChatService {
         conversationId: conversation.id
       });
     } else if (request.audio) {
-      streamCallbacks?.onPhase?.("generating_audio");
       const textBlock = responseLlmOutput.content.find((block) => block.type === "text");
       const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
       if (speechText) {
