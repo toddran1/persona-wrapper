@@ -300,9 +300,7 @@ export function MobileChatScreen() {
   const lastFocusedResponseTurnIdRef = useRef<string | undefined>(undefined);
   const responseFocusTurnIdRef = useRef<string | undefined>(undefined);
   const streamingResponseAnchoredRef = useRef(false);
-  const streamingResponseAnchorOffsetRef = useRef<number | undefined>(undefined);
   const pendingStreamingFocusTurnIdRef = useRef<string | undefined>(undefined);
-  const streamingAnchorCorrectionFrameRef = useRef<number | undefined>(undefined);
   const assistantOffsetByTurnIdRef = useRef(new Map<string, number>());
   const personaCardLayoutRef = useRef<{ y: number; height: number } | undefined>(undefined);
   const conversationLayoutRef = useRef<{ y: number; height: number } | undefined>(undefined);
@@ -470,33 +468,13 @@ export function MobileChatScreen() {
   const responseFocusViewOffset = personaCardIsDocked
     ? landscapeLayout ? DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET_LANDSCAPE : DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET
     : DEFAULT_RESPONSE_FOCUS_OFFSET;
-  const restoreStreamingAnchor = useCallback(() => {
-    const streamingAnchorOffset = streamingResponseAnchorOffsetRef.current;
-    if (!streamingResponseAnchoredRef.current || streamingAnchorOffset === undefined) return;
-    if (streamingAnchorCorrectionFrameRef.current !== undefined) {
-      cancelAnimationFrame(streamingAnchorCorrectionFrameRef.current);
-    }
-    streamingAnchorCorrectionFrameRef.current = requestAnimationFrame(() => {
-      streamingAnchorCorrectionFrameRef.current = undefined;
-      if (!streamingResponseAnchoredRef.current) return;
-      scrollRef.current?.scrollToOffset({
-        animated: false,
-        offset: streamingAnchorOffset,
-        skipFirstItemOffset: true
-      });
-    });
-  }, []);
   const handleAssistantLayout = useCallback((turnId: string, offsetY: number) => {
     const hadAssistantOffset = assistantOffsetByTurnIdRef.current.has(turnId);
     assistantOffsetByTurnIdRef.current.set(turnId, offsetY);
     if (responseFocusTurnIdRef.current === turnId && !hadAssistantOffset) {
       setResponseFocusLayoutVersion((version) => version + 1);
     }
-    // FlashList can remeasure a growing row without publishing a new overall
-    // content size immediately. Reassert the native offset from the row's own
-    // layout event so token and late-audio updates cannot drag the viewport.
-    restoreStreamingAnchor();
-  }, [restoreStreamingAnchor]);
+  }, []);
   const handlePersonaCardLayout = useCallback((layout: { y: number; height: number }) => {
     personaCardLayoutRef.current = layout;
   }, []);
@@ -506,10 +484,6 @@ export function MobileChatScreen() {
   }, []);
   const handleConversationContentSizeChange = useCallback(() => {
     if (streamingResponseAnchoredRef.current) {
-      if (streamingResponseAnchorOffsetRef.current !== undefined) {
-        restoreStreamingAnchor();
-        return;
-      }
       const pendingTurnId = pendingStreamingFocusTurnIdRef.current;
       if (pendingTurnId) {
         // Wait for the temporary footer to be measured before calculating the
@@ -523,7 +497,7 @@ export function MobileChatScreen() {
     if (responseFocusTurnIdRef.current) {
       setResponseFocusLayoutVersion((version) => version + 1);
     }
-  }, [restoreStreamingAnchor]);
+  }, []);
   const personaById = useMemo(
     () => new Map(personas.map((candidate) => [candidate.id, candidate] as const)),
     [personas]
@@ -692,7 +666,6 @@ export function MobileChatScreen() {
   function scrollConversationToBottom(): void {
     clearScrollButtonTimer();
     streamingResponseAnchoredRef.current = false;
-    streamingResponseAnchorOffsetRef.current = undefined;
     pendingStreamingFocusTurnIdRef.current = undefined;
     setStreamingAnchorFooterHeight(0);
     nearConversationBottomRef.current = true;
@@ -1747,7 +1720,6 @@ export function MobileChatScreen() {
     lastFocusedResponseTurnIdRef.current = undefined;
     responseFocusTurnIdRef.current = undefined;
     streamingResponseAnchoredRef.current = false;
-    streamingResponseAnchorOffsetRef.current = undefined;
     pendingStreamingFocusTurnIdRef.current = undefined;
     setStreamingAnchorFooterHeight(0);
     assistantOffsetByTurnIdRef.current.clear();
@@ -2122,7 +2094,6 @@ export function MobileChatScreen() {
           0,
           list.getFirstItemOffset() + itemLayout.y + assistantOffset - responseViewportY
         );
-        if (streamingAnchor) streamingResponseAnchorOffsetRef.current = targetOffset;
         list.scrollToOffset({
           animated: !streamingAnchor,
           offset: targetOffset,
@@ -2135,12 +2106,6 @@ export function MobileChatScreen() {
           viewPosition: 0,
           viewOffset: personaCardIsDocked ? -responseFocusViewOffset : responseFocusViewOffset
         });
-        if (streamingAnchor) {
-          requestAnimationFrame(() => {
-            if (!streamingResponseAnchoredRef.current) return;
-            streamingResponseAnchorOffsetRef.current = list.getAbsoluteLastScrollOffset();
-          });
-        }
       }
 
       responseFocusTurnIdRef.current = undefined;
@@ -2162,9 +2127,6 @@ export function MobileChatScreen() {
   useEffect(() => () => {
     clearVisualStateTimer();
     clearScrollButtonTimer();
-    if (streamingAnchorCorrectionFrameRef.current !== undefined) {
-      cancelAnimationFrame(streamingAnchorCorrectionFrameRef.current);
-    }
   }, []);
 
   async function selectPersona(personaId: string): Promise<void> {
@@ -2231,7 +2193,6 @@ export function MobileChatScreen() {
     if (!conversationId || !turnsCursor || loadingEarlierTurns) return;
     const selectionGeneration = selectionGenerationRef.current;
     streamingResponseAnchoredRef.current = false;
-    streamingResponseAnchorOffsetRef.current = undefined;
     pendingStreamingFocusTurnIdRef.current = undefined;
     setStreamingAnchorFooterHeight(0);
     setLoadingEarlierTurns(true);
@@ -2338,7 +2299,6 @@ export function MobileChatScreen() {
     activeChatTurnIdRef.current = undefined;
     activeBackgroundJobIdRef.current = undefined;
     streamingResponseAnchoredRef.current = false;
-    streamingResponseAnchorOffsetRef.current = undefined;
     pendingStreamingFocusTurnIdRef.current = undefined;
     setStreamingAnchorFooterHeight(0);
     setSending(true);
@@ -2439,7 +2399,6 @@ export function MobileChatScreen() {
               if (isFirstDelta && optimistic) {
                 streamingFocusApplied = true;
                 streamingResponseAnchoredRef.current = true;
-                streamingResponseAnchorOffsetRef.current = undefined;
                 pendingStreamingFocusTurnIdRef.current = optimistic.id;
                 const conversationHeight = conversationLayoutRef.current?.height ?? 0;
                 setStreamingAnchorFooterHeight(Math.max(0, conversationHeight - responseFocusViewOffset));
@@ -2466,27 +2425,31 @@ export function MobileChatScreen() {
         ...turnFromChatResponse(message, finalResponse),
         userAssets: mapUploadedAssetsToUserAssets(attachments)
       };
+      // Keep the same FlashList key from the first streamed token through the
+      // final text/audio payload. Replacing the pending key makes FlashList
+      // recycle the row and can move the viewport at completion.
+      const displayedCompletedTurn = streamingFocusApplied && optimistic
+        ? { ...completedTurn, id: optimistic.id }
+        : completedTurn;
       setError(undefined);
       if (activePersonaIdRef.current === submittedPersona.id) {
         markPersonaSpeaking(finalResponse.outputs);
       }
       playGeneratedPersonaAudio(finalResponse.outputs);
-      setTurns((current) => current.map((turn) => (
-        turn.id === optimistic?.id ? completedTurn : turn
-      )));
+      setTurns((current) => {
+        const next = current.map((turn) => (
+          turn.id === optimistic?.id ? displayedCompletedTurn : turn
+        ));
+        turnsRef.current = next;
+        return next;
+      });
       if (streamingFocusApplied) {
-        // The draft was already anchored at the response start. Re-focusing
-        // the finalized row would create a visible completion bounce.
-        if (pendingStreamingFocusTurnIdRef.current === completedTurn.id) {
-          pendingStreamingFocusTurnIdRef.current = undefined;
-          focusCompletedResponse(completedTurn.id, true);
-        } else if (responseFocusTurnIdRef.current) {
-          focusCompletedResponse(completedTurn.id, true);
-        } else {
-          lastFocusedResponseTurnIdRef.current = completedTurn.id;
-        }
+        // Streaming owns the one-time focus. Final text/audio replacement must
+        // never issue a second scroll, even if the first frame is still being
+        // measured when the request completes.
+        lastFocusedResponseTurnIdRef.current = displayedCompletedTurn.id;
       } else {
-        focusCompletedResponse(completedTurn.id);
+        focusCompletedResponse(displayedCompletedTurn.id);
       }
       await refreshConversations();
     } catch (sendError) {
@@ -3108,7 +3071,6 @@ export function MobileChatScreen() {
             onScroll={handleConversationScroll}
             onScrollBeginDrag={() => {
               streamingResponseAnchoredRef.current = false;
-              streamingResponseAnchorOffsetRef.current = undefined;
               pendingStreamingFocusTurnIdRef.current = undefined;
             }}
             onContentSizeChange={handleConversationContentSizeChange}
