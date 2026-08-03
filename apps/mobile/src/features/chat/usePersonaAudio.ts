@@ -8,6 +8,8 @@ import type { RenderedTurn } from "./types";
 type AudioOutput = Extract<RenderedTurn["outputs"][number], { type: "audio" }>;
 type AudioPlaybackSubscription = { remove: () => void };
 
+let audioCacheSequence = 0;
+
 function audioFileExtension(mimeType: string): string {
   if (mimeType.includes("wav")) return "wav";
   if (mimeType.includes("ogg")) return "ogg";
@@ -29,6 +31,13 @@ function playbackErrorMessage(error: unknown): string {
 function isManagedAudioCacheUri(uri: string | undefined): uri is string {
   const cacheDirectory = FileSystem.cacheDirectory;
   return Boolean(uri && cacheDirectory && uri.startsWith(cacheDirectory));
+}
+
+function nextAudioCacheDestination(mimeType: string): string | undefined {
+  if (!FileSystem.cacheDirectory) return undefined;
+  audioCacheSequence = (audioCacheSequence + 1) % Number.MAX_SAFE_INTEGER;
+  const uniquePart = `${Date.now().toString(36)}-${audioCacheSequence.toString(36)}`;
+  return `${FileSystem.cacheDirectory}persona-audio-${uniquePart}.${audioFileExtension(mimeType)}`;
 }
 
 export function usePersonaAudio() {
@@ -64,9 +73,9 @@ export function usePersonaAudio() {
 
   const prepareAudioUri = useCallback(async (output: AudioOutput): Promise<string> => {
     const audioUrl = api.resolveUrl(output.url);
-    if (!FileSystem.cacheDirectory) return audioUrl;
+    const destination = nextAudioCacheDestination(output.mimeType);
+    if (!destination) return audioUrl;
 
-    const destination = `${FileSystem.cacheDirectory}persona-audio-${Date.now()}.${audioFileExtension(output.mimeType)}`;
     const downloadOptions = api.isProtectedMediaUrl(output.url) ? { headers: await api.mediaHeaders() } : undefined;
     const result = await FileSystem.downloadAsync(audioUrl, destination, downloadOptions);
     if (result.status < 200 || result.status >= 300) {
@@ -144,6 +153,13 @@ export function usePersonaAudio() {
 
   useEffect(() => () => {
     void release();
+  }, [release]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") void release();
+    });
+    return () => subscription.remove();
   }, [release]);
 
   return {

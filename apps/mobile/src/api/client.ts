@@ -56,6 +56,11 @@ export type MobileChatPayload = {
   toolOptions?: ToolOptions;
 };
 
+export type ChatStreamHandlers = {
+  onTextDelta?: (delta: string) => void;
+  onPhase?: (phase: string) => void;
+};
+
 export type MobileUploadFile = {
   uri: string;
   name: string;
@@ -169,6 +174,56 @@ async function parseApiError(response: Response): Promise<ApiResponseError> {
   } catch {
     return new ApiResponseError(response.status, `Request failed with status ${response.status}.`);
   }
+}
+
+async function consumeChatEventStream(
+  response: Response,
+  handlers: ChatStreamHandlers
+): Promise<ChatResponse> {
+  if (!response.ok) throw await parseApiError(response);
+  if (!response.body) throw new Error("The app server did not provide a response stream.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResponse: ChatResponse | undefined;
+
+  const processFrame = (frame: string) => {
+    let eventName = "message";
+    const dataLines: string[] = [];
+    for (const line of frame.split(/\r?\n/)) {
+      if (line.startsWith("event:")) eventName = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+    }
+    if (dataLines.length === 0) return;
+    const payload = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
+    if ((eventName === "text_delta" || eventName === "delta") && typeof payload.delta === "string") {
+      handlers.onTextDelta?.(payload.delta);
+    } else if (eventName === "phase" && typeof payload.phase === "string") {
+      handlers.onPhase?.(payload.phase);
+    } else if (eventName === "response") {
+      finalResponse = payload as ChatResponse;
+    } else if (eventName === "error") {
+      throw new Error(typeof payload.message === "string" ? payload.message : "The response stream failed.");
+    }
+  };
+
+  while (true) {
+    const chunk = await reader.read();
+    buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+    let boundary = buffer.search(/\r?\n\r?\n/);
+    while (boundary >= 0) {
+      const frame = buffer.slice(0, boundary);
+      const separator = /^\r\n\r\n/.test(buffer.slice(boundary)) ? 4 : 2;
+      buffer = buffer.slice(boundary + separator);
+      if (frame.trim()) processFrame(frame);
+      boundary = buffer.search(/\r?\n\r?\n/);
+    }
+    if (chunk.done) break;
+  }
+  if (buffer.trim()) processFrame(buffer);
+  if (!finalResponse) throw new Error("The response stream ended before the answer was completed.");
+  return finalResponse;
 }
 
 function validateUploadFiles(files: MobileUploadFile[]): void {
@@ -767,6 +822,34 @@ export const api = {
     const response = await contractClient.chat.create({ body: payload, ...(signal ? { fetchOptions: { signal } } : {}) });
     if (response.status !== 200 && response.status !== 202) throw contractError(response.body, "Chat request failed.");
     return response.body;
+  },
+  sendChatStream: async (
+    payload: MobileChatPayload,
+    handlers: ChatStreamHandlers,
+    signal?: AbortSignal
+  ): Promise<ChatResponse> => {
+    const timeout = createRequestTimeout(signal, CHAT_REQUEST_TIMEOUT_MS);
+    try {
+      const requestInit: RequestInit = {
+        method: "POST",
+        headers: await requestHeaders(true),
+        body: JSON.stringify(payload),
+        signal: timeout.signal
+      };
+      let response = await fetch(`${API_BASE_URL}/api/chat/stream`, requestInit);
+      if (response.status === 401 && await refreshStoredAuth()) {
+        response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
+          ...requestInit,
+          headers: await requestHeaders(true)
+        });
+      }
+      return await consumeChatEventStream(response, handlers);
+    } catch (error) {
+      if (timeout.didTimeout()) throw new Error("The app server took too long to respond. Please try again.");
+      throw error;
+    } finally {
+      timeout.dispose();
+    }
   },
   reportUnsafeOutput: async (payload: {
     conversationId: string;

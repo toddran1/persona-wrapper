@@ -225,11 +225,20 @@ export async function postChatStream(request: Request, response: Response): Prom
   response.setHeader("X-Accel-Buffering", "no");
   response.flushHeaders();
   const controller = requestAbortController(request);
+  const heartbeat = setInterval(() => {
+    if (!response.writableEnded && !response.destroyed) response.write(": keep-alive\n\n");
+  }, 15_000);
   try {
+    response.write(`event: phase\ndata: ${JSON.stringify({ phase: "generating_text" })}\n\n`);
     const result = await chatService.handleChat(payload, {
       onTextDelta: (delta) => {
         if (!response.writableEnded) {
-          response.write(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`);
+          response.write(`event: text_delta\ndata: ${JSON.stringify({ delta })}\n\n`);
+        }
+      },
+      onPhase: (phase) => {
+        if (!response.writableEnded) {
+          response.write(`event: phase\ndata: ${JSON.stringify({ phase })}\n\n`);
         }
       }
     }, controller.signal, undefined, { ownerId: identity });
@@ -261,6 +270,8 @@ export async function postChatStream(request: Request, response: Response): Prom
       })}\n\n`);
       response.end();
     }
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 

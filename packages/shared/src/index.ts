@@ -7,7 +7,7 @@ export const MAX_CHART_CATEGORIES = 250;
 export const MAX_CHART_DATASETS = 8;
 export const MAX_DONUT_CATEGORIES = 20;
 
-export const providerSchema = z.enum(["openai", "openai_persona", "claude", "local"]);
+export const providerSchema = z.enum(["openai", "openai_persona", "claude", "gemini", "local"]);
 export type ProviderId = z.infer<typeof providerSchema>;
 
 export const outputTypeSchema = z.enum([
