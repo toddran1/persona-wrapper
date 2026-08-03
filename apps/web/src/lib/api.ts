@@ -151,6 +151,8 @@ export type StyleTransferEvalCapturePayload = {
 };
 
 export type StyleTransferReviewData = {
+  persona: StyleTransferReviewPersona;
+  personas: StyleTransferReviewPersona[];
   evals: Record<string, unknown>[];
   goldenPairs: Record<string, unknown>[];
   syntheticPairs: Record<string, unknown>[];
@@ -163,20 +165,32 @@ export type StyleTransferReviewData = {
   };
 };
 
+export type StyleTransferReviewPersona = {
+  id: string;
+  name: string;
+  shortName: string;
+  avatarUrl: string;
+  datasetKey: string;
+  styleReferenceEnabled: boolean;
+};
+
 export type ReviewRecordKind = "evals" | "golden" | "pairs" | "rejections";
 
 export type ReviewRecordUpdatePayload = {
+  personaId: string;
   kind: ReviewRecordKind;
   id: string;
   updates: Record<string, unknown>;
 };
 
 export type ReviewRecordCreatePayload = {
+  personaId: string;
   kind: ReviewRecordKind;
   record: Record<string, unknown>;
 };
 
 export type ReviewRecordDeletePayload = {
+  personaId: string;
   kind: ReviewRecordKind;
   id: string;
 };
@@ -796,8 +810,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  getStyleTransferReview: async (): Promise<StyleTransferReviewData> =>
-    requestJson<StyleTransferReviewData>("/api/chat/style-transfer-review"),
+  getStyleTransferReview: async (personaId?: string): Promise<StyleTransferReviewData> =>
+    requestJson<StyleTransferReviewData>(
+      `/api/chat/style-transfer-review${personaId ? `?personaId=${encodeURIComponent(personaId)}` : ""}`
+    ),
   updateStyleTransferReviewRecord: async (
     payload: ReviewRecordUpdatePayload
   ): Promise<{ id: string; path: string; record: Record<string, unknown> }> =>
@@ -817,7 +833,7 @@ export const api = {
       method: "DELETE",
       body: JSON.stringify(payload)
     }),
-  promoteRejectedStylePair: async (payload: { id: string }): Promise<{ id: string; path: string; record: Record<string, unknown> }> =>
+  promoteRejectedStylePair: async (payload: { personaId: string; id: string }): Promise<{ id: string; path: string; record: Record<string, unknown> }> =>
     requestJson<{ id: string; path: string; record: Record<string, unknown> }>("/api/chat/style-transfer-review/promote-rejected", {
       method: "POST",
       body: JSON.stringify(payload)

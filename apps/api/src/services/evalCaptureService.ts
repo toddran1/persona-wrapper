@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { resetPersonaStyleReferenceCache } from "./personaStyleReferenceBuilder.js";
+import { getPersonaById, listPersonas } from "../personas/index.js";
+import {
+  getPersonaStyleDatasetPaths,
+  resetPersonaStyleReferenceCache,
+  type PersonaStyleDatasetPaths
+} from "./personaStyleReferenceBuilder.js";
 
 type LlmTurnLog = {
   timestamp?: string;
@@ -29,6 +34,8 @@ export type EvalCaptureInput = {
 };
 
 export type StyleTransferReviewData = {
+  persona: StyleTransferReviewPersona;
+  personas: StyleTransferReviewPersona[];
   evals: Record<string, unknown>[];
   goldenPairs: Record<string, unknown>[];
   syntheticPairs: Record<string, unknown>[];
@@ -41,25 +48,38 @@ export type StyleTransferReviewData = {
   };
 };
 
+export type StyleTransferReviewPersona = {
+  id: string;
+  name: string;
+  shortName: string;
+  avatarUrl: string;
+  datasetKey: string;
+  styleReferenceEnabled: boolean;
+};
+
 export type ReviewRecordKind = "evals" | "golden" | "pairs" | "rejections";
 
 export type ReviewRecordUpdate = {
+  personaId: string;
   kind: ReviewRecordKind;
   id: string;
   updates: Record<string, unknown>;
 };
 
 export type ReviewRecordCreate = {
+  personaId: string;
   kind: ReviewRecordKind;
   record: Record<string, unknown>;
 };
 
 export type ReviewRecordDelete = {
+  personaId: string;
   kind: ReviewRecordKind;
   id: string;
 };
 
 export type PromoteRejectedPairInput = {
+  personaId: string;
   id: string;
 };
 
@@ -100,23 +120,42 @@ function getTurnLogPath(): string {
   return process.env.LLM_TURN_LOG_PATH ?? resolve(getRepoRoot(), "apps/api/logs/llm-turns.jsonl");
 }
 
-function getEvalOutputPath(): string {
-  return (
-    process.env.STYLE_TRANSFER_EVAL_LOG_PATH ??
-    resolve(getRepoRoot(), "ml/style-transfer/datasets/evals/style_transfer_failures.jsonl")
-  );
+function datasetKeyForPersonaId(personaId: string | undefined): string {
+  const persona = personaId ? getPersonaById(personaId) : undefined;
+  if (persona?.styleReference?.datasetKey) {
+    return persona.styleReference.datasetKey;
+  }
+
+  const fallbackKey = (personaId ?? "larae").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+  return fallbackKey || "larae";
 }
 
-function getGoldenPairsPath(): string {
-  return resolve(getRepoRoot(), "ml/style-transfer/datasets/curated/golden_style_pairs_seed.jsonl");
+function reviewPersonas(): StyleTransferReviewPersona[] {
+  return listPersonas().map((persona) => ({
+    id: persona.id,
+    name: persona.name,
+    shortName: persona.shortName ?? persona.name,
+    avatarUrl: persona.avatarUrl ?? "",
+    datasetKey: datasetKeyForPersonaId(persona.id),
+    styleReferenceEnabled: persona.styleReference?.enabled === true
+  }));
 }
 
-function getSyntheticPairsPath(): string {
-  return resolve(getRepoRoot(), "ml/style-transfer/datasets/processed/style_transfer.pairs.jsonl");
+function resolveReviewPersona(personaId: string | undefined): StyleTransferReviewPersona {
+  const personas = reviewPersonas();
+  const persona = personaId ? personas.find((candidate) => candidate.id === personaId) : personas[0];
+  if (!persona) {
+    throw new Error(personaId ? `Unknown review persona "${personaId}".` : "No personas are registered for review.");
+  }
+  return persona;
 }
 
-function getHeuristicRejectionsPath(): string {
-  return resolve(getRepoRoot(), "ml/style-transfer/datasets/processed/heuristic_candidates.rejected.jsonl");
+function reviewPaths(datasetKey: string): PersonaStyleDatasetPaths {
+  const paths = getPersonaStyleDatasetPaths(datasetKey);
+  if (datasetKey !== "larae" || !process.env.STYLE_TRANSFER_EVAL_LOG_PATH) {
+    return paths;
+  }
+  return { ...paths, evals: process.env.STYLE_TRANSFER_EVAL_LOG_PATH };
 }
 
 function parseJsonl(path: string): LlmTurnLog[] {
@@ -148,23 +187,24 @@ function writeJsonlRecords(path: string, records: Record<string, unknown>[]): vo
   writeFileSync(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`, "utf8");
 }
 
-function pathForKind(kind: ReviewRecordKind): string {
+function pathForKind(kind: ReviewRecordKind, datasetKey: string): string {
+  const paths = reviewPaths(datasetKey);
   if (kind === "evals") {
-    return getEvalOutputPath();
+    return paths.evals;
   }
   if (kind === "pairs") {
-    return getSyntheticPairsPath();
+    return paths.synthetic;
   }
   if (kind === "rejections") {
-    return getHeuristicRejectionsPath();
+    return paths.heuristicRejections;
   }
 
-  return getGoldenPairsPath();
+  return paths.golden;
 }
 
-function invalidateStyleReferenceIfNeeded(kind: ReviewRecordKind): void {
+function invalidateStyleReferenceIfNeeded(kind: ReviewRecordKind, datasetKey: string): void {
   if (kind === "pairs" || kind === "golden") {
-    resetPersonaStyleReferenceCache();
+    resetPersonaStyleReferenceCache(datasetKey);
   }
 }
 
@@ -213,28 +253,33 @@ function findLatestTurn(conversationId: string): LlmTurnLog | undefined {
 }
 
 export class EvalCaptureService {
-  getReviewData(): StyleTransferReviewData {
-    const evalsPath = getEvalOutputPath();
-    const goldenPairsPath = getGoldenPairsPath();
-    const syntheticPairsPath = getSyntheticPairsPath();
-    const heuristicRejectionsPath = getHeuristicRejectionsPath();
+  getReviewData(personaId?: string): StyleTransferReviewData {
+    const personas = reviewPersonas();
+    const persona = personas.find((candidate) => candidate.id === personaId) ?? personas[0];
+    if (!persona) {
+      throw new Error("No personas are registered for review.");
+    }
+    const paths = reviewPaths(persona.datasetKey);
 
     return {
-      evals: parseJsonlRecords(evalsPath),
-      goldenPairs: parseJsonlRecords(goldenPairsPath),
-      syntheticPairs: parseJsonlRecords(syntheticPairsPath),
-      heuristicRejections: parseJsonlRecords(heuristicRejectionsPath),
+      persona,
+      personas,
+      evals: parseJsonlRecords(paths.evals),
+      goldenPairs: parseJsonlRecords(paths.golden),
+      syntheticPairs: parseJsonlRecords(paths.synthetic),
+      heuristicRejections: parseJsonlRecords(paths.heuristicRejections),
       paths: {
-        evals: evalsPath,
-        goldenPairs: goldenPairsPath,
-        syntheticPairs: syntheticPairsPath,
-        heuristicRejections: heuristicRejectionsPath
+        evals: paths.evals,
+        goldenPairs: paths.golden,
+        syntheticPairs: paths.synthetic,
+        heuristicRejections: paths.heuristicRejections
       }
     };
   }
 
   updateReviewRecord(input: ReviewRecordUpdate): { id: string; path: string; record: Record<string, unknown> } {
-    const path = pathForKind(input.kind);
+    const persona = resolveReviewPersona(input.personaId);
+    const path = pathForKind(input.kind, persona.datasetKey);
     const records = parseJsonlRecords(path);
     const index = records.findIndex((record) => record.id === input.id);
 
@@ -254,7 +299,7 @@ export class EvalCaptureService {
     };
     records[index] = updatedRecord;
     writeJsonlRecords(path, records);
-    invalidateStyleReferenceIfNeeded(input.kind);
+    invalidateStyleReferenceIfNeeded(input.kind, persona.datasetKey);
 
     return {
       id: input.id,
@@ -264,7 +309,8 @@ export class EvalCaptureService {
   }
 
   createReviewRecord(input: ReviewRecordCreate): { id: string; path: string; record: Record<string, unknown> } {
-    const path = pathForKind(input.kind);
+    const persona = resolveReviewPersona(input.personaId);
+    const path = pathForKind(input.kind, persona.datasetKey);
     const records = parseJsonlRecords(path);
     const id = createRecordId(input.kind, records);
     const record =
@@ -304,13 +350,14 @@ export class EvalCaptureService {
 
     records.push(record);
     writeJsonlRecords(path, records);
-    invalidateStyleReferenceIfNeeded(input.kind);
+    invalidateStyleReferenceIfNeeded(input.kind, persona.datasetKey);
 
     return { id, path, record };
   }
 
   deleteReviewRecord(input: ReviewRecordDelete): { id: string; path: string } {
-    const path = pathForKind(input.kind);
+    const persona = resolveReviewPersona(input.personaId);
+    const path = pathForKind(input.kind, persona.datasetKey);
     const records = parseJsonlRecords(path);
     const nextRecords = records.filter((record) => record.id !== input.id);
 
@@ -319,7 +366,7 @@ export class EvalCaptureService {
     }
 
     writeJsonlRecords(path, nextRecords);
-    invalidateStyleReferenceIfNeeded(input.kind);
+    invalidateStyleReferenceIfNeeded(input.kind, persona.datasetKey);
     return { id: input.id, path };
   }
 
@@ -328,13 +375,15 @@ export class EvalCaptureService {
     path: string;
     record: Record<string, unknown>;
   } {
-    const rejections = parseJsonlRecords(getHeuristicRejectionsPath());
+    const persona = resolveReviewPersona(input.personaId);
+    const paths = reviewPaths(persona.datasetKey);
+    const rejections = parseJsonlRecords(paths.heuristicRejections);
     const sourceRecord = rejections.find((record) => record.id === input.id);
     if (!sourceRecord) {
       throw new Error(`No rejected candidate found with id ${input.id}`);
     }
 
-    const syntheticPairsPath = getSyntheticPairsPath();
+    const syntheticPairsPath = paths.synthetic;
     const syntheticPairs = parseJsonlRecords(syntheticPairsPath);
     const sourceText = typeof sourceRecord.source_text === "string" ? sourceRecord.source_text.trim() : "";
     if (!sourceText) {
@@ -356,7 +405,7 @@ export class EvalCaptureService {
 
     syntheticPairs.push(record);
     writeJsonlRecords(syntheticPairsPath, syntheticPairs);
-    resetPersonaStyleReferenceCache();
+    resetPersonaStyleReferenceCache(persona.datasetKey);
 
     return {
       id: String(record.id),
@@ -372,7 +421,7 @@ export class EvalCaptureService {
     }
 
     const id = `eval_${new Date().toISOString().replace(/[-:.]/g, "").replace("T", "_").slice(0, 16)}_${randomUUID()}`;
-    const outputPath = getEvalOutputPath();
+    const outputPath = reviewPaths(datasetKeyForPersonaId(turn.personaId)).evals;
     const record = {
       id,
       mode: "style_transfer_eval_failure",

@@ -42,20 +42,27 @@ const evalCaptureRequestSchema = z.object({
   tags: z.array(z.string()).default([])
 });
 const reviewRecordUpdateSchema = z.object({
+  personaId: z.string().min(1),
   kind: z.enum(["evals", "golden", "pairs", "rejections"]),
   id: z.string().min(1),
   updates: z.record(z.string(), z.unknown())
 });
 const reviewRecordCreateSchema = z.object({
+  personaId: z.string().min(1),
   kind: z.enum(["evals", "golden", "pairs", "rejections"]),
   record: z.record(z.string(), z.unknown())
 });
 const reviewRecordDeleteSchema = z.object({
+  personaId: z.string().min(1),
   kind: z.enum(["evals", "golden", "pairs", "rejections"]),
   id: z.string().min(1)
 });
 const promoteRejectedPairSchema = z.object({
+  personaId: z.string().min(1),
   id: z.string().min(1)
+});
+const reviewQuerySchema = z.object({
+  personaId: z.string().min(1).optional()
 });
 const patchConversationSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
@@ -610,8 +617,9 @@ export async function postStyleTransferEvalCapture(request: Request, response: R
   response.status(201).json(result);
 }
 
-export async function getStyleTransferReview(_request: Request, response: Response): Promise<void> {
-  const result = evalCaptureService.getReviewData();
+export async function getStyleTransferReview(request: Request, response: Response): Promise<void> {
+  const query = reviewQuerySchema.parse(request.query);
+  const result = evalCaptureService.getReviewData(query.personaId);
   response.status(200).json(result);
 }
 

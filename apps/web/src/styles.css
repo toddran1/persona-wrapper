@@ -3348,6 +3348,155 @@ button:disabled {
   color: #fff4f0;
 }
 
+.review-workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 272px) minmax(0, 1fr);
+  gap: clamp(18px, 2.5vw, 34px);
+  width: min(1580px, 100%);
+  margin: 0 auto;
+  align-items: start;
+}
+
+.review-content {
+  min-width: 0;
+}
+
+.review-persona-rail {
+  position: sticky;
+  top: 24px;
+  display: grid;
+  gap: 18px;
+  max-height: calc(100vh - 48px);
+  padding: 18px;
+  border: 1px solid rgba(255, 200, 87, 0.24);
+  border-radius: 22px;
+  background:
+    linear-gradient(155deg, rgba(255, 200, 87, 0.1), transparent 45%),
+    rgba(18, 13, 24, 0.9);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  overflow: auto;
+}
+
+.review-persona-rail-heading {
+  display: grid;
+  gap: 6px;
+}
+
+.review-persona-rail-heading strong {
+  font-size: 1.3rem;
+  letter-spacing: -0.02em;
+}
+
+.review-persona-rail-heading p,
+.review-persona-loading {
+  margin: 0;
+  color: #a99caf;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.review-persona-menu {
+  display: grid;
+  gap: 10px;
+}
+
+.review-persona-menu button {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+  color: #fff4f0;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.review-persona-menu button:hover {
+  border-color: rgba(255, 200, 87, 0.5);
+  transform: translateY(-1px);
+}
+
+.review-persona-menu button.active {
+  border-color: #ffc857;
+  background: rgba(255, 200, 87, 0.14);
+  box-shadow: inset 3px 0 0 #ffc857;
+}
+
+.review-persona-menu button:focus-visible {
+  outline: 2px solid #ffc857;
+  outline-offset: 3px;
+}
+
+.review-persona-menu img {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  object-fit: cover;
+  background: #251426;
+}
+
+.review-persona-monogram {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  border: 1px solid rgba(214, 177, 75, 0.28);
+  border-radius: 11px;
+  background: linear-gradient(145deg, rgba(128, 73, 227, 0.44), rgba(214, 177, 75, 0.2));
+  color: #fff7ec;
+  font-weight: 800;
+}
+
+.review-persona-menu button > span:not(.review-dataset-status) {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.review-persona-menu strong,
+.review-persona-menu small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-persona-menu small {
+  color: #a99caf;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.68rem;
+}
+
+.review-dataset-status {
+  padding: 4px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: #b8abbf;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.review-dataset-status.ready {
+  border-color: rgba(52, 243, 161, 0.36);
+  color: #7dffca;
+}
+
+.review-loading-state {
+  width: min(1280px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+  border: 1px dashed rgba(255, 200, 87, 0.3);
+  border-radius: 18px;
+  color: #cfc3d6;
+}
+
 .review-header,
 .review-summary,
 .review-item {
@@ -3428,6 +3577,31 @@ button:disabled {
 .review-list {
   display: grid;
   gap: 16px;
+  width: min(1280px, 100%);
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .review-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .review-persona-rail {
+    position: static;
+    max-height: none;
+  }
+
+  .review-persona-menu {
+    display: flex;
+    padding-bottom: 4px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+
+  .review-persona-menu button {
+    flex: 0 0 min(260px, 84vw);
+    scroll-snap-align: start;
+  }
 }
 
 .review-item-header {

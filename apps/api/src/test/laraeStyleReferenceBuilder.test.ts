@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { getPersonaById } from "../personas/index.js";
-import { buildPersonaStyleReference, resetPersonaStyleReferenceCache } from "../services/personaStyleReferenceBuilder.js";
+import {
+  buildPersonaStyleReference,
+  getPersonaStyleDatasetPaths,
+  resetPersonaStyleReferenceCache
+} from "../services/personaStyleReferenceBuilder.js";
 import { estimateTextTokens } from "../utils/tokenBudget.js";
 
 const larae = getPersonaById("larae")!;
@@ -56,5 +60,18 @@ describe("personaStyleReferenceBuilder", () => {
     expect(reference).toContain("Future style reference examples.");
     expect(reference).not.toContain("Synthetic examples:");
     expect(reference).not.toContain("Golden examples:");
+  });
+
+  it("keeps each non-legacy persona in an isolated dataset directory", () => {
+    const paths = getPersonaStyleDatasetPaths("bambam");
+
+    expect(paths.evals).toMatch(/ml\/style-transfer\/personas\/bambam\/evals\/style_transfer_failures\.jsonl$/);
+    expect(paths.synthetic).toMatch(/ml\/style-transfer\/personas\/bambam\/processed\/style_transfer\.pairs\.jsonl$/);
+    expect(paths.golden).toMatch(/ml\/style-transfer\/personas\/bambam\/curated\/golden_style_pairs_seed\.jsonl$/);
+    expect(paths.heuristicRejections).toMatch(/ml\/style-transfer\/personas\/bambam\/processed\/heuristic_candidates\.rejected\.jsonl$/);
+  });
+
+  it("rejects dataset keys that could escape the persona dataset directory", () => {
+    expect(() => getPersonaStyleDatasetPaths("../outside")).toThrow("Invalid persona style dataset key");
   });
 });

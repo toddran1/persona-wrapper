@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type ReviewRecordKind, type StyleTransferReviewData } from "../lib/api.js";
+import { useSearchParams } from "react-router-dom";
+import {
+  api,
+  type ReviewRecordKind,
+  type StyleTransferReviewData,
+  type StyleTransferReviewPersona
+} from "../lib/api.js";
 import { JsonBlock } from "./output/JsonBlock.js";
 
 const REVIEW_TAG_OPTIONS = [
@@ -657,21 +663,52 @@ function OpenAIPersonaReferencePanel({
 }
 
 export function GoldenPairReviewPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedPersonaId = searchParams.get("persona") ?? undefined;
   const [data, setData] = useState<StyleTransferReviewData | undefined>();
+  const [personas, setPersonas] = useState<StyleTransferReviewPersona[]>([]);
   const [error, setError] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState<ReviewTab>("evals");
 
   useEffect(() => {
+    let active = true;
+    setData(undefined);
+    setError(undefined);
     void api
-      .getStyleTransferReview()
-      .then(setData)
-      .catch((reviewError) =>
-        setError(reviewError instanceof Error ? reviewError.message : "Failed to load review data")
-      );
-  }, []);
+      .getStyleTransferReview(requestedPersonaId)
+      .then((reviewData) => {
+        if (!active) return;
+        setData(reviewData);
+        setPersonas(reviewData.personas);
+        if (requestedPersonaId !== reviewData.persona.id) {
+          setSearchParams((current) => {
+            const nextParams = new URLSearchParams(current);
+            nextParams.set("persona", reviewData.persona.id);
+            return nextParams;
+          }, { replace: true });
+        }
+      })
+      .catch((reviewError) => {
+        if (!active) return;
+        setError(reviewError instanceof Error ? reviewError.message : "Failed to load review data");
+      });
+    return () => {
+      active = false;
+    };
+  }, [requestedPersonaId, setSearchParams]);
+
+  function selectPersona(personaId: string): void {
+    if (personaId === data?.persona.id) return;
+    setSearchParams((current) => {
+      const nextParams = new URLSearchParams(current);
+      nextParams.set("persona", personaId);
+      return nextParams;
+    });
+  }
 
   async function saveRecord(kind: ReviewRecordKind, id: string, updates: Record<string, unknown>): Promise<void> {
-    const result = await api.updateStyleTransferReviewRecord({ kind, id, updates });
+    if (!data) throw new Error("Select a persona before editing review data.");
+    const result = await api.updateStyleTransferReviewRecord({ personaId: data.persona.id, kind, id, updates });
 
     setData((current) => {
       if (!current) {
@@ -692,7 +729,8 @@ export function GoldenPairReviewPage() {
   }
 
   async function addRecord(kind: ReviewRecordKind, record: Record<string, unknown>): Promise<void> {
-    const result = await api.createStyleTransferReviewRecord({ kind, record });
+    if (!data) throw new Error("Select a persona before adding review data.");
+    const result = await api.createStyleTransferReviewRecord({ personaId: data.persona.id, kind, record });
 
     setData((current) => {
       if (!current) {
@@ -713,7 +751,8 @@ export function GoldenPairReviewPage() {
   }
 
   async function deleteRecord(kind: ReviewRecordKind, id: string): Promise<void> {
-    await api.deleteStyleTransferReviewRecord({ kind, id });
+    if (!data) throw new Error("Select a persona before deleting review data.");
+    await api.deleteStyleTransferReviewRecord({ personaId: data.persona.id, kind, id });
 
     setData((current) => {
       if (!current) {
@@ -734,7 +773,8 @@ export function GoldenPairReviewPage() {
   }
 
   async function promoteRejected(id: string): Promise<void> {
-    const result = await api.promoteRejectedStylePair({ id });
+    if (!data) throw new Error("Select a persona before promoting review data.");
+    const result = await api.promoteRejectedStylePair({ personaId: data.persona.id, id });
 
     setData((current) => {
       if (!current) {
@@ -785,74 +825,119 @@ export function GoldenPairReviewPage() {
     }
     return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [data]);
+  const selectedPersonaId = data?.persona.id ?? requestedPersonaId;
 
   return (
     <main className="review-page">
-      <header className="review-header">
-        <div>
-          <div className="eyebrow">Test mode</div>
-          <h1>Golden Pair Review</h1>
-          <p>Review local eval failures and curated training pairs before the next LoRA run.</p>
-        </div>
-        <nav className="review-tabs" aria-label="Review views">
-          <button type="button" className={activeTab === "evals" ? "active" : ""} onClick={() => setActiveTab("evals")}>
-            Evals ({data?.evals.length ?? 0})
-          </button>
-          <button type="button" className={activeTab === "golden" ? "active" : ""} onClick={() => setActiveTab("golden")}>
-            Golden ({data?.goldenPairs.length ?? 0})
-          </button>
-          <button type="button" className={activeTab === "pairs" ? "active" : ""} onClick={() => setActiveTab("pairs")}>
-            Synthetic ({data?.syntheticPairs.length ?? 0})
-          </button>
-          <button type="button" className={activeTab === "rejections" ? "active" : ""} onClick={() => setActiveTab("rejections")}>
-            Rejected ({data?.heuristicRejections.length ?? 0})
-          </button>
-          <button type="button" className={activeTab === "openai-reference" ? "active" : ""} onClick={() => setActiveTab("openai-reference")}>
-            OpenAI Ref ({
-              (data?.syntheticPairs.filter((record) => getBoolean(record, "use_for_openai_reference")).length || Math.min(data?.syntheticPairs.length ?? 0, OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE)) +
-              (data?.goldenPairs.filter((record) => getBoolean(record, "use_for_openai_reference")).length || Math.min(data?.goldenPairs.length ?? 0, OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE))
-            })
-          </button>
-        </nav>
-      </header>
+      <div className="review-workspace">
+        <aside className="review-persona-rail">
+          <div className="review-persona-rail-heading">
+            <span className="eyebrow">Persona archive</span>
+            <strong>Voice rooms</strong>
+            <p>Each room has its own training and evaluation files.</p>
+          </div>
+          <nav className="review-persona-menu" aria-label="Select persona review data">
+            {personas.length === 0 ? <p className="review-persona-loading">Loading personas...</p> : null}
+            {personas.map((persona) => (
+              <button
+                type="button"
+                className={selectedPersonaId === persona.id ? "active" : ""}
+                aria-current={selectedPersonaId === persona.id ? "page" : undefined}
+                onClick={() => selectPersona(persona.id)}
+                key={persona.id}
+              >
+                {persona.avatarUrl ? (
+                  <img src={persona.avatarUrl} alt="" />
+                ) : (
+                  <span className="review-persona-monogram" aria-hidden="true">
+                    {(persona.shortName || persona.name).slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+                <span>
+                  <strong>{persona.shortName || persona.name}</strong>
+                  <small>{persona.datasetKey}</small>
+                </span>
+                <span className={persona.styleReferenceEnabled ? "review-dataset-status ready" : "review-dataset-status"}>
+                  {persona.styleReferenceEnabled ? "Live" : "Draft"}
+                </span>
+              </button>
+            ))}
+          </nav>
+        </aside>
 
-      {error ? <p className="error-banner inline-error">{error}</p> : null}
+        <div className="review-content">
+          <header className="review-header">
+            <div>
+              <div className="eyebrow">Test mode · {data?.persona.shortName ?? "Persona"}</div>
+              <h1>Golden Pair Review</h1>
+              <p>Review {data?.persona.shortName ?? "this persona"}'s eval failures and curated training pairs before the next LoRA run.</p>
+            </div>
+            <nav className="review-tabs" aria-label="Review views">
+              <button type="button" className={activeTab === "evals" ? "active" : ""} onClick={() => setActiveTab("evals")}>
+                Evals ({data?.evals.length ?? 0})
+              </button>
+              <button type="button" className={activeTab === "golden" ? "active" : ""} onClick={() => setActiveTab("golden")}>
+                Golden ({data?.goldenPairs.length ?? 0})
+              </button>
+              <button type="button" className={activeTab === "pairs" ? "active" : ""} onClick={() => setActiveTab("pairs")}>
+                Synthetic ({data?.syntheticPairs.length ?? 0})
+              </button>
+              <button type="button" className={activeTab === "rejections" ? "active" : ""} onClick={() => setActiveTab("rejections")}>
+                Rejected ({data?.heuristicRejections.length ?? 0})
+              </button>
+              <button type="button" className={activeTab === "openai-reference" ? "active" : ""} onClick={() => setActiveTab("openai-reference")}>
+                OpenAI Ref ({
+                  (data?.syntheticPairs.filter((record) => getBoolean(record, "use_for_openai_reference")).length || Math.min(data?.syntheticPairs.length ?? 0, OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE)) +
+                  (data?.goldenPairs.filter((record) => getBoolean(record, "use_for_openai_reference")).length || Math.min(data?.goldenPairs.length ?? 0, OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE))
+                })
+              </button>
+            </nav>
+          </header>
 
-      <section className="review-summary">
-        <div>
-          <span className="eyebrow">Current view</span>
-          <strong>{title}</strong>
-          <p>{sourcePath ?? "Loading..."}</p>
-        </div>
-        <div>
-          <span className="eyebrow">Eval categories</span>
-          <p>{tagCounts.length ? tagCounts.map(([tag, count]) => `${tag}: ${count}`).join(" | ") : "No tags yet."}</p>
-        </div>
-      </section>
+          {error ? <p className="error-banner inline-error">{error}</p> : null}
+          {!data && !error ? <p className="review-loading-state">Opening persona dataset...</p> : null}
 
-      {activeTab === "openai-reference" ? (
-        <OpenAIPersonaReferencePanel
-          data={data}
-          onSave={saveRecord}
-          onDelete={deleteRecord}
-          onPromoteRejected={promoteRejected}
-        />
-      ) : (
-        <section className="review-list">
-          {records.map((record, index) => (
-            <EditableReviewCard
-              kind={activeTab}
-              record={record}
-              index={index}
-              key={getString(record, "id") || index}
-              onSave={saveRecord}
-              onDelete={deleteRecord}
-              onPromoteRejected={promoteRejected}
-            />
-          ))}
-          <AddReviewRecord kind={activeTab} onAdd={addRecord} />
-        </section>
-      )}
+          {data ? (
+            <>
+              <section className="review-summary">
+                <div>
+                  <span className="eyebrow">Current view</span>
+                  <strong>{title}</strong>
+                  <p>{sourcePath ?? "Loading..."}</p>
+                </div>
+                <div>
+                  <span className="eyebrow">Eval categories</span>
+                  <p>{tagCounts.length ? tagCounts.map(([tag, count]) => `${tag}: ${count}`).join(" | ") : "No tags yet."}</p>
+                </div>
+              </section>
+
+              {activeTab === "openai-reference" ? (
+                <OpenAIPersonaReferencePanel
+                  data={data}
+                  onSave={saveRecord}
+                  onDelete={deleteRecord}
+                  onPromoteRejected={promoteRejected}
+                />
+              ) : (
+                <section className="review-list">
+                  {records.map((record, index) => (
+                    <EditableReviewCard
+                      kind={activeTab}
+                      record={record}
+                      index={index}
+                      key={getString(record, "id") || index}
+                      onSave={saveRecord}
+                      onDelete={deleteRecord}
+                      onPromoteRejected={promoteRejected}
+                    />
+                  ))}
+                  <AddReviewRecord kind={activeTab} onAdd={addRecord} />
+                </section>
+              )}
+            </>
+          ) : null}
+        </div>
+      </div>
     </main>
   );
 }

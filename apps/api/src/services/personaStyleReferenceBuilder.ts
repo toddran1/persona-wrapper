@@ -46,18 +46,33 @@ function repoPath(...parts: string[]): string {
   return resolve(findRepoRoot(process.cwd()), ...parts);
 }
 
-function datasetPaths(datasetKey: string): { synthetic: string; golden: string } {
+export type PersonaStyleDatasetPaths = {
+  evals: string;
+  synthetic: string;
+  golden: string;
+  heuristicRejections: string;
+};
+
+export function getPersonaStyleDatasetPaths(datasetKey: string): PersonaStyleDatasetPaths {
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(datasetKey)) {
+    throw new Error(`Invalid persona style dataset key "${datasetKey}".`);
+  }
+
   if (datasetKey === "larae") {
     return {
+      evals: repoPath("ml/style-transfer/datasets/evals/style_transfer_failures.jsonl"),
       synthetic: repoPath("ml/style-transfer/datasets/processed/style_transfer.pairs.jsonl"),
-      golden: repoPath("ml/style-transfer/datasets/curated/golden_style_pairs_seed.jsonl")
+      golden: repoPath("ml/style-transfer/datasets/curated/golden_style_pairs_seed.jsonl"),
+      heuristicRejections: repoPath("ml/style-transfer/datasets/processed/heuristic_candidates.rejected.jsonl")
     };
   }
 
   const root = ["ml", "style-transfer", "personas", datasetKey];
   return {
+    evals: repoPath(...root, "evals", "style_transfer_failures.jsonl"),
     synthetic: repoPath(...root, "processed", "style_transfer.pairs.jsonl"),
-    golden: repoPath(...root, "curated", "golden_style_pairs_seed.jsonl")
+    golden: repoPath(...root, "curated", "golden_style_pairs_seed.jsonl"),
+    heuristicRejections: repoPath(...root, "processed", "heuristic_candidates.rejected.jsonl")
   };
 }
 
@@ -135,7 +150,7 @@ export function buildPersonaStyleReference(
   const config = persona.styleReference;
   if (!config?.enabled) return "";
 
-  const paths = datasetPaths(config.datasetKey);
+  const paths = getPersonaStyleDatasetPaths(config.datasetKey);
   const syntheticLimit = options.syntheticLimit ?? config.syntheticLimit ?? env.OPENAI_STYLE_REFERENCE_SYNTHETIC_LIMIT;
   const goldenLimit = options.goldenLimit ?? config.goldenLimit ?? env.OPENAI_STYLE_REFERENCE_GOLDEN_LIMIT;
   const maxTokens = options.maxTokens ?? config.maxTokens ?? env.OPENAI_STYLE_REFERENCE_MAX_TOKENS;
