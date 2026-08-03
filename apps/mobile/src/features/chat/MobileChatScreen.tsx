@@ -467,8 +467,9 @@ export function MobileChatScreen() {
     ? landscapeLayout ? DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET_LANDSCAPE : DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET
     : DEFAULT_RESPONSE_FOCUS_OFFSET;
   const handleAssistantLayout = useCallback((turnId: string, offsetY: number) => {
+    const hadAssistantOffset = assistantOffsetByTurnIdRef.current.has(turnId);
     assistantOffsetByTurnIdRef.current.set(turnId, offsetY);
-    if (responseFocusTurnIdRef.current === turnId) {
+    if (responseFocusTurnIdRef.current === turnId && !hadAssistantOffset) {
       setResponseFocusLayoutVersion((version) => version + 1);
     }
   }, []);
@@ -480,7 +481,7 @@ export function MobileChatScreen() {
     conversationLayoutRef.current = { y, height };
   }, []);
   const handleConversationContentSizeChange = useCallback(() => {
-    if (responseFocusTurnIdRef.current) {
+    if (responseFocusTurnIdRef.current && !streamingResponseAnchoredRef.current) {
       setResponseFocusLayoutVersion((version) => version + 1);
     }
   }, []);
@@ -651,6 +652,7 @@ export function MobileChatScreen() {
 
   function scrollConversationToBottom(): void {
     clearScrollButtonTimer();
+    streamingResponseAnchoredRef.current = false;
     nearConversationBottomRef.current = true;
     setShowScrollToBottom(false);
     scrollRef.current?.scrollToEnd({ animated: true });
@@ -2054,44 +2056,39 @@ export function MobileChatScreen() {
     if (!responseFocusTurnId) return;
     const index = turnsRef.current.findIndex((turn) => turn.id === responseFocusTurnId);
     if (index < 0) return;
-    let frame: number | undefined;
-    const timer = setTimeout(() => {
-      frame = requestAnimationFrame(() => {
-        const list = scrollRef.current;
-        if (!list) return;
+    const frame = requestAnimationFrame(() => {
+      const list = scrollRef.current;
+      if (!list) return;
+      const streamingAnchor = streamingResponseAnchoredRef.current;
 
-        const itemLayout = list.getLayout(index);
-        const assistantOffset = assistantOffsetByTurnIdRef.current.get(responseFocusTurnId);
-        const personaCardLayout = personaCardLayoutRef.current;
-        const conversationLayout = conversationLayoutRef.current;
+      const itemLayout = list.getLayout(index);
+      const assistantOffset = assistantOffsetByTurnIdRef.current.get(responseFocusTurnId);
+      const personaCardLayout = personaCardLayoutRef.current;
+      const conversationLayout = conversationLayoutRef.current;
 
-        if (personaCardIsDocked && itemLayout && assistantOffset !== undefined && personaCardLayout && conversationLayout) {
-          const responseViewportY = Math.max(
-            PERSONA_RESPONSE_FOCUS_GAP,
-            personaCardLayout.y + personaCardLayout.height - conversationLayout.y + PERSONA_RESPONSE_FOCUS_GAP
-          );
-          list.scrollToOffset({
-            animated: true,
-            offset: Math.max(0, list.getFirstItemOffset() + itemLayout.y + assistantOffset - responseViewportY),
-            skipFirstItemOffset: true
-          });
-        } else {
-          void list.scrollToIndex({
-            index,
-            animated: true,
-            viewPosition: 0,
-            viewOffset: personaCardIsDocked ? -responseFocusViewOffset : responseFocusViewOffset
-          });
-        }
+      if (personaCardIsDocked && itemLayout && assistantOffset !== undefined && personaCardLayout && conversationLayout) {
+        const responseViewportY = Math.max(
+          PERSONA_RESPONSE_FOCUS_GAP,
+          personaCardLayout.y + personaCardLayout.height - conversationLayout.y + PERSONA_RESPONSE_FOCUS_GAP
+        );
+        list.scrollToOffset({
+          animated: !streamingAnchor,
+          offset: Math.max(0, list.getFirstItemOffset() + itemLayout.y + assistantOffset - responseViewportY),
+          skipFirstItemOffset: true
+        });
+      } else {
+        void list.scrollToIndex({
+          index,
+          animated: !streamingAnchor,
+          viewPosition: 0,
+          viewOffset: personaCardIsDocked ? -responseFocusViewOffset : responseFocusViewOffset
+        });
+      }
 
-        responseFocusTurnIdRef.current = undefined;
-        setResponseFocusTurnId((current) => current === responseFocusTurnId ? undefined : current);
-      });
-    }, 80);
-    return () => {
-      clearTimeout(timer);
-      if (frame !== undefined) cancelAnimationFrame(frame);
-    };
+      responseFocusTurnIdRef.current = undefined;
+      setResponseFocusTurnId((current) => current === responseFocusTurnId ? undefined : current);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [personaCardIsDocked, responseFocusLayoutVersion, responseFocusTurnId, responseFocusViewOffset]);
 
   useEffect(() => {
@@ -2172,6 +2169,7 @@ export function MobileChatScreen() {
   async function loadEarlierTurns(): Promise<void> {
     if (!conversationId || !turnsCursor || loadingEarlierTurns) return;
     const selectionGeneration = selectionGenerationRef.current;
+    streamingResponseAnchoredRef.current = false;
     setLoadingEarlierTurns(true);
     try {
       const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(conversationId, turnsCursor, authUser?.id));
@@ -2409,7 +2407,11 @@ export function MobileChatScreen() {
       if (streamingFocusApplied) {
         // The draft was already anchored at the response start. Re-focusing
         // the finalized row would create a visible completion bounce.
-        lastFocusedResponseTurnIdRef.current = completedTurn.id;
+        if (responseFocusTurnIdRef.current) {
+          focusCompletedResponse(completedTurn.id, true);
+        } else {
+          lastFocusedResponseTurnIdRef.current = completedTurn.id;
+        }
       } else {
         focusCompletedResponse(completedTurn.id);
       }
@@ -3034,7 +3036,7 @@ export function MobileChatScreen() {
             onContentSizeChange={handleConversationContentSizeChange}
             maintainVisibleContentPosition={{
               autoscrollToBottomThreshold: 0.15,
-              disabled: sending
+              disabled: sending || streamingResponseAnchoredRef.current
             }}
             ListHeaderComponent={turnsCursor ? (
               <Pressable accessibilityRole="button" accessibilityLabel={t("chat.loadEarlier")} disabled={!isOnline || loadingEarlierTurns} onPress={() => void loadEarlierTurns()} style={[styles.loadEarlierButton, { borderColor: theme.border, opacity: isOnline ? 1 : 0.45 }]}>
