@@ -466,8 +466,9 @@ export function MobileChatScreen() {
     ? landscapeLayout ? DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET_LANDSCAPE : DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET
     : DEFAULT_RESPONSE_FOCUS_OFFSET;
   const handleAssistantLayout = useCallback((turnId: string, offsetY: number) => {
+    const hadAssistantOffset = assistantOffsetByTurnIdRef.current.has(turnId);
     assistantOffsetByTurnIdRef.current.set(turnId, offsetY);
-    if (responseFocusTurnIdRef.current === turnId) {
+    if (responseFocusTurnIdRef.current === turnId && !hadAssistantOffset) {
       setResponseFocusLayoutVersion((version) => version + 1);
     }
   }, []);
@@ -477,11 +478,6 @@ export function MobileChatScreen() {
   const handleConversationLayout = useCallback((event: LayoutChangeEvent) => {
     const { y, height } = event.nativeEvent.layout;
     conversationLayoutRef.current = { y, height };
-  }, []);
-  const handleConversationContentSizeChange = useCallback(() => {
-    if (responseFocusTurnIdRef.current) {
-      setResponseFocusLayoutVersion((version) => version + 1);
-    }
   }, []);
   const personaById = useMemo(
     () => new Map(personas.map((candidate) => [candidate.id, candidate] as const)),
@@ -1818,6 +1814,7 @@ export function MobileChatScreen() {
   function replaceTurnWithResponse(turnId: string, userMessage: string, userAssets: RenderedTurn["userAssets"], response: ChatResponse): void {
     const completedTurn: RenderedTurn = {
       ...turnFromChatResponse(userMessage, response),
+      id: turnId,
       ...(userAssets ? { userAssets } : {})
     };
     // A background request can briefly lose its original foreground connection
@@ -1829,10 +1826,12 @@ export function MobileChatScreen() {
       markPersonaSpeaking(response.outputs);
     }
     playGeneratedPersonaAudio(response.outputs);
-    setTurns((current) => current.map((turn) => (
-      turn.id === turnId ? completedTurn : turn
-    )));
-    focusCompletedResponse(completedTurn.id);
+    setTurns((current) => {
+      const next = current.map((turn) => turn.id === turnId ? completedTurn : turn);
+      turnsRef.current = next;
+      return next;
+    });
+    focusCompletedResponse(turnId);
   }
 
   function isStillRunningTurn(turn: RenderedTurn): boolean {
@@ -2050,47 +2049,41 @@ export function MobileChatScreen() {
 
   useEffect(() => {
     if (!responseFocusTurnId) return;
-    const index = turns.findIndex((turn) => turn.id === responseFocusTurnId);
+    const index = turnsRef.current.findIndex((turn) => turn.id === responseFocusTurnId);
     if (index < 0) return;
-    let frame: number | undefined;
-    const timer = setTimeout(() => {
-      frame = requestAnimationFrame(() => {
-        const list = scrollRef.current;
-        if (!list) return;
+    const frame = requestAnimationFrame(() => {
+      const list = scrollRef.current;
+      if (!list) return;
 
-        const itemLayout = list.getLayout(index);
-        const assistantOffset = assistantOffsetByTurnIdRef.current.get(responseFocusTurnId);
-        const personaCardLayout = personaCardLayoutRef.current;
-        const conversationLayout = conversationLayoutRef.current;
+      const itemLayout = list.getLayout(index);
+      const assistantOffset = assistantOffsetByTurnIdRef.current.get(responseFocusTurnId);
+      const personaCardLayout = personaCardLayoutRef.current;
+      const conversationLayout = conversationLayoutRef.current;
 
-        if (personaCardIsDocked && itemLayout && assistantOffset !== undefined && personaCardLayout && conversationLayout) {
-          const responseViewportY = Math.max(
-            PERSONA_RESPONSE_FOCUS_GAP,
-            personaCardLayout.y + personaCardLayout.height - conversationLayout.y + PERSONA_RESPONSE_FOCUS_GAP
-          );
-          list.scrollToOffset({
-            animated: true,
-            offset: Math.max(0, list.getFirstItemOffset() + itemLayout.y + assistantOffset - responseViewportY),
-            skipFirstItemOffset: true
-          });
-        } else {
-          void list.scrollToIndex({
-            index,
-            animated: true,
-            viewPosition: 0,
-            viewOffset: personaCardIsDocked ? -responseFocusViewOffset : responseFocusViewOffset
-          });
-        }
+      if (personaCardIsDocked && itemLayout && assistantOffset !== undefined && personaCardLayout && conversationLayout) {
+        const responseViewportY = Math.max(
+          PERSONA_RESPONSE_FOCUS_GAP,
+          personaCardLayout.y + personaCardLayout.height - conversationLayout.y + PERSONA_RESPONSE_FOCUS_GAP
+        );
+        list.scrollToOffset({
+          animated: false,
+          offset: Math.max(0, list.getFirstItemOffset() + itemLayout.y + assistantOffset - responseViewportY),
+          skipFirstItemOffset: true
+        });
+      } else {
+        void list.scrollToIndex({
+          index,
+          animated: false,
+          viewPosition: 0,
+          viewOffset: personaCardIsDocked ? -responseFocusViewOffset : responseFocusViewOffset
+        });
+      }
 
-        responseFocusTurnIdRef.current = undefined;
-        setResponseFocusTurnId((current) => current === responseFocusTurnId ? undefined : current);
-      });
-    }, 80);
-    return () => {
-      clearTimeout(timer);
-      if (frame !== undefined) cancelAnimationFrame(frame);
-    };
-  }, [personaCardIsDocked, responseFocusLayoutVersion, responseFocusTurnId, responseFocusViewOffset, turns]);
+      responseFocusTurnIdRef.current = undefined;
+      setResponseFocusTurnId((current) => current === responseFocusTurnId ? undefined : current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [personaCardIsDocked, responseFocusLayoutVersion, responseFocusTurnId, responseFocusViewOffset]);
 
   useEffect(() => {
     if (lastFocusedResponseTurnIdRef.current === turns[turns.length - 1]?.id) return;
@@ -2368,6 +2361,7 @@ export function MobileChatScreen() {
       await setSelectedConversationId(finalResponse.conversationId).catch(() => undefined);
       const completedTurn: RenderedTurn = {
         ...turnFromChatResponse(message, finalResponse),
+        id: optimistic.id,
         userAssets: mapUploadedAssetsToUserAssets(attachments)
       };
       setError(undefined);
@@ -2375,10 +2369,12 @@ export function MobileChatScreen() {
         markPersonaSpeaking(finalResponse.outputs);
       }
       playGeneratedPersonaAudio(finalResponse.outputs);
-      setTurns((current) => current.map((turn) => (
-        turn.id === optimistic?.id ? completedTurn : turn
-      )));
-      focusCompletedResponse(completedTurn.id);
+      setTurns((current) => {
+        const next = current.map((turn) => turn.id === optimistic?.id ? completedTurn : turn);
+        turnsRef.current = next;
+        return next;
+      });
+      focusCompletedResponse(optimistic.id);
       await refreshConversations();
     } catch (sendError) {
       if (!chatRequestStarted) {
@@ -2997,8 +2993,12 @@ export function MobileChatScreen() {
             scrollEventThrottle={80}
             onLayout={handleConversationLayout}
             onScroll={handleConversationScroll}
-            onContentSizeChange={handleConversationContentSizeChange}
-            maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 0.15 }}
+            maintainVisibleContentPosition={{
+              // Do not let FlashList auto-adjust while the pending row is
+              // becoming the completed response. Outside that transition,
+              // retain normal prepend anchoring for "Load earlier".
+              disabled: sending || Boolean(responseFocusTurnId)
+            }}
             ListHeaderComponent={turnsCursor ? (
               <Pressable accessibilityRole="button" accessibilityLabel={t("chat.loadEarlier")} disabled={!isOnline || loadingEarlierTurns} onPress={() => void loadEarlierTurns()} style={[styles.loadEarlierButton, { borderColor: theme.border, opacity: isOnline ? 1 : 0.45 }]}>
                 {loadingEarlierTurns ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.loadEarlierText, { color: theme.text }]}>{t("chat.loadEarlier")}</Text>}
