@@ -16,11 +16,12 @@ import { createPortal } from "react-dom";
 
 const REGISTER_PASSWORD_MIN_LENGTH = 10;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
-type SettingsSection = "account" | "plan" | "audio" | "security" | "memory" | "data" | "about" | "delete";
+type SettingsSection = "account" | "provider" | "plan" | "audio" | "security" | "memory" | "data" | "about" | "delete";
 
 function SettingsGlyph({ section }: { section: SettingsSection }) {
   const paths: Record<SettingsSection, React.ReactNode> = {
     account: <><circle cx="12" cy="8" r="3" /><path d="M5.5 19c.8-3.2 3-5 6.5-5s5.7 1.8 6.5 5" /></>,
+    provider: <><circle cx="7" cy="12" r="3" /><circle cx="17" cy="7" r="3" /><circle cx="17" cy="17" r="3" /><path d="m9.7 10.7 4.5-2.4M9.7 13.3l4.5 2.4" /></>,
     plan: <><path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" /><path d="m6 10.5 6 3.5 6-3.5M6 14l6 3.5 6-3.5" /></>,
     audio: <><path d="M5 10v4h3l4 4V6L8 10H5Z" /><path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7.5 7.5 0 0 1 0 10" /></>,
     security: <><path d="M12 3 5.5 5.8v5.1c0 4.2 2.4 7.5 6.5 9.1 4.1-1.6 6.5-4.9 6.5-9.1V5.8L12 3Z" /><path d="m9.5 11.5 1.7 1.7 3.7-4" /></>,
@@ -178,6 +179,7 @@ export function ConversationSidebar({
   const [memoryEnabled, setMemoryEnabled] = useState(authUser?.memoryEnabled ?? true);
   const [conciseAudioResponses, setConciseAudioResponses] = useState(authUser?.conciseAudioResponses ?? true);
   const [audioNotice, setAudioNotice] = useState<string | undefined>();
+  const [providerNotice, setProviderNotice] = useState<string | undefined>();
   const [memoryNotice, setMemoryNotice] = useState<string | undefined>();
   const [memoryConfirmation, setMemoryConfirmation] = useState<"chat" | "all" | undefined>();
   const [planUsage, setPlanUsage] = useState<PlanUsageSummary | undefined>();
@@ -447,6 +449,7 @@ export function ConversationSidebar({
     setLocalAuthError(undefined);
     setProfileNotice(undefined);
     setSecurityNotice(undefined);
+    setProviderNotice(undefined);
     accountButtonRef.current?.focus();
   }
 
@@ -549,6 +552,21 @@ export function ConversationSidebar({
       setAudioNotice(next ? "Shorter audio responses are on." : "Full-length audio responses are on.");
     } catch (error) {
       setLocalAuthError(error instanceof Error ? error.message : "Could not update audio settings.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function chooseModelProvider(modelProvider: "openai" | "gemini"): Promise<void> {
+    if (modelProvider === (authUser?.modelProvider ?? "openai")) return;
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    setProviderNotice(undefined);
+    try {
+      await onUpdateProfile({ modelProvider });
+      setProviderNotice(`${modelProvider === "gemini" ? "Gemini" : "ChatGPT"} will answer new requests.`);
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not update the model provider.");
     } finally {
       setAuthBusy(false);
     }
@@ -1279,6 +1297,7 @@ export function ConversationSidebar({
                   <nav className="settings-modal-nav" aria-label="Settings sections">
                     {([
                       ["account", "Account"],
+                      ["provider", "Provider settings"],
                       ["plan", "Plan & usage"],
                       ["audio", "Audio"],
                       ["security", "Security & sign-in"],
@@ -1604,6 +1623,41 @@ export function ConversationSidebar({
                             <p>Longer spoken replies can use several times more audio allowance and total usage credits. A request may be unavailable when your remaining allowance is too low.</p>
                           </div>
                         ) : null}
+                      </div>
+                    ) : null}
+
+                    {settingsSection === "provider" ? (
+                      <div className="settings-section">
+                        <div className="settings-section-heading">
+                          <span className="settings-section-eyebrow">AI model</span>
+                          <h3>Provider settings</h3>
+                          <p>Choose which model answers new requests. Existing chats and persona memory stay available when you switch.</p>
+                        </div>
+                        {providerNotice ? <div className="settings-notice" role="status">{providerNotice}</div> : null}
+                        <div className="settings-provider-options" role="radiogroup" aria-label="Model provider">
+                          {([[
+                            "openai", "ChatGPT", "Uses the OpenAI model and the complete persona experience."
+                          ], [
+                            "gemini", "Gemini", "Uses Gemini for responses, search, analysis, and supported files."
+                          ]] as const).map(([value, label, description]) => {
+                            const selected = (authUser.modelProvider ?? "openai") === value;
+                            return (
+                              <button
+                                type="button"
+                                role="radio"
+                                aria-checked={selected}
+                                className={`settings-provider-option${selected ? " settings-provider-option-selected" : ""}`}
+                                disabled={authBusy}
+                                onClick={() => void chooseModelProvider(value)}
+                                key={value}
+                              >
+                                <span><strong>{label}</strong><small>{description}</small></span>
+                                <span className="settings-provider-radio" aria-hidden="true" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="settings-provider-note">Image generation may use the app’s specialized image service even when Gemini is selected.</p>
                       </div>
                     ) : null}
 

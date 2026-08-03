@@ -620,10 +620,10 @@ function OpenAIPersonaReferencePanel({
       <article className="review-item">
         <div className="review-item-header">
           <div>
-            <span className="eyebrow">OpenAI Persona Direct</span>
+            <span className="eyebrow">Direct Persona Models</span>
             <h2>Persona style reference pool</h2>
             <p className="review-notes">
-              These marked examples are the pool used by the OpenAI direct persona path. Each prompt randomly samples up to {OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE} synthetic pairs and {OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE} golden pairs from this pool as style-only examples.
+              These marked examples are the pool used by direct persona model providers. Each prompt randomly samples up to {OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE} synthetic pairs and {OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE} golden pairs from this pool as style-only examples.
               If a source has no marked rows yet, it falls back to the first {OPENAI_REFERENCE_SYNTHETIC_SAMPLE_SIZE} synthetic rows or first {OPENAI_REFERENCE_GOLDEN_SAMPLE_SIZE} golden rows. Editing a card here updates the underlying JSONL row.
             </p>
             <p className="review-notes">
@@ -804,7 +804,7 @@ export function GoldenPairReviewPage() {
         : activeTab === "rejections"
           ? "Heuristic Rejections"
           : activeTab === "openai-reference"
-            ? "OpenAI Persona Reference"
+            ? "Persona Style Reference"
           : "Golden Pairs";
   const sourcePath =
     activeTab === "evals"

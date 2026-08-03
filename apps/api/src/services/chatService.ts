@@ -56,7 +56,7 @@ function insertToolContext(input: ChatMessage[], toolContext: ToolContext | unde
 }
 
 function shouldUseStyleTransfer(provider: ChatRequest["provider"]): boolean {
-  return provider !== "openai_persona";
+  return provider === "claude" || provider === "local";
 }
 
 function isErrorLikeText(text: string): boolean {
@@ -551,8 +551,8 @@ export class ChatService {
           provider: "stub_style_transfer" as const,
           styledText: neutralText,
           metadata: {
-            skipped: "Provider uses OpenAI direct persona response.",
-            mode: "openai_persona_direct"
+            skipped: "Provider produces the persona response directly.",
+            mode: "direct_persona_response"
           }
         };
 

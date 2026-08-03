@@ -30,7 +30,7 @@ import {
   estimatedAudioSecondsForCharacters,
   maxOutputTokensForRequest
 } from "../services/audioResponsePolicy.js";
-import { conciseAudioResponsesForUser } from "../services/accountPreferenceService.js";
+import { conciseAudioResponsesForUser, modelProviderForUser } from "../services/accountPreferenceService.js";
 
 export const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -101,7 +101,8 @@ export async function postChat(request: Request, response: Response): Promise<vo
   let customerUsageOperationId: string | undefined;
   let reservationReconciled = false;
   try {
-    let payload = await selectToolsForRequest(await resolveOwnedChatAssets(request), identity);
+    let payload = await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity);
+    payload = await selectToolsForRequest(payload, identity);
     if (!getPersonaById(payload.personaId)) {
       throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
     }
@@ -205,7 +206,8 @@ export async function postChatStream(request: Request, response: Response): Prom
   let reservationReconciled = false;
   let payload: ChatRequest;
   try {
-    payload = await selectToolsForRequest(await resolveOwnedChatAssets(request), identity);
+    payload = await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity);
+    payload = await selectToolsForRequest(payload, identity);
     if (!getPersonaById(payload.personaId)) {
       throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
     }
@@ -374,6 +376,14 @@ async function selectToolsForRequest(payload: ChatRequest, identity: string): Pr
   };
 }
 
+async function applyModelProviderPreference(payload: ChatRequest, identity: string): Promise<ChatRequest> {
+  const storedProvider = await modelProviderForUser(identity);
+  return {
+    ...payload,
+    provider: storedProvider ?? payload.provider
+  };
+}
+
 async function releaseUsageReservation(identity: string, reservationId: string, requestId?: string): Promise<void> {
   await usageControlService.recordUsage(identity, undefined, undefined, reservationId).catch((error) => {
     // Reconciliation is cleanup for a request that already failed. Keep the
@@ -392,8 +402,12 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
   const providerCost = estimateProviderCost({
     provider: payload.provider,
     reportedModelCostUsd: (
-      env.OPENAI_MAX_CONTEXT_TOKENS * env.OPENAI_INPUT_COST_PER_MILLION
-      + maxOutputTokensForRequest(payload.audio, payload.conciseAudioResponse) * env.OPENAI_OUTPUT_COST_PER_MILLION
+      env.OPENAI_MAX_CONTEXT_TOKENS * (payload.provider === "gemini"
+        ? env.GEMINI_INPUT_COST_PER_MILLION
+        : env.OPENAI_INPUT_COST_PER_MILLION)
+      + maxOutputTokensForRequest(payload.audio, payload.conciseAudioResponse) * (payload.provider === "gemini"
+        ? env.GEMINI_OUTPUT_COST_PER_MILLION
+        : env.OPENAI_OUTPUT_COST_PER_MILLION)
     ) / 1_000_000,
     generatedImageCount: payload.toolOptions?.imageGeneration ? 1 : 0,
     imageQuality: payload.toolOptions?.imageQuality ?? env.OPENAI_IMAGE_QUALITY,
@@ -402,7 +416,7 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
     imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
     audioSeconds: reservedAudioSeconds,
     audioCostPerMinuteUsd: env.CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD,
-    styleTransferCalls: payload.provider !== "openai_persona" && env.STYLE_TRANSFER_PROVIDER !== "stub" ? 1 : 0,
+    styleTransferCalls: (payload.provider === "claude" || payload.provider === "local") && env.STYLE_TRANSFER_PROVIDER !== "stub" ? 1 : 0,
     styleTransferCostPerCallUsd: env.CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD,
     webSearchCalls: payload.toolOptions?.webSearch ? 1 : 0,
     fileSearchCalls: payload.toolOptions?.fileSearch ? 1 : 0,
@@ -460,7 +474,7 @@ async function settleCustomerUsage(
     imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
     audioSeconds,
     audioCostPerMinuteUsd: env.CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD,
-    styleTransferCalls: payload.provider !== "openai_persona"
+    styleTransferCalls: (payload.provider === "claude" || payload.provider === "local")
       && env.STYLE_TRANSFER_PROVIDER !== "stub"
       && result.outputs.some((output) => output.type === "text" && output.text.trim())
       ? 1
@@ -520,7 +534,7 @@ async function releaseCustomerUsage(operationId: string, requestId?: string): Pr
 }
 
 function shouldRunInBackground(payload: ChatRequest): boolean {
-  if (payload.provider !== "openai" && payload.provider !== "openai_persona") return false;
+  if (payload.provider !== "openai" && payload.provider !== "gemini") return false;
   return payload.toolOptions?.background === true ||
     payload.toolOptions?.imageGeneration === true ||
     payload.toolOptions?.codeInterpreter === true;

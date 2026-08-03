@@ -42,6 +42,7 @@ Set at minimum:
 
 - `PORT`
 - `OPENAI_API_KEY` when you are ready to replace the stub provider with real SDK calls
+- `GOOGLE_GEMINI_API_KEY` to enable Gemini responses
 
 ### 3. Run the apps
 
@@ -245,6 +246,7 @@ LLM and TTS integrations use interfaces so you can swap implementations without 
 Included providers:
 
 - `OpenAIProvider`
+- `GeminiProvider`
 - `ClaudeProvider`
 - `LocalModelProvider`
 - `OpenAITTSProvider`
@@ -252,9 +254,19 @@ Included providers:
 - `ElevenLabsTTSProvider`
 - `LocalTTSProvider`
 
-The OpenAI provider uses the Responses API when `OPENAI_API_KEY` is configured
-and falls back to deterministic stub output in tests or without a key. Claude
-remains a stub, and the local provider uses the configured Ollama endpoint.
+The OpenAI provider uses the Responses API when `OPENAI_API_KEY` is configured.
+The Gemini provider uses `gemini-3.5-flash-lite` through the Gemini Interactions
+API by default and supports native Google Search, code execution, application
+function calls, and inline supported files. Requests set `store: false`; this
+application's owner-scoped database remains the authoritative conversation
+history instead of creating a second provider-managed history. OpenAI remains
+the delegated image-generation and OpenAI-vector-store provider when Gemini is
+selected. Both providers use deterministic stub output in tests and
+non-production environments without their API key. Claude remains a stub, and
+the local provider uses the configured Ollama endpoint.
+
+Signed-in users choose ChatGPT or Gemini under **Settings → Provider settings**.
+The choice is stored on the account and applies to new requests on web and mobile.
 
 ### Tool Calling
 

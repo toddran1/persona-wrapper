@@ -137,6 +137,16 @@ describe("shared schemas", () => {
     expect(parsed.history).toEqual([]);
   });
 
+  it("normalizes the retired OpenAI direct provider id for older clients", () => {
+    const parsed = chatRequestSchema.parse({
+      personaId: "larae",
+      provider: "openai_persona",
+      message: "Hello"
+    });
+
+    expect(parsed.provider).toBe("openai");
+  });
+
   it("keeps current and legacy TTS provider records compatible with provider-neutral audio blocks", () => {
     expect(ttsOutputSchema.parse({
       provider: "fish_audio_tts",

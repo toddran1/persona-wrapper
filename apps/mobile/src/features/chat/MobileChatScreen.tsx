@@ -238,7 +238,7 @@ export function MobileChatScreen() {
   const compactLayout = windowWidth < 360 || windowHeight < 700;
   const tabletLayout = Math.min(windowWidth, windowHeight) >= 600;
   const [persona, setPersona] = useState<PersonaDefinition | undefined>();
-  const [provider, setProvider] = useState<ProviderId>("openai_persona");
+  const [provider, setProvider] = useState<ProviderId>("openai");
   const [turns, setTurns] = useState<RenderedTurn[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationsCursor, setConversationsCursor] = useState<string | null>(null);
@@ -411,6 +411,10 @@ export function MobileChatScreen() {
   } = useAccountSettingsController(authUser);
   const currentAccountIdRef = useRef(authUser?.id);
   currentAccountIdRef.current = authUser?.id;
+
+  useEffect(() => {
+    if (authUser?.modelProvider) setProvider(authUser.modelProvider);
+  }, [authUser?.id, authUser?.modelProvider]);
   const dataTransferActive = Boolean(
     dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status)
   );
@@ -730,6 +734,10 @@ export function MobileChatScreen() {
     setProfileSelection(undefined);
     setProfileError(undefined);
     setProfileNotice(undefined);
+    if (panel === "audio" || panel === "provider") {
+      setAudioSettingsError(undefined);
+      setAudioSettingsNotice(undefined);
+    }
     if (panel === "profile") {
       setProfileUsername(authUser?.username ?? "");
       setPreferredName(authUser?.preferredName ?? "");
@@ -807,6 +815,22 @@ export function MobileChatScreen() {
       setAudioSettingsError(audioSettingsUpdateError instanceof Error
         ? audioSettingsUpdateError.message
         : "Could not update audio settings.");
+    } finally {
+      setAudioSettingsBusy(false);
+    }
+  }
+
+  async function updateModelProvider(modelProvider: "openai" | "gemini"): Promise<void> {
+    if (modelProvider === (authUser?.modelProvider ?? "openai")) return;
+    setAudioSettingsBusy(true);
+    setAudioSettingsError(undefined);
+    try {
+      const updatedUser = await api.updateProfile({ modelProvider });
+      setAuthUser(updatedUser);
+      setProvider(updatedUser.modelProvider ?? modelProvider);
+      setAudioSettingsNotice(`${modelProvider === "gemini" ? "Gemini" : "ChatGPT"} will answer new requests.`);
+    } catch (providerError) {
+      setAudioSettingsError(providerError instanceof Error ? providerError.message : "Could not update the model provider.");
     } finally {
       setAudioSettingsBusy(false);
     }
@@ -1311,7 +1335,10 @@ export function MobileChatScreen() {
         ]);
         if (detail) {
           setPersona(detail);
-          setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
+          const preferredProvider = user?.modelProvider ?? "openai";
+          setProvider(detail.supportedProviders.includes(preferredProvider)
+            ? preferredProvider
+            : detail.supportedProviders[0] ?? "openai");
           void setSelectedPersonaId(detail.id).catch(() => undefined);
         }
         if (user) {
@@ -2003,7 +2030,10 @@ export function MobileChatScreen() {
         ]);
         if (!mounted) return;
         if (detail) {
-          setProvider(detail.supportedProviders.includes("openai_persona") ? "openai_persona" : detail.supportedProviders[0] ?? "openai");
+          const preferredProvider = user?.modelProvider ?? "openai";
+          setProvider(detail.supportedProviders.includes(preferredProvider)
+            ? preferredProvider
+            : detail.supportedProviders[0] ?? "openai");
           setPersona(detail);
           void setSelectedPersonaId(detail.id).catch(() => undefined);
         }
@@ -3176,7 +3206,7 @@ export function MobileChatScreen() {
             </Pressable>
             {settingsPanel !== "main" ? (
               <Text style={[styles.settingsPanelTitle, { color: theme.text }]}>
-                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "plan" ? "Plan & usage" : settingsPanel === "audio" ? "Audio" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "memory" ? "Memory" : settingsPanel === "about" ? "About" : "Your data"}
+                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "provider" ? "Provider settings" : settingsPanel === "plan" ? "Plan & usage" : settingsPanel === "audio" ? "Audio" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "memory" ? "Memory" : settingsPanel === "about" ? "About" : "Your data"}
               </Text>
             ) : null}
           </View>
@@ -3226,6 +3256,14 @@ export function MobileChatScreen() {
                   <View style={styles.settingsRowCopy}>
                     <Text style={[styles.settingsRowText, { color: theme.text }]}>Plan &amp; usage</Text>
                     <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Media allowances and reset dates</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open provider settings" onPress={() => openSettingsPanel("provider")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="git-compare-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Provider settings</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{(authUser?.modelProvider ?? "openai") === "gemini" ? "Gemini" : "ChatGPT"}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
                 </Pressable>
@@ -3425,6 +3463,39 @@ export function MobileChatScreen() {
                   </View>
                 </View>
               ) : null}
+              {audioSettingsBusy ? <ActivityIndicator color={theme.accent2} /> : null}
+            </View>
+          ) : null}
+          {settingsPanel === "provider" ? (
+            <View style={styles.settingsSection}>
+              <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Choose which model answers new requests. Existing chats and persona memory stay available when you switch.</Text>
+              {audioSettingsError ? <Text style={[styles.settingsPanelDescription, { color: theme.danger }]} accessibilityRole="alert">{audioSettingsError}</Text> : null}
+              {audioSettingsNotice ? <Text style={[styles.settingsPanelDescription, { color: theme.accent2 }]} accessibilityLiveRegion="polite">{audioSettingsNotice}</Text> : null}
+              {([[
+                "openai", "ChatGPT", "OpenAI model with the complete persona experience."
+              ], [
+                "gemini", "Gemini", "Gemini responses, search, analysis, and supported files."
+              ]] as const).map(([value, label, description]) => {
+                const selected = (authUser?.modelProvider ?? "openai") === value;
+                return (
+                  <Pressable
+                    key={value}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected, disabled: audioSettingsBusy }}
+                    disabled={audioSettingsBusy}
+                    onPress={() => void updateModelProvider(value)}
+                    style={[styles.settingsRow, { backgroundColor: selected ? `${theme.accent}30` : "rgba(255,255,255,0.09)", borderColor: selected ? theme.accent2 : theme.border, borderWidth: 1 }]}
+                  >
+                    <Ionicons name={value === "gemini" ? "sparkles-outline" : "chatbubble-ellipses-outline"} size={22} color={selected ? theme.accent2 : theme.text} />
+                    <View style={styles.settingsRowCopy}>
+                      <Text style={[styles.settingsRowText, { color: theme.text }]}>{label}</Text>
+                      <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{description}</Text>
+                    </View>
+                    <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={22} color={selected ? theme.accent2 : theme.muted} />
+                  </Pressable>
+                );
+              })}
+              <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Image generation may use the app’s specialized image service even when Gemini is selected.</Text>
               {audioSettingsBusy ? <ActivityIndicator color={theme.accent2} /> : null}
             </View>
           ) : null}

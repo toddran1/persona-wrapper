@@ -107,9 +107,37 @@ const openAIPricingAdapter: ProviderPricingAdapter = {
   }
 };
 
+const geminiPricingAdapter: ProviderPricingAdapter = {
+  estimate(input) {
+    // Gemini text usage is reported by the provider. Image generation and
+    // OpenAI vector-store searches are explicitly delegated and retain their
+    // underlying capability price, while native Gemini code execution is
+    // token-priced rather than billed as an OpenAI container session.
+    const components: ProviderCostEstimate["components"] = {};
+    const reportedModelCost = positive(input.reportedModelCostUsd);
+    if (reportedModelCost > 0) components.reported_model_usage = reportedModelCost;
+    const imageCost = openAIImageOutputCost(
+      Math.ceil(positive(input.generatedImageCount)),
+      input.imageQuality,
+      input.imageSize
+    );
+    if (imageCost > 0) components.image_generation = imageCost;
+    const webSearchCost = positive(input.webSearchCalls) * 0.014;
+    if (webSearchCost > 0) components.web_search = webSearchCost;
+    const fileSearchCost = positive(input.fileSearchCalls) * 0.0025;
+    if (fileSearchCost > 0) components.file_search = fileSearchCost;
+    addSharedProviderCosts(input, components);
+    return {
+      estimatedCostUsd: roundedUsd(Object.values(components).reduce((sum, value) => sum + (value ?? 0), 0)),
+      components,
+      unpricedComponents: []
+    };
+  }
+};
+
 const adapters = new Map<string, ProviderPricingAdapter>([
   ["openai", openAIPricingAdapter],
-  ["openai_persona", openAIPricingAdapter]
+  ["gemini", geminiPricingAdapter]
 ]);
 
 /**

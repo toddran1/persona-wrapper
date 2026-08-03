@@ -427,7 +427,7 @@ describe("ConversationStore prompt context", () => {
             outputTokens: 5,
             totalTokens: 15
           },
-          provider: "openai_persona",
+          provider: "openai",
           providerModel: "gpt-test",
           responseId: "resp_123",
           styleTransferProvider: "stub_style_transfer",
@@ -447,7 +447,7 @@ describe("ConversationStore prompt context", () => {
     const restored = await store.get("turns-test");
     expect(restored?.turns[0]?.outputs[0]?.type).toBe("image");
     expect(restored?.turns[0]?.usage?.totalTokens).toBe(15);
-    expect(restored?.turns[0]?.provider).toBe("openai_persona");
+    expect(restored?.turns[0]?.provider).toBe("openai");
     expect(restored?.turns[0]?.providerModel).toBe("gpt-test");
     expect(restored?.turns[0]?.responseId).toBe("resp_123");
     expect(restored?.turns[0]?.styleTransferProvider).toBe("stub_style_transfer");

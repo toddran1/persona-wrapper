@@ -7,7 +7,7 @@ import type {
   PlanUsageSummary
 } from "@persona/shared";
 
-export type SettingsPanel = "main" | "profile" | "plan" | "audio" | "security" | "sessions" | "memory" | "about" | "data";
+export type SettingsPanel = "main" | "profile" | "provider" | "plan" | "audio" | "security" | "sessions" | "memory" | "about" | "data";
 export type ProfileSelectionKind = "gender" | "month" | "day";
 
 export function useAccountSettingsController(authUser: AuthUser | undefined) {

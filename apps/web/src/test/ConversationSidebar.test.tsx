@@ -241,6 +241,11 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(dialog).getByRole("button", { name: /Confirm clear all memory/ }));
     await waitFor(() => expect(onClearAllMemory).toHaveBeenCalledOnce());
 
+    await user.click(within(dialog).getByRole("button", { name: "Provider settings" }));
+    expect(within(dialog).getByRole("radio", { name: /ChatGPT/ })).toHaveAttribute("aria-checked", "true");
+    await user.click(within(dialog).getByRole("radio", { name: /Gemini/ }));
+    await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ modelProvider: "gemini" }));
+
     await user.click(within(dialog).getByRole("button", { name: "Your data" }));
     expect(within(dialog).getByRole("button", { name: /Export account data/ })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Import conversations/ })).toBeInTheDocument();

@@ -4,7 +4,7 @@ import { estimateProviderCost } from "../services/providerCostEstimator.js";
 describe("provider cost estimator", () => {
   it("combines OpenAI model, image, and hosted-tool estimates", () => {
     const estimate = estimateProviderCost({
-      provider: "openai_persona",
+      provider: "openai",
       reportedModelCostUsd: 0.02,
       generatedImageCount: 1,
       imageQuality: "medium",
@@ -35,6 +35,27 @@ describe("provider cost estimator", () => {
 
     expect(estimate.estimatedCostUsd).toBe(0.04);
     expect(estimate.unpricedComponents).toEqual(["image_generation", "web_search"]);
+  });
+
+  it("accounts for Gemini-native search and OpenAI-delegated image generation", () => {
+    const estimate = estimateProviderCost({
+      provider: "gemini",
+      reportedModelCostUsd: 0.01,
+      generatedImageCount: 1,
+      imageQuality: "medium",
+      imageSize: "1024x1024",
+      webSearchCalls: 1,
+      codeInterpreterSessions: 1
+    });
+
+    expect(estimate.estimatedCostUsd).toBe(0.077);
+    expect(estimate.components).toMatchObject({
+      reported_model_usage: 0.01,
+      image_generation: 0.053,
+      web_search: 0.014
+    });
+    expect(estimate.components).not.toHaveProperty("code_interpreter");
+    expect(estimate.unpricedComponents).toEqual([]);
   });
 
   it("includes configured cross-provider media and style costs in total usage", () => {

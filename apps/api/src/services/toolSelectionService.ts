@@ -109,7 +109,7 @@ export function shouldEnableWebSearchForMessage(message: string): boolean {
 }
 
 function shouldUseModelRouter(request: ChatRequest): boolean {
-  if (request.provider !== "openai" && request.provider !== "openai_persona") return false;
+  if (request.provider !== "openai" && request.provider !== "gemini") return false;
   if (!env.OPENAI_TOOL_ROUTER_ENABLED || !env.OPENAI_API_KEY) return false;
   if (env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS) return false;
   return request.message.trim().length >= 8;
@@ -153,7 +153,7 @@ async function routeWithOpenAI(request: ChatRequest): Promise<RouterDecision> {
 }
 
 export async function selectTools(request: ChatRequest): Promise<ChatRequest> {
-  if (request.provider !== "openai" && request.provider !== "openai_persona") return request;
+  if (request.provider !== "openai" && request.provider !== "gemini") return request;
   const explicit = request.toolOptions ?? defaults;
   const deterministic = deterministicDecision(request);
   let toolOptions = mergeTools(explicit, deterministic);

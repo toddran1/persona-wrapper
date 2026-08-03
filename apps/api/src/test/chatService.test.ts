@@ -91,7 +91,7 @@ describe("ChatService", () => {
 
     const response = await service.handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Hi LaRae, please introduce yourself.",
       audio: false,
       testMode: true,
@@ -101,7 +101,7 @@ describe("ChatService", () => {
     const assistantReply = response.outputs.find((output) => output.type === "text");
     const assistantText = assistantReply?.type === "text" ? assistantReply.text : "";
 
-    expect(response.provider).toBe("openai_persona");
+    expect(response.provider).toBe("openai");
     expect(response.diagnostics.neutralResponse).toBe(assistantText);
     expect(assistantText).toContain("I’m LaRae the Baddest");
     expect(assistantText).not.toContain("Bitch, be serious.");
@@ -115,7 +115,7 @@ describe("ChatService", () => {
     const conversationStore = new ConversationStore();
     const response = await new ChatService(conversationStore).handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Give me a short spoken greeting.",
       audio: true,
       testMode: true,
@@ -154,7 +154,7 @@ describe("ChatService", () => {
 
     const response = await new ChatService(conversationStore).handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Give me a short spoken greeting.",
       audio: true,
       testMode: true,
@@ -199,7 +199,7 @@ describe("ChatService", () => {
         role: "assistant",
         content: "Here is the image.",
         metadata: {
-          provider: "openai_persona",
+          provider: "openai",
           outputs: [
             {
               type: "image",
@@ -218,7 +218,7 @@ describe("ChatService", () => {
     const response = await service.handleChat(
       {
         personaId: "larae",
-        provider: "openai_persona",
+        provider: "openai",
         message: "What breed of puppy did you just send me?",
         audio: true,
         testMode: false,
@@ -240,7 +240,7 @@ describe("ChatService", () => {
   it("asks for promised image uploads instead of inventing a replacement image", async () => {
     const response = await new ChatService().handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Can you mix these 2 images, I am uploading, together to give us a brand new character?",
       audio: true,
       testMode: false,
@@ -268,7 +268,7 @@ describe("ChatService", () => {
   it("asks for only the missing image when a two-image request supplies one", async () => {
     const response = await new ChatService().handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Combine these two images into one character.",
       audio: false,
       testMode: false,
@@ -301,7 +301,7 @@ describe("ChatService", () => {
   it("blocks generation when any explicitly requested reference count is incomplete", async () => {
     const response = await new ChatService().handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Combine these 4 uploaded images into one character.",
       audio: false,
       testMode: false,
@@ -345,7 +345,7 @@ describe("ChatService", () => {
         role: "assistant",
         content: "Here they are.",
         metadata: {
-          provider: "openai_persona",
+          provider: "openai",
           outputs: [
             {
               type: "image",
@@ -366,7 +366,7 @@ describe("ChatService", () => {
 
     const response = await service.handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Combine these two previous images into one character.",
       audio: false,
       testMode: false,
@@ -400,7 +400,7 @@ describe("ChatService", () => {
         role: "assistant",
         content: "Here it is.",
         metadata: {
-          provider: "openai_persona",
+          provider: "openai",
           outputs: [{
             type: "image",
             url: `data:image/png;base64,${Buffer.from("old-reference").toString("base64")}`,
@@ -413,7 +413,7 @@ describe("ChatService", () => {
 
     const response = await service.handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Mix these two images I am uploading into one character.",
       audio: false,
       testMode: false,
@@ -449,7 +449,7 @@ describe("ChatService", () => {
         role: "assistant",
         content: "Here is the portrait.",
         metadata: {
-          provider: "openai_persona",
+          provider: "openai",
           outputs: [{
             type: "image",
             url: `data:image/png;base64,${Buffer.from("portrait").toString("base64")}`,
@@ -462,7 +462,7 @@ describe("ChatService", () => {
 
     const response = await service.handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Make the background blue.",
       audio: false,
       testMode: false,
@@ -495,7 +495,7 @@ describe("ChatService", () => {
         role: "assistant",
         content: "Here is the sign.",
         metadata: {
-          provider: "openai_persona",
+          provider: "openai",
           outputs: [{
             type: "image",
             url: `data:image/png;base64,${Buffer.from("street-sign").toString("base64")}`,
@@ -508,7 +508,7 @@ describe("ChatService", () => {
 
     const response = await service.handleChat({
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "Can you read the sign?",
       audio: false,
       testMode: false,
@@ -548,7 +548,7 @@ describe("ChatService", () => {
         content: "Here is the older pair.",
         metadata: {
           outputs: [image("older first"), image("older second")],
-          provider: "openai_persona"
+          provider: "openai"
         }
       }
     ]);
@@ -559,13 +559,13 @@ describe("ChatService", () => {
         content: "Here is the latest pair.",
         metadata: {
           outputs: [image("latest first"), image("latest second")],
-          provider: "openai_persona"
+          provider: "openai"
         }
       }
     ]);
     const request = {
       personaId: "larae" as const,
-      provider: "openai_persona" as const,
+      provider: "openai" as const,
       audio: false,
       testMode: false,
       conversationId: seededConversation.id,

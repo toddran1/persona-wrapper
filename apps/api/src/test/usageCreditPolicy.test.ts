@@ -10,7 +10,7 @@ function responseWithOutputs(outputs: ChatResponse["outputs"]): ChatResponse {
   return {
     conversationId: "conv_test",
     personaId: "larae",
-    provider: "openai_persona",
+    provider: "openai",
     message: "",
     outputs,
     audio: null,

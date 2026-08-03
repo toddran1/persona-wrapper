@@ -79,7 +79,7 @@ describe("stubScenarioBuilder", () => {
         requestedOutputs: [],
         audio: false
       },
-      "openai_persona"
+      "openai"
     );
 
     expect(output.content.some((block) => block.type === "file")).toBe(false);

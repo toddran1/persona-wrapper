@@ -6089,3 +6089,54 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+.settings-provider-options {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.settings-provider-option {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(218, 179, 83, 0.2);
+  border-radius: 0.85rem;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  justify-content: space-between;
+  padding: 0.9rem 1rem;
+  text-align: left;
+  width: 100%;
+}
+
+.settings-provider-option span:first-child {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.settings-provider-option small,
+.settings-provider-note {
+  color: #b9aec8;
+  line-height: 1.45;
+}
+
+.settings-provider-option-selected {
+  background: rgba(218, 179, 83, 0.1);
+  border-color: #dab353;
+}
+
+.settings-provider-radio {
+  border: 2px solid #8d819c;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: 1rem;
+  margin-left: 1rem;
+  width: 1rem;
+}
+
+.settings-provider-option-selected .settings-provider-radio {
+  background: #dab353;
+  border: 0.25rem solid #27162f;
+  box-shadow: 0 0 0 2px #dab353;
+}

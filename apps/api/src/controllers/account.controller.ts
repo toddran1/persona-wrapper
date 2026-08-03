@@ -43,6 +43,7 @@ function toAuthUser(user: typeof users.$inferSelect): AuthUser {
       : null,
     memoryEnabled: user.memoryEnabled,
     conciseAudioResponses: user.conciseAudioResponses,
+    modelProvider: user.modelProvider === "gemini" ? "gemini" : "openai",
     termsVersionAccepted: user.termsVersionAccepted,
     termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
     privacyVersionAccepted: user.privacyVersionAccepted,
@@ -146,6 +147,7 @@ export async function updateProfile(request: Request, response: Response): Promi
       ...(payload.conciseAudioResponses !== undefined
         ? { conciseAudioResponses: payload.conciseAudioResponses }
         : {}),
+      ...(payload.modelProvider !== undefined ? { modelProvider: payload.modelProvider } : {}),
       updatedAt: new Date()
     }).where(and(eq(users.id, request.auth.userId), eq(users.status, "active"))).returning();
   } catch (error) {

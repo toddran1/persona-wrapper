@@ -70,7 +70,7 @@ type OpenAIPromptMode = "base" | "full";
 
 type OpenAIProviderOptions = {
   promptMode?: OpenAIPromptMode;
-  providerId?: Extract<ProviderId, "openai" | "openai_persona">;
+  providerId?: Extract<ProviderId, "openai">;
 };
 
 type OpenAIRequestControls = {
@@ -316,7 +316,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
     extraInstructions.push(
       [
         ...(personaInstructions.length > 0
-          ? ["OpenAI direct persona performance direction:", ...personaInstructions]
+          ? ["Direct persona performance direction:", ...personaInstructions]
           : []),
         `Answer directly in ${input.persona.shortName ?? input.persona.name}'s voice. Keep useful structure such as lists, bullets, tables, links, citations, images, charts, or files when the task calls for them.`,
         "Use markdown sparingly. Do not wrap lots of ordinary names, numbers, or phrases in bold. Prefer clean prose, bullets, and tables over heavy **bold** formatting.",
@@ -1048,10 +1048,10 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 
 export class OpenAIProvider implements LLMProvider {
   private readonly promptMode: OpenAIPromptMode;
-  private readonly providerId: Extract<ProviderId, "openai" | "openai_persona">;
+  private readonly providerId: Extract<ProviderId, "openai">;
 
   constructor(options: OpenAIProviderOptions = {}) {
-    this.promptMode = options.promptMode ?? "base";
+    this.promptMode = options.promptMode ?? "full";
     this.providerId = options.providerId ?? "openai";
   }
 

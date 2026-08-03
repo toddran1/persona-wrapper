@@ -10,7 +10,7 @@ function imageInput(message: string): LLMInput {
 
   const input = new PersonaEngine().prepareInput(persona, {
     personaId: "larae",
-    provider: "openai_persona",
+    provider: "openai",
     message,
     audio: false,
     testMode: false,

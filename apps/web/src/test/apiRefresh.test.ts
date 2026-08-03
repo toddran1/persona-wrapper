@@ -59,7 +59,7 @@ describe("web API authentication refresh", () => {
     const request = api.sendChat({
       personaId: "larae",
       message: "hello",
-      provider: "openai_persona",
+      provider: "openai",
       audio: false
     }, controller.signal);
     controller.abort();
@@ -75,7 +75,7 @@ describe("web API authentication refresh", () => {
     await expect(api.sendChat({
       personaId: "larae",
       message: "hello",
-      provider: "openai_persona",
+      provider: "openai",
       audio: false
     })).rejects.toThrow("Daily chat limit reached. Try again tomorrow.");
   });

@@ -18,7 +18,7 @@ function inputForLaRae(audio = false): LLMInput {
   if (!persona) throw new Error("LaRae persona not found");
   return new PersonaEngine().prepareInput(persona, {
     personaId: "larae",
-    provider: "openai_persona",
+    provider: "openai",
     message: "Introduce yourself.",
     audio,
     testMode: false,
@@ -32,7 +32,7 @@ describe("OpenAIProvider instructions", () => {
     if (!persona) throw new Error("LaRae persona not found");
     const input = new PersonaEngine().prepareInput(persona, {
       personaId: "larae",
-      provider: "openai_persona",
+      provider: "openai",
       message: "",
       audio: false,
       testMode: false,
@@ -71,7 +71,7 @@ describe("OpenAIProvider instructions", () => {
     const directInstructions = buildOpenAIResponseInstructions(input, "full");
     const baseInstructions = buildOpenAIResponseInstructions(input, "base");
 
-    expect(directInstructions).toContain("OpenAI direct persona performance direction");
+    expect(directInstructions).toContain("Direct persona performance direction");
     expect(directInstructions).toContain("Use heavy slang, profanity, attitude, and reality-TV confessional energy");
     expect(directInstructions).toContain("Use heavy HEAVY slang and profanity");
     expect(directInstructions).toContain("Bitch, Nigga, Bitches, Niggas, Fucking, Fuck, Hoe, Hoes, Baddies");
@@ -89,7 +89,7 @@ describe("OpenAIProvider instructions", () => {
     expect(directInstructions).toContain("Every paragraph, bullet, numbered item, and transition should carry noticeable LaRae voice");
     expect(directInstructions).toContain("Do not drift into neutral assistant prose after the opening");
     expect(directInstructions).toContain("Do not become generic, corporate, polished, or therapist-clean");
-    expect(baseInstructions).not.toContain("OpenAI direct persona performance direction");
+    expect(baseInstructions).not.toContain("Direct persona performance direction");
     expect(baseInstructions).not.toContain("Use heavy slang, profanity, attitude, and reality-TV confessional energy");
     expect(baseInstructions).not.toContain("Use heavy HEAVY slang and profanity");
     expect(baseInstructions).not.toContain("LaRae is an adults-only persona");

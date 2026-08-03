@@ -7,8 +7,21 @@ export const MAX_CHART_CATEGORIES = 250;
 export const MAX_CHART_DATASETS = 8;
 export const MAX_DONUT_CATEGORIES = 20;
 
-export const providerSchema = z.enum(["openai", "openai_persona", "claude", "local"]);
+const currentProviderSchema = z.enum(["openai", "gemini", "claude", "local"]);
+
+/**
+ * `openai_persona` was the former name for the full-prompt OpenAI path. Keep
+ * accepting it at API/database boundaries so older clients and conversations
+ * migrate safely, while exposing only the current provider ids to the app.
+ */
+export const providerSchema = z.preprocess(
+  (value) => value === "openai_persona" ? "openai" : value,
+  currentProviderSchema
+);
 export type ProviderId = z.infer<typeof providerSchema>;
+
+export const modelProviderPreferenceSchema = z.enum(["openai", "gemini"]);
+export type ModelProviderPreference = z.infer<typeof modelProviderPreferenceSchema>;
 
 export const outputTypeSchema = z.enum([
   "text",
@@ -447,14 +460,15 @@ export const userPersonalizationProfileSchema = z.object({
   preferredName: z.string().trim().min(1).max(80).nullable().optional(),
   gender: userGenderSchema.nullable().optional(),
   birthday: userBirthdaySchema.nullable().optional(),
-  conciseAudioResponses: z.boolean().optional()
+  conciseAudioResponses: z.boolean().optional(),
+  modelProvider: modelProviderPreferenceSchema.optional()
 });
 export type UserPersonalizationProfile = z.infer<typeof userPersonalizationProfileSchema>;
 
 export const updateUserProfileRequestSchema = userPersonalizationProfileSchema.extend({
   username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_.]+$/, "Use letters, numbers, periods, or underscores only.").optional()
 }).refine(
-  (value) => value.preferredName !== undefined || value.gender !== undefined || value.birthday !== undefined || value.username !== undefined || value.conciseAudioResponses !== undefined,
+  (value) => value.preferredName !== undefined || value.gender !== undefined || value.birthday !== undefined || value.username !== undefined || value.conciseAudioResponses !== undefined || value.modelProvider !== undefined,
   { message: "At least one profile field must be provided." }
 );
 export type UpdateUserProfileRequest = z.infer<typeof updateUserProfileRequestSchema>;
@@ -548,6 +562,7 @@ export const authUserSchema = z.object({
   birthday: userBirthdaySchema.nullable().optional(),
   memoryEnabled: z.boolean().optional(),
   conciseAudioResponses: z.boolean().optional(),
+  modelProvider: modelProviderPreferenceSchema.optional(),
   termsVersionAccepted: z.string().nullable().optional(),
   termsAcceptedAt: z.string().nullable().optional(),
   privacyVersionAccepted: z.string().nullable().optional(),

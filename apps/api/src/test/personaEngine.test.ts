@@ -63,7 +63,7 @@ describe("PersonaEngine", () => {
 
     const input = engine.prepareInput(persona!, {
       personaId: persona!.id,
-      provider: "openai_persona",
+      provider: "openai",
       message: "Chart this data.",
       audio: false,
       testMode: false,
@@ -83,7 +83,7 @@ describe("PersonaEngine", () => {
 
     const input = engine.prepareInput(persona!, {
       personaId: persona!.id,
-      provider: "openai_persona",
+      provider: "openai",
       message: "Give me the full answer.",
       audio: true,
       conciseAudioResponse: false,
@@ -102,7 +102,7 @@ describe("PersonaEngine", () => {
 
     const input = engine.prepareInput(persona!, {
       personaId: persona!.id,
-      provider: "openai_persona",
+      provider: "openai",
       message: "How does your answer compare?",
       audio: false,
       testMode: false,

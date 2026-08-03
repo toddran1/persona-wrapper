@@ -215,24 +215,6 @@ export function ChatComposer(props: ChatComposerProps) {
               <summary>Settings</summary>
               <div className="composer-settings-body">
                 <div className="composer-meta-row">
-                  {/* <label>
-                    Provider
-                    <select
-                      // value={props.provider}
-                      defaultValue="openai_persona"
-                      disabled
-                      onChange={(event) =>
-                        props.onProviderChange(event.target.value as ProviderId)
-                      }
-                    >
-                      <option value="openai">OpenAI + Style Model</option>
-                      <option value="openai_persona">
-                        OpenAI Persona Direct
-                      </option>
-                      <option value="claude">Claude</option>
-                      <option value="local">Local</option>
-                    </select>
-                  </label> */}
                   <label style={{ height: "100%" }}>
                     <div>
                       <span>Audio</span>
@@ -250,10 +232,9 @@ export function ChatComposer(props: ChatComposerProps) {
                       </div>
                     </div>
                   </label>
-                  {props.provider === "openai" ||
-                  props.provider === "openai_persona" ? (
+                  {props.provider === "openai" || props.provider === "gemini" ? (
                     <fieldset className="tool-options">
-                      <legend>OpenAI tools</legend>
+                      <legend>Model tools</legend>
                       {(
                         [
                           ["webSearch", "Web"],

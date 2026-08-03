@@ -60,14 +60,14 @@ function buildText(params: {
   const catchphrase = params.persona.catchphrases[0];
   const fullCallbacks: Record<ProviderId, string> = {
     openai: catchphrase ?? `${personaName} is on it.`,
-    openai_persona: catchphrase ?? `${personaName} is on it.`,
+    gemini: catchphrase ?? `${personaName} is on it.`,
     claude: `${personaName} is bringing the answer with personality.`,
     local: `${personaName} local persona mode is active.`
   };
 
   const baseCallbacks: Record<ProviderId, string> = {
     openai: "Here’s the answer, plain and polished.",
-    openai_persona: "Here’s the answer, plain and polished.",
+    gemini: "Here’s the answer, plain and polished.",
     claude: "Here’s the clean version with a little attitude.",
     local: "Here’s the direct version with a light persona touch."
   };

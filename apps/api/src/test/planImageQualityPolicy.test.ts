@@ -7,7 +7,7 @@ function imageRequest(imageQuality: "auto" | "low" | "medium" | "high"): ChatReq
   return {
     personaId: "larae",
     message: "Generate an image.",
-    provider: "openai_persona",
+    provider: "openai",
     audio: false,
     testMode: false,
     history: [],

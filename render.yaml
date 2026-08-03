@@ -109,6 +109,10 @@ services:
 
       - key: OPENAI_API_KEY
         sync: false
+      - key: GOOGLE_GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
       - key: OPENAI_MODEL
         value: gpt-5.6-luna
       - key: OPENAI_TOOL_ROUTER_MODEL

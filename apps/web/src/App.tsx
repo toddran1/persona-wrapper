@@ -261,7 +261,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [personas, setPersonas] = useState<PersonaSummary[]>([]);
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | undefined>(() => storedPersonaId());
   const [personaDetail, setPersonaDetail] = useState<PersonaDefinition | undefined>();
-  const [provider, setProvider] = useState<ProviderId>("openai_persona");
+  const [provider, setProvider] = useState<ProviderId>("openai");
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [personaCardVisible, setPersonaCardVisible] = useState(true);
   const [response, setResponse] = useState<ChatResponse | undefined>();
@@ -283,6 +283,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [authError, setAuthError] = useState<string | undefined>();
   const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
+
+  useEffect(() => {
+    if (authUser?.modelProvider) setProvider(authUser.modelProvider);
+  }, [authUser?.id, authUser?.modelProvider]);
   const [currentPolicies, setCurrentPolicies] = useState<CurrentPoliciesResponse>();
   const [policyLoading, setPolicyLoading] = useState(true);
   const [policyError, setPolicyError] = useState<string>();
