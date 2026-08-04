@@ -205,6 +205,69 @@ describe("GeminiProvider", () => {
     ]));
   });
 
+  it("does not combine Gemini tools with the structured audio response format", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "interaction_audio_tools",
+      status: "completed",
+      output_text: JSON.stringify({
+        visible_text: "I do not have any siblings in my established background.",
+        tts_script: "I don't have any siblings in my established background."
+      }),
+      steps: [{
+        type: "model_output",
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            visible_text: "I do not have any siblings in my established background.",
+            tts_script: "I don't have any siblings in my established background."
+          })
+        }]
+      }]
+    });
+    const input = geminiInput();
+    input.audio = true;
+    input.toolOptions = { ...input.toolOptions, appFunctions: true };
+
+    const output = await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    const request = createInteraction.mock.calls[0]?.[0];
+    expect(request.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "function" })
+    ]));
+    expect(request).not.toHaveProperty("response_format");
+    expect(output.rawText).toBe("I do not have any siblings in my established background.");
+    expect(output.metadata?.ttsScript).toBe("I don't have any siblings in my established background.");
+  });
+
+  it("keeps the structured audio response format when no Gemini tools are present", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "interaction_audio_without_tools",
+      status: "completed",
+      output_text: JSON.stringify({ visible_text: "Hey.", tts_script: "Hey..." }),
+      steps: [{ type: "model_output", content: [{ type: "text", text: "Hey." }] }]
+    });
+    const input = geminiInput();
+    input.audio = true;
+    input.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: false,
+      appFunctions: false,
+      background: false,
+      vectorStoreIds: []
+    };
+
+    await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    expect(createInteraction.mock.calls[0]?.[0]).toMatchObject({
+      response_format: {
+        type: "text",
+        mime_type: "application/json"
+      }
+    });
+  });
+
   it("does not expose developer-facing Interactions failure details", async () => {
     const createInteraction = vi.fn().mockResolvedValue({
       id: "interaction_failed",

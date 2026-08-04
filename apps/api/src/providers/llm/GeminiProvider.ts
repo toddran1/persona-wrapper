@@ -227,7 +227,12 @@ function interactionRequest(input: LLMInput, steps: InteractionStep[], tools: In
       max_output_tokens: maxOutputTokensForRequest(input.audio, input.conciseAudioResponse)
     },
     ...(tools.length > 0 ? { tools } : {}),
-    ...(dualText ? {
+    // Gemini Interactions currently rejects requests that combine tools with
+    // response_format (HTTP 400 invalid_request). The system instruction still
+    // requests the dual-text JSON shape, and parseDualTextPayload accepts that
+    // unenforced JSON after any tool loop. If Gemini returns ordinary text,
+    // ChatService safely falls back to the mechanical speech-script builder.
+    ...(dualText && tools.length === 0 ? {
       response_format: {
         type: "text",
         mime_type: "application/json",
@@ -445,6 +450,11 @@ export class GeminiProvider implements LLMProvider {
         model: env.GEMINI_MODEL,
         status: errorStatus(error),
         message: (error instanceof Error ? error.message : String(error)).slice(0, 1_000),
+        providerCode: error && typeof error === "object" && "error" in error &&
+          typeof error.error === "object" && error.error && "error" in error.error &&
+          typeof error.error.error === "object" && error.error.error && "code" in error.error.error
+          ? String(error.error.error.code).slice(0, 100)
+          : undefined,
         conversationMessages: input.messages.length,
         toolTypes: tools.map((tool) => tool.type)
       });
