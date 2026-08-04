@@ -87,6 +87,81 @@ describe("GeminiProvider", () => {
     expect(output.metadata?.interactionStored).toBe(false);
   });
 
+  it("encodes mixed-provider and mixed-persona history as quoted context instead of Gemini model steps", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "interaction_history",
+      status: "completed",
+      output_text: "LaRae keeps the personas distinct.",
+      steps: [{ type: "model_output", content: [{ type: "text", text: "LaRae keeps the personas distinct." }] }],
+      usage: { total_input_tokens: 42, total_output_tokens: 7, total_tokens: 49 }
+    });
+    const input = geminiInput();
+    input.messages = [
+      input.messages[0]!,
+      { role: "user", content: "What team do you like?" },
+      {
+        role: "assistant",
+        content: "[Assistant persona: Bam Bam | id=bambam]\nThe Atlanta Hawks.",
+        personaId: "bambam"
+      },
+      { role: "assistant", content: "An answer previously returned by another provider." },
+      { role: "user", content: "What did each persona say?" }
+    ];
+
+    await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    const request = createInteraction.mock.calls[0]?.[0];
+    expect(request.input).toHaveLength(1);
+    expect(request.input).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "model_output" })
+    ]));
+    expect(request.input[0]).toMatchObject({
+      type: "user_input",
+      content: [
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("[Assistant persona: Bam Bam | id=bambam]")
+        }),
+        { type: "text", text: "Current user request:\nWhat did each persona say?" }
+      ]
+    });
+    const historyText = request.input[0]?.content?.[0]?.text;
+    expect(historyText).toContain("An answer previously returned by another provider.");
+    expect(historyText).not.toContain("What did each persona say?");
+  });
+
+  it("attaches media to the single current user input without fabricating historical model output", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "interaction_attachment",
+      status: "completed",
+      output_text: "I can see it.",
+      steps: [{ type: "model_output", content: [{ type: "text", text: "I can see it." }] }]
+    });
+    const input = geminiInput();
+    input.messages = [
+      input.messages[0]!,
+      { role: "user", content: "Remember this earlier request." },
+      { role: "assistant", content: "I remember it." },
+      { role: "user", content: "What is in this image?" }
+    ];
+    input.attachments = [{
+      id: "upload_test",
+      fileName: "pixel.png",
+      mimeType: "image/png",
+      sizeBytes: 4,
+      url: "data:image/png;base64,iVBORw=="
+    }];
+
+    await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    const request = createInteraction.mock.calls[0]?.[0];
+    expect(request.input).toHaveLength(1);
+    expect(request.input[0]?.content).toEqual(expect.arrayContaining([
+      { type: "text", text: "Current user request:\nWhat is in this image?" },
+      { type: "image", data: "iVBORw==", mime_type: "image/png" }
+    ]));
+  });
+
   it("continues application function calls without provider-side stored state", async () => {
     const createInteraction = vi.fn()
       .mockResolvedValueOnce({
