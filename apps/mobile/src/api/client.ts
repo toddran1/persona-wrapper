@@ -51,6 +51,7 @@ export type MobileChatPayload = {
   audio: boolean;
   testMode?: boolean;
   conversationId?: string;
+  retryAssistantMessageId?: string;
   clientContext?: ClientContext;
   attachments?: UploadedAsset[];
   toolOptions?: ToolOptions;

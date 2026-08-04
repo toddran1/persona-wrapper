@@ -16,6 +16,8 @@ export type UserPromptAsset = {
 };
 
 export type RenderedTurn = {
+  userMessageId?: string;
+  assistantMessageId?: string;
   personaId?: string;
   userMessage: string;
   userAssets?: UserPromptAsset[];

@@ -9,7 +9,9 @@ export function sortConversationSummaries(left: ConversationSummary, right: Conv
 
 export function turnsFromConversationTurns(turns: ConversationTurn[]): RenderedTurn[] {
   return turns.map((turn, index) => ({
-    id: `${index}-${turn.userMessage.slice(0, 16)}`,
+    id: turn.assistantMessageId ?? `${index}-${turn.userMessage.slice(0, 16)}`,
+    ...(turn.userMessageId ? { userMessageId: turn.userMessageId } : {}),
+    ...(turn.assistantMessageId ? { assistantMessageId: turn.assistantMessageId } : {}),
     ...(turn.personaId ? { personaId: turn.personaId } : {}),
     userMessage: turn.userMessage,
     userAssets: turn.userAssets,
@@ -25,7 +27,9 @@ export function turnFromChatResponse(prompt: string, response: ChatResponse): Re
     .map((output) => output.text)
     .join("\n\n");
   return {
-    id: `${response.conversationId}-${response.generatedAt}`,
+    id: response.assistantMessageId ?? `${response.conversationId}-${response.generatedAt}`,
+    ...(response.userMessageId ? { userMessageId: response.userMessageId } : {}),
+    ...(response.assistantMessageId ? { assistantMessageId: response.assistantMessageId } : {}),
     personaId: response.persona.id,
     userMessage: prompt,
     assistantText,

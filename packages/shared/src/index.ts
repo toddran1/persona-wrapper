@@ -676,6 +676,7 @@ export const chatRequestSchema = z.object({
   conciseAudioResponse: z.boolean().default(true),
   testMode: z.boolean().default(false),
   conversationId: z.string().optional(),
+  retryAssistantMessageId: z.string().min(1).max(256).optional(),
   history: z.array(chatMessageSchema).default([]),
   requestedOutputs: z.array(outputTypeSchema).optional(),
   clientContext: clientContextSchema.optional(),
@@ -978,6 +979,8 @@ export const chatResponseSchema = z.object({
   persona: personaSummarySchema,
   provider: providerSchema,
   conversationId: z.string(),
+  userMessageId: z.string().optional(),
+  assistantMessageId: z.string().optional(),
   history: z.array(chatMessageSchema),
   outputs: z.array(contentBlockSchema),
   generatedAt: z.string(),
@@ -1067,6 +1070,8 @@ export const conversationMediaClarificationSchema = z.object({
 export type ConversationMediaClarification = z.infer<typeof conversationMediaClarificationSchema>;
 
 export const conversationTurnSchema = z.object({
+  userMessageId: z.string().optional(),
+  assistantMessageId: z.string().optional(),
   personaId: z.string().optional(),
   userMessage: z.string(),
   userAssets: z.array(conversationUserAssetSchema).default([]),

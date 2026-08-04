@@ -49,6 +49,8 @@ function sortConversationSummaries(left: ConversationSummary, right: Conversatio
 
 function renderTurnsFromConversationTurns(turns: ConversationTurn[]): RenderedTurn[] {
   return turns.map((turn) => ({
+    ...(turn.userMessageId ? { userMessageId: turn.userMessageId } : {}),
+    ...(turn.assistantMessageId ? { assistantMessageId: turn.assistantMessageId } : {}),
     ...(turn.personaId ? { personaId: turn.personaId } : {}),
     userMessage: turn.userMessage,
     userAssets: turn.userAssets.map((asset) => ({
@@ -728,7 +730,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     message: string,
     files: File[],
     toolOptions: ToolOptions,
-    reusableAttachments: UploadedAsset[] = []
+    reusableAttachments: UploadedAsset[] = [],
+    retryAssistantMessageId?: string
   ): Promise<void> {
     if (!personaDetail || !authUser || activeRequestRef.current) {
       return;
@@ -784,6 +787,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         clientContext: getClientContext(),
         attachments,
         toolOptions: resolvedToolOptions,
+        ...(retryAssistantMessageId ? { retryAssistantMessageId } : {}),
         ...(submittedConversationId ? { conversationId: submittedConversationId } : {})
       };
       setLatestRequest(payload);
@@ -822,7 +826,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         replaceBackgroundTurnWithResult(backgroundJob.id, finalResult);
         clearStoredBackgroundJob(backgroundJob.id);
       } else {
-        appendChatResult(message, finalResult, attachments, files);
+        appendChatResult(message, finalResult, attachments, files, retryAssistantMessageId);
       }
       void refreshConversationList(finalResult.conversationId);
       activeBackgroundJobIdRef.current = undefined;
@@ -904,6 +908,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       setError("This response cannot be retried because its original message and attachments are unavailable.");
       return;
     }
+    if (!turn.assistantMessageId) {
+      setError("This response cannot be retried because its saved message is unavailable.");
+      return;
+    }
     void handleSubmit(turn.userMessage, files, {
       webSearch: false,
       fileSearch: false,
@@ -912,10 +920,16 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       appFunctions: true,
       background: false,
       vectorStoreIds: []
-    }, reusableAttachments);
+    }, reusableAttachments, turn.assistantMessageId);
   }
 
-  function appendChatResult(message: string, result: ChatResponse, attachments: UploadedAsset[] = [], userFiles: File[] = []): void {
+  function appendChatResult(
+    message: string,
+    result: ChatResponse,
+    attachments: UploadedAsset[] = [],
+    userFiles: File[] = [],
+    retryAssistantMessageId?: string
+  ): void {
     const assistantTextBlock = result.outputs.find((output) => output.type === "text");
     const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
     const userAssets = mapUploadedAssetsToUserPromptAssets(attachments);
@@ -927,9 +941,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setResponse(result);
     setRenderedTurns((current) => {
       setAutoPlayAudioTurnIndex(current.length);
-      return [
-        ...current,
-        {
+      const completedTurn: RenderedTurn = {
+          ...(result.userMessageId ? { userMessageId: result.userMessageId } : {}),
+          ...(result.assistantMessageId ? { assistantMessageId: result.assistantMessageId } : {}),
           personaId: result.persona.id,
           userMessage: message,
           userAssets,
@@ -937,8 +951,10 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           assistantText,
           outputs: result.outputs,
           usage: result.usage
-        }
-      ];
+        };
+      return retryAssistantMessageId
+        ? current.map((turn) => turn.assistantMessageId === retryAssistantMessageId ? completedTurn : turn)
+        : [...current, completedTurn];
     });
   }
 

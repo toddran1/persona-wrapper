@@ -1684,10 +1684,15 @@ export function MobileChatScreen() {
       setError("This response cannot be retried because its original message and attachments are unavailable.");
       return;
     }
+    if (!turn.assistantMessageId) {
+      setError("This response cannot be retried because its saved message is unavailable.");
+      return;
+    }
     await submit(turn.userMessage, {
       files: [],
       attachments: reusableAttachments,
-      replaceTurnId: turn.id
+      replaceTurnId: turn.id,
+      retryAssistantMessageId: turn.assistantMessageId
     });
   }
 
@@ -2287,6 +2292,7 @@ export function MobileChatScreen() {
     files?: MobilePickedFile[];
     attachments?: UploadedAsset[];
     replaceTurnId?: string;
+    retryAssistantMessageId?: string;
   }): Promise<void> {
     if (!activePersona || sending || activeChatAbortControllerRef.current) return;
     if (!isOnline) {
@@ -2355,6 +2361,9 @@ export function MobileChatScreen() {
       setUploadingAttachments(false);
       optimistic = {
         id: `pending-${Date.now()}`,
+        ...(options?.retryAssistantMessageId
+          ? { assistantMessageId: options.retryAssistantMessageId }
+          : {}),
         personaId: submittedPersona.id,
         userMessage: message,
         userAssets: mapUploadedAssetsToUserAssets(attachments),
@@ -2379,6 +2388,7 @@ export function MobileChatScreen() {
         clientContext: getClientContext(),
         toolOptions: resolvedToolOptions,
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(options?.retryAssistantMessageId ? { retryAssistantMessageId: options.retryAssistantMessageId } : {}),
         ...(submittedConversationId ? { conversationId: submittedConversationId } : {})
       }, controller.signal);
       const backgroundJob = response.diagnostics.backgroundJob;

@@ -66,6 +66,43 @@ describe("ChatService", () => {
     expect(second.outputs.some((output) => output.type === "file")).toBe(true);
   });
 
+  it("regenerates the latest response without sending or storing the old answer as history", async () => {
+    const conversationStore = new ConversationStore();
+    const service = new ChatService(conversationStore);
+    const first = await service.handleChat({
+      personaId: "bambam",
+      provider: "gemini",
+      message: "Bam Bam, introduce yourself.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+
+    expect(first.userMessageId).toMatch(/^msg_/);
+    expect(first.assistantMessageId).toMatch(/^msg_/);
+    const retried = await service.handleChat({
+      personaId: "bambam",
+      provider: "gemini",
+      message: "Bam Bam, introduce yourself.",
+      audio: false,
+      testMode: false,
+      conversationId: first.conversationId,
+      retryAssistantMessageId: first.assistantMessageId,
+      history: []
+    });
+
+    expect(retried.history).toHaveLength(2);
+    expect(retried.userMessageId).toBe(first.userMessageId);
+    expect(retried.assistantMessageId).toBe(first.assistantMessageId);
+    const saved = await conversationStore.get(first.conversationId);
+    expect(saved?.turns).toHaveLength(1);
+    expect(saved?.turns[0]).toMatchObject({
+      userMessageId: first.userMessageId,
+      assistantMessageId: first.assistantMessageId,
+      userMessage: "Bam Bam, introduce yourself."
+    });
+  });
+
   it("streams neutral text and returns the final styled response", async () => {
     const service = new ChatService();
     const deltas: string[] = [];

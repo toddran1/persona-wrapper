@@ -12,6 +12,7 @@ import { maxOutputTokensForRequest } from "../../services/audioResponsePolicy.js
 import { buildPersonaStyleReference } from "../../services/personaStyleReferenceBuilder.js";
 import { storageService } from "../../services/storageService.js";
 import { HttpError } from "../../utils/httpError.js";
+import { logger } from "../../utils/logger.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
 import type { LLMProgressCallbacks, LLMProvider } from "./LLMProvider.js";
 import {
@@ -439,6 +440,14 @@ export class GeminiProvider implements LLMProvider {
         }
       }
     } catch (error) {
+      logger.warn("Gemini interaction request failed", {
+        personaId: input.persona.id,
+        model: env.GEMINI_MODEL,
+        status: errorStatus(error),
+        message: (error instanceof Error ? error.message : String(error)).slice(0, 1_000),
+        conversationMessages: input.messages.length,
+        toolTypes: tools.map((tool) => tool.type)
+      });
       throw mapGeminiError(error);
     }
 

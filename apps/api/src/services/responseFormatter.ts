@@ -12,6 +12,8 @@ export class ResponseFormatter {
     persona: PersonaDefinition;
     llmOutput: LLMOutput;
     conversationId?: string;
+    userMessageId?: string;
+    assistantMessageId?: string;
     history: ChatMessage[];
     includeAudio: boolean;
     ttsOutput?: TTSOutput;
@@ -58,6 +60,8 @@ export class ResponseFormatter {
       },
       provider: params.llmOutput.provider,
       conversationId: params.conversationId ?? createConversationId(),
+      ...(params.userMessageId ? { userMessageId: params.userMessageId } : {}),
+      ...(params.assistantMessageId ? { assistantMessageId: params.assistantMessageId } : {}),
       history: params.history,
       outputs,
       generatedAt: new Date().toISOString(),

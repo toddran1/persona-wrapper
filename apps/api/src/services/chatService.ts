@@ -123,8 +123,6 @@ export class ChatService {
       throw new HttpError(`Unknown persona: ${request.personaId}`, 404);
     }
 
-    const userMessageId = `msg_${randomUUID()}`;
-    const assistantMessageId = `msg_${randomUUID()}`;
     const testMode = request.testMode || env.APP_TEST_MODE;
     const userContext = await loadUserChatContext(options.ownerId);
     const conversation = await this.conversationStore.getOrCreate(request.conversationId, request.history, {
@@ -133,9 +131,17 @@ export class ChatService {
       titleSeed: request.message,
       memoryEnabled: userContext.memoryEnabled
     });
+    const retryContext = request.retryAssistantMessageId
+      ? this.conversationStore.prepareRetry(conversation, request.retryAssistantMessageId)
+      : undefined;
+    if (retryContext && retryContext.originalMessage !== request.message) {
+      throw new HttpError("The response no longer matches the message being retried.", 409);
+    }
+    const userMessageId = retryContext?.userMessageId ?? `msg_${randomUUID()}`;
+    const assistantMessageId = request.retryAssistantMessageId ?? `msg_${randomUUID()}`;
     const imageReferenceRequirement = analyzeImageReferenceRequirement(request.message);
     const currentImageCount = (request.attachments ?? []).filter((attachment) => attachment.kind === "image").length;
-    const conversationMediaAttachments = await resolveConversationMediaContext(conversation, {
+    const conversationMediaAttachments = await resolveConversationMediaContext(retryContext?.conversation ?? conversation, {
       message: request.message,
       ...(options.ownerId ? { ownerId: options.ownerId } : {}),
       maxImages: Math.max(MAX_CHAT_ATTACHMENTS - currentImageCount, 0),
@@ -172,17 +178,34 @@ export class ChatService {
         candidateCount: conversationMediaAttachments.candidateCount,
         selectedPositions: conversationMediaAttachments.selectedPositions
       });
-      const updatedConversation = await this.conversationStore.appendTurn(conversation, [
-        {
-          id: userMessageId,
-          role: "user",
-          content: request.message,
-          metadata: {
-            provider: request.provider,
-            userAssets
+      const assistantMessage = {
+        id: assistantMessageId,
+        role: "assistant" as const,
+        content: clarificationText,
+        metadata: {
+          personaId: persona.id,
+          outputs: clarificationOutput.content,
+          provider: clarificationOutput.provider,
+          visualClarification: {
+            status: "ambiguous" as const,
+            originalRequest: request.message,
+            selectedPositions: conversationMediaAttachments.selectedPositions
           }
-        },
-        {
+        }
+      };
+      const updatedConversation = retryContext
+        ? await this.conversationStore.replaceAssistantMessage(conversation, assistantMessageId, assistantMessage)
+        : await this.conversationStore.appendTurn(conversation, [
+          {
+            id: userMessageId,
+            role: "user",
+            content: request.message,
+            metadata: {
+              provider: request.provider,
+              userAssets
+            }
+          },
+          {
           id: assistantMessageId,
           role: "assistant",
           content: clarificationText,
@@ -196,12 +219,14 @@ export class ChatService {
               selectedPositions: conversationMediaAttachments.selectedPositions
             }
           }
-        }
-      ]);
+          }
+        ]);
       return this.responseFormatter.format({
         persona,
         llmOutput: clarificationOutput,
         conversationId: updatedConversation.id,
+        userMessageId,
+        assistantMessageId,
         history: updatedConversation.messages,
         includeAudio: false,
         diagnostics: {
@@ -267,17 +292,29 @@ export class ChatService {
               }
             }
       });
-      const updatedConversation = await this.conversationStore.appendTurn(conversation, [
-        {
-          id: userMessageId,
-          role: "user",
-          content: request.message,
-          metadata: {
-            provider: request.provider,
-            userAssets
-          }
-        },
-        {
+      const assistantMessage = {
+        id: assistantMessageId,
+        role: "assistant" as const,
+        content: CONVERSATION_MEDIA_UNAVAILABLE_TEXT,
+        metadata: {
+          personaId: persona.id,
+          outputs: fallbackOutput.content,
+          provider: fallbackOutput.provider
+        }
+      };
+      const updatedConversation = retryContext
+        ? await this.conversationStore.replaceAssistantMessage(conversation, assistantMessageId, assistantMessage)
+        : await this.conversationStore.appendTurn(conversation, [
+          {
+            id: userMessageId,
+            role: "user",
+            content: request.message,
+            metadata: {
+              provider: request.provider,
+              userAssets
+            }
+          },
+          {
           id: assistantMessageId,
           role: "assistant",
           content: CONVERSATION_MEDIA_UNAVAILABLE_TEXT,
@@ -286,13 +323,15 @@ export class ChatService {
             outputs: fallbackOutput.content,
             provider: fallbackOutput.provider
           }
-        }
-      ]);
+          }
+        ]);
 
       return this.responseFormatter.format({
         persona,
         llmOutput: fallbackOutput,
         conversationId: updatedConversation.id,
+        userMessageId,
+        assistantMessageId,
         history: updatedConversation.messages,
         includeAudio: false,
         diagnostics: {
@@ -345,17 +384,29 @@ export class ChatService {
           conversationMediaSource: conversationMediaAttachments.source
         }
       });
-      const updatedConversation = await this.conversationStore.appendTurn(conversation, [
-        {
-          id: userMessageId,
-          role: "user",
-          content: request.message,
-          metadata: {
-            provider: request.provider,
-            userAssets
-          }
-        },
-        {
+      const assistantMessage = {
+        id: assistantMessageId,
+        role: "assistant" as const,
+        content: clarificationText,
+        metadata: {
+          personaId: persona.id,
+          outputs: clarificationOutput.content,
+          provider: clarificationOutput.provider
+        }
+      };
+      const updatedConversation = retryContext
+        ? await this.conversationStore.replaceAssistantMessage(conversation, assistantMessageId, assistantMessage)
+        : await this.conversationStore.appendTurn(conversation, [
+          {
+            id: userMessageId,
+            role: "user",
+            content: request.message,
+            metadata: {
+              provider: request.provider,
+              userAssets
+            }
+          },
+          {
           id: assistantMessageId,
           role: "assistant",
           content: clarificationText,
@@ -364,13 +415,15 @@ export class ChatService {
             outputs: clarificationOutput.content,
             provider: clarificationOutput.provider
           }
-        }
-      ]);
+          }
+        ]);
 
       return this.responseFormatter.format({
         persona,
         llmOutput: clarificationOutput,
         conversationId: updatedConversation.id,
+        userMessageId,
+        assistantMessageId,
         history: updatedConversation.messages,
         includeAudio: false,
         diagnostics: {
@@ -400,7 +453,7 @@ export class ChatService {
       attachments: [...(request.attachments ?? []), ...conversationMediaAttachments.attachments],
       ...(effectiveToolOptions ? { toolOptions: effectiveToolOptions } : {}),
       conversationId: conversation.id,
-      history: this.conversationStore.getPromptContext(conversation)
+      history: retryContext?.history ?? this.conversationStore.getPromptContext(conversation)
     }, userProfile);
     // The controller stamps the account preference onto the request before it
     // reserves usage. Keep that value stable for background jobs so generation
@@ -851,17 +904,33 @@ export class ChatService {
     const providerModel = typeof llmOutput.metadata?.providerModel === "string" ? llmOutput.metadata.providerModel : undefined;
     const responseId = typeof llmOutput.metadata?.responseId === "string" ? llmOutput.metadata.responseId : undefined;
 
-    const updatedConversation = await this.conversationStore.appendTurn(conversation, [
-      {
-        id: userMessageId,
-        role: "user",
-        content: request.message,
-        metadata: {
-          provider: request.provider,
-          userAssets
-        }
-      },
-      {
+    const assistantMessage = {
+      id: assistantMessageId,
+      role: "assistant" as const,
+      content: assistantText,
+      metadata: {
+        personaId: persona.id,
+        outputs: persistedOutputs,
+        provider: responseLlmOutput.provider,
+        ...(providerModel ? { providerModel } : {}),
+        ...(responseId ? { responseId } : {}),
+        ...(styleTransferOutput.provider ? { styleTransferProvider: styleTransferOutput.provider } : {}),
+        ...(responseLlmOutput.usage ? { usage: responseLlmOutput.usage } : {})
+      }
+    };
+    const updatedConversation = retryContext
+      ? await this.conversationStore.replaceAssistantMessage(conversation, assistantMessageId, assistantMessage)
+      : await this.conversationStore.appendTurn(conversation, [
+        {
+          id: userMessageId,
+          role: "user",
+          content: request.message,
+          metadata: {
+            provider: request.provider,
+            userAssets
+          }
+        },
+        {
         id: assistantMessageId,
         role: "assistant",
         content: assistantText,
@@ -874,8 +943,8 @@ export class ChatService {
           ...(styleTransferOutput.provider ? { styleTransferProvider: styleTransferOutput.provider } : {}),
           ...(responseLlmOutput.usage ? { usage: responseLlmOutput.usage } : {})
         }
-      }
-    ]);
+        }
+      ]);
 
     // Generated audio is created before the assistant turn is persisted so it
     // can be included in that turn's outputs. Link the optional message foreign
@@ -911,6 +980,8 @@ export class ChatService {
       persona,
       llmOutput: responseOutputWithTtsStatus,
       conversationId: updatedConversation.id,
+      userMessageId,
+      assistantMessageId,
       history: updatedConversation.messages,
       includeAudio: request.audio,
       diagnostics: {

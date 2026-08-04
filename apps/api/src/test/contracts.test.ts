@@ -137,6 +137,16 @@ describe("shared schemas", () => {
     expect(parsed.history).toEqual([]);
   });
 
+  it("accepts a saved assistant message id for response regeneration", () => {
+    const parsed = chatRequestSchema.parse({
+      personaId: "bambam",
+      message: "Bam Bam, introduce yourself.",
+      retryAssistantMessageId: "msg_assistant_1"
+    });
+
+    expect(parsed.retryAssistantMessageId).toBe("msg_assistant_1");
+  });
+
   it("normalizes the retired OpenAI direct provider id for older clients", () => {
     const parsed = chatRequestSchema.parse({
       personaId: "larae",

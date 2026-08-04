@@ -33,6 +33,7 @@ type ConversationRecord = {
   createdAt?: Date;
   updatedAt?: Date;
   messages: ChatMessage[];
+  messageIds?: Array<string | undefined>;
   turns?: ConversationTurn[];
   memoryEnabled?: boolean;
 };
@@ -152,6 +153,7 @@ export class ConversationStore {
       createdAt: now,
       updatedAt: now,
       messages: sanitizedSeedHistory,
+      messageIds: sanitizedSeedHistory.map(() => undefined),
       memoryEnabled: options.memoryEnabled ?? true
     };
 
@@ -178,6 +180,127 @@ export class ConversationStore {
       },
       ...history
     ];
+  }
+
+  prepareRetry(record: ConversationRecord, assistantMessageId: string): {
+    history: ChatMessage[];
+    userMessageId: string;
+    originalMessage: string;
+    conversation: ConversationRecord;
+  } {
+    const turns = record.turns ?? buildConversationTurns(
+      record.messages,
+      [],
+      legacyTurnPersonaId(record.metadata, record.personaId),
+      record.messageIds
+    );
+    const turnIndex = turns.findIndex((turn) => turn.assistantMessageId === assistantMessageId);
+    if (turnIndex < 0) throw new HttpError("The response to retry was not found.", 409);
+    if (turnIndex !== turns.length - 1) {
+      throw new HttpError("Only the latest response can be retried.", 409);
+    }
+    const turn = turns[turnIndex]!;
+    if (!turn.userMessageId) throw new HttpError("This response cannot be retried.", 409);
+    const messageIds = record.messageIds ?? [];
+    const userIndex = messageIds.indexOf(turn.userMessageId);
+    const assistantIndex = messageIds.indexOf(assistantMessageId);
+    if (
+      userIndex < 0 ||
+      assistantIndex <= userIndex ||
+      record.messages[userIndex]?.role !== "user" ||
+      record.messages[assistantIndex]?.role !== "assistant"
+    ) {
+      throw new HttpError("This response cannot be retried.", 409);
+    }
+    const priorRecord: ConversationRecord = {
+      ...record,
+      metadata: withoutConversationMemory(record.metadata),
+      messages: record.messages.slice(0, userIndex),
+      messageIds: messageIds.slice(0, userIndex),
+      turns: turns.slice(0, turnIndex)
+    };
+    return {
+      history: this.getPromptContext(priorRecord),
+      userMessageId: turn.userMessageId,
+      originalMessage: turn.userMessage,
+      conversation: priorRecord
+    };
+  }
+
+  async replaceAssistantMessage(
+    record: ConversationRecord,
+    assistantMessageId: string,
+    replacement: ConversationAppendMessage
+  ): Promise<ConversationRecord> {
+    if (replacement.role !== "assistant") throw new HttpError("Invalid retry response.", 500);
+    const messageIds = record.messageIds ?? [];
+    const messageIndex = messageIds.indexOf(assistantMessageId);
+    const turnIndex = (record.turns ?? []).findIndex((turn) => turn.assistantMessageId === assistantMessageId);
+    if (messageIndex < 0 || record.messages[messageIndex]?.role !== "assistant" || turnIndex < 0) {
+      throw new HttpError("The response to retry was not found.", 409);
+    }
+
+    const replacementMessage = stripMessageMetadata(replacement);
+    const replacementMetadata = sanitizeMessageMetadata(replacement.metadata);
+    const nextMessages = record.messages.map((message, index) => index === messageIndex ? replacementMessage : message);
+    const nextTurns = (record.turns ?? []).map((turn, index): ConversationTurn => index === turnIndex
+      ? {
+          ...(turn.userMessageId ? { userMessageId: turn.userMessageId } : {}),
+          assistantMessageId,
+          ...(replacementMetadata?.personaId ? { personaId: replacementMetadata.personaId } : {}),
+          userMessage: turn.userMessage,
+          userAssets: turn.userAssets,
+          assistantText: replacement.content,
+          outputs: replacementMetadata?.outputs ?? (replacement.content ? [{ type: "text", text: replacement.content }] : []),
+          ...(replacementMetadata?.visualClarification ? { visualClarification: replacementMetadata.visualClarification } : {}),
+          ...(replacementMetadata?.provider ? { provider: replacementMetadata.provider } : {}),
+          ...(replacementMetadata?.providerModel ? { providerModel: replacementMetadata.providerModel } : {}),
+          ...(replacementMetadata?.responseId ? { responseId: replacementMetadata.responseId } : {}),
+          ...(replacementMetadata?.styleTransferProvider ? { styleTransferProvider: replacementMetadata.styleTransferProvider } : {}),
+          ...(replacementMetadata?.usage ? { usage: replacementMetadata.usage } : {}),
+          ...(replacementMetadata?.backgroundJobId ? { backgroundJobId: replacementMetadata.backgroundJobId } : {})
+        }
+      : turn);
+    const updatedAt = new Date();
+    const nextMetadata = buildConversationMetadata(
+      record.metadata,
+      nextMessages,
+      nextTurns,
+      record.memoryEnabled !== false
+    );
+    const db = getDatabase();
+    if (db) {
+      const updated = await db.transaction(async (tx) => {
+        const [message] = await tx.update(dbMessages)
+          .set({
+            content: replacement.content,
+            name: replacement.name,
+            metadata: sanitizeMessageMetadata(replacement.metadata) ?? {}
+          })
+          .where(and(
+            eq(dbMessages.id, assistantMessageId),
+            eq(dbMessages.conversationId, record.id),
+            eq(dbMessages.role, "assistant")
+          ))
+          .returning({ id: dbMessages.id });
+        if (!message) return false;
+        await tx.update(conversations)
+          .set({ updatedAt, metadata: nextMetadata })
+          .where(eq(conversations.id, record.id));
+        return true;
+      });
+      if (!updated) throw new HttpError("The response to retry was not found.", 409);
+    }
+
+    const nextRecord: ConversationRecord = {
+      ...record,
+      updatedAt,
+      metadata: nextMetadata,
+      messages: nextMessages,
+      turns: nextTurns
+    };
+    if (!db) this.conversations.set(record.id, nextRecord);
+    return nextRecord;
   }
 
   async appendTurn(record: ConversationRecord, messages: ConversationAppendMessage[]): Promise<ConversationRecord> {
@@ -231,6 +354,10 @@ export class ConversationStore {
         metadata: nextMetadata,
         updatedAt,
         messages: [...record.messages, ...nextMessages],
+        messageIds: [
+          ...(record.messageIds ?? record.messages.map(() => undefined)),
+          ...messages.map((message) => message.id)
+        ],
         turns: nextTurns
       };
     }
@@ -255,6 +382,10 @@ export class ConversationStore {
       ),
       updatedAt: new Date(),
       messages: [...record.messages, ...nextMessages],
+      messageIds: [
+        ...(record.messageIds ?? record.messages.map(() => undefined)),
+        ...messages.map((message) => message.id)
+      ],
       turns: nextTurns
     };
 
@@ -455,7 +586,8 @@ export class ConversationStore {
         turns: buildConversationTurns(
           history,
           pageRows.map(rowToMessageMetadata),
-          legacyTurnPersonaId(row.metadata, row.personaId)
+          legacyTurnPersonaId(row.metadata, row.personaId),
+          pageRows.map((message) => message.id)
         ),
         nextCursor: userRows.length > boundedLimit ? String(lowerSequence) : null
       };
@@ -513,7 +645,8 @@ export class ConversationStore {
         turns: buildConversationTurns(
           history,
           row.messages.map(rowToMessageMetadata),
-          legacyTurnPersonaId(row.metadata, row.personaId)
+          legacyTurnPersonaId(row.metadata, row.personaId),
+          row.messages.map((message) => message.id)
         )
       };
     }
@@ -788,10 +921,12 @@ export class ConversationStore {
           createdAt: existing.createdAt,
           updatedAt: existing.updatedAt,
           messages: existing.messages.map(rowToChatMessage).map(sanitizeChatMessage),
+          messageIds: existing.messages.map((message) => message.id),
           turns: buildConversationTurns(
             existing.messages.map(rowToChatMessage).map(sanitizeChatMessage),
             existing.messages.map(rowToMessageMetadata),
-            legacyTurnPersonaId(nextMetadata, existing.personaId)
+            legacyTurnPersonaId(nextMetadata, existing.personaId),
+            existing.messages.map((message) => message.id)
           ),
           memoryEnabled: options.memoryEnabled ?? true
         };
@@ -811,9 +946,10 @@ export class ConversationStore {
       // conversations that already carry their user ID.
       throw new HttpError("Conversation not found", 404);
     }
+    const seedMessageIds = seedHistory.map(() => `msg_${randomUUID()}`);
     if (seedHistory.length > 0) {
       await db.insert(dbMessages).values(seedHistory.map((message, index) => ({
-        id: `msg_${randomUUID()}`,
+        id: seedMessageIds[index]!,
         conversationId: id,
         role: message.role,
         content: message.content,
@@ -831,7 +967,8 @@ export class ConversationStore {
       pinned: false,
       metadata: {},
       messages: seedHistory.map(sanitizeChatMessage),
-      turns: buildConversationTurns(seedHistory.map(sanitizeChatMessage)),
+      messageIds: seedMessageIds,
+      turns: buildConversationTurns(seedHistory.map(sanitizeChatMessage), [], undefined, seedMessageIds),
       memoryEnabled: options.memoryEnabled ?? true
     };
   }
@@ -1348,6 +1485,8 @@ function appendRenderedTurns(existingTurns: ConversationTurn[], messages: Conver
   return [
     ...existingTurns,
     {
+      ...(user.id ? { userMessageId: user.id } : {}),
+      ...(assistant.id ? { assistantMessageId: assistant.id } : {}),
       ...(assistantMetadata?.personaId ? { personaId: assistantMetadata.personaId } : {}),
       userMessage: user.content,
       userAssets: userMetadata?.userAssets ?? [],
@@ -1427,7 +1566,8 @@ function sanitizeMessageMetadata(metadata: unknown): ConversationMessageMetadata
 function buildConversationTurns(
   history: ChatMessage[],
   metadata: Array<ConversationMessageMetadata | undefined> = [],
-  fallbackPersonaId?: string
+  fallbackPersonaId?: string,
+  messageIds: Array<string | undefined> = []
 ): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   for (let index = 0; index < history.length; index += 1) {
@@ -1435,12 +1575,14 @@ function buildConversationTurns(
     if (!message || message.role !== "user") continue;
     const userMetadata = metadata[index];
     let assistant: ChatMessage | undefined;
+    let assistantIndex: number | undefined;
     let assistantMetadata: ConversationMessageMetadata | undefined;
     for (let nextIndex = index + 1; nextIndex < history.length; nextIndex += 1) {
       const candidate = history[nextIndex];
       if (!candidate || candidate.role === "user") break;
       if (candidate.role === "assistant") {
         assistant = candidate;
+        assistantIndex = nextIndex;
         assistantMetadata = metadata[nextIndex];
         break;
       }
@@ -1450,6 +1592,10 @@ function buildConversationTurns(
       assistantMetadata?.outputs ?? (assistantText ? [{ type: "text", text: assistantText }] : [])
     );
     turns.push({
+      ...(messageIds[index] ? { userMessageId: messageIds[index] } : {}),
+      ...(assistantIndex !== undefined && messageIds[assistantIndex]
+        ? { assistantMessageId: messageIds[assistantIndex] }
+        : {}),
       ...(assistantMetadata?.personaId || fallbackPersonaId
         ? { personaId: assistantMetadata?.personaId ?? fallbackPersonaId }
         : {}),
