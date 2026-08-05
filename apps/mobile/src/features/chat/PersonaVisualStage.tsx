@@ -4,6 +4,7 @@ import { AppState, Image, Platform, Pressable, StyleSheet, useWindowDimensions, 
 import { useVideoPlayer, VideoView } from "expo-video";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -240,6 +241,7 @@ function pickPreloadSource(
 
 export function PersonaVisualStage({ expanded, hidden, landscape = false, personaName, profile, state, theme, visible, onExpandedChange, onHiddenChange, onAppForeground, onDockedLayout }: PersonaVisualStageProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const compactLayout = windowWidth < 360 || windowHeight < 700;
   const tabletLayout = Math.min(windowWidth, windowHeight) >= 600;
   const stageWidth = landscape ? 112 : tabletLayout ? 132 : compactLayout ? 88 : 104;

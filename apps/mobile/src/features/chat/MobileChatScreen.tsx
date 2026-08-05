@@ -1022,12 +1022,30 @@ export function MobileChatScreen() {
 
   const returnToSettingsHome = useCallback(() => {
     setProfileSelection(undefined);
-    // The main panel content is taller than the sub-panel it replaces, so the
-    // saved offset can only be applied once the content size regrows — the
-    // ScrollView's onContentSizeChange consumes this pending value.
+    // The effect below applies this once the main panel has re-laid out.
+    // onContentSizeChange alone is not enough: when a sub-panel happens to
+    // have the same content height as the main panel, that event never fires
+    // and the restore would be skipped.
     pendingMainSettingsOffsetRef.current = mainSettingsScrollOffsetRef.current;
     setSettingsPanel("main");
   }, []);
+
+  useEffect(() => {
+    if (settingsPanel !== "main") return;
+    const pendingOffset = pendingMainSettingsOffsetRef.current;
+    if (pendingOffset === undefined) return;
+    // Wait two frames so the main panel has re-rendered and laid out before
+    // restoring; the ScrollView's onContentSizeChange re-applies the offset if
+    // the content keeps growing in the meantime. Clearing here stops later
+    // content growth (e.g. lazy-loaded data) from yanking the scroll position.
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        settingsScrollRef.current?.scrollTo({ y: pendingOffset, animated: false });
+        pendingMainSettingsOffsetRef.current = undefined;
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [settingsPanel]);
 
   useEffect(() => {
     let active = true;
@@ -3226,9 +3244,10 @@ export function MobileChatScreen() {
           }}
           scrollEventThrottle={16}
           onContentSizeChange={() => {
+            // Re-apply (without consuming) a pending main-panel restore as the
+            // content regrows; the restore effect above owns clearing it.
             const pendingOffset = pendingMainSettingsOffsetRef.current;
             if (pendingOffset !== undefined) {
-              pendingMainSettingsOffsetRef.current = undefined;
               settingsScrollRef.current?.scrollTo({ y: pendingOffset, animated: false });
             }
           }}
