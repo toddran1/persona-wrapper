@@ -51,6 +51,7 @@ export const englishMessages = {
   "composer.stop": "Stop generating",
   "composer.voice": "Voice input",
   "composer.audio": "Persona audio options",
+  "composer.messageTooLong": "That message is too long ({count} characters). Keep it under {limit} characters and try again.",
   "network.offlineTitle": "You’re offline",
   "network.offlineBody": "You can read what is already open. Reconnect to send messages or refresh your chats.",
   "network.checking": "Checking connection...",

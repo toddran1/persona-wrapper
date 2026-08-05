@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { MAX_CHAT_MESSAGE_CHARACTERS } from "@persona/shared";
 import { ChatComposer } from "../components/ChatComposer";
 
 const defaultProps = {
@@ -92,6 +93,30 @@ describe("ChatComposer", () => {
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(textarea).toHaveValue("Line one\nLine two");
+  });
+
+  it("blocks an over-limit message at submit and keeps the draft", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ChatComposer
+        {...defaultProps}
+        onSubmit={onSubmit}
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Talk to me nice...");
+    const oversized = `x${"a".repeat(MAX_CHAT_MESSAGE_CHARACTERS)}`;
+    fireEvent.change(textarea, { target: { value: oversized } });
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Keep it under 50,000 characters");
+    expect(textarea).toHaveValue(oversized);
+
+    fireEvent.change(textarea, { target: { value: "Short again." } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("cycles through submitted prompts with arrow keys", async () => {

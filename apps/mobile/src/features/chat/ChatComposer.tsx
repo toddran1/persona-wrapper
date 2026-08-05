@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { MAX_CHAT_MESSAGE_CHARACTERS } from "@persona/shared";
 import type { MobileTheme } from "../../theme/personaTheme";
 import type { MobilePickedFile } from "./types";
 import { useLocalization } from "../../localization/LocalizationProvider";
@@ -46,6 +47,7 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const { t } = useLocalization();
   const [draft, setDraft] = useState("");
+  const [messageError, setMessageError] = useState<string | undefined>();
   const hasDraft = draft.trim().length > 0;
   const hasAttachments = attachments.length > 0;
   const canSend = (hasDraft || hasAttachments) && !disabled && !uploadingAttachments && !requestInProgress;
@@ -59,13 +61,24 @@ export function ChatComposer({
   function submit(): void {
     const message = draft.trim();
     if ((!message && !hasAttachments) || disabled || uploadingAttachments || requestInProgress) return;
+    if (message.length > MAX_CHAT_MESSAGE_CHARACTERS) {
+      setMessageError(t("composer.messageTooLong", {
+        count: message.length,
+        limit: MAX_CHAT_MESSAGE_CHARACTERS
+      }));
+      return;
+    }
     setDraft("");
+    setMessageError(undefined);
     onDraftChange?.("");
     onSubmit(message);
   }
 
   function updateDraft(nextDraft: string): void {
     setDraft(nextDraft);
+    if (nextDraft.length <= MAX_CHAT_MESSAGE_CHARACTERS) {
+      setMessageError(undefined);
+    }
     onDraftChange?.(nextDraft);
   }
 
@@ -113,7 +126,6 @@ export function ChatComposer({
           placeholder={uploadingAttachments ? t("composer.uploading") : placeholder}
           placeholderTextColor={theme.muted}
           multiline
-          maxLength={4000}
           style={[styles.input, compact ? styles.inputCompact : null, { color: theme.text }]}
         />
         <View style={styles.trailingControls}>
@@ -195,6 +207,11 @@ export function ChatComposer({
           )}
         </View>
       </View>
+      {messageError ? (
+        <Text accessibilityLiveRegion="polite" style={[styles.messageError, { color: theme.danger }]}>
+          {messageError}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -276,6 +293,11 @@ const styles = StyleSheet.create({
   micButtonCompact: {
     height: 34,
     width: 34
+  },
+  messageError: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    paddingHorizontal: 6
   },
   removeAttachment: {
     alignItems: "center",

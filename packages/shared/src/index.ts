@@ -2,6 +2,7 @@ import { z } from "zod";
 import { initContract } from "@ts-rest/core";
 
 export const MAX_CHAT_ATTACHMENTS = 10;
+export const MAX_CHAT_MESSAGE_CHARACTERS = 50_000;
 export const MAX_OPENAI_IMAGE_EDIT_BYTES = 49_999_999;
 export const MAX_CHART_CATEGORIES = 250;
 export const MAX_CHART_DATASETS = 8;
@@ -670,7 +671,10 @@ export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
 
 export const chatRequestSchema = z.object({
   personaId: z.string().min(1),
-  message: z.string(),
+  message: z.string().max(
+    MAX_CHAT_MESSAGE_CHARACTERS,
+    `Messages must be ${MAX_CHAT_MESSAGE_CHARACTERS.toLocaleString("en-US")} characters or fewer.`
+  ),
   provider: providerSchema.default("openai"),
   audio: z.boolean().default(false),
   conciseAudioResponse: z.boolean().default(true),

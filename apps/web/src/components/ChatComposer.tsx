@@ -1,5 +1,5 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
-import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ProviderId, type ToolOptions } from "@persona/shared";
+import { MAX_CHAT_ATTACHMENTS, MAX_CHAT_MESSAGE_CHARACTERS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ProviderId, type ToolOptions } from "@persona/shared";
 import { useEffect, useId, useRef, useState } from "react";
 
 type ChatComposerProps = {
@@ -53,6 +53,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const [message, setMessage] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | undefined>();
+  const [messageError, setMessageError] = useState<string | undefined>();
   const [toolOptions, setToolOptions] = useState<ToolOptions>({
     webSearch: false,
     fileSearch: false,
@@ -132,10 +133,18 @@ export function ChatComposer(props: ChatComposerProps) {
       return;
     }
 
+    if (submittedMessage.length > MAX_CHAT_MESSAGE_CHARACTERS) {
+      setMessageError(
+        `That message is too long (${submittedMessage.length.toLocaleString()} characters). Keep it under ${MAX_CHAT_MESSAGE_CHARACTERS.toLocaleString()} characters and try again.`
+      );
+      return;
+    }
+
     if (submittedMessage.trim()) {
       setPromptHistory((currentHistory) => [...currentHistory, submittedMessage]);
     }
     setMessage("");
+    setMessageError(undefined);
     setAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
     setHistoryIndex(undefined);
@@ -305,6 +314,9 @@ export function ChatComposer(props: ChatComposerProps) {
           disabled={props.disabled}
           onChange={(event) => {
             setMessage(event.target.value);
+            if (event.target.value.length <= MAX_CHAT_MESSAGE_CHARACTERS) {
+              setMessageError(undefined);
+            }
             setHistoryIndex(undefined);
           }}
           onKeyDown={handlePromptKeyDown}
@@ -331,6 +343,7 @@ export function ChatComposer(props: ChatComposerProps) {
           </div>
         ) : null}
         {attachmentError ? <div className="composer-attachment-error" role="alert">{attachmentError}</div> : null}
+        {messageError ? <div className="composer-attachment-error" role="alert">{messageError}</div> : null}
         <div className="prompt-toolbar">
           <div className="prompt-toolbar-left">
             <input
