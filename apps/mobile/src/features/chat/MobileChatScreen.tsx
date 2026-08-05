@@ -583,7 +583,13 @@ export function MobileChatScreen() {
     turnsRef.current = turns;
   }, [turns]);
 
+  // Re-snap the hidden drawer only when the viewport width changes (rotation).
+  // Running this on every drawerInteractive flip would cancel the animated
+  // close started by closeDrawer and make the drawer jump away instantly.
+  const previousDrawerWidthRef = useRef(drawerWidth);
   useEffect(() => {
+    if (previousDrawerWidthRef.current === drawerWidth) return;
+    previousDrawerWidthRef.current = drawerWidth;
     if (!drawerInteractive) drawerX.value = -drawerWidth;
   }, [drawerInteractive, drawerWidth, drawerX]);
 
