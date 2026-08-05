@@ -30,7 +30,7 @@ e2e/
   mobile/     Maestro flows
 drizzle/      Generated Drizzle migration metadata (root-level; apps/api/drizzle holds SQL)
 docs/         Design docs: database.md, data-transfer.md, observability.md, usage-plans.md, mobile-release-readiness.md
-infra/        CloudWatch/S3 alarm templates
+infra/        CloudWatch/S3 alarm templates and the S3 lifecycle backstop policy (see infra/README.md)
 scripts/      dev.mjs (run api+web together), e2e.mjs (web e2e orchestration)
 render.yaml   Render.com hosted dev environment (API, web static site, Postgres)
 ```
