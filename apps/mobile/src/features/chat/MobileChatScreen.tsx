@@ -444,13 +444,16 @@ export function MobileChatScreen() {
     chatTurnActionHandlersRef.current?.showResponseActions(turn);
   }, []);
   const landscapeLayout = landscapeLayoutEnabled && windowWidth > windowHeight;
-  // Android may place its three-button navigation rail over the left edge in
-  // landscape without exposing a reliable safe-area inset. Reserve its touch
-  // area so app controls and text never render beneath it.
+  // Android may place its three-button navigation rail over a side edge in
+  // landscape — which side depends on the rotation direction — without
+  // exposing a reliable safe-area inset. Reserve its touch area on both sides
+  // so app controls and text never render beneath it.
   const landscapeLeftInset = landscapeLayout
     ? Math.max(insets.left, Platform.OS === "android" ? 72 : 0)
     : insets.left;
-  const landscapeRightInset = landscapeLayout ? Math.max(insets.right, 0) : insets.right;
+  const landscapeRightInset = landscapeLayout
+    ? Math.max(insets.right, Platform.OS === "android" ? 72 : 0)
+    : insets.right;
   const chatHorizontalGutter = compactLayout ? 8 : tabletLayout ? 20 : 12;
   const sheetHorizontalInsets = {
     paddingLeft: Math.max(insets.left + 16, 16),
@@ -2586,6 +2589,13 @@ export function MobileChatScreen() {
     }
   }
 
+  function confirmLogout(): void {
+    Alert.alert("Log out?", "You'll need to sign back in to continue chatting.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Log out", style: "destructive", onPress: () => void logout() }
+    ]);
+  }
+
   async function logout(): Promise<void> {
     const signedOutUserId = authUser?.id;
     cancelActiveChatRequest();
@@ -2618,6 +2628,9 @@ export function MobileChatScreen() {
     setTurnsCursor(null);
     setAuthMode("login");
     setAuthError(logoutError ? `You were signed out on this device. ${logoutError}` : undefined);
+    if (!logoutError) {
+      Alert.alert("Logged out", "You have been signed out successfully.");
+    }
   }
 
   async function refreshActiveSessions(): Promise<void> {
@@ -2966,7 +2979,7 @@ export function MobileChatScreen() {
           }));
         }}
         onRetry={() => void retryLoadAppData()}
-        onLogout={logout}
+        onLogout={async () => confirmLogout()}
       />
     );
   }
@@ -3339,14 +3352,6 @@ export function MobileChatScreen() {
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
                 </Pressable>
-                <Pressable accessibilityRole="button" testID="mobile-logout" onPress={() => void logout()} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
-                  <Ionicons name="log-out-outline" size={22} color={theme.text} />
-                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Log out</Text>
-                </Pressable>
-                <Pressable accessibilityRole="button" testID="mobile-delete-account" onPress={() => { setDeleteAccountError(undefined); setDeleteAccountVisible(true); }} style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}>
-                  <Ionicons name="trash-outline" size={22} color={theme.danger} />
-                  <Text style={[styles.settingsRowText, { color: theme.danger }]}>Delete account</Text>
-                </Pressable>
               </View>
               <View style={styles.settingsSection}>
                 <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Manage</Text>
@@ -3389,6 +3394,16 @@ export function MobileChatScreen() {
                     <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{dataTransferActive && dataTransferJob ? `${dataTransferJob.progress}% · ${dataTransferJob.phase}` : "Export or import your archive"}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
+              </View>
+              <View style={styles.settingsSection}>
+                <Pressable accessibilityRole="button" testID="mobile-logout" onPress={confirmLogout} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="log-out-outline" size={22} color={theme.text} />
+                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Log out</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" testID="mobile-delete-account" onPress={() => { setDeleteAccountError(undefined); setDeleteAccountVisible(true); }} style={[styles.settingsRow, { backgroundColor: "rgba(190,55,79,0.12)" }]}>
+                  <Ionicons name="trash-outline" size={22} color={theme.danger} />
+                  <Text style={[styles.settingsRowText, { color: theme.danger }]}>Delete account</Text>
                 </Pressable>
               </View>
             </>
