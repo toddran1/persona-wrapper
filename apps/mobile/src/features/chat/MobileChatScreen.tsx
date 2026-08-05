@@ -43,7 +43,7 @@ import Animated, {
   withTiming
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "../../api/client";
+import { api, isUnauthenticatedSessionError } from "../../api/client";
 import { queryClient } from "../../api/queryClient";
 import { conversationsPageQueryOptions, conversationTurnsQueryOptions, personaQueryOptions, personasQueryOptions } from "../../api/chatQueries";
 import { clearUserQueryCache, restoreUserQueryCache, subscribeUserQueryCache } from "../../api/queryPersistence";
@@ -60,7 +60,7 @@ import {
   setSelectedPersonaId
 } from "../../storage/secureTokens";
 import { saveFileToDevice } from "../../storage/downloadDirectory";
-import { getLandscapeLayoutEnabled, setLandscapeLayoutEnabled } from "../../storage/mobilePreferences";
+import { clearCachedAuthUser, getCachedAuthUser, getLandscapeLayoutEnabled, setCachedAuthUser, setLandscapeLayoutEnabled } from "../../storage/mobilePreferences";
 import { defaultPersonaTheme, themeFromPersona } from "../../theme/personaTheme";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
@@ -147,11 +147,18 @@ async function applyLandscapeLayoutPreference(enabled: boolean): Promise<void> {
   await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
 }
 
-async function loadAuthenticatedUser(): Promise<AuthUser | undefined> {
+type SessionCheckResult =
+  | { status: "authenticated"; user: AuthUser }
+  | { status: "unauthenticated" }
+  | { status: "unreachable" };
+
+// Distinguishes a truly expired session (explicit 401) from a transient
+// network failure, so airplane-mode blips never sign the user out.
+async function checkSession(): Promise<SessionCheckResult> {
   try {
-    return (await api.getCurrentUser()).user;
-  } catch {
-    return undefined;
+    return { status: "authenticated", user: (await api.getCurrentUser()).user };
+  } catch (error) {
+    return { status: isUnauthenticatedSessionError(error) ? "unauthenticated" : "unreachable" };
   }
 }
 
@@ -288,6 +295,7 @@ export function MobileChatScreen() {
   const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [drawerInteractive, setDrawerInteractive] = useState(false);
+  const [offlineReadOnly, setOfflineReadOnly] = useState(false);
   const drawerX = useSharedValue(-drawerWidth);
   const scrollRef = useRef<FlashListRef<RenderedTurn>>(null);
   const turnsRef = useRef<RenderedTurn[]>([]);
@@ -612,6 +620,12 @@ export function MobileChatScreen() {
     };
   }, []);
 
+
+  useEffect(() => {
+    // Keep the last verified profile on device so an offline launch can fall
+    // back to read-only mode. Refreshed on any verified profile change.
+    if (authUser && !offlineReadOnly) void setCachedAuthUser(authUser).catch(() => undefined);
+  }, [authUser, offlineReadOnly]);
 
   useEffect(() => {
     if (!recentlyRestored || !authChecked) return;
@@ -1079,14 +1093,18 @@ export function MobileChatScreen() {
       if (!resumed || !authUser || !isOnline || sessionValidationInFlightRef.current) return;
 
       sessionValidationInFlightRef.current = true;
-      void loadAuthenticatedUser()
-        .then((user) => {
+      void checkSession()
+        .then((result) => {
           if (!active) return;
-          if (user) {
-            setAuthUser(user);
+          if (result.status === "authenticated") {
+            setAuthUser(result.user);
             void reconcilePendingBackgroundTurn();
             return;
           }
+          // A transient network failure (for example connectivity that has not
+          // actually returned yet after airplane mode) must keep the local
+          // session. Only an explicit 401 means the session is gone.
+          if (result.status === "unreachable") return;
           cancelActiveChatRequest();
           selectionGenerationRef.current += 1;
           conversationListGenerationRef.current += 1;
@@ -1105,6 +1123,7 @@ export function MobileChatScreen() {
           setAuthMode("login");
           setAuthError("This session ended on another device. Sign in again to continue.");
           void purgeUserCache(authUser.id).catch(() => undefined);
+          void clearCachedAuthUser().catch(() => undefined);
           void clearSelectedConversationId().catch(() => undefined);
         })
         .catch((validationError) => {
@@ -1240,6 +1259,16 @@ export function MobileChatScreen() {
     setConversationsCursor(cachedConversations.nextCursor);
   }
 
+  async function enterOfflineReadOnlyMode(): Promise<boolean> {
+    const cachedUser = await getCachedAuthUser().catch(() => undefined);
+    if (!cachedUser) return false;
+    setOfflineReadOnly(true);
+    setAuthUser(cachedUser);
+    await ensureUserCacheRestored(cachedUser.id);
+    hydrateCachedAccountData(cachedUser.id);
+    return true;
+  }
+
   async function loadMoreConversations(): Promise<void> {
     if (!conversationsCursor || conversationsRefreshing) return;
     const generation = ++conversationListGenerationRef.current;
@@ -1352,13 +1381,25 @@ export function MobileChatScreen() {
       setAuthError(undefined);
       setAuthChecked(false);
       try {
-        const [user, providers, policies, savedPersonaId, savedConversationId] = await Promise.all([
-          loadAuthenticatedUser(),
+        const [session, providers, policies, savedPersonaId, savedConversationId] = await Promise.all([
+          checkSession(),
           api.getOAuthProviders().catch(() => []),
-          api.getCurrentPolicies(),
+          api.getCurrentPolicies().catch(() => undefined),
           getSelectedPersonaId().catch(() => undefined),
           getSelectedConversationId().catch(() => undefined)
         ]);
+
+        if (session.status === "unreachable") {
+          // Offline launch: fall back to the cached profile and conversation
+          // list in read-only mode instead of bouncing a signed-in user to
+          // the login screen.
+          if (!(await enterOfflineReadOnlyMode())) {
+            setError("You appear to be offline. Reconnect and try again.");
+          }
+          return;
+        }
+        setOfflineReadOnly(false);
+        const user = session.status === "authenticated" ? session.user : undefined;
         setAuthUser(user);
         setOAuthProviders(providers);
         setCurrentPolicies(policies);
@@ -2049,14 +2090,25 @@ export function MobileChatScreen() {
       setError(undefined);
       setAuthError(undefined);
       try {
-        const [user, providers, policies, savedPersonaId, savedConversationId] = await Promise.all([
-          loadAuthenticatedUser(),
+        const [session, providers, policies, savedPersonaId, savedConversationId] = await Promise.all([
+          checkSession(),
           api.getOAuthProviders().catch(() => []),
-          api.getCurrentPolicies(),
+          api.getCurrentPolicies().catch(() => undefined),
           getSelectedPersonaId().catch(() => undefined),
           getSelectedConversationId().catch(() => undefined)
         ]);
+        if (session.status === "unreachable") {
+          // Offline launch: fall back to the cached profile and conversation
+          // list in read-only mode instead of bouncing a signed-in user to
+          // the login screen.
+          if (!(await enterOfflineReadOnlyMode()) && mounted) {
+            setError("You appear to be offline. Reconnect and try again.");
+          }
+          return;
+        }
         if (!mounted) return;
+        setOfflineReadOnly(false);
+        const user = session.status === "authenticated" ? session.user : undefined;
         setAuthUser(user);
         setAuthChecked(true);
         setOAuthProviders(providers);
@@ -2615,6 +2667,7 @@ export function MobileChatScreen() {
     if (signedOutUserId) {
       await purgeUserCache(signedOutUserId).catch(() => undefined);
     }
+    void clearCachedAuthUser().catch(() => undefined);
     setAuthUser(undefined);
     setDataTransferJob(undefined);
     setActiveSessions([]);
@@ -2824,6 +2877,7 @@ export function MobileChatScreen() {
       if (deletedUserId) {
         await purgeUserCache(deletedUserId).catch(() => undefined);
       }
+      await clearCachedAuthUser().catch(() => undefined);
       await clearSelectedConversationId().catch(() => undefined);
     } catch (error) {
       setDeleteAccountError(error instanceof Error ? error.message : "Could not schedule account deletion.");
@@ -2963,7 +3017,7 @@ export function MobileChatScreen() {
     );
   }
 
-  if (!currentPolicies || !hasCurrentPolicyConsent(authUser, currentPolicies)) {
+  if (!offlineReadOnly && (!currentPolicies || !hasCurrentPolicyConsent(authUser, currentPolicies))) {
     return (
       <MobilePolicyConsentScreen
         policies={currentPolicies}

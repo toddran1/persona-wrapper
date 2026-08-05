@@ -97,6 +97,19 @@ class ApiResponseError extends Error {
   }
 }
 
+export class SessionCheckError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "SessionCheckError";
+  }
+}
+
+// better-fetch reports network failures (airplane mode, DNS, captive portal)
+// with status 0; only an explicit 401 means the session is truly gone.
+export function isUnauthenticatedSessionError(error: unknown): boolean {
+  return error instanceof SessionCheckError && error.status === 401;
+}
+
 function isServerResponseError(error: unknown): boolean {
   return error instanceof ApiResponseError || (
     error instanceof Error && error.message.startsWith("The app server returned an invalid")
@@ -627,7 +640,11 @@ export const api = {
   },
   getCurrentUser: async (): Promise<MeResponse> => {
     const result = await authClient.getSession();
-    if (result.error || !result.data?.user) throw authError(result.error ?? { message: "Not authenticated." });
+    if (result.error || !result.data?.user) {
+      const errorStatus = (result.error as { status?: unknown } | null)?.status;
+      const status = typeof errorStatus === "number" ? errorStatus : result.error ? 0 : 401;
+      throw new SessionCheckError(status, result.error?.message || "Not authenticated.");
+    }
     return {
       user: toAuthUser(result.data.user as unknown as Record<string, unknown>),
       session: toAuthSession(result.data.session as unknown as Record<string, unknown>)
