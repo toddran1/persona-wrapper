@@ -313,6 +313,10 @@ export function MobileChatScreen() {
   const activeSubmissionRef = useRef<{ message: string; files: MobilePickedFile[] } | undefined>(undefined);
   const chatTurnActionHandlersRef = useRef<ChatTurnActionHandlers | undefined>(undefined);
   const dataTransferAbortControllerRef = useRef<AbortController | undefined>(undefined);
+  const settingsScrollRef = useRef<ScrollView>(null);
+  const latestSettingsScrollOffsetRef = useRef(0);
+  const mainSettingsScrollOffsetRef = useRef(0);
+  const pendingMainSettingsOffsetRef = useRef<number | undefined>(undefined);
   const selectionGenerationRef = useRef(0);
   const conversationListGenerationRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
@@ -727,10 +731,15 @@ export function MobileChatScreen() {
     setProfileSelection(undefined);
     setSettingsVisible(false);
     setSettingsPanel("main");
+    mainSettingsScrollOffsetRef.current = 0;
+    pendingMainSettingsOffsetRef.current = undefined;
     openDrawer();
   }, [openDrawer]);
 
   function openSettingsPanel(panel: SettingsPanel): void {
+    // Snapshot the main settings scroll position before leaving it so
+    // returnToSettingsHome can restore where the user left off.
+    mainSettingsScrollOffsetRef.current = latestSettingsScrollOffsetRef.current;
     setProfileSelection(undefined);
     setProfileError(undefined);
     setProfileNotice(undefined);
@@ -746,6 +755,8 @@ export function MobileChatScreen() {
       setBirthDay(authUser?.birthday?.day.toString() ?? "");
     }
     setSettingsPanel(panel);
+    // Sub-panels always open scrolled to the top.
+    settingsScrollRef.current?.scrollTo({ y: 0, animated: false });
     if (panel === "sessions") void refreshActiveSessions();
     if (panel === "security") void refreshConnectedAccounts();
     if (panel === "memory") void refreshMemorySettings();
@@ -1011,6 +1022,10 @@ export function MobileChatScreen() {
 
   const returnToSettingsHome = useCallback(() => {
     setProfileSelection(undefined);
+    // The main panel content is taller than the sub-panel it replaces, so the
+    // saved offset can only be applied once the content size regrows — the
+    // ScrollView's onContentSizeChange consumes this pending value.
+    pendingMainSettingsOffsetRef.current = mainSettingsScrollOffsetRef.current;
     setSettingsPanel("main");
   }, []);
 
@@ -3176,6 +3191,8 @@ export function MobileChatScreen() {
           onSelectPersona={(id) => void selectPersona(id)}
           onShowLogin={() => undefined}
           onShowSettings={() => {
+            mainSettingsScrollOffsetRef.current = 0;
+            pendingMainSettingsOffsetRef.current = undefined;
             setSettingsPanel("main");
             setSettingsVisible(true);
           }}
@@ -3184,6 +3201,7 @@ export function MobileChatScreen() {
 
       {settingsVisible ? (
         <ScrollView
+          ref={settingsScrollRef}
           style={[styles.settingsScreen, { backgroundColor: theme.background }]}
           contentContainerStyle={[
             styles.settingsContent,
@@ -3203,6 +3221,17 @@ export function MobileChatScreen() {
           ]}
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           showsVerticalScrollIndicator={false}
+          onScroll={(event) => {
+            latestSettingsScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+          onContentSizeChange={() => {
+            const pendingOffset = pendingMainSettingsOffsetRef.current;
+            if (pendingOffset !== undefined) {
+              pendingMainSettingsOffsetRef.current = undefined;
+              settingsScrollRef.current?.scrollTo({ y: pendingOffset, animated: false });
+            }
+          }}
         >
           <View style={styles.settingsTopBar}>
             <Pressable
