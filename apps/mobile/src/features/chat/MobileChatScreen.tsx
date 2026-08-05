@@ -3037,6 +3037,7 @@ export function MobileChatScreen() {
               expanded={personaCardExpanded}
               hidden={personaCardHidden}
               landscape={landscapeLayout}
+              rightInset={landscapeLayout ? landscapeRightInset : insets.right}
               personaName={activePersona.name}
               profile={activePersona.visualStage}
               state={personaVisualState}
@@ -3057,6 +3058,7 @@ export function MobileChatScreen() {
               style={[
                 styles.personaMinimizeButton,
                 { top: tabletLayout ? 120 : compactLayout ? 100 : 112 },
+                { right: 11 + (landscapeLayout ? landscapeRightInset : insets.right) },
                 { borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.82)" }
               ]}
             >

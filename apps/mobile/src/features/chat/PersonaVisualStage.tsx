@@ -4,7 +4,6 @@ import { AppState, Image, Platform, Pressable, StyleSheet, useWindowDimensions, 
 import { useVideoPlayer, VideoView } from "expo-video";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -21,6 +20,7 @@ type PersonaVisualStageProps = {
   expanded: boolean;
   hidden: boolean;
   landscape?: boolean;
+  rightInset?: number;
   personaName: string;
   profile: PersonaVisualStageProfile;
   state: PersonaVisualState;
@@ -239,9 +239,8 @@ function pickPreloadSource(
     ?? profile.loops[nextState].find((source) => !failedSources.has(source));
 }
 
-export function PersonaVisualStage({ expanded, hidden, landscape = false, personaName, profile, state, theme, visible, onExpandedChange, onHiddenChange, onAppForeground, onDockedLayout }: PersonaVisualStageProps) {
+export function PersonaVisualStage({ expanded, hidden, landscape = false, rightInset = 0, personaName, profile, state, theme, visible, onExpandedChange, onHiddenChange, onAppForeground, onDockedLayout }: PersonaVisualStageProps) {
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const compactLayout = windowWidth < 360 || windowHeight < 700;
   const tabletLayout = Math.min(windowWidth, windowHeight) >= 600;
   const stageWidth = landscape ? 112 : tabletLayout ? 132 : compactLayout ? 88 : 104;
@@ -448,7 +447,7 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
         onPress={() => onHiddenChange(false)}
         style={[
           styles.revealButton,
-          { top: stageTop + 10, borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.90)" }
+          { top: stageTop + 10, right: rightInset - 1, borderColor: theme.border, backgroundColor: "rgba(23,15,33,0.90)" }
         ]}
       >
         <Ionicons name="person-circle-outline" size={20} color={theme.accent2} />
@@ -480,7 +479,7 @@ export function PersonaVisualStage({ expanded, hidden, landscape = false, person
         }}
         style={[
           styles.stage,
-          { top: stageTop, width: stageWidth, borderColor: theme.border, backgroundColor: "rgba(7,5,12,0.62)" },
+          { top: stageTop, right: 11 + rightInset, width: stageWidth, borderColor: theme.border, backgroundColor: "rgba(7,5,12,0.62)" },
           stageStyle
         ]}
       >
