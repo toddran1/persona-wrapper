@@ -332,7 +332,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
     extraInstructions.push(
       [
         "Audio response length requirement:",
-        `Keep the complete visible response at or below ${env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS} characters so its spoken version is approximately one minute.`,
+        `Keep the complete visible response at or below ${env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS} characters so its spoken version is approximately 45 seconds.`,
         "Answer the user's main question directly, retain essential facts and safety information, and omit repetitive commentary, exhaustive alternatives, and long checklists.",
         "Do not mention this character limit or say that the response was shortened."
       ].join("\n")

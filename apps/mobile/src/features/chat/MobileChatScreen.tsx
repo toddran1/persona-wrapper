@@ -3501,7 +3501,7 @@ export function MobileChatScreen() {
                 <View style={styles.settingsRowCopy}>
                   <Text style={[styles.settingsRowHint, { color: theme.accent2, textTransform: "uppercase", letterSpacing: 1 }]}>Recommended</Text>
                   <Text style={[styles.settingsRowText, { color: theme.text }]}>Shorter audio responses</Text>
-                  <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Usually around 80 seconds while preserving the main answer</Text>
+                  <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Usually around 60 seconds while preserving the main answer</Text>
                 </View>
                 <Switch
                   accessibilityLabel="Use shorter audio responses"

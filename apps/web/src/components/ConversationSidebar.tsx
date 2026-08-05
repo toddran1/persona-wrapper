@@ -1603,7 +1603,7 @@ export function ConversationSidebar({
                           <div className="settings-audio-card-copy">
                             <span className="settings-recommended-badge">Recommended</span>
                             <strong>Shorter audio responses</strong>
-                            <small>Keep spoken replies concise—usually around 80 seconds—while preserving the main answer.</small>
+                            <small>Keep spoken replies concise—usually around 60 seconds—while preserving the main answer.</small>
                           </div>
                           <button
                             type="button"

@@ -136,6 +136,10 @@ services:
       # Kept below the OpenAI Images API 50 MB per-input-image limit.
       - key: UPLOAD_MAX_BYTES
         value: "49999999"
+      - key: CHAT_AUDIO_MAX_RESPONSE_CHARACTERS
+        value: "675"
+      - key: OPENAI_AUDIO_MAX_OUTPUT_TOKENS
+        value: "690"
 
       - key: TTS_PROVIDER
         value: fish_audio
