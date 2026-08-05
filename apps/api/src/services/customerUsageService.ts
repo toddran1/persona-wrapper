@@ -13,6 +13,7 @@ import {
   users
 } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
+import { logger } from "../utils/logger.js";
 import { accessControlService } from "./accessControlService.js";
 import { personaIdsForPlan, planIncludesPersona, type PlanDefinition } from "./planCatalog.js";
 import { listPersonas } from "../personas/index.js";
@@ -26,6 +27,23 @@ type LocalOperation = {
   reserved: MeterQuantities;
   periodStart: Date;
 };
+type SettleOptions = {
+  provider?: string;
+  model?: string;
+  conversationId?: string;
+  estimatedCostUsd?: number;
+  actualCostUsd?: number;
+};
+type PendingSettlement = {
+  actual: MeterQuantities;
+  options: SettleOptions;
+  attempts: number;
+  nextAttemptAt: number;
+};
+
+const PENDING_SETTLEMENT_RETRY_MS = 5 * 60 * 1000;
+const PENDING_SETTLEMENT_MAX_ATTEMPTS = 12;
+const PENDING_SETTLEMENT_MAX_TRACKED = 1000;
 
 const DISPLAY_METERS: Array<{
   key: CustomerUsageMeter;
@@ -83,6 +101,7 @@ export class CustomerUsageService {
   private readonly localBalances = new Map<string, LocalBalance>();
   private readonly localOperations = new Map<string, LocalOperation>();
   private readonly localIdempotency = new Map<string, string>();
+  private readonly pendingSettlements = new Map<string, PendingSettlement>();
 
   async getPlan(userId: string): Promise<PlanDefinition> {
     return (await accessControlService.getEffectiveAccess(userId)).plan;
@@ -240,13 +259,7 @@ export class CustomerUsageService {
   async settle(
     operationId: string,
     actual: MeterQuantities,
-    options: {
-      provider?: string;
-      model?: string;
-      conversationId?: string;
-      estimatedCostUsd?: number;
-      actualCostUsd?: number;
-    } = {}
+    options: SettleOptions = {}
   ): Promise<void> {
     const normalizedActual = normalizeMeterQuantities(actual);
     const local = this.localOperations.get(operationId);
@@ -364,6 +377,60 @@ export class CustomerUsageService {
         }
       }
     });
+  }
+
+  // Settle for a delivered response. When the write itself fails (for example
+  // a database hiccup right after a successful chat), the settlement is queued
+  // and retried by drainPendingSettlements so delivered responses are not
+  // silently dropped from the meter by the stale-reservation sweep.
+  async settleWithRetry(
+    operationId: string,
+    actual: MeterQuantities,
+    options: SettleOptions = {}
+  ): Promise<void> {
+    try {
+      await this.settle(operationId, actual, options);
+      this.pendingSettlements.delete(operationId);
+    } catch (error) {
+      this.queuePendingSettlement(operationId, actual, options);
+      throw error;
+    }
+  }
+
+  private queuePendingSettlement(operationId: string, actual: MeterQuantities, options: SettleOptions): void {
+    if (!this.pendingSettlements.has(operationId) && this.pendingSettlements.size >= PENDING_SETTLEMENT_MAX_TRACKED) {
+      const oldest = this.pendingSettlements.keys().next().value;
+      if (oldest) this.pendingSettlements.delete(oldest);
+      logger.warn("Customer usage settlement queue is full; dropped the oldest entry", { droppedOperationId: oldest });
+    }
+    this.pendingSettlements.set(operationId, {
+      actual,
+      options,
+      attempts: 0,
+      nextAttemptAt: Date.now() + PENDING_SETTLEMENT_RETRY_MS
+    });
+  }
+
+  async drainPendingSettlements(now = new Date()): Promise<void> {
+    for (const [operationId, pending] of [...this.pendingSettlements]) {
+      if (pending.nextAttemptAt > now.getTime()) continue;
+      try {
+        await this.settle(operationId, pending.actual, pending.options);
+        this.pendingSettlements.delete(operationId);
+        logger.info("Settled queued customer usage after retry", { operationId });
+      } catch (error) {
+        pending.attempts += 1;
+        if (pending.attempts >= PENDING_SETTLEMENT_MAX_ATTEMPTS) {
+          this.pendingSettlements.delete(operationId);
+          logger.warn("Giving up on queued customer usage settlement; the stale reservation sweep will release it", {
+            operationId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        } else {
+          pending.nextAttemptAt = now.getTime() + PENDING_SETTLEMENT_RETRY_MS * pending.attempts;
+        }
+      }
+    }
   }
 
   async release(operationId: string): Promise<void> {

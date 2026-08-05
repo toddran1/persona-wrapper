@@ -490,7 +490,7 @@ async function settleCustomerUsage(
     conversationId: result.conversationId,
     operationId
   });
-  await customerUsageService.settle(operationId, {
+  await customerUsageService.settleWithRetry(operationId, {
     total_usage_microusd: Math.max(1, Math.ceil(providerCost.estimatedCostUsd * 1_000_000)),
     text_input_tokens: result.usage?.inputTokens ?? 0,
     text_output_tokens: result.usage?.outputTokens ?? 0,

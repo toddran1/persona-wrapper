@@ -49,6 +49,7 @@ export class BackgroundCleanupService {
         ["generated audio", generatedAudioService.cleanupExpiredNow()],
         ["OpenAI artifacts", openAIArtifactService.cleanupExpiredNow()],
         ["usage reservations", usageControlService.cleanupExpiredNow()],
+        ["pending customer usage settlements", customerUsageService.drainPendingSettlements()],
         ["customer usage reservations", customerUsageService.cleanupExpiredNow()],
         ["scheduled accounts", accountDeletionService.purgeDueAccounts()],
         ["data transfers", dataTransferJobService.cleanupExpiredNow()]

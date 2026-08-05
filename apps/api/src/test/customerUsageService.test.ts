@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CustomerUsageService } from "../services/customerUsageService.js";
 import { getPlanDefinition, planIncludesPersona } from "../services/planCatalog.js";
 
@@ -76,6 +76,47 @@ describe("customer usage plans", () => {
     summary = await service.summary("user_metered");
     expect(summary.totalUsage).toMatchObject({ usedMicroUsd: 125_000, reservedMicroUsd: 0 });
     expect(summary.meters.find((meter) => meter.key === "credits")).toMatchObject({ used: 2, reserved: 0 });
+  });
+
+  it("retries a failed settlement on the next drain instead of losing the usage", async () => {
+    const service = new CustomerUsageService();
+    const operationId = await service.reserve("user_settle_retry", {
+      total_usage_microusd: 50_000
+    }, { idempotencyKey: "request_settle_retry" });
+    const settle = vi.spyOn(service, "settle").mockRejectedValueOnce(new Error("database unavailable"));
+
+    await expect(service.settleWithRetry(operationId, { total_usage_microusd: 40_000 })).rejects.toThrow("database unavailable");
+    let summary = await service.summary("user_settle_retry");
+    expect(summary.totalUsage).toMatchObject({ usedMicroUsd: 0, reservedMicroUsd: 50_000 });
+
+    // Inside the backoff window the drain leaves the settlement queued.
+    await service.drainPendingSettlements();
+    summary = await service.summary("user_settle_retry");
+    expect(summary.totalUsage).toMatchObject({ usedMicroUsd: 0, reservedMicroUsd: 50_000 });
+
+    // After the backoff window the drain settles the delivered response.
+    await service.drainPendingSettlements(new Date(Date.now() + 10 * 60 * 1000));
+    summary = await service.summary("user_settle_retry");
+    expect(summary.totalUsage).toMatchObject({ usedMicroUsd: 40_000, reservedMicroUsd: 0 });
+    expect(settle).toHaveBeenCalledTimes(2);
+    settle.mockRestore();
+  });
+
+  it("stops retrying a settlement after repeated failures", async () => {
+    const service = new CustomerUsageService();
+    const operationId = await service.reserve("user_settle_giveup", {
+      total_usage_microusd: 50_000
+    }, { idempotencyKey: "request_settle_giveup" });
+    const settle = vi.spyOn(service, "settle").mockRejectedValue(new Error("database unavailable"));
+
+    await expect(service.settleWithRetry(operationId, { total_usage_microusd: 40_000 })).rejects.toThrow("database unavailable");
+    for (let attempt = 1; attempt <= 12; attempt += 1) {
+      await service.drainPendingSettlements(new Date(Date.now() + attempt * 60 * 60 * 1000));
+    }
+    settle.mockClear();
+    await service.drainPendingSettlements(new Date(Date.now() + 24 * 60 * 60 * 1000));
+    expect(settle).not.toHaveBeenCalled();
+    settle.mockRestore();
   });
 
   it("keeps persona entitlement rules in the versioned plan catalog", () => {
