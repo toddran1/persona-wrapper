@@ -61,7 +61,10 @@ function shouldUseStyleTransfer(provider: ChatRequest["provider"]): boolean {
 
 function isErrorLikeText(text: string): boolean {
   const normalized = text.trim();
-  return /^request failed:/i.test(normalized) || /^failed\b/i.test(normalized);
+  // Match the provider error envelope only. A bare leading "failed" also
+  // matches legitimate persona replies ("Failed your driving test? Baby, ...")
+  // and would silently suppress their TTS narration.
+  return /^request failed:/i.test(normalized);
 }
 
 function hasErrorLikeContent(blocks: ContentBlock[], rawText?: string): boolean {

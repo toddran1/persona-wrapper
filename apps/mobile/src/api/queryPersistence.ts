@@ -14,7 +14,12 @@ const PUBLIC_MAX_AGE = 7 * 24 * 60 * 60_000;
 const USER_MAX_AGE = 24 * 60 * 60_000;
 
 function publicQuery(query: Query): boolean {
-  return query.state.status === "success" && query.queryKey[0] === "personas";
+  if (query.state.status !== "success" || query.queryKey[0] !== "personas") return false;
+  // Persona queries are account-scoped once they carry an account id (see
+  // chatQueries.ts); only anonymous queries are safe for the shared public
+  // bucket that is restored before authentication.
+  const accountId = query.queryKey[2];
+  return accountId === undefined || accountId === "anonymous";
 }
 
 function userQuery(query: Query, userId: string): boolean {

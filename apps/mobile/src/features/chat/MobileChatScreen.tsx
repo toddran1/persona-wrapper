@@ -305,6 +305,7 @@ export function MobileChatScreen() {
   const conversationSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const conversationSearchGenerationRef = useRef(0);
   const nearConversationBottomRef = useRef(true);
+  const sendingRef = useRef(false);
   const lastFocusedResponseTurnIdRef = useRef<string | undefined>(undefined);
   const responseFocusTurnIdRef = useRef<string | undefined>(undefined);
   const assistantOffsetByTurnIdRef = useRef(new Map<string, number>());
@@ -595,6 +596,10 @@ export function MobileChatScreen() {
     turnsRef.current = turns;
   }, [turns]);
 
+  useEffect(() => {
+    sendingRef.current = sending;
+  }, [sending]);
+
   // Re-snap the hidden drawer only when the viewport width changes (rotation).
   // Running this on every drawerInteractive flip would cancel the animated
   // close started by closeDrawer and make the drawer jump away instantly.
@@ -690,7 +695,7 @@ export function MobileChatScreen() {
   function focusCompletedResponse(turnId: string): void {
     // Keep manual reading position intact, but follow a response that belongs
     // to the message the user just sent.
-    if (!nearConversationBottomRef.current && !sending) return;
+    if (!nearConversationBottomRef.current && !sendingRef.current) return;
     lastFocusedResponseTurnIdRef.current = turnId;
     responseFocusTurnIdRef.current = turnId;
     setResponseFocusTurnId(turnId);
@@ -1295,7 +1300,7 @@ export function MobileChatScreen() {
       if (generation !== conversationListGenerationRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Could not load more chats.");
     } finally {
-      if (generation === conversationListGenerationRef.current) setConversationsRefreshing(false);
+      setConversationsRefreshing(false);
     }
   }
 
@@ -1881,6 +1886,10 @@ export function MobileChatScreen() {
     if (backgroundJobId) {
       void api.cancelChatJob(backgroundJobId)
         .then((job) => {
+          // The user may have moved on (e.g. started a new chat) while the
+          // cancellation request was in flight; a late completion must not
+          // resurrect the turn, switch conversations, or play audio.
+          if (!turnsRef.current.some((turn) => turn.backgroundJobId === backgroundJobId)) return;
           if (job.status === "completed" && job.response && turnId) {
             replaceTurnWithResponse(turnId, activeTurn?.userMessage ?? "", activeTurn?.userAssets, job.response);
             void refreshConversations().catch(() => undefined);
@@ -2596,6 +2605,8 @@ export function MobileChatScreen() {
       } else {
         setError(messageText);
         markPersonaIdle();
+        currentComposerDraftRef.current = message;
+        setComposerDraft(message);
         setSelectedFiles(submittedFiles);
       }
     } finally {

@@ -941,18 +941,30 @@ export const api = {
   },
   waitForDataTransferJob: async (jobId: string, onProgress?: (job: DataTransferJob) => void, signal?: AbortSignal): Promise<DataTransferJob> => {
     const deadline = Date.now() + DATA_TRANSFER_POLL_TIMEOUT_MS;
+    const abortError = () => {
+      const error = new Error("Data transfer cancelled.");
+      error.name = "AbortError";
+      return error;
+    };
     for (;;) {
-      if (signal?.aborted) {
-        const error = new Error("Data transfer cancelled.");
-        error.name = "AbortError";
-        throw error;
-      }
+      if (signal?.aborted) throw abortError();
       if (Date.now() >= deadline) throw new Error("The data transfer is taking longer than expected. Check its status again later.");
       const job = await api.getDataTransferJob(jobId);
+      if (signal?.aborted) throw abortError();
       onProgress?.(job);
       if (job.status === "completed") return job;
       if (job.status === "failed" || job.status === "cancelled") throw new Error(job.error || `Data transfer ${job.status}.`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(abortError());
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, 1000);
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
     }
   }
 };

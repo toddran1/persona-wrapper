@@ -81,7 +81,7 @@ interface StorageDriver {
   get(storageKey: string): Promise<StorageDownload>;
   getStream(storageKey: string): Promise<StorageStreamDownload>;
   delete(storageKey: string): Promise<void>;
-  cleanupOlderThan(bucket: StorageBucket, cutoffMs: number): Promise<void>;
+  cleanupOlderThan(bucket: StorageBucket, cutoffMs: number, excludeNamePrefix?: string): Promise<void>;
   healthCheck(): Promise<StorageHealth>;
   presignPut?(storageKey: string, mimeType: string): Promise<PresignedStorageUpload>;
   head?(storageKey: string): Promise<StoredObjectMetadata>;
@@ -192,10 +192,11 @@ class LocalStorageDriver implements StorageDriver {
     await rm(localPath, { force: true });
   }
 
-  async cleanupOlderThan(bucket: StorageBucket, cutoffMs: number): Promise<void> {
+  async cleanupOlderThan(bucket: StorageBucket, cutoffMs: number, excludeNamePrefix?: string): Promise<void> {
     const directory = this.bucketRoot(bucket);
     await mkdir(directory, { recursive: true });
     for (const fileName of await readdir(directory)) {
+      if (excludeNamePrefix && fileName.startsWith(excludeNamePrefix)) continue;
       const localPath = this.localPathFor(bucket, fileName);
       try {
         if ((await stat(localPath)).mtimeMs <= cutoffMs) {
@@ -408,7 +409,7 @@ class S3StorageDriver implements StorageDriver {
     });
   }
 
-  async cleanupOlderThan(bucket: StorageBucket, cutoffMs: number): Promise<void> {
+  async cleanupOlderThan(bucket: StorageBucket, cutoffMs: number, excludeNamePrefix?: string): Promise<void> {
     const prefix = this.objectKey(`${bucket}/`);
     let continuationToken: string | undefined;
     do {
@@ -419,6 +420,7 @@ class S3StorageDriver implements StorageDriver {
       }));
       for (const object of page.Contents ?? []) {
         if (!object.Key || !object.LastModified || object.LastModified.getTime() > cutoffMs) continue;
+        if (excludeNamePrefix && object.Key.split("/").pop()?.startsWith(excludeNamePrefix)) continue;
         await this.client.send(new DeleteObjectCommand({
           Bucket: this.bucket,
           Key: object.Key
@@ -492,8 +494,8 @@ export class StorageService implements StorageDriver {
     return this.driver.delete(storageKey);
   }
 
-  cleanupOlderThan(bucket: StorageBucket, cutoffMs: number): Promise<void> {
-    return this.driver.cleanupOlderThan(bucket, cutoffMs);
+  cleanupOlderThan(bucket: StorageBucket, cutoffMs: number, excludeNamePrefix?: string): Promise<void> {
+    return this.driver.cleanupOlderThan(bucket, cutoffMs, excludeNamePrefix);
   }
 
   healthCheck(): Promise<StorageHealth> {

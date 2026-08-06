@@ -269,8 +269,12 @@ export class ConversationStore {
       record.memoryEnabled !== false
     );
     const db = getDatabase();
+    let metadataToWrite = nextMetadata;
     if (db) {
       const updated = await db.transaction(async (tx) => {
+        // Match appendTurn: serialize writes per conversation and never
+        // resurrect memory that was cleared while this turn was in flight.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${record.id}, 0))`);
         const [message] = await tx.update(dbMessages)
           .set({
             content: replacement.content,
@@ -284,8 +288,13 @@ export class ConversationStore {
           ))
           .returning({ id: dbMessages.id });
         if (!message) return false;
+        const currentRows = await tx
+          .select({ metadata: conversations.metadata })
+          .from(conversations)
+          .where(eq(conversations.id, record.id));
+        metadataToWrite = metadataRespectingConcurrentClear(record.metadata, nextMetadata, currentRows[0]?.metadata);
         await tx.update(conversations)
-          .set({ updatedAt, metadata: nextMetadata })
+          .set({ updatedAt, metadata: metadataToWrite })
           .where(eq(conversations.id, record.id));
         return true;
       });
@@ -295,7 +304,7 @@ export class ConversationStore {
     const nextRecord: ConversationRecord = {
       ...record,
       updatedAt,
-      metadata: nextMetadata,
+      metadata: metadataToWrite,
       messages: nextMessages,
       turns: nextTurns
     };
@@ -324,8 +333,13 @@ export class ConversationStore {
         record.memoryEnabled !== false
       );
 
+      let metadataToWrite = nextMetadata;
       if (messages.length > 0) {
         await db.transaction(async (tx) => {
+          // Serialize concurrent turns on the same conversation (two sessions,
+          // a background job racing a send): without this, both transactions
+          // read the same max(sequence) and insert overlapping sequences.
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${record.id}, 0))`);
           const sequenceRows = await tx
             .select({ maxSequence: sql<number>`coalesce(max(${dbMessages.sequence}), -1)` })
             .from(dbMessages)
@@ -342,8 +356,14 @@ export class ConversationStore {
             metadata: sanitizeMessageMetadata(message.metadata) ?? {}
           })));
 
+          const currentRows = await tx
+            .select({ metadata: conversations.metadata })
+            .from(conversations)
+            .where(eq(conversations.id, record.id));
+          metadataToWrite = metadataRespectingConcurrentClear(record.metadata, nextMetadata, currentRows[0]?.metadata);
+
           await tx.update(conversations)
-            .set({ title: nextTitle, updatedAt, metadata: nextMetadata })
+            .set({ title: nextTitle, updatedAt, metadata: metadataToWrite })
             .where(eq(conversations.id, record.id));
         });
       }
@@ -351,7 +371,7 @@ export class ConversationStore {
       return {
         ...record,
         title: nextTitle,
-        metadata: nextMetadata,
+        metadata: metadataToWrite,
         updatedAt,
         messages: [...record.messages, ...nextMessages],
         messageIds: [
@@ -871,7 +891,7 @@ export class ConversationStore {
     };
   }
 
-  private async getOrCreateFromDatabase(conversationId?: string, seedHistory: ChatMessage[] = [], options: ConversationOptions = {}): Promise<ConversationRecord> {
+  private async getOrCreateFromDatabase(conversationId?: string, seedHistory: ChatMessage[] = [], options: ConversationOptions = {}, retriedAfterConflict = false): Promise<ConversationRecord> {
     const db = getDatabase();
     if (!db) throw new Error("Database is not configured.");
 
@@ -941,9 +961,14 @@ export class ConversationStore {
       title: titleFromMessage(options.titleSeed) ?? titleFromMessages(seedHistory) ?? "New conversation"
     }).onConflictDoNothing().returning({ id: conversations.id });
     if (inserted.length === 0) {
-      // Do not reveal whether an ID belongs to another user (or to an old
-      // anonymous conversation). Authenticated users can only read and write
-      // conversations that already carry their user ID.
+      // A concurrent request carrying the same client-supplied id may have
+      // created the row first (for example a double-submitted first message).
+      // Retry once through the ownership-checked lookup path instead of
+      // failing; only a row owned by someone else (or an old anonymous
+      // conversation) stays a 404 so IDs are never revealed.
+      if (conversationId && !retriedAfterConflict) {
+        return this.getOrCreateFromDatabase(conversationId, seedHistory, options, true);
+      }
       throw new HttpError("Conversation not found", 404);
     }
     const seedMessageIds = seedHistory.map(() => `msg_${randomUUID()}`);
@@ -1141,6 +1166,24 @@ function withoutConversationMemory(
   delete next.structuredMemory;
   delete next.structuredMemoryUpdatedAt;
   return next;
+}
+
+const CONVERSATION_MEMORY_METADATA_KEYS = ["memorySummary", "memorySummaryUpdatedAt", "structuredMemory", "structuredMemoryUpdatedAt"] as const;
+
+// Turn writes build metadata from a snapshot that can be minutes old. If the
+// user cleared this conversation's memory while the turn was in flight, the
+// row no longer has memory keys — never write the stale snapshot's memory
+// back over that explicit clear.
+function metadataRespectingConcurrentClear(
+  snapshotMetadata: Record<string, unknown> | null | undefined,
+  nextMetadata: Record<string, unknown>,
+  currentMetadata: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  if (!snapshotMetadata || !currentMetadata) return nextMetadata;
+  const snapshotHadMemory = CONVERSATION_MEMORY_METADATA_KEYS.some((key) => key in snapshotMetadata);
+  if (!snapshotHadMemory) return nextMetadata;
+  const currentHasMemory = CONVERSATION_MEMORY_METADATA_KEYS.some((key) => key in currentMetadata);
+  return currentHasMemory ? nextMetadata : withoutConversationMemory(nextMetadata);
 }
 
 function buildConversationMemorySummary(

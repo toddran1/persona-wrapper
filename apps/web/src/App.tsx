@@ -592,9 +592,22 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
 
   useEffect(() => {
     if (!conversationsResource.data) return;
-    setConversationList(conversationsResource.data.conversations);
-    setConversationListCursor(conversationsResource.data.nextCursor);
-  }, [conversationsResource.data]);
+    const page = conversationsResource.data;
+    if (conversationList.length === 0) {
+      setConversationList(page.conversations);
+      setConversationListCursor(page.nextCursor);
+      return;
+    }
+    // Merge the refetched first page into the loaded list: refresh existing
+    // entries and insert new ones, but keep later pages and the cursor so
+    // "Load more chats" progress survives a window-focus refetch.
+    setConversationList((current) => {
+      if (current.length === 0) return page.conversations;
+      const merged = current.map((conversation) => page.conversations.find((item) => item.id === conversation.id) ?? conversation);
+      const newConversations = page.conversations.filter((item) => !current.some((existing) => existing.id === item.id));
+      return [...merged, ...newConversations].sort(sortConversationSummaries);
+    });
+  }, [conversationsResource.data, conversationList.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -975,8 +988,11 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
 
     setConversationId(result.conversationId);
     setResponse(result);
+    const autoPlayIndex = retryAssistantMessageId
+      ? renderedTurnsRef.current.findIndex((turn) => turn.assistantMessageId === retryAssistantMessageId)
+      : renderedTurnsRef.current.length;
+    setAutoPlayAudioTurnIndex(autoPlayIndex >= 0 ? autoPlayIndex : undefined);
     setRenderedTurns((current) => {
-      setAutoPlayAudioTurnIndex(current.length);
       const completedTurn: RenderedTurn = {
           ...(result.userMessageId ? { userMessageId: result.userMessageId } : {}),
           ...(result.assistantMessageId ? { assistantMessageId: result.assistantMessageId } : {}),
@@ -1005,25 +1021,22 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     suppressAudioVisualForCurrentTurnRef.current = imageOnlyResponse;
     setConversationId(result.conversationId);
     setResponse(result);
-    setRenderedTurns((current) => {
-      const backgroundTurnIndex = current.findIndex((turn) => turn.backgroundJobId === jobId);
-      const nextTurns = current.map((turn) => (
-        turn.backgroundJobId === jobId ? (() => {
-          const { backgroundJobId: _backgroundJobId, ...completedTurn } = turn;
-          return {
-              ...completedTurn,
-              ...(result.userMessageId ? { userMessageId: result.userMessageId } : {}),
-              ...(result.assistantMessageId ? { assistantMessageId: result.assistantMessageId } : {}),
-              personaId: result.persona.id,
-              assistantText,
-              outputs: result.outputs,
-              ...(result.usage ? { usage: result.usage } : {})
-            };
-          })() : turn
-      ));
-      setAutoPlayAudioTurnIndex(backgroundTurnIndex >= 0 ? backgroundTurnIndex : undefined);
-      return nextTurns;
-    });
+    const backgroundTurnIndex = renderedTurnsRef.current.findIndex((turn) => turn.backgroundJobId === jobId);
+    setAutoPlayAudioTurnIndex(backgroundTurnIndex >= 0 ? backgroundTurnIndex : undefined);
+    setRenderedTurns((current) => current.map((turn) => (
+      turn.backgroundJobId === jobId ? (() => {
+        const { backgroundJobId: _backgroundJobId, ...completedTurn } = turn;
+        return {
+            ...completedTurn,
+            ...(result.userMessageId ? { userMessageId: result.userMessageId } : {}),
+            ...(result.assistantMessageId ? { assistantMessageId: result.assistantMessageId } : {}),
+            personaId: result.persona.id,
+            assistantText,
+            outputs: result.outputs,
+            ...(result.usage ? { usage: result.usage } : {})
+          };
+        })() : turn
+    )));
   }
 
   function replaceBackgroundTurnWithError(job: ChatJobResponse, reason: string): void {
@@ -1148,6 +1161,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setRenderedTurns((current) => [...renderTurnsFromConversationTurns(page.turns), ...current]);
       setTurnsCursor(page.nextCursor);
+      completedTurnCountRef.current += page.turns.length;
     } catch (loadError) {
       if (selectionGeneration !== selectionGenerationRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Failed to load earlier messages");

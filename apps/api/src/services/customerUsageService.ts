@@ -26,6 +26,7 @@ type LocalOperation = {
   idempotencyKey: string;
   reserved: MeterQuantities;
   periodStart: Date;
+  createdAt: Date;
 };
 type SettleOptions = {
   provider?: string;
@@ -141,6 +142,10 @@ export class CustomerUsageService {
     const enforceUsage = env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED && !access.isAdmin;
     const period = currentCalendarPeriod();
     if (!db || !(await this.hasPersistedUser(userId))) {
+      // Re-check after the awaits: the rest of this branch is synchronous, so
+      // the first concurrent caller to reach it claims the key for all of them.
+      const claimedWhileAwaiting = this.localIdempotency.get(idempotencyScope);
+      if (claimedWhileAwaiting) return claimedWhileAwaiting;
       if (
         enforceUsage
         && positiveInteger(normalized.image_outputs) > 0
@@ -171,7 +176,8 @@ export class CustomerUsageService {
         plan,
         idempotencyKey: options.idempotencyKey,
         reserved: normalized,
-        periodStart: period.start
+        periodStart: period.start,
+        createdAt: new Date()
       });
       this.localIdempotency.set(idempotencyScope, operationId);
       return operationId;
@@ -473,6 +479,15 @@ export class CustomerUsageService {
   }
 
   async cleanupExpiredNow(now = new Date()): Promise<void> {
+    // Local mode (no database) has no events table to sweep; release stale
+    // in-memory reservations by age so a dropped request cannot hold quota or
+    // a concurrency slot until process restart.
+    const staleLocalCutoffMs = now.getTime() - 6 * 60 * 60 * 1_000;
+    for (const [operationId, operation] of [...this.localOperations]) {
+      if (operation.createdAt.getTime() <= staleLocalCutoffMs) {
+        await this.release(operationId);
+      }
+    }
     const db = getDatabase();
     if (!db) return;
     const reservationCutoff = new Date(now.getTime() - 6 * 60 * 60 * 1_000);

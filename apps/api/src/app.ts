@@ -21,6 +21,7 @@ import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
 import { downloadDataExport, postDataImportUpload } from "./controllers/dataTransfer.controller.js";
 import { env } from "./config/env.js";
+import { customerUsageService } from "./services/customerUsageService.js";
 import { storageService } from "./services/storageService.js";
 import { HttpError } from "./utils/httpError.js";
 import { logger } from "./utils/logger.js";
@@ -260,14 +261,25 @@ export function createApp() {
     maxAge: "1d"
   }));
 
-  app.get("/health/storage", (_request: Request, response: Response, next: NextFunction) => {
-    if (env.NODE_ENV === "production" && !_request.auth) {
+  app.get("/health/storage", (request: Request, response: Response, next: NextFunction) => {
+    if (env.NODE_ENV === "production" && !request.auth) {
       response.status(401).json({ error: "Authentication required." });
       return;
     }
-    void storageService.healthCheck()
-      .then((storage) => {
-        response.status(storage.ok ? 200 : 503).json({ status: storage.ok ? "ok" : "error", storage });
+    // The probe performs a real storage write and returns internals; restrict
+    // it to admins in production.
+    void (env.NODE_ENV === "production"
+      ? customerUsageService.isAdmin(request.auth!.userId)
+      : Promise.resolve(true))
+      .then((isAdmin) => {
+        if (!isAdmin) {
+          response.status(403).json({ error: "Admin access required." });
+          return undefined;
+        }
+        return storageService.healthCheck()
+          .then((storage) => {
+            response.status(storage.ok ? 200 : 503).json({ status: storage.ok ? "ok" : "error", storage });
+          });
       })
       .catch(next);
   });

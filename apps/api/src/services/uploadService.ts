@@ -132,7 +132,7 @@ export class UploadService {
       }
       const { buffer } = await storageService.get(row.storageKey);
       const metadata = await canonicalUploadMetadata(row.fileName, row.mimeType, buffer);
-      if (object.mimeType && object.mimeType !== row.mimeType && metadata.mimeType === row.mimeType) {
+      if (object.mimeType && object.mimeType !== row.mimeType && metadata.mimeType !== row.mimeType) {
         throw new HttpError("Uploaded object does not match the requested file metadata.", 400);
       }
       await validateUploadBuffer(buffer, metadata.fileName, metadata.mimeType, row.sizeBytes);
@@ -462,7 +462,9 @@ export class UploadService {
       return;
     }
     const cutoff = Date.now() - env.UPLOAD_TTL_HOURS * 60 * 60 * 1000;
-    await storageService.cleanupOlderThan("uploads", cutoff);
+    // Data-transfer archives live in this bucket but run on their own
+    // (longer) DATA_TRANSFER_JOB_TTL_HOURS clock — the job cleanup owns them.
+    await storageService.cleanupOlderThan("uploads", cutoff, "data-transfer-");
   }
 
   private async getFromDatabase(ownerId: string, id: string): Promise<StoredAsset | undefined> {
@@ -609,10 +611,11 @@ export async function canonicalUploadMetadata(
 }
 
 function uploadExpiresAt(): Date {
-  if (env.UPLOAD_TTL_HOURS <= 0) {
-    return new Date("9999-12-31T23:59:59.000Z");
-  }
-  return new Date(Date.now() + env.UPLOAD_TTL_HOURS * 60 * 60 * 1000);
+  // The OpenAI copy of every upload is clamped to a 1-hour..30-day expiry
+  // (see uploadBufferToOpenAI). Keep the local record on the same clock so it
+  // never references a remotely expired file.
+  const clampedSeconds = Math.max(3600, Math.min(2592000, env.UPLOAD_TTL_HOURS * 3600));
+  return new Date(Date.now() + clampedSeconds * 1000);
 }
 
 export async function validateFileContents(file: Express.Multer.File): Promise<void> {

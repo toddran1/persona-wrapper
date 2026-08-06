@@ -274,13 +274,16 @@ function citationsFrom(response: InteractionResponse): Citation[] {
       if (content.type !== "text") continue;
       for (const annotation of content.annotations ?? []) {
         if (annotation.type !== "url_citation" || !annotation.url || seen.has(annotation.url)) continue;
-        seen.add(annotation.url);
-        let fallbackTitle = "Google Search result";
+        // Skip citations whose URL cannot parse: the shared citation schema
+        // rejects them at llmOutputSchema.parse time, which would fail the
+        // whole chat response with a 500.
+        let fallbackTitle: string;
         try {
           fallbackTitle = new URL(annotation.url).hostname;
         } catch {
-          // Keep unusual provider redirect URLs usable.
+          continue;
         }
+        seen.add(annotation.url);
         citations.push({
           title: annotation.title?.trim() || fallbackTitle,
           url: annotation.url,
@@ -452,7 +455,7 @@ export class GeminiProvider implements LLMProvider {
             // Chart validation errors are returned to the model so it can
             // repair the call. They are not user-facing provider diagnostics.
             if (toolName !== "render_chart") {
-              trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "completed" });
+              trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "failed" });
               trace.push({ type: "tool_result", toolName, status: "failed", result: reason });
             }
             interactionSteps.push({

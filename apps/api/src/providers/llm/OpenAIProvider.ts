@@ -307,7 +307,8 @@ async function directUserImageFiles(input: LLMInput) {
   }));
 }
 
-export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: OpenAIPromptMode): string {
+export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: OpenAIPromptMode, inlineTtsScriptOverride?: boolean): string {
+  const inlineTtsScript = inlineTtsScriptOverride ?? shouldRequestInlineTtsScript(input, promptMode);
   const instructions = promptMode === "full" ? input.systemPrompt : (input.baseSystemPrompt ?? input.systemPrompt);
   const extraInstructions: string[] = [];
 
@@ -339,7 +340,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
     );
   }
 
-  if (shouldRequestInlineTtsScript(input, promptMode)) {
+  if (inlineTtsScript) {
     const ttsModelId = env.TTS_PROVIDER === "fish_audio"
       ? input.persona.voiceProfile.fishAudio?.model ?? env.FISH_AUDIO_MODEL
       : env.TTS_PROVIDER === "elevenlabs"
@@ -994,7 +995,7 @@ function mergeUsage(primaryUsage: OpenAIItem | null | undefined, secondaryUsage:
   };
 }
 
-async function withRetry<T>(operation: () => Promise<T>): Promise<T> {
+async function withRetry<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= env.OPENAI_MAX_RETRIES; attempt += 1) {
     try {
@@ -1002,7 +1003,7 @@ async function withRetry<T>(operation: () => Promise<T>): Promise<T> {
     } catch (error) {
       lastError = error;
       if (!shouldRetry(error) || attempt === env.OPENAI_MAX_RETRIES) throw error;
-      await new Promise((resolve) => setTimeout(resolve, Math.min(8000, 500 * 2 ** attempt)));
+      await delay(Math.min(8000, 500 * 2 ** attempt), signal);
     }
   }
   throw lastError;
@@ -1139,8 +1140,8 @@ export class OpenAIProvider implements LLMProvider {
     const imageReferences = [...userReferenceFiles, ...personaReferenceFiles];
     const usesImageReferences = imageReferences.length > 0;
     const response = usesImageReferences
-      ? await withRetry(() => client.images.edit({ ...params, image: imageReferences } as any, { signal }))
-      : await withRetry(() => client.images.generate(params as any, { signal }));
+      ? await withRetry(() => client.images.edit({ ...params, image: imageReferences } as any, { signal }), signal)
+      : await withRetry(() => client.images.generate(params as any, { signal }), signal);
     const images = (response.data ?? []) as Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
     const content: ContentBlock[] = images.flatMap((image, index) => {
       const url = image.b64_json ? `data:image/png;base64,${image.b64_json}` : image.url;
@@ -1335,10 +1336,10 @@ export class OpenAIProvider implements LLMProvider {
     progressCallbacks?: LLMProgressCallbacks
   ): Promise<OpenAIResponse> {
     const params = this.responseParams(input, responseInput, tools);
-    return withRetry(() => client.responses.create(params as any, { signal })).catch((error) => {
+    return withRetry(() => client.responses.create(params as any, { signal }), signal).catch((error) => {
       const unsupportedParam = unsupportedControlParameter(error);
       if (!unsupportedParam) throw error;
-      return withRetry(() => client.responses.create(stripUnsupportedControlParam(params, unsupportedParam) as any, { signal }));
+      return withRetry(() => client.responses.create(stripUnsupportedControlParam(params, unsupportedParam) as any, { signal }), signal);
     }).then((response) => this.resolveBackgroundResponse(client, input, response, signal, progressCallbacks));
   }
 
@@ -1373,7 +1374,7 @@ export class OpenAIProvider implements LLMProvider {
       next = await withRetry(() => client.responses.retrieve(next.id, {
         include: RESPONSE_INCLUDE_FIELDS as any,
         stream: false
-      } as any, { signal }) as Promise<OpenAIResponse>);
+      } as any, { signal }) as Promise<OpenAIResponse>, signal);
       if (typeof next?.id === "string") {
         progressCallbacks?.onProviderResponse?.({ id: next.id, status: next.status });
       }
@@ -1396,17 +1397,17 @@ export class OpenAIProvider implements LLMProvider {
     signal?: AbortSignal,
     progressCallbacks?: LLMProgressCallbacks
   ): Promise<OpenAIResponse> {
-    const params = this.responseParams(input, responseInput, tools);
+    const params = this.responseParams(input, responseInput, tools, true);
     const stream = await withRetry(() => client.responses.create({
       ...params,
       stream: true
-    } as any, { signal })).catch((error) => {
+    } as any, { signal }), signal).catch((error) => {
       const unsupportedParam = unsupportedControlParameter(error);
       if (!unsupportedParam) throw error;
       return withRetry(() => client.responses.create({
         ...stripUnsupportedControlParam(params, unsupportedParam),
         stream: true
-      } as any, { signal }));
+      } as any, { signal }), signal);
     });
     let completedResponse: OpenAIResponse | undefined;
     let streamedText = "";
@@ -1462,16 +1463,21 @@ export class OpenAIProvider implements LLMProvider {
     }) as OpenAIRequestControls;
   }
 
-  private responseParams(input: LLMInput, responseInput: OpenAIItem[], tools: OpenAIItem[]) {
+  private responseParams(input: LLMInput, responseInput: OpenAIItem[], tools: OpenAIItem[], streaming = false) {
     const controls = this.requestControls();
+    // Streaming forwards output_text deltas verbatim to the client, so the
+    // dual-text JSON envelope (visible_text/tts_script) must stay off there —
+    // otherwise users watch raw JSON render character by character. Streamed
+    // responses fall back to the mechanical TTS script builder.
+    const inlineTtsScript = shouldRequestInlineTtsScript(input, this.promptMode) && !streaming;
     const text = {
       ...(controls.text ?? {}),
-      ...(shouldRequestInlineTtsScript(input, this.promptMode) ? { format: dualTextResponseFormat() } : {})
+      ...(inlineTtsScript ? { format: dualTextResponseFormat() } : {})
     };
 
     return {
       model: env.OPENAI_MODEL,
-      instructions: buildOpenAIResponseInstructions(input, this.promptMode),
+      instructions: buildOpenAIResponseInstructions(input, this.promptMode, inlineTtsScript),
       input: responseInput as any,
       tools: tools as any,
       background: input.toolOptions?.background ?? false,
@@ -1492,7 +1498,7 @@ export class OpenAIProvider implements LLMProvider {
         ...(controls.reasoning?.effort ? { reasoning_effort: controls.reasoning.effort } : {}),
         ...(controls.reasoning?.summary ? { reasoning_summary: controls.reasoning.summary } : {}),
         ...(controls.text?.verbosity ? { text_verbosity: controls.text.verbosity } : {}),
-        ...(shouldRequestInlineTtsScript(input, this.promptMode) ? { response_format: "visible_text_tts_script" } : {})
+        ...(inlineTtsScript ? { response_format: "visible_text_tts_script" } : {})
       }
     };
   }

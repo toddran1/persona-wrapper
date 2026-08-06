@@ -7,7 +7,7 @@ import {
   type ChatRequest,
   type ChatResponse
 } from "@persona/shared";
-import { and, eq, inArray, lte } from "drizzle-orm";
+import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { backgroundJobs } from "../db/schema.js";
@@ -22,6 +22,8 @@ export type BackgroundChatJob = {
   status: ChatJobResponse["status"];
   createdAt: string;
   updatedAt: string;
+  /** Set when execution actually starts; the execution deadline is measured from here, not from queue time. */
+  startedAt?: string;
   ownerId?: string;
   usageReservationId?: string;
   customerUsageOperationId?: string;
@@ -143,7 +145,8 @@ export class BackgroundChatJobService {
       let persisted = await db.query.backgroundJobs.findFirst({ where: eq(backgroundJobs.id, id) });
       if (!persisted || persisted.kind !== "chat") return undefined;
       if (ownerId && persisted.ownerId !== ownerId) return undefined;
-      if (isActiveStatus(persisted.status) && hasExceededExecutionDeadline(persisted.createdAt)) {
+      const persistedStartedAt = typeof persisted.metadata.startedAt === "string" ? persisted.metadata.startedAt : undefined;
+      if (isActiveStatus(persisted.status) && hasExceededExecutionDeadline(persistedStartedAt ?? persisted.createdAt)) {
         const inMemoryJob = this.jobs.get(id);
         const timeoutError = executionTimeoutError(id);
         inMemoryJob?.abortController.abort(timeoutError);
@@ -179,7 +182,7 @@ export class BackgroundChatJobService {
     }
     const job = this.jobs.get(id);
     if (!job || (ownerId && job.ownerId !== ownerId)) return undefined;
-    if (isActiveStatus(job.status) && hasExceededExecutionDeadline(job.createdAt)) {
+    if (isActiveStatus(job.status) && hasExceededExecutionDeadline(job.startedAt ?? job.createdAt)) {
       const timeoutError = executionTimeoutError(job.id);
       job.abortController.abort(timeoutError);
       await this.recordTerminalFailure(job, timeoutError);
@@ -290,8 +293,11 @@ export class BackgroundChatJobService {
     });
     // pg-boss invokes this handler again while retries remain. Do not show the
     // user a failed turn until its final attempt; otherwise a later successful
-    // durable retry is blocked by the app job's terminal state.
-    const terminalAttempt = !queueMetadata || queueMetadata.retryCount >= queueMetadata.retryLimit;
+    // durable retry is blocked by the app job's terminal state. When the retry
+    // metadata itself is unreadable, treat the attempt as non-terminal so a
+    // transient read blip cannot convert a retryable job into a silent
+    // permanent failure.
+    const terminalAttempt = queueMetadata ? queueMetadata.retryCount >= queueMetadata.retryLimit : false;
     try {
       await this.execute(job, () => this.executor?.(payload.request, job) as Promise<ChatResponse>, terminalAttempt);
     } catch (error) {
@@ -299,8 +305,8 @@ export class BackgroundChatJobService {
         logger.warn("Background chat job will be retried", {
           jobId: job.id,
           queueJobId,
-          retryCount: queueMetadata.retryCount,
-          retryLimit: queueMetadata.retryLimit,
+          retryCount: queueMetadata?.retryCount,
+          retryLimit: queueMetadata?.retryLimit,
           error: error instanceof Error ? error.message : String(error)
         });
       } else if (!terminalAttempt) {
@@ -390,12 +396,18 @@ export class BackgroundChatJobService {
     if (job && job.status !== "queued" && job.status !== "running") return false;
 
     const updatedAt = now();
-    if (job) this.jobs.set(id, { ...job, ...updates, updatedAt });
+    const startedAt = updates.status === "running" ? (job?.startedAt ?? updatedAt) : job?.startedAt;
+    if (job) this.jobs.set(id, { ...job, ...updates, ...(startedAt ? { startedAt } : {}), updatedAt });
 
     const db = getDatabase();
     if (!db) return Boolean(job);
     const [updated] = await db.update(backgroundJobs).set({
       status: updates.status,
+      ...(updates.status === "running"
+        // Persist the execution start so the polling deadline is measured from
+        // pickup, not from when the job was queued.
+        ? { metadata: sql`jsonb_set(coalesce(${backgroundJobs.metadata}, '{}'::jsonb), '{startedAt}', to_jsonb(${startedAt ?? updatedAt}::text))` }
+        : {}),
       ...(updates.response ? { response: updates.response as unknown as Record<string, unknown> } : {}),
       ...(updates.error !== undefined ? { error: updates.error } : {}),
       ...(updates.failureReason !== undefined ? { failureReason: updates.failureReason } : {}),
