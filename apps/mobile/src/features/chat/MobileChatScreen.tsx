@@ -3866,7 +3866,7 @@ export function MobileChatScreen() {
           {settingsPanel === "memory" ? (
             <View style={styles.settingsSection}>
               <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>
-                Older parts of each chat can be condensed to help shape later replies. Memory stays inside each individual chat.
+                When a chat gets long, older messages are condensed into a short summary so the persona still remembers what you talked about. This usually starts to matter after roughly 24 messages (about a dozen exchanges) in one chat — sooner if your messages are long. Memory stays inside each individual chat and is never shared between chats.
               </Text>
               {memoryError ? <Text style={[styles.settingsPanelDescription, { color: theme.danger }]} accessibilityRole="alert">{memoryError}</Text> : null}
               {memoryNotice ? <Text style={[styles.settingsPanelDescription, { color: theme.accent2 }]} accessibilityLiveRegion="polite">{memoryNotice}</Text> : null}
@@ -3874,7 +3874,7 @@ export function MobileChatScreen() {
                 <Ionicons name="sparkles-outline" size={22} color={theme.text} />
                 <View style={styles.settingsRowCopy}>
                   <Text style={[styles.settingsRowText, { color: theme.text }]}>Use chat memory</Text>
-                  <Text style={[styles.settingsRowHint, { color: theme.muted }]}>When off, existing memory is not used and no new memory is created</Text>
+                  <Text style={[styles.settingsRowHint, { color: theme.muted }]}>When off, long chats only use recent messages. This slightly lowers usage on long chats, since no summary is added to each request.</Text>
                 </View>
                 <Switch
                   accessibilityLabel="Use chat memory"

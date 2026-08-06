@@ -1700,12 +1700,12 @@ export function ConversationSidebar({
                         <div className="settings-section-heading">
                           <span className="settings-section-eyebrow">Conversation context</span>
                           <h3>Memory</h3>
-                          <p>Control whether older parts of each chat can help shape later replies. Memory stays inside each individual chat.</p>
+                          <p>When a chat gets long, older messages are condensed into a short summary so the persona still remembers what you talked about. This usually starts to matter after roughly 24 messages (about a dozen exchanges) in one chat — sooner if your messages are long. Memory stays inside each individual chat and is never shared between chats.</p>
                         </div>
                         {memoryNotice ? <div className="settings-notice" role="status">{memoryNotice}</div> : null}
                         <div className="settings-list">
                           <div className="settings-list-row">
-                            <span><strong>Use chat memory</strong><small>When off, existing memory is not used and no new memory is created.</small></span>
+                            <span><strong>Use chat memory</strong><small>When off, long chats only use recent messages. This slightly lowers usage on long chats, since no summary is added to each request.</small></span>
                             <button type="button" className={`settings-memory-switch${memoryEnabled ? " settings-memory-switch-on" : ""}`} role="switch" aria-label="Use chat memory" aria-checked={memoryEnabled} disabled={authBusy} onClick={() => void toggleMemory()}>
                               <span />
                             </button>
