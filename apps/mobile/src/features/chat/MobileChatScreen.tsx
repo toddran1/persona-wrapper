@@ -631,7 +631,7 @@ export function MobileChatScreen() {
   useEffect(() => {
     if (!recentlyRestored || !authChecked) return;
     void retryLoadAppData();
-  }, [recentlyRestored]);
+  }, [authChecked, recentlyRestored]);
 
   function clearVisualStateTimer(): void {
     if (!visualStateTimerRef.current) return;

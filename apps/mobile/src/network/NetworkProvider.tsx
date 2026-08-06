@@ -32,12 +32,16 @@ export function NetworkProvider({ children }: PropsWithChildren) {
 
   const applyState = useCallback((state: NetInfoState) => {
     const nextStatus = statusFromState(state);
-    if (previousStatusRef.current === "offline" && nextStatus === "online") {
-      setRecentlyRestored(true);
-      if (restoredTimerRef.current) clearTimeout(restoredTimerRef.current);
-      restoredTimerRef.current = setTimeout(() => setRecentlyRestored(false), 3000);
+    // Track restore edges between settled states only — a transient
+    // "checking" reading must not swallow an offline → online restore.
+    if (nextStatus !== "checking") {
+      if (previousStatusRef.current === "offline" && nextStatus === "online") {
+        setRecentlyRestored(true);
+        if (restoredTimerRef.current) clearTimeout(restoredTimerRef.current);
+        restoredTimerRef.current = setTimeout(() => setRecentlyRestored(false), 3000);
+      }
+      previousStatusRef.current = nextStatus;
     }
-    previousStatusRef.current = nextStatus;
     setStatus(nextStatus);
     onlineManager.setOnline(nextStatus === "online");
   }, []);

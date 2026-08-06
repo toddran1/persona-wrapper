@@ -62,6 +62,13 @@ function extensionForMimeType(mimeType: string): string {
   return MIME_EXTENSIONS[mimeType] ?? "bin";
 }
 
+function safePersistedMimeType(mimeType: string): string {
+  // Only formats that are safe to render inline keep their declared type.
+  // Anything else from LLM output (text/html, image/svg+xml, ...) is stored
+  // and served as a plain binary download, preventing stored XSS on the API origin.
+  return MIME_EXTENSIONS[mimeType] ? mimeType : "application/octet-stream";
+}
+
 function mimeTypeForFileName(fileName: string): string {
   const extension = fileName.split(".").pop()?.toLowerCase();
   if (extension === "png") return "image/png";
@@ -91,10 +98,11 @@ export class GeneratedMediaService {
   ): Promise<{ id: string; url: string; mimeType: string; sizeBytes: number; storageKey: string }> {
     const parsed = parseDataUrl(dataUrl);
     if (!parsed) throw new HttpError("Generated media data URL is invalid.", 400);
+    const mimeType = safePersistedMimeType(parsed.mimeType);
 
     await this.cleanupExpired();
     const id = `media_${randomUUID()}`;
-    const extension = extensionForMimeType(parsed.mimeType);
+    const extension = extensionForMimeType(mimeType);
     const fileName = `${id}.${extension}`;
     const stored = await storageService.put({
       bucket: "generated-media",
@@ -109,7 +117,7 @@ export class GeneratedMediaService {
       ...(options.conversationId ? { conversationId: options.conversationId } : {}),
       ...(options.messageId ? { messageId: options.messageId } : {}),
       fileName,
-      mimeType: parsed.mimeType,
+      mimeType,
       sizeBytes: parsed.buffer.byteLength,
       ...(stored.localPath ? { localPath: stored.localPath } : {}),
       storageKey: stored.storageKey,
@@ -127,7 +135,7 @@ export class GeneratedMediaService {
         ...(options.conversationId ? { conversationId: options.conversationId } : {}),
         ...(options.messageId ? { messageId: options.messageId } : {}),
         fileName,
-        mimeType: parsed.mimeType,
+        mimeType,
         sizeBytes: parsed.buffer.byteLength,
         ...(stored.localPath ? { localPath: stored.localPath } : {}),
         storageKey: stored.storageKey,
@@ -151,7 +159,7 @@ export class GeneratedMediaService {
     return {
       id,
       url: publicUrl,
-      mimeType: parsed.mimeType,
+      mimeType,
       sizeBytes: parsed.buffer.byteLength,
       storageKey: stored.storageKey
     };

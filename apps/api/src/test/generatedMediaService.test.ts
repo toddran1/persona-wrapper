@@ -64,6 +64,18 @@ describe("generatedMediaService", () => {
     expect(media.buffer.toString()).toBe("png-smoke");
   });
 
+  it("downgrades non-renderable MIME types to a plain binary download", async () => {
+    const { generatedMediaService } = await import("../services/generatedMediaService.js");
+    const htmlDataUrl = `data:text/html;base64,${Buffer.from("<script>alert(1)</script>").toString("base64")}`;
+
+    const persisted = await generatedMediaService.persistDataUrl(htmlDataUrl, { ownerId: "owner-a" });
+
+    expect(persisted.mimeType).toBe("application/octet-stream");
+    const media = await generatedMediaService.download(persisted.id, "owner-a");
+    expect(media.mimeType).toBe("application/octet-stream");
+    expect(media.buffer.toString()).toBe("<script>alert(1)</script>");
+  });
+
   it("rejects generated media downloads for the wrong owner", async () => {
     const { generatedMediaService } = await import("../services/generatedMediaService.js");
     const persisted = await generatedMediaService.persistDataUrl(

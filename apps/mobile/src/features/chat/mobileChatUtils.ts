@@ -44,10 +44,17 @@ function turnSyncKey(turn: RenderedTurn): string {
 // Merges a freshly fetched latest page of turns over the local list: fresh
 // turns replace their local copies (updating status/output), while older
 // paginated turns and unsynced local turns are kept. Used when another
-// session may have appended messages (cross-session sync on foreground).
+// session may have appended messages (cross-session sync on foreground). A
+// locally pending background turn is also replaced once the server's
+// completed copy of the same job arrives (its sync key changes from job id
+// to message ids).
 export function mergeCrossSessionTurns(current: RenderedTurn[], fresh: RenderedTurn[]): RenderedTurn[] {
   const freshKeys = new Set(fresh.map(turnSyncKey));
-  return [...current.filter((turn) => !freshKeys.has(turnSyncKey(turn))), ...fresh];
+  const freshJobIds = new Set(fresh.map((turn) => turn.backgroundJobId).filter((id) => id !== undefined));
+  return [...current.filter((turn) => {
+    if (turn.backgroundJobId && freshJobIds.has(turn.backgroundJobId)) return false;
+    return !freshKeys.has(turnSyncKey(turn));
+  }), ...fresh];
 }
 
 export function getClientContext(): ClientContext {

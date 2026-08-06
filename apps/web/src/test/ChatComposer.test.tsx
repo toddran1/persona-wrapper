@@ -119,6 +119,26 @@ describe("ChatComposer", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("keeps the draft when submit is attempted while a response is running", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ChatComposer
+        {...defaultProps}
+        loading
+        onSubmit={onSubmit}
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("Talk to me nice...");
+    await user.type(textarea, "Do not lose this draft.");
+    await user.keyboard("{Enter}");
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("Do not lose this draft.");
+  });
+
   it("cycles through submitted prompts with arrow keys", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);

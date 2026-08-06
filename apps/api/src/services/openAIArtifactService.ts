@@ -135,14 +135,30 @@ export class OpenAIArtifactService {
 
     const db = getDatabase();
     if (db) {
-      await db.update(openAIArtifacts)
-        .set({
+      // Upsert: registration persists asynchronously, so the row may not exist
+      // yet — a plain update would silently miss it and leave the artifact
+      // ownerless (downloads 404 once owned-media access is enforced).
+      await db.insert(openAIArtifacts).values({
+        id: nextArtifact.id,
+        containerId: nextArtifact.containerId,
+        fileId: nextArtifact.fileId,
+        fileName: nextArtifact.fileName,
+        mimeType: nextArtifact.mimeType,
+        ownerId: nextArtifact.ownerId,
+        conversationId: nextArtifact.conversationId,
+        messageId: nextArtifact.messageId,
+        publicUrl: `/api/openai-artifacts/${nextArtifact.id}`,
+        metadata: nextArtifact.metadata ?? {},
+        expiresAt: new Date(nextArtifact.expiresAt)
+      }).onConflictDoUpdate({
+        target: openAIArtifacts.id,
+        set: {
           ...(options.ownerId ? { ownerId: options.ownerId } : {}),
           ...(options.conversationId ? { conversationId: options.conversationId } : {}),
           ...(options.messageId ? { messageId: options.messageId } : {}),
           ...(Object.keys(nextMetadata).length > 0 ? { metadata: nextMetadata } : {})
-        })
-        .where(eq(openAIArtifacts.id, id));
+        }
+      });
     }
   }
 
@@ -274,22 +290,27 @@ export class OpenAIArtifactService {
     const db = getDatabase();
     if (db) {
       const row = await db.query.openAIArtifacts.findFirst({ where: eq(openAIArtifacts.id, id) });
-      if (!row) return undefined;
-      return {
-        id: row.id,
-        containerId: row.containerId,
-        fileId: row.fileId,
-        fileName: row.fileName,
-        mimeType: row.mimeType,
-        ownerId: row.ownerId,
-        conversationId: row.conversationId,
-        messageId: row.messageId,
-        storageKey: row.storageKey,
-        localPath: row.localPath,
-        sizeBytes: row.sizeBytes,
-        metadata: isRecord(row.metadata) ? row.metadata : {},
-        expiresAt: row.expiresAt.getTime()
-      };
+      if (row) {
+        return {
+          id: row.id,
+          containerId: row.containerId,
+          fileId: row.fileId,
+          fileName: row.fileName,
+          mimeType: row.mimeType,
+          ownerId: row.ownerId,
+          conversationId: row.conversationId,
+          messageId: row.messageId,
+          storageKey: row.storageKey,
+          localPath: row.localPath,
+          sizeBytes: row.sizeBytes,
+          metadata: isRecord(row.metadata) ? row.metadata : {},
+          expiresAt: row.expiresAt.getTime()
+        };
+      }
+      // Persistence at register time is fire-and-forget, so a lookup that
+      // races the insert must still find the artifact in the in-memory map —
+      // otherwise ownership assignment silently no-ops and downloads 404.
+      return this.artifacts.get(id);
     }
     return this.artifacts.get(id);
   }

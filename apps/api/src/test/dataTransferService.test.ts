@@ -78,6 +78,45 @@ describe("data transfer import parsing", () => {
       .map((message) => message.personaId)).toEqual(["larae", "future-persona"]);
   });
 
+  it("skips conversations with zero messages instead of failing the whole export", async () => {
+    const store = {
+      list: async () => [{ id: "conv_empty" }, { id: "conv_full" }],
+      get: async (id: string) => id === "conv_empty"
+        ? {
+            id: "conv_empty",
+            title: "Failed first turn",
+            pinned: false,
+            messageCount: 0,
+            createdAt: "2026-07-12T00:00:00.000Z",
+            updatedAt: "2026-07-12T00:00:00.000Z",
+            history: [],
+            turns: []
+          }
+        : {
+            id: "conv_full",
+            title: "Real chat",
+            pinned: false,
+            messageCount: 2,
+            createdAt: "2026-07-12T00:00:00.000Z",
+            updatedAt: "2026-07-12T00:01:00.000Z",
+            history: [
+              { role: "user", content: "Hi" },
+              { role: "assistant", content: "Hey" }
+            ],
+            turns: [{
+              personaId: "larae",
+              userMessage: "Hi",
+              userAssets: [],
+              assistantText: "Hey",
+              outputs: [{ type: "text", text: "Hey" }]
+            }]
+          }
+    } as unknown as ConversationStore;
+
+    const archive = await new DataTransferService(store).exportConversations("user_test");
+    expect(archive.conversations.map((conversation) => conversation.id)).toEqual(["conv_full"]);
+  });
+
   it("normalizes a ChatGPT conversations export", () => {
     const result = parseImportArchive([{
       title: "ChatGPT export",

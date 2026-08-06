@@ -127,6 +127,9 @@ export function ChatComposer(props: ChatComposerProps) {
 
   async function submitCurrentMessage(): Promise<void> {
     if (props.disabled) return;
+    // While a request is in flight the app-level submit would silently drop
+    // the message — keep the draft instead of clearing it into the void.
+    if (props.loading) return;
     const submittedMessage = message;
     const submittedAttachments = attachments;
     if (!submittedMessage.trim() && submittedAttachments.length === 0) {

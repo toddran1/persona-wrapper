@@ -1078,8 +1078,16 @@ export class OpenAIProvider implements LLMProvider {
     const tools = buildOpenAITools(input);
     const responseInput = withStyleReference(input, this.promptMode, buildInput(input, this.promptMode));
     const applicationTrace: ContentBlock[] = [];
+    // Every retry and tool-loop iteration below is a separate billed
+    // responses.create call that re-sends the full context. Accumulate their
+    // usage so metering reflects the true cost of multi-step turns.
+    let intermediateUsage: OpenAIItem | undefined;
+    const absorbUsage = (completed: OpenAIResponse): void => {
+      intermediateUsage = mergeUsage(intermediateUsage, completed.usage as OpenAIItem | null | undefined);
+    };
     let response = await this.createResponse(client, input, responseInput, tools, signal, progressCallbacks);
     if (shouldRetryForImageGeneration(input, response)) {
+      absorbUsage(response);
       responseInput.push({
         role: "user",
         content: "Retry using the image_generation tool now. Generate the requested image instead of explaining that image generation or editing is unavailable. If the reference image cannot be edited directly, generate a new safe non-explicit image that follows the requested visual change and the persona's visual identity."
@@ -1087,6 +1095,7 @@ export class OpenAIProvider implements LLMProvider {
       response = await this.createResponse(client, input, responseInput, tools, signal, progressCallbacks);
     }
     if (shouldRetryForCodeInterpreter(input, response)) {
+      absorbUsage(response);
       responseInput.push({
         role: "user",
         content:
@@ -1103,6 +1112,7 @@ export class OpenAIProvider implements LLMProvider {
       const calls = (response.output as OpenAIItem[]).filter((item) => item.type === "function_call");
       if (calls.length === 0) break;
 
+      absorbUsage(response);
       responseInput.push(...(response.output as OpenAIItem[]));
       for (const call of calls) {
         const { result, trace } = await runApplicationFunctionCall(call, input.clientContext);
@@ -1117,7 +1127,7 @@ export class OpenAIProvider implements LLMProvider {
       response = await this.createResponse(client, input, responseInput, tools, signal, progressCallbacks);
     }
 
-    return this.formatResponse(response, input, tools, applicationTrace);
+    return this.formatResponse(response, input, tools, applicationTrace, intermediateUsage);
   }
 
   private async generateDirectImageResponse(client: OpenAI, input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
@@ -1192,12 +1202,16 @@ export class OpenAIProvider implements LLMProvider {
     const tools = buildOpenAITools(input);
     const responseInput = withStyleReference(input, this.promptMode, buildInput(input, this.promptMode));
     const applicationTrace: ContentBlock[] = [];
+    let intermediateUsage: OpenAIItem | undefined;
     let response = await this.createStreamingResponse(client, input, responseInput, tools, callbacks, signal, progressCallbacks);
 
     for (let iteration = 0; iteration < env.OPENAI_MAX_TOOL_ITERATIONS; iteration += 1) {
       const calls = (response.output as OpenAIItem[]).filter((item) => item.type === "function_call");
       if (calls.length === 0) break;
 
+      // Each loop iteration is a separate billed responses.create call; keep
+      // its usage so metering reflects the true cost of multi-step turns.
+      intermediateUsage = mergeUsage(intermediateUsage, response.usage as OpenAIItem | null | undefined);
       responseInput.push(...(response.output as OpenAIItem[]));
       for (const call of calls) {
         const { result, trace } = await runApplicationFunctionCall(call, input.clientContext);
@@ -1212,11 +1226,12 @@ export class OpenAIProvider implements LLMProvider {
       response = await this.createStreamingResponse(client, input, responseInput, tools, callbacks, signal, progressCallbacks);
     }
 
-    return this.formatResponse(response, input, tools, applicationTrace);
+    return this.formatResponse(response, input, tools, applicationTrace, intermediateUsage);
   }
 
-  private formatResponse(response: OpenAIResponse, input: LLMInput, tools: OpenAIItem[], applicationTrace: ContentBlock[] = []): LLMOutput {
-    const usage = response.usage as OpenAIItem | null;
+  private formatResponse(response: OpenAIResponse, input: LLMInput, tools: OpenAIItem[], applicationTrace: ContentBlock[] = [], intermediateUsage?: OpenAIItem): LLMOutput {
+    const mergedUsage = mergeUsage(intermediateUsage, response.usage as OpenAIItem | null | undefined);
+    const usage = (mergedUsage ?? response.usage ?? null) as OpenAIItem | null;
     const rawText = extractOutputText(response);
     const dualText = parseDualTextPayload(rawText);
     const visibleText = dualText.payload?.visibleText ?? displayTextFromDualText(rawText);

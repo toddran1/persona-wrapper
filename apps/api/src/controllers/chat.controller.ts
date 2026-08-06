@@ -109,10 +109,13 @@ export async function postChat(request: Request, response: Response): Promise<vo
     const plan = await customerUsageService.assertPersonaAccess(identity, payload.personaId);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
+    // Never derive the billing idempotency key from client input (requestId
+    // can come from the x-request-id header) — a repeated client key would
+    // defeat plan-quota reservation and settlement.
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
       payload,
-      response.locals.requestId ?? `request_${randomUUID()}`
+      `usage_op_${randomUUID()}`
     );
     if (shouldRunInBackground(payload)) {
       const requestedConversationId = payload.conversationId ?? `conv_${randomUUID()}`;
@@ -147,7 +150,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
       response.status(202).json(createPendingChatResponse(backgroundPayload, job.id));
       return;
     }
-    const controller = requestAbortController(request);
+    const controller = requestAbortController(request, response);
     const result = await chatService.handleChat(payload, undefined, controller.signal, undefined, { ownerId: identity });
     await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd, reservationId);
     reservationReconciled = true;
@@ -217,7 +220,7 @@ export async function postChatStream(request: Request, response: Response): Prom
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
       payload,
-      response.locals.requestId ?? `request_${randomUUID()}`
+      `usage_op_${randomUUID()}`
     );
   } catch (error) {
     // Attachment ownership, request parsing, and tool routing all happen after
@@ -233,7 +236,7 @@ export async function postChatStream(request: Request, response: Response): Prom
   response.setHeader("Connection", "keep-alive");
   response.setHeader("X-Accel-Buffering", "no");
   response.flushHeaders();
-  const controller = requestAbortController(request);
+  const controller = requestAbortController(request, response);
   try {
     const result = await chatService.handleChat(payload, {
       onTextDelta: (delta) => {
@@ -600,12 +603,18 @@ function createPendingChatResponse(payload: ChatRequest, jobId: string): ChatRes
   };
 }
 
-function requestAbortController(request: Request): AbortController {
+function requestAbortController(request: Request, response: Response): AbortController {
   const controller = new AbortController();
   if (typeof request.once === "function") {
     request.once("aborted", () => controller.abort(new Error("Client cancelled request.")));
-    request.once("close", () => {
-      if (!request.complete) controller.abort(new Error("Client disconnected."));
+  }
+  // By the time a controller runs, express.json() has fully consumed the
+  // request body, so a client disconnect mid-generation only surfaces as a
+  // close on the response (a request close is guarded by request.complete and
+  // never fires). Abort unless the response finished normally.
+  if (typeof response.once === "function") {
+    response.once("close", () => {
+      if (!response.writableEnded) controller.abort(new Error("Client disconnected."));
     });
   }
   return controller;

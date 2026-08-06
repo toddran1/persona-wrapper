@@ -226,7 +226,13 @@ export class DataTransferService {
       version: 1,
       exportedAt: new Date().toISOString(),
       scope: requestedIds?.length ? "conversations" : "account",
-      conversations: details.filter((detail): detail is ConversationDetail => Boolean(detail)).map(portableFromDetail)
+      conversations: details
+        .filter((detail): detail is ConversationDetail => Boolean(detail))
+        // A failed first turn can leave a persisted conversation with zero
+        // messages; it carries no data and would violate messages.min(1),
+        // failing the entire export.
+        .filter((detail) => detail.history.length > 0)
+        .map(portableFromDetail)
     };
   }
 
