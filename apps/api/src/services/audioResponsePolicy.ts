@@ -59,6 +59,10 @@ export function maxOutputTokensForRequest(audioEnabled: boolean, conciseAudioRes
   const base = codeInterpreter
     ? Math.max(env.OPENAI_MAX_OUTPUT_TOKENS, env.OPENAI_CODE_INTERPRETER_MAX_OUTPUT_TOKENS)
     : env.OPENAI_MAX_OUTPUT_TOKENS;
+  // Code interpreter turns do file work rather than short spoken replies, and
+  // they never use the inline TTS script format — the concise-audio cap must
+  // not strangle them.
+  if (codeInterpreter) return base;
   return audioEnabled && conciseAudioResponse
     ? Math.min(base, env.OPENAI_AUDIO_MAX_OUTPUT_TOKENS)
     : base;

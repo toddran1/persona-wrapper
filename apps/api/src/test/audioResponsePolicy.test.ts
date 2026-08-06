@@ -45,11 +45,9 @@ describe("audio response policy", () => {
     expect(maxOutputTokensForRequest(false, true, true)).toBe(
       Math.max(env.OPENAI_MAX_OUTPUT_TOKENS, env.OPENAI_CODE_INTERPRETER_MAX_OUTPUT_TOKENS)
     );
+    // Audio's concise cap must not strangle code interpreter turns.
     expect(maxOutputTokensForRequest(true, true, true)).toBe(
-      Math.min(
-        Math.max(env.OPENAI_MAX_OUTPUT_TOKENS, env.OPENAI_CODE_INTERPRETER_MAX_OUTPUT_TOKENS),
-        env.OPENAI_AUDIO_MAX_OUTPUT_TOKENS
-      )
+      Math.max(env.OPENAI_MAX_OUTPUT_TOKENS, env.OPENAI_CODE_INTERPRETER_MAX_OUTPUT_TOKENS)
     );
   });
 });
