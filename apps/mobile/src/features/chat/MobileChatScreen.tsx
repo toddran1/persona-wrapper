@@ -72,6 +72,7 @@ import { MobileAuthScreen, type MobileAuthMode } from "../auth/MobileAuthScreen"
 import { MobilePolicyConsentScreen } from "../auth/MobilePolicyConsentScreen";
 import {
   getClientContext,
+  mergeCrossSessionTurns,
   sortConversationSummaries,
   turnFromChatResponse,
   turnsFromConversationTurns
@@ -1099,6 +1100,10 @@ export function MobileChatScreen() {
           if (result.status === "authenticated") {
             setAuthUser(result.user);
             void reconcilePendingBackgroundTurn();
+            // Cross-session sync: pick up messages and chats created on other
+            // devices while this app was backgrounded.
+            void refreshConversations(result.user.id);
+            void refreshOpenConversationTurns();
             return;
           }
           // A transient network failure (for example connectivity that has not
@@ -1140,7 +1145,15 @@ export function MobileChatScreen() {
       active = false;
       subscription.remove();
     };
-  }, [authUser, closeDrawer, isOnline]);
+  }, [authUser, closeDrawer, conversationId, isOnline]);
+
+  // Cross-session sync: refresh the chat list whenever the drawer opens so
+  // chats created, renamed, or deleted on other devices show up without a
+  // manual pull-to-refresh.
+  useEffect(() => {
+    if (!drawerInteractive || !isOnline || !authUser) return;
+    void refreshConversations(authUser.id).catch(() => undefined);
+  }, [authUser, drawerInteractive, isOnline]);
 
   useEffect(() => {
     if (Platform.OS !== "android" || !authUser) return;
@@ -2292,6 +2305,25 @@ export function MobileChatScreen() {
       setError(loadError instanceof Error ? loadError.message : "Could not load that chat.");
     } finally {
       if (selectionGeneration === selectionGenerationRef.current) setLoading(false);
+    }
+  }
+
+  // Cross-session sync: refetch the open conversation's latest page and merge
+  // it over local state so messages sent from another device appear. Skips
+  // while this session has a request in flight so streaming state is never
+  // clobbered, and stays silent on failure (next foreground retries).
+  async function refreshOpenConversationTurns(): Promise<void> {
+    if (!conversationId || !authUser || !isOnline) return;
+    if (activeChatAbortControllerRef.current || turnsRef.current.some(isStillRunningTurn)) return;
+    const selectionGeneration = selectionGenerationRef.current;
+    try {
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(conversationId, undefined, authUser.id));
+      if (selectionGeneration !== selectionGenerationRef.current) return;
+      if (activeChatAbortControllerRef.current) return;
+      setTurns((current) => mergeCrossSessionTurns(current, turnsFromConversationTurns(page.turns)));
+      setTurnsCursor(page.nextCursor);
+    } catch {
+      // Background sync is silent by design.
     }
   }
 

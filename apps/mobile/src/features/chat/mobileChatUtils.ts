@@ -37,6 +37,19 @@ export function turnFromChatResponse(prompt: string, response: ChatResponse): Re
   };
 }
 
+function turnSyncKey(turn: RenderedTurn): string {
+  return turn.assistantMessageId ?? turn.userMessageId ?? turn.backgroundJobId ?? turn.id;
+}
+
+// Merges a freshly fetched latest page of turns over the local list: fresh
+// turns replace their local copies (updating status/output), while older
+// paginated turns and unsynced local turns are kept. Used when another
+// session may have appended messages (cross-session sync on foreground).
+export function mergeCrossSessionTurns(current: RenderedTurn[], fresh: RenderedTurn[]): RenderedTurn[] {
+  const freshKeys = new Set(fresh.map(turnSyncKey));
+  return [...current.filter((turn) => !freshKeys.has(turnSyncKey(turn))), ...fresh];
+}
+
 export function getClientContext(): ClientContext {
   const now = new Date();
   const offsetMinutes = -now.getTimezoneOffset();

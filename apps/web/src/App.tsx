@@ -67,6 +67,21 @@ function renderTurnsFromConversationTurns(turns: ConversationTurn[]): RenderedTu
   }));
 }
 
+function turnSyncKey(turn: RenderedTurn): string | undefined {
+  return turn.assistantMessageId ?? turn.userMessageId ?? turn.backgroundJobId;
+}
+
+// Merges a freshly fetched latest page of turns over local state: fresh turns
+// replace their local copies, while older paginated turns and unsynced local
+// turns are kept. Used for cross-session sync on window focus.
+function mergeCrossSessionTurns(current: RenderedTurn[], fresh: RenderedTurn[]): RenderedTurn[] {
+  const freshKeys = new Set(fresh.map(turnSyncKey).filter((key) => key !== undefined));
+  return [...current.filter((turn) => {
+    const key = turnSyncKey(turn);
+    return key === undefined || !freshKeys.has(key);
+  }), ...fresh];
+}
+
 function getClientContext(): ClientContext {
   const now = new Date();
 
@@ -269,6 +284,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [response, setResponse] = useState<ChatResponse | undefined>();
   const [latestRequest, setLatestRequest] = useState<Record<string, unknown> | undefined>();
   const [renderedTurns, setRenderedTurns] = useState<RenderedTurn[]>([]);
+  const renderedTurnsRef = useRef<RenderedTurn[]>([]);
   const [autoPlayAudioTurnIndex, setAutoPlayAudioTurnIndex] = useState<number | undefined>();
   const [loading, setLoading] = useState(false);
   const [personaAudioPlaying, setPersonaAudioPlaying] = useState(false);
@@ -457,6 +473,22 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [authLoading, authUser?.id, conversationId, renderedTurns.length]);
+
+  useEffect(() => {
+    renderedTurnsRef.current = renderedTurns;
+  }, [renderedTurns]);
+
+  // Cross-session sync: when this tab regains focus, refresh the open
+  // conversation so messages sent from another session appear. The sidebar
+  // list is already covered by react-query's refetchOnWindowFocus.
+  useEffect(() => {
+    if (!authUser || !conversationId) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshOpenConversationTurns();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [authUser, conversationId]);
 
   function clearNonAudioVisualTimer(): void {
     if (nonAudioVisualTimeoutRef.current === undefined) return;
@@ -1117,6 +1149,25 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       if (selectionGeneration === selectionGenerationRef.current) {
         setLoadingEarlierTurns(false);
       }
+    }
+  }
+
+  // Cross-session sync: refetch the open conversation's latest page and merge
+  // it over local state so messages sent from another session appear on
+  // window focus. Skips while a request is in flight so streaming state is
+  // never clobbered, and stays silent on failure.
+  async function refreshOpenConversationTurns(): Promise<void> {
+    if (!conversationId || !authUser || activeRequestRef.current) return;
+    const selectionGeneration = selectionGenerationRef.current;
+    try {
+      const page = await queryClient.fetchQuery(conversationTurnsQueryOptions(conversationId, undefined, authUser.id));
+      if (selectionGeneration !== selectionGenerationRef.current || activeRequestRef.current) return;
+      const merged = mergeCrossSessionTurns(renderedTurnsRef.current, renderTurnsFromConversationTurns(page.turns));
+      completedTurnCountRef.current = merged.length;
+      setRenderedTurns(merged);
+      setTurnsCursor(page.nextCursor);
+    } catch {
+      // Background sync is silent by design.
     }
   }
 
