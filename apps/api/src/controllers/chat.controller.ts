@@ -405,7 +405,7 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
       env.OPENAI_MAX_CONTEXT_TOKENS * (payload.provider === "gemini"
         ? env.GEMINI_INPUT_COST_PER_MILLION
         : env.OPENAI_INPUT_COST_PER_MILLION)
-      + maxOutputTokensForRequest(payload.audio, payload.conciseAudioResponse) * (payload.provider === "gemini"
+      + maxOutputTokensForRequest(payload.audio, payload.conciseAudioResponse, payload.toolOptions?.codeInterpreter) * (payload.provider === "gemini"
         ? env.GEMINI_OUTPUT_COST_PER_MILLION
         : env.OPENAI_OUTPUT_COST_PER_MILLION)
     ) / 1_000_000,

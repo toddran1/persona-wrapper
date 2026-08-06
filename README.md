@@ -256,12 +256,14 @@ Included providers:
 
 The OpenAI provider uses the Responses API when `OPENAI_API_KEY` is configured.
 The Gemini provider uses `gemini-3.5-flash-lite` through the Gemini Interactions
-API by default and supports native Google Search, code execution, application
+API by default and supports native Google Search, application
 function calls, and inline supported files. Requests set `store: false`; this
 application's owner-scoped database remains the authoritative conversation
 history instead of creating a second provider-managed history. OpenAI remains
-the delegated image-generation and OpenAI-vector-store provider when Gemini is
-selected. Both providers use deterministic stub output in tests and
+the delegated provider for image generation, OpenAI vector stores, and code
+interpreter requests when Gemini is selected (Gemini Interactions with
+`store: false` cannot deliver generated files such as xlsx or zip archives).
+Both providers use deterministic stub output in tests and
 non-production environments without their API key. Claude remains a stub, and
 the local provider uses the configured Ollama endpoint.
 

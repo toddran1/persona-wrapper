@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { readFile } from "node:fs/promises";
 import {
+  chartOutputSchema,
   llmOutputSchema,
   type Citation,
   type ContentBlock,
@@ -114,6 +115,11 @@ function canInlineAttachment(attachment: ServerAttachment): boolean {
 
 function delegatedCapability(input: LLMInput): string | undefined {
   if (input.toolOptions?.imageGeneration) return "image_generation";
+  // Gemini Interactions (store: false) cannot deliver generated binary files:
+  // sandbox links are unfetchable and unsupported MIME types (xlsx, zip, ...)
+  // fail the whole request with a 400 inline-conversion error. Route any code
+  // interpreter work through OpenAI's proven file pipeline instead.
+  if (input.toolOptions?.codeInterpreter) return "code_interpreter";
   if (input.toolOptions?.fileSearch && (input.toolOptions.vectorStoreIds?.length ?? 0) > 0) {
     return "openai_vector_store_search";
   }
@@ -421,10 +427,20 @@ export class GeminiProvider implements LLMProvider {
           if (!toolName || !call.id) {
             throw new HttpError("Gemini requested an unknown application action.", 502);
           }
-          trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "completed" });
           try {
             const result = await executeApplicationTool(toolName, call.arguments ?? {}, input.clientContext);
-            trace.push({ type: "tool_result", toolName, status: "completed", result });
+            if (toolName === "render_chart") {
+              // Mirror OpenAIProvider: render_chart results become a native
+              // chart block instead of a raw tool trace so the UI can render it.
+              const chart = chartOutputSchema.safeParse(result);
+              if (!chart.success) {
+                throw new Error("The chart renderer returned invalid chart data.");
+              }
+              trace.push(chart.data);
+            } else {
+              trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "completed" });
+              trace.push({ type: "tool_result", toolName, status: "completed", result });
+            }
             interactionSteps.push({
               type: "function_result",
               call_id: call.id,
@@ -433,7 +449,12 @@ export class GeminiProvider implements LLMProvider {
             });
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
-            trace.push({ type: "tool_result", toolName, status: "failed", result: reason });
+            // Chart validation errors are returned to the model so it can
+            // repair the call. They are not user-facing provider diagnostics.
+            if (toolName !== "render_chart") {
+              trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "completed" });
+              trace.push({ type: "tool_result", toolName, status: "failed", result: reason });
+            }
             interactionSteps.push({
               type: "function_result",
               call_id: call.id,

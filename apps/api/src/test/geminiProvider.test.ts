@@ -268,6 +268,64 @@ describe("GeminiProvider", () => {
     });
   });
 
+  it("converts render_chart results into a native chart block", async () => {
+    const createInteraction = vi.fn()
+      .mockResolvedValueOnce({
+        id: "interaction_chart_1",
+        status: "requires_action",
+        steps: [{
+          type: "function_call",
+          id: "call_chart",
+          name: "render_chart",
+          arguments: {
+            version: 1,
+            title: "Weekend plans",
+            chartType: "donut",
+            categories: ["Brunch", "Naps"],
+            datasets: [{ id: "share", label: "Share", values: [60, 40] }],
+            xAxis: { label: "Plan", dataType: "category" },
+            yAxis: { label: "Share", format: "percent", currency: null, unit: null },
+            summary: "Brunch wins the weekend.",
+            sourceNote: null
+          }
+        }]
+      })
+      .mockResolvedValueOnce({
+        id: "interaction_chart_2",
+        status: "completed",
+        output_text: "Here is your chart.",
+        steps: [{ type: "model_output", content: [{ type: "text", text: "Here is your chart." }] }],
+        usage: { total_input_tokens: 30, total_output_tokens: 4, total_tokens: 34 }
+      });
+
+    const output = await new GeminiProvider({ createInteraction }).generateResponse(geminiInput());
+
+    expect(output.content).toContainEqual(expect.objectContaining({
+      type: "chart",
+      chartType: "donut",
+      title: "Weekend plans"
+    }));
+    expect(output.content).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "tool_call", toolName: "render_chart" }),
+      expect.objectContaining({ type: "tool_result", toolName: "render_chart" })
+    ]));
+    const continuation = createInteraction.mock.calls[1]?.[0];
+    expect(continuation.input).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "function_result", call_id: "call_chart", name: "render_chart" })
+    ]));
+  });
+
+  it("delegates code interpreter requests to OpenAI for downloadable files", async () => {
+    const input = geminiInput();
+    input.toolOptions = { ...input.toolOptions, codeInterpreter: true };
+
+    const output = await new GeminiProvider().generateResponse(input);
+
+    expect(output.provider).toBe("gemini");
+    expect(output.metadata?.delegatedProvider).toBe("openai");
+    expect(output.metadata?.delegatedCapability).toBe("code_interpreter");
+  });
+
   it("does not expose developer-facing Interactions failure details", async () => {
     const createInteraction = vi.fn().mockResolvedValue({
       id: "interaction_failed",

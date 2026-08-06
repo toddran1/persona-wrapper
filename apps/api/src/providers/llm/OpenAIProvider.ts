@@ -1464,7 +1464,7 @@ export class OpenAIProvider implements LLMProvider {
       parallel_tool_calls: true,
       prompt_cache_key: `persona-${input.persona.id}`,
       prompt_cache_retention: "24h",
-      max_output_tokens: maxOutputTokensForRequest(input.audio, input.conciseAudioResponse),
+      max_output_tokens: maxOutputTokensForRequest(input.audio, input.conciseAudioResponse, input.toolOptions?.codeInterpreter),
       ...controls,
       ...(Object.keys(text).length > 0 ? { text } : {}),
       metadata: {

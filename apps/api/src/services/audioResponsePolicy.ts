@@ -52,8 +52,14 @@ export function audioUsageReservationSeconds(concise = true): number {
   );
 }
 
-export function maxOutputTokensForRequest(audioEnabled: boolean, conciseAudioResponse = true): number {
-  return audioEnabled && conciseAudioResponse
-    ? Math.min(env.OPENAI_MAX_OUTPUT_TOKENS, env.OPENAI_AUDIO_MAX_OUTPUT_TOKENS)
+export function maxOutputTokensForRequest(audioEnabled: boolean, conciseAudioResponse = true, codeInterpreter = false): number {
+  // Code Interpreter runs (analysis, generated files) produce long structured
+  // output and can burn most of the budget on reasoning first, so they get a
+  // larger ceiling than plain chat.
+  const base = codeInterpreter
+    ? Math.max(env.OPENAI_MAX_OUTPUT_TOKENS, env.OPENAI_CODE_INTERPRETER_MAX_OUTPUT_TOKENS)
     : env.OPENAI_MAX_OUTPUT_TOKENS;
+  return audioEnabled && conciseAudioResponse
+    ? Math.min(base, env.OPENAI_AUDIO_MAX_OUTPUT_TOKENS)
+    : base;
 }
