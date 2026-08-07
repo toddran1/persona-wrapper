@@ -1071,7 +1071,52 @@ describe("conversation media context", () => {
       "Now the same for Bam Bam.",
       "Do the same with the other one.",
       "And now at night.",
-      "Now make it nighttime."
+      "Now make it nighttime.",
+      // Voice/STT phrasing: leading fillers, no punctuation
+      "Um now in anime style",
+      "Uh make it brighter",
+      "So can you change the background",
+      "Okay so like make it a cartoon",
+      // Persona self-reference: addressing the persona as "you"
+      "Change your hair.",
+      "Put yourself in a suit.",
+      "Make your outfit red.",
+      "Now you in anime style.",
+      "Give yourself blue eyes.",
+      "Smile in this one.",
+      "Change yo outfit.",
+      // Polite prefixes on terse requests
+      "Could you turn it into a sticker?",
+      "Please make it sharper.",
+      "Can you put her on a beach?",
+      // Combined clauses
+      "Now in anime style and brighter.",
+      "Make it a cartoon and remove the background.",
+      "Sharper and brighter.",
+      // Seasons / times / weather / orientation
+      "Make it winter.",
+      "Now at sunset.",
+      "In the rain.",
+      "Snow.",
+      "Night version.",
+      "Vertical.",
+      "16:9",
+      // Persona-tone comparatives
+      "Make it sexier.",
+      "Cuter.",
+      "Cooler.",
+      "Moodier.",
+      "Fancier.",
+      "More badass.",
+      // "Another / one more" with politeness
+      "Can I get another one?",
+      "One more please.",
+      "Send me another version.",
+      // GIF / motion asks
+      "Make it move.",
+      "Animate it.",
+      "GIF version.",
+      "As a GIF."
     ];
 
     const multiImageFollowUps = [
@@ -1115,7 +1160,19 @@ describe("conversation media context", () => {
       "Let's change the subject.",
       "Turn left at the next intersection.",
       "Make me a sandwich.",
-      "How do I change the oil in my car?"
+      "How do I change the oil in my car?",
+      // Compliments and ordinary chat about the persona, not visual follow-ups.
+      "You look good today.",
+      "Can you tell me about yourself?",
+      "Your style is amazing.",
+      "In your opinion.",
+      "What's your favorite season?",
+      // Non-visual attribute: "attitude" is not in the visual attribute noun list.
+      "Change your attitude.",
+      "You're cute.",
+      "Can you sing?",
+      // Statement about winter, not a recast request.
+      "Winter is coming."
     ];
 
     it("detects edit follow-ups as transform-intent media references that plan a historical transformation", async () => {
