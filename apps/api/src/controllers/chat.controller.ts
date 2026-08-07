@@ -16,6 +16,7 @@ import { requestOwnerId } from "../utils/requestIdentity.js";
 import { requestAbuseSignals } from "../utils/requestAbuseSignals.js";
 import { logger } from "../utils/logger.js";
 import { customerUsageService } from "../services/customerUsageService.js";
+import { planAllowsModelProvider, type PlanDefinition } from "../services/planCatalog.js";
 import {
   actualImageGenerationCredits,
   billableGeneratedImageCount,
@@ -109,6 +110,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
     }
     payload = withoutNeutralPersonaAudio(payload, persona);
     const plan = await customerUsageService.assertPersonaAccess(identity, payload.personaId);
+    payload = enforcePlanModelProvider(payload, plan);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
     // Never derive the billing idempotency key from client input (requestId
@@ -219,6 +221,7 @@ export async function postChatStream(request: Request, response: Response): Prom
     }
     payload = withoutNeutralPersonaAudio(payload, persona);
     const plan = await customerUsageService.assertPersonaAccess(identity, payload.personaId);
+    payload = enforcePlanModelProvider(payload, plan);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
     customerUsageOperationId = await reserveCustomerUsage(
@@ -397,6 +400,12 @@ async function applyModelProviderPreference(payload: ChatRequest, identity: stri
 // left untouched so audio resumes when the user switches back to a persona.
 function withoutNeutralPersonaAudio(payload: ChatRequest, persona: PersonaDefinition): ChatRequest {
   return persona.neutralStyle && payload.audio ? { ...payload, audio: false } : payload;
+}
+
+// Free (bronze) accounts are ChatGPT-only: clamp any stored or requested
+// non-OpenAI provider so a stale preference can't route around the plan.
+function enforcePlanModelProvider(payload: ChatRequest, plan: PlanDefinition): ChatRequest {
+  return planAllowsModelProvider(plan, payload.provider) ? payload : { ...payload, provider: "openai" };
 }
 
 async function releaseUsageReservation(identity: string, reservationId: string, requestId?: string): Promise<void> {

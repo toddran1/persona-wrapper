@@ -1639,7 +1639,10 @@ export function ConversationSidebar({
                             "openai", "ChatGPT", "Uses the OpenAI model and the complete persona experience."
                           ], [
                             "gemini", "Gemini", "Uses Gemini for responses, search, analysis, and supported files."
-                          ]] as const).map(([value, label, description]) => {
+                          ]] as const)
+                            // Free (bronze) accounts are ChatGPT-only; the server rejects the switch too.
+                            .filter(([value]) => value === "openai" || planUsage?.plan.id !== "bronze")
+                            .map(([value, label, description]) => {
                             const selected = (authUser.modelProvider ?? "openai") === value;
                             return (
                               <button

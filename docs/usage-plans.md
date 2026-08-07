@@ -16,6 +16,8 @@ This catalog is the version 1 product baseline. These are initial product assump
 
 Bronze and Silver persona access is derived from each registered persona's `minimumPlan` field. Gold is an all-personas entitlement, including personas added after the plan definition was released. This keeps catalog additions and removals from requiring duplicate ID lists in the plan service; deleting a persona simply removes it from the resolved entitlement summary.
 
+Model provider access is plan-gated: Bronze accounts are ChatGPT (OpenAI) only. The API enforces this in both directions — `updateProfile` rejects a non-OpenAI `modelProvider` for Bronze with 403, and chat requests clamp any stored or requested non-OpenAI provider to OpenAI (`planAllowsModelProvider` in `planCatalog.ts`). Silver and Gold may choose ChatGPT or Gemini.
+
 The catalog includes intended monthly prices as metadata only; payment providers and paid entitlement assignment are not connected yet. The provider-cost ceilings remain below the planned post-store revenue so paid tiers retain room for app-store/payment fees, storage and egress, Render/AWS infrastructure, retries, support, taxes where applicable, and profit.
 
 ## Metering model

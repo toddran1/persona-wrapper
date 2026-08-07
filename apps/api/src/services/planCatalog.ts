@@ -123,6 +123,11 @@ export function planIncludesPersona(plan: PlanDefinition, personaId: string): bo
   return Boolean(persona && PLAN_RANK[plan.id] >= PLAN_RANK[persona.minimumPlan]);
 }
 
+/** Free (bronze) accounts are ChatGPT-only; paid plans may pick any provider. */
+export function planAllowsModelProvider(plan: PlanDefinition, provider: string): boolean {
+  return plan.id !== "bronze" || provider === "openai";
+}
+
 export function personaIdsForPlan(plan: PlanDefinition, catalogPersonaIds: readonly string[]): string[] {
   return catalogPersonaIds.filter((personaId) => planIncludesPersona(plan, personaId));
 }

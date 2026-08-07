@@ -294,6 +294,7 @@ export function MobileChatScreen() {
   const [password, setPassword] = useState("");
   const [registrationConsent, setRegistrationConsent] = useState(false);
   const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
+  const [quickMenuVisible, setQuickMenuVisible] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [drawerInteractive, setDrawerInteractive] = useState(false);
   const [offlineReadOnly, setOfflineReadOnly] = useState(false);
@@ -476,6 +477,15 @@ export function MobileChatScreen() {
     ? persona
     : personas.find((candidate) => candidate.available !== false);
   const theme = useMemo(() => themeFromPersona(activePersona), [activePersona]);
+  // Quick menu entitlements: once the plan summary is loaded, intersect with
+  // the plan's persona list; until then, show the conservative free-tier view
+  // (bronze personas only, no model picker).
+  const quickMenuPersonas = personas.filter((candidate) => {
+    if (candidate.available === false) return false;
+    if (!planUsage) return candidate.minimumPlan === "bronze";
+    return planUsage.plan.personaIds.includes(candidate.id);
+  });
+  const quickMenuShowModels = planUsage ? planUsage.plan.id !== "bronze" : false;
   const personaCardIsDocked = Boolean(
     activePersona?.visualStage
     && !personaCardHidden
@@ -789,7 +799,7 @@ export function MobileChatScreen() {
     if (panel === "sessions") void refreshActiveSessions();
     if (panel === "security") void refreshConnectedAccounts();
     if (panel === "memory") void refreshMemorySettings();
-    if (panel === "plan") void refreshPlanUsage();
+    if (panel === "plan" || panel === "provider") void refreshPlanUsage();
   }
 
   async function refreshPlanUsage(): Promise<void> {
@@ -1650,20 +1660,6 @@ export function MobileChatScreen() {
     } catch (openError) {
       Alert.alert("Open failed", openError instanceof Error ? openError.message : "Could not open this reference.");
     }
-  }
-
-  function showPersonaAudioMenu(): void {
-    Alert.alert(
-      "Persona audio",
-      audioEnabled ? "Turn off persona audio?" : "Turn on persona audio?",
-      [
-        {
-          text: "Yes",
-          onPress: () => setAudioEnabled((enabled) => !enabled)
-        },
-        { text: "No", style: "cancel" }
-      ]
-    );
   }
 
   function updateComposerDraft(nextDraft: string): void {
@@ -3276,7 +3272,10 @@ export function MobileChatScreen() {
               draftMessage={composerDraft}
               placeholder={!isOnline ? t("chat.offlineComposer") : voiceInputActive ? t("chat.listening") : activePersona?.promptPlaceholder ?? t("chat.askAnything")}
               onAttach={openAttachmentPicker}
-              onAudioMenu={showPersonaAudioMenu}
+              onQuickMenu={() => {
+                setQuickMenuVisible(true);
+                void refreshPlanUsage();
+              }}
               onDraftChange={updateComposerDraft}
               onMicPress={() => void toggleSpeechToText()}
               onHeightChange={setComposerHeight}
@@ -3656,7 +3655,10 @@ export function MobileChatScreen() {
                 "openai", "ChatGPT", "OpenAI model with the complete persona experience."
               ], [
                 "gemini", "Gemini", "Gemini responses, search, analysis, and supported files."
-              ]] as const).map(([value, label, description]) => {
+              ]] as const)
+                // Free (bronze) accounts are ChatGPT-only; the server rejects the switch too.
+                .filter(([value]) => value === "openai" || planUsage?.plan.id !== "bronze")
+                .map(([value, label, description]) => {
                 const selected = (authUser?.modelProvider ?? "openai") === value;
                 return (
                   <Pressable
@@ -4028,6 +4030,84 @@ export function MobileChatScreen() {
               </View>
             </Pressable>
             <Pressable accessibilityRole="button" style={styles.actionSheetCancel} onPress={() => setAttachmentMenuVisible(false)}>
+              <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        accessibilityViewIsModal
+        visible={quickMenuVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setQuickMenuVisible(false)}
+      >
+        <View style={styles.actionSheetScrim}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close quick options" style={StyleSheet.absoluteFill} onPress={() => setQuickMenuVisible(false)} />
+          <View style={[styles.attachmentSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View style={[styles.attachmentSheetHandle, { backgroundColor: theme.border }]} />
+            <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Quick options</Text>
+            <Text style={[styles.attachmentSheetCopy, { color: theme.muted }]}>Switch the persona or model for your next message.</Text>
+            <Text style={[styles.actionSheetTitle, { color: theme.muted, fontSize: 13 }]}>Persona</Text>
+            {quickMenuPersonas.map((personaOption) => {
+              const selected = personaOption.id === activePersona?.id;
+              return (
+                <Pressable
+                  key={personaOption.id}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
+                  style={styles.attachmentSheetRow}
+                  onPress={() => {
+                    setQuickMenuVisible(false);
+                    void selectPersona(personaOption.id);
+                  }}
+                >
+                  <View style={[styles.attachmentSheetIcon, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                    <Ionicons name="person-circle-outline" size={22} color={selected ? theme.accent2 : theme.text} />
+                  </View>
+                  <View style={styles.attachmentSheetRowCopy}>
+                    <Text style={[styles.actionSheetText, { color: theme.text }]}>{personaOption.name}</Text>
+                    <Text style={[styles.attachmentSheetHint, { color: theme.muted }]}>{personaOption.tagline}</Text>
+                  </View>
+                  <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={22} color={selected ? theme.accent2 : theme.muted} />
+                </Pressable>
+              );
+            })}
+            {quickMenuShowModels ? (
+              <>
+                <Text style={[styles.actionSheetTitle, { color: theme.muted, fontSize: 13 }]}>Model</Text>
+                {([[
+                  "openai", "ChatGPT", "OpenAI model with the complete persona experience.", "chatbubble-ellipses-outline"
+                ], [
+                  "gemini", "Gemini", "Gemini responses, search, analysis, and supported files.", "sparkles-outline"
+                ]] as const).map(([value, label, description, icon]) => {
+                  const selected = (authUser?.modelProvider ?? "openai") === value;
+                  return (
+                    <Pressable
+                      key={value}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      style={styles.attachmentSheetRow}
+                      onPress={() => {
+                        setQuickMenuVisible(false);
+                        void updateModelProvider(value);
+                      }}
+                    >
+                      <View style={[styles.attachmentSheetIcon, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                        <Ionicons name={icon} size={22} color={selected ? theme.accent2 : theme.text} />
+                      </View>
+                      <View style={styles.attachmentSheetRowCopy}>
+                        <Text style={[styles.actionSheetText, { color: theme.text }]}>{label}</Text>
+                        <Text style={[styles.attachmentSheetHint, { color: theme.muted }]}>{description}</Text>
+                      </View>
+                      <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={22} color={selected ? theme.accent2 : theme.muted} />
+                    </Pressable>
+                  );
+                })}
+              </>
+            ) : null}
+            <Pressable accessibilityRole="button" style={styles.actionSheetCancel} onPress={() => setQuickMenuVisible(false)}>
               <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
             </Pressable>
           </View>

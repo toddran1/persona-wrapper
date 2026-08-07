@@ -7,7 +7,7 @@ import { ConversationSidebar } from "../components/ConversationSidebar.js";
 const now = "2026-07-24T05:00:00.000Z";
 const planUsage = {
   plan: {
-    id: "bronze" as const,
+    id: "bronze" as "bronze" | "silver" | "gold",
     version: 1,
     displayName: "Bronze",
     description: "Core chat access with a small monthly media allowance.",
@@ -53,7 +53,11 @@ const persona = personaSummarySchema.parse({
   supportedProviders: ["openai"]
 });
 
-function renderSidebar(options: { showPersona?: boolean; onSelectPersona?: (id: string) => void } = {}) {
+function renderSidebar(options: {
+  showPersona?: boolean;
+  onSelectPersona?: (id: string) => void;
+  planUsageOverride?: typeof planUsage;
+} = {}) {
   const onUpdateProfile = vi.fn().mockResolvedValue(undefined);
   const onGetMemorySettings = vi.fn().mockResolvedValue(true);
   const onUpdateMemorySettings = vi.fn().mockResolvedValue(undefined);
@@ -89,7 +93,7 @@ function renderSidebar(options: { showPersona?: boolean; onSelectPersona?: (id: 
       onUpdateMemorySettings={onUpdateMemorySettings}
       onClearConversationMemory={vi.fn().mockResolvedValue(undefined)}
       onClearAllMemory={onClearAllMemory}
-      onGetPlanUsage={vi.fn().mockResolvedValue(planUsage)}
+      onGetPlanUsage={vi.fn().mockResolvedValue(options.planUsageOverride ?? planUsage)}
       onListConnectedAccounts={vi.fn().mockResolvedValue([
         {
           id: "account_credential",
@@ -191,6 +195,23 @@ describe("ConversationSidebar settings", () => {
     expect(onSelectPersona).toHaveBeenCalledWith("larae");
   });
 
+  it("lets paid plans switch model providers from provider settings", async () => {
+    const user = userEvent.setup();
+    const silverPlanUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "silver" as const, displayName: "Silver" }
+    };
+    const { onUpdateProfile } = renderSidebar({ planUsageOverride: silverPlanUsage });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Provider settings" }));
+    const geminiOption = await within(dialog).findByRole("radio", { name: /Gemini/ });
+    await user.click(geminiOption);
+    await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ modelProvider: "gemini" }));
+  });
+
   it("keeps the account menu compact and moves account controls into the settings modal", async () => {
     const user = userEvent.setup();
     const { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory } = renderSidebar();
@@ -243,8 +264,8 @@ describe("ConversationSidebar settings", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Provider settings" }));
     expect(within(dialog).getByRole("radio", { name: /ChatGPT/ })).toHaveAttribute("aria-checked", "true");
-    await user.click(within(dialog).getByRole("radio", { name: /Gemini/ }));
-    await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ modelProvider: "gemini" }));
+    // Free (bronze) accounts are ChatGPT-only — Gemini is not offered.
+    expect(within(dialog).queryByRole("radio", { name: /Gemini/ })).not.toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Your data" }));
     expect(within(dialog).getByRole("button", { name: /Export account data/ })).toBeInTheDocument();

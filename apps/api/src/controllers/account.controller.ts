@@ -19,6 +19,7 @@ import { verifyPassword } from "../services/passwordService.js";
 import { hasDatabaseErrorCode } from "../utils/databaseError.js";
 import { conversationStore } from "./chat.controller.js";
 import { customerUsageService } from "../services/customerUsageService.js";
+import { planAllowsModelProvider } from "../services/planCatalog.js";
 
 function requireDatabase() {
   const db = getDatabase();
@@ -131,6 +132,14 @@ export async function updateProfile(request: Request, response: Response): Promi
     const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.username, username)).limit(1);
     if (existingUser && existingUser.id !== request.auth.userId) {
       throw new HttpError("That username is already taken.", 409);
+    }
+  }
+
+  if (payload.modelProvider !== undefined) {
+    // Free (bronze) accounts are ChatGPT-only.
+    const plan = await customerUsageService.getPlan(request.auth.userId);
+    if (!planAllowsModelProvider(plan, payload.modelProvider)) {
+      throw new HttpError("Gemini is included with paid plans. Upgrade your plan to switch models.", 403);
     }
   }
 

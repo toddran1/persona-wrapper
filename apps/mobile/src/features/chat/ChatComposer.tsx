@@ -17,7 +17,7 @@ type ChatComposerProps = {
   draftMessage?: string | undefined;
   placeholder: string;
   onAttach: () => void;
-  onAudioMenu: () => void;
+  onQuickMenu: () => void;
   onDraftChange?: (draft: string) => void;
   onMicPress: () => void;
   onHeightChange?: (height: number) => void;
@@ -37,7 +37,7 @@ export function ChatComposer({
   draftMessage,
   placeholder,
   onAttach,
-  onAudioMenu,
+  onQuickMenu,
   onDraftChange,
   onMicPress,
   onHeightChange,
@@ -181,14 +181,14 @@ export function ChatComposer({
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                testID="mobile-persona-audio-options"
-                accessibilityLabel={t("composer.audio")}
+                testID="mobile-quick-menu"
+                accessibilityLabel={t("composer.quickMenu")}
                 disabled={Boolean(disabled || uploadingAttachments)}
                 hitSlop={6}
-                onPress={onAudioMenu}
+                onPress={onQuickMenu}
                 style={[
-                  styles.audioButton,
-                  compact ? styles.audioButtonCompact : null,
+                  styles.quickMenuButton,
+                  compact ? styles.quickMenuButtonCompact : null,
                   {
                     backgroundColor: theme.accent2,
                     borderColor: theme.accent,
@@ -197,11 +197,7 @@ export function ChatComposer({
                   }
                 ]}
               >
-                <View style={styles.audioGlyph}>
-                  <View style={[styles.audioBar, styles.audioBarShort, { backgroundColor: theme.background }]} />
-                  <View style={[styles.audioBar, styles.audioBarTall, { backgroundColor: theme.background }]} />
-                  <View style={[styles.audioBar, styles.audioBarMedium, { backgroundColor: theme.background }]} />
-                </View>
+                <Ionicons name="options-outline" size={20} color={theme.background} />
               </Pressable>
             </>
           )}
@@ -237,20 +233,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 2
   },
-  audioBar: {
-    borderRadius: 999,
-    width: 3
-  },
-  audioBarMedium: {
-    height: 16
-  },
-  audioBarShort: {
-    height: 10
-  },
-  audioBarTall: {
-    height: 22
-  },
-  audioButton: {
+  quickMenuButton: {
     alignItems: "center",
     borderRadius: 999,
     borderWidth: 1,
@@ -261,15 +244,9 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     width: 36
   },
-  audioButtonCompact: {
+  quickMenuButtonCompact: {
     height: 34,
     width: 34
-  },
-  audioGlyph: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 4,
-    justifyContent: "center"
   },
   input: {
     flex: 1,
