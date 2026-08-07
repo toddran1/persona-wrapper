@@ -128,11 +128,15 @@ deterministic stub output without a key). Mobile reads `EXPO_PUBLIC_API_URL`
   implementations, and a `providerFactory.ts`. Register new providers in the
   factory, and add any new env vars to both `apps/api/.env.example` and
   `src/config/env.ts` (Zod-parsed env — access config only through `env.ts`).
-- `personas/` — persona definitions (currently `larae.persona.ts`) registered in
+- `personas/` — persona definitions (`larae.persona.ts`, `bambam.persona.ts`, and
+  `neutral.persona.ts` — the "No persona" option, kept last in the registry so it
+  never becomes the clients' default) registered in
   `personas/index.ts`. Persona-owned runtime behavior (theme tokens,
   `directResponseInstructions`, `styleReference`, `imagePromptSanitization`,
-  `voiceProfile`) must be declared in the persona profile; do **not** add
-  persona-ID conditionals to providers or UI components.
+  `voiceProfile`, `neutralStyle`) must be declared in the persona profile; do
+  **not** add persona-ID conditionals to providers or UI components.
+  `neutralStyle: true` makes the persona engine skip all persona/style
+  instructions and bypasses the style-transfer pass.
 - `db/schema.ts` (drizzle) + `db/client.ts`; migrations generated with
   drizzle-kit into `apps/api/drizzle/`, applied by
   `npm run db:migrate -w @persona/api`.

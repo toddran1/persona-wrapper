@@ -1,3 +1,4 @@
+import { NEUTRAL_PERSONA_ID } from "@persona/shared";
 import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, CurrentPoliciesResponse, DataTransferJob, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, PolicyVersions, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -780,18 +781,20 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     files: File[],
     toolOptions: ToolOptions,
     reusableAttachments: UploadedAsset[] = [],
-    retryAssistantMessageId?: string
+    retryAssistantMessageId?: string,
+    personaIdOverride?: string
   ): Promise<void> {
     if (!personaDetail || !authUser || activeRequestRef.current) {
       return;
     }
 
+    const submittedPersonaId = personaIdOverride ?? personaDetail.id;
     setLoading(true);
     setPersonaAudioPlaying(false);
     suppressAudioVisualForCurrentTurnRef.current = false;
     setError(undefined);
     setPendingPrompt(message);
-    setPendingPersonaId(personaDetail.id);
+    setPendingPersonaId(submittedPersonaId);
     setComposerDraft(undefined);
     setComposerDraftAttachments(undefined);
     const localPendingAssets = mapFilesToPendingPromptAssets(files);
@@ -802,12 +805,11 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     setPendingPromptAssets(pendingAssets);
     setPendingPromptFiles(files);
     const requestController = new AbortController();
-    const submittedPersona = personaDetail;
     const submittedProvider = provider;
     const submittedAudioEnabled = audioEnabled;
     const submittedConversationId = conversationId;
     activeRequestRef.current = requestController;
-    activeRequestPersonaIdRef.current = submittedPersona.id;
+    activeRequestPersonaIdRef.current = submittedPersonaId;
     let keepBackgroundJob = false;
     let backgroundJobId: string | undefined;
     let uploadedAttachments: UploadedAsset[] = [];
@@ -828,7 +830,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         resolvedToolOptions = { ...toolOptions, vectorStoreIds: [vectorStore.id] };
       }
       const payload = {
-        personaId: submittedPersona.id,
+        personaId: submittedPersonaId,
         message,
         provider: submittedProvider,
         audio: submittedAudioEnabled,
@@ -856,7 +858,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         saveBackgroundJob({
           jobId: backgroundJob.id,
           conversationId: result.conversationId,
-          personaId: submittedPersona.id,
+          personaId: submittedPersonaId,
           userMessage: message,
           userAssets
         });
@@ -906,7 +908,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           saveBackgroundJob({
             jobId: submitError.job.id,
             conversationId: conversationId ?? "",
-            ...(personaDetail?.id ? { personaId: personaDetail.id } : {}),
+            personaId: submittedPersonaId,
             userMessage: message,
             userAssets: pendingAssets
           });
@@ -949,6 +951,14 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   }
 
   function retryAssistantTurn(turn: RenderedTurn): void {
+    retryAssistantTurnWithPersona(turn);
+  }
+
+  function retryAssistantTurnWithoutPersona(turn: RenderedTurn): void {
+    retryAssistantTurnWithPersona(turn, NEUTRAL_PERSONA_ID);
+  }
+
+  function retryAssistantTurnWithPersona(turn: RenderedTurn, personaIdOverride?: string): void {
     const files = turn.userFiles ?? [];
     const reusableAttachments = files.length === 0
       ? reusableUploadedAssets(turn.userAssets ?? [])
@@ -969,7 +979,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       appFunctions: true,
       background: false,
       vectorStoreIds: []
-    }, reusableAttachments, turn.assistantMessageId);
+    }, reusableAttachments, turn.assistantMessageId, personaIdOverride);
   }
 
   function appendChatResult(
@@ -1968,6 +1978,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
                 setComposerDraftAttachments(files);
               }}
               onRetryAssistantTurn={retryAssistantTurn}
+              onRetryAssistantTurnWithoutPersona={retryAssistantTurnWithoutPersona}
               onReportAssistantTurn={async (turn, category, details) => {
                 if (!conversationId) throw new Error("Open a saved conversation before reporting this response.");
                 const excerpt = turn.assistantText.trim() || JSON.stringify(turn.outputs);

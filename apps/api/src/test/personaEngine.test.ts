@@ -126,6 +126,28 @@ describe("PersonaEngine", () => {
     expect(input.messages[2]).not.toHaveProperty("personaId");
   });
 
+  it("builds a neutral system prompt without persona instructions for the neutral persona", () => {
+    const persona = getPersonaById("neutral");
+    const engine = new PersonaEngine();
+
+    expect(persona).toBeDefined();
+    expect(persona!.neutralStyle).toBe(true);
+
+    const profile = { preferredName: "Reggie" } as const;
+    const prompt = engine.createSystemPrompt(persona!, profile);
+
+    expect(prompt).toContain("helpful AI assistant");
+    expect(prompt).toContain("without any persona, character voice, or styling");
+    expect(prompt).toContain("Preferred name: Reggie");
+    expect(prompt).toContain("Safety boundaries");
+    expect(prompt).toContain("Return multimodal output when useful");
+    expect(prompt).not.toContain("fictional AI persona");
+    expect(prompt).not.toContain("Biography:");
+    expect(prompt).not.toContain("Catchphrases:");
+    expect(prompt).not.toContain("[Assistant persona:");
+    expect(engine.createBaseSystemPrompt(persona!, profile)).toBe(prompt);
+  });
+
   it("removes leaked internal persona attribution markers from user-facing text", () => {
     expect(stripPersonaAttributionMarkers(
       "[Assistant persona: LaRae the Baddest | id=larae]\nThe visible answer."

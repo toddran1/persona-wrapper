@@ -240,6 +240,36 @@ describe("ConversationHistory pending state", () => {
     expect(onRetryAssistantTurn).toHaveBeenCalledWith(latestTurn);
   });
 
+  it("retries the latest response without a persona from the response action menu", async () => {
+    const user = userEvent.setup();
+    const onRetryAssistantTurnWithoutPersona = vi.fn();
+    const firstTurn = {
+      userMessage: "First prompt.",
+      assistantText: "First response.",
+      outputs: [{ type: "text" as const, text: "First response." }]
+    };
+    const latestTurn = {
+      userMessage: "Latest prompt.",
+      assistantText: "Latest response.",
+      outputs: [{ type: "text" as const, text: "Latest response." }]
+    };
+
+    render(
+      <ConversationHistory
+        turns={[firstTurn, latestTurn]}
+        onRetryAssistantTurnWithoutPersona={onRetryAssistantTurnWithoutPersona}
+      />
+    );
+
+    const actionButtons = screen.getAllByRole("button", { name: "More response actions" });
+    await user.click(actionButtons[0]!);
+    expect(screen.queryByRole("menuitem", { name: "Retry without persona" })).not.toBeInTheDocument();
+
+    await user.click(actionButtons[1]!);
+    await user.click(screen.getByRole("menuitem", { name: "Retry without persona" }));
+    expect(onRetryAssistantTurnWithoutPersona).toHaveBeenCalledWith(latestTurn);
+  });
+
   it("submits an unsafe-output report from the response action menu", async () => {
     const user = userEvent.setup();
     const onReportAssistantTurn = vi.fn().mockResolvedValue(undefined);

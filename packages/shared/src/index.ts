@@ -840,6 +840,8 @@ export const personaImagePromptSanitizationSchema = z.object({
 });
 export type PersonaImagePromptSanitization = z.infer<typeof personaImagePromptSanitizationSchema>;
 
+export const NEUTRAL_PERSONA_ID = "neutral";
+
 export const personaDefinitionSchema = personaSummarySchema.extend({
   legalName: z.string(),
   age: z.string(),
@@ -856,6 +858,9 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
   directResponseInstructions: z.array(z.string().min(1)).default([]),
   styleReference: personaStyleReferenceSchema.optional(),
   imagePromptSanitization: personaImagePromptSanitizationSchema.optional(),
+  // When true, the persona engine sends no persona/style instructions and the
+  // style-transfer pass is skipped — the provider answer is returned as-is.
+  neutralStyle: z.boolean().default(false),
   voiceProfile: z.object({
     defaultVoiceId: z.string(),
     speakingStyle: z.string(),

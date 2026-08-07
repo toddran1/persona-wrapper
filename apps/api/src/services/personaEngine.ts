@@ -56,6 +56,15 @@ function userPersonalizationPrompt(profile?: UserPersonalizationProfile): string
 
 export class PersonaEngine {
   createSystemPrompt(persona: PersonaDefinition, userProfile?: UserPersonalizationProfile): string {
+    if (persona.neutralStyle) {
+      return [
+        "You are a helpful AI assistant. Answer directly and accurately without any persona, character voice, or styling.",
+        ...userPersonalizationPrompt(userProfile),
+        `Safety boundaries: ${persona.safetyBoundaries.join(" ")}`,
+        "Return multimodal output when useful, not only plain text.",
+        "If a tool is needed, declare a structured tool call."
+      ].join("\n");
+    }
     return [
       `You are ${persona.name}, a fictional AI persona.`,
       `Biography: ${persona.biography}`,
@@ -74,6 +83,9 @@ export class PersonaEngine {
   }
 
   createBaseSystemPrompt(persona: PersonaDefinition, userProfile?: UserPersonalizationProfile): string {
+    if (persona.neutralStyle) {
+      return this.createSystemPrompt(persona, userProfile);
+    }
     return [
       `You are generating a base answer for ${persona.name}.`,
       `Use a light version of this persona: ${persona.personalityTraits.join(", ")}.`,

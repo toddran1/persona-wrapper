@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
+import { StubStyleTransferProvider } from "../providers/styleTransfer/StubStyleTransferProvider.js";
 import { ChatService } from "../services/chatService.js";
 import { ConversationStore } from "../services/conversationStore.js";
 import { generatedAudioService } from "../services/generatedAudioService.js";
@@ -142,6 +143,36 @@ describe("ChatService", () => {
     expect(response.diagnostics.neutralResponse).toBe(assistantText);
     expect(assistantText).toContain("I’m LaRae the Baddest");
     expect(assistantText).not.toContain("Bitch, be serious.");
+  });
+
+  it("skips the style transfer pass for the neutral persona", async () => {
+    const service = new ChatService();
+    const transferSpy = vi.spyOn(StubStyleTransferProvider.prototype, "transferStyle");
+
+    const neutralResponse = await service.handleChat({
+      personaId: "neutral",
+      provider: "claude",
+      message: "Give me a plain answer.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+
+    expect(transferSpy).not.toHaveBeenCalled();
+    const neutralText = neutralResponse.outputs.find((output) => output.type === "text");
+    expect(neutralText?.type).toBe("text");
+
+    transferSpy.mockClear();
+    await service.handleChat({
+      personaId: "larae",
+      provider: "claude",
+      message: "Give me a styled answer.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+
+    expect(transferSpy).toHaveBeenCalled();
   });
 
   it("returns and persists a public-safe status when requested audio generation fails", async () => {

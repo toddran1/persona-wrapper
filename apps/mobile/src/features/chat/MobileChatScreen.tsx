@@ -77,7 +77,7 @@ import {
   turnFromChatResponse,
   turnsFromConversationTurns
 } from "./mobileChatUtils";
-import { stripGeneratedFileDownloadPrompt } from "@persona/shared";
+import { NEUTRAL_PERSONA_ID, stripGeneratedFileDownloadPrompt } from "@persona/shared";
 import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
@@ -1770,7 +1770,7 @@ export function MobileChatScreen() {
     }
   }
 
-  async function retryAssistantTurn(turn: RenderedTurn): Promise<void> {
+  async function retryAssistantTurn(turn: RenderedTurn, personaIdOverride?: string): Promise<void> {
     if (sending) return;
     if (turns[turns.length - 1]?.id !== turn.id) return;
     const reusableAttachments = (turn.userAssets ?? []).map((asset): UploadedAsset => ({
@@ -1793,7 +1793,8 @@ export function MobileChatScreen() {
       files: [],
       attachments: reusableAttachments,
       replaceTurnId: turn.id,
-      retryAssistantMessageId: turn.assistantMessageId
+      retryAssistantMessageId: turn.assistantMessageId,
+      ...(personaIdOverride ? { personaIdOverride } : {})
     });
   }
 
@@ -2428,6 +2429,7 @@ export function MobileChatScreen() {
     attachments?: UploadedAsset[];
     replaceTurnId?: string;
     retryAssistantMessageId?: string;
+    personaIdOverride?: string;
   }): Promise<void> {
     if (!activePersona || sending || activeChatAbortControllerRef.current) return;
     if (!isOnline) {
@@ -2436,6 +2438,7 @@ export function MobileChatScreen() {
     }
     const controller = new AbortController();
     const submittedPersona = activePersona;
+    const submittedPersonaId = options?.personaIdOverride ?? activePersona.id;
     const submittedProvider = provider;
     const submittedAudioEnabled = audioEnabled;
     const submittedConversationId = conversationId;
@@ -2499,7 +2502,7 @@ export function MobileChatScreen() {
         ...(options?.retryAssistantMessageId
           ? { assistantMessageId: options.retryAssistantMessageId }
           : {}),
-        personaId: submittedPersona.id,
+        personaId: submittedPersonaId,
         userMessage: message,
         userAssets: mapUploadedAssetsToUserAssets(attachments),
         assistantText: "",
@@ -2516,7 +2519,7 @@ export function MobileChatScreen() {
       });
       chatRequestStarted = true;
       const response = await api.sendChat({
-        personaId: submittedPersona.id,
+        personaId: submittedPersonaId,
         message,
         provider: submittedProvider,
         audio: submittedAudioEnabled,
@@ -4231,6 +4234,16 @@ export function MobileChatScreen() {
                 }}>
                   <Ionicons name="refresh" size={20} color={theme.text} />
                   <Text style={[styles.actionSheetText, { color: theme.text }]}>Retry</Text>
+                </Pressable>
+              ) : null}
+              {canRetryAssistantAction ? (
+                <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+                  const turn = assistantActionTurn;
+                  setAssistantActionTurn(undefined);
+                  if (turn) void retryAssistantTurn(turn, NEUTRAL_PERSONA_ID);
+                }}>
+                  <Ionicons name="refresh-outline" size={20} color={theme.text} />
+                  <Text style={[styles.actionSheetText, { color: theme.text }]}>Retry without persona</Text>
                 </Pressable>
               ) : null}
               {assistantActionTurn ? (

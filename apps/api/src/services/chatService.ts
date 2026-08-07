@@ -566,7 +566,7 @@ export class ChatService {
       userMessage: request.message
     };
 
-    const useStyleTransfer = shouldUseStyleTransfer(request.provider);
+    const useStyleTransfer = shouldUseStyleTransfer(request.provider) && !persona.neutralStyle;
     if (testMode) {
       console.log(useStyleTransfer ? "\nNeutral LLM response object data:" : "\nDirect persona LLM response object data:", neutralResponseMetadata);
       console.log(

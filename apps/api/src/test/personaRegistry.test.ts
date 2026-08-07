@@ -11,6 +11,18 @@ describe("persona registry", () => {
     expect(getPersonaById("larae")?.id).toBe("larae");
   });
 
+  it("registers the neutral persona last so it never becomes the default", () => {
+    const personas = listPersonas();
+    const neutral = getPersonaById("neutral");
+
+    expect(neutral).toBeDefined();
+    expect(neutral?.name).toBe("No persona");
+    expect(neutral?.neutralStyle).toBe(true);
+    expect(neutral?.available).toBe(true);
+    expect(neutral?.minimumPlan).toBe("bronze");
+    expect(personas[personas.length - 1]?.id).toBe("neutral");
+  });
+
   it("rejects duplicate stable persona IDs during startup validation", () => {
     const persona = getPersonaById("larae");
     expect(persona).toBeDefined();

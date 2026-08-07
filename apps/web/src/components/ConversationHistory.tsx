@@ -324,6 +324,7 @@ function AssistantActions({
   autoPlayAudio = false,
   onAudioPlaybackChange,
   onRetry,
+  onRetryWithoutPersona,
   onReport
 }: {
   text: string;
@@ -333,6 +334,7 @@ function AssistantActions({
   autoPlayAudio?: boolean;
   onAudioPlaybackChange?: ((playing: boolean, personaId: string) => void) | undefined;
   onRetry?: (() => void) | undefined;
+  onRetryWithoutPersona?: (() => void) | undefined;
   onReport?: (() => void) | undefined;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
@@ -482,6 +484,15 @@ function AssistantActions({
                 <span>Retry</span>
               </button>
             ) : null}
+            {onRetryWithoutPersona ? (
+              <button type="button" role="menuitem" onClick={() => {
+                setMenuOpen(false);
+                onRetryWithoutPersona();
+              }}>
+                <Icon name="retry" />
+                <span>Retry without persona</span>
+              </button>
+            ) : null}
             {onReport ? (
               <button type="button" role="menuitem" onClick={() => {
                 setMenuOpen(false);
@@ -560,6 +571,7 @@ export function ConversationHistory({
   onOutputAction,
   onEditUserPrompt,
   onRetryAssistantTurn,
+  onRetryAssistantTurnWithoutPersona,
   onReportAssistantTurn,
   hasEarlierTurns = false,
   loadingEarlierTurns = false,
@@ -581,6 +593,7 @@ export function ConversationHistory({
   onOutputAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
   onEditUserPrompt?: ((message: string, files: File[]) => void) | undefined;
   onRetryAssistantTurn?: ((turn: RenderedTurn) => void) | undefined;
+  onRetryAssistantTurnWithoutPersona?: ((turn: RenderedTurn) => void) | undefined;
   onReportAssistantTurn?: ((turn: RenderedTurn, category: UnsafeOutputReportCategory, details?: string) => Promise<void>) | undefined;
   hasEarlierTurns?: boolean;
   loadingEarlierTurns?: boolean;
@@ -750,6 +763,7 @@ export function ConversationHistory({
                     autoPlayAudio={turnIndex === autoPlayAudioTurnIndex}
                     onAudioPlaybackChange={onAudioPlaybackChange}
                     onRetry={onRetryAssistantTurn && turnIndex === turns.length - 1 ? () => onRetryAssistantTurn(turn) : undefined}
+                    onRetryWithoutPersona={onRetryAssistantTurnWithoutPersona && turnIndex === turns.length - 1 ? () => onRetryAssistantTurnWithoutPersona(turn) : undefined}
                     onReport={onReportAssistantTurn ? () => {
                       setReportTarget(turn);
                       setReportConversationId(conversationId);
