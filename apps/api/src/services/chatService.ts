@@ -125,6 +125,12 @@ export class ChatService {
     if (!persona) {
       throw new HttpError(`Unknown persona: ${request.personaId}`, 404);
     }
+    // Neutral-style personas never produce audio, regardless of the client's
+    // audio toggle — the toggle state itself is left untouched so audio resumes
+    // when the user switches back to a voiced persona.
+    if (persona.neutralStyle && request.audio) {
+      request = { ...request, audio: false };
+    }
 
     const testMode = request.testMode || env.APP_TEST_MODE;
     const userContext = await loadUserChatContext(options.ownerId);

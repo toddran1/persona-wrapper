@@ -136,7 +136,9 @@ deterministic stub output without a key). Mobile reads `EXPO_PUBLIC_API_URL`
   `voiceProfile`, `neutralStyle`) must be declared in the persona profile; do
   **not** add persona-ID conditionals to providers or UI components.
   `neutralStyle: true` makes the persona engine skip all persona/style
-  instructions and bypasses the style-transfer pass.
+  instructions, bypasses the style-transfer pass, and suppresses audio (TTS)
+  generation for the request — the client's audio toggle state is left
+  untouched so audio resumes when the user switches back to a voiced persona.
 - `db/schema.ts` (drizzle) + `db/client.ts`; migrations generated with
   drizzle-kit into `apps/api/drizzle/`, applied by
   `npm run db:migrate -w @persona/api`.

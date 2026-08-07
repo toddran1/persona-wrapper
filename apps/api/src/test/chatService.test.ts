@@ -175,6 +175,27 @@ describe("ChatService", () => {
     expect(transferSpy).toHaveBeenCalled();
   });
 
+  it("never attempts audio generation for the neutral persona, even when audio is requested", async () => {
+    env.APP_TEST_MODE = false;
+    env.TTS_PROVIDER = "fish_audio";
+    env.FISH_AUDIO_API_KEY = undefined;
+
+    const response = await new ChatService(new ConversationStore()).handleChat({
+      personaId: "neutral",
+      provider: "openai",
+      message: "Give me a short spoken greeting.",
+      audio: true,
+      testMode: true,
+      history: []
+    });
+
+    expect(response.outputs.some((output) => output.type === "audio")).toBe(false);
+    const textOutput = response.outputs.find((output) => output.type === "text");
+    expect(textOutput?.type).toBe("text");
+    expect(textOutput?.type === "text" ? textOutput.text : "").not.toContain("Audio could not be generated");
+    expect(response.diagnostics.tts?.status).toBe("not_requested");
+  });
+
   it("returns and persists a public-safe status when requested audio generation fails", async () => {
     env.APP_TEST_MODE = false;
     env.TTS_PROVIDER = "fish_audio";

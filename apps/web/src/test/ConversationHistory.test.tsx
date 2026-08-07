@@ -270,6 +270,30 @@ describe("ConversationHistory pending state", () => {
     expect(onRetryAssistantTurnWithoutPersona).toHaveBeenCalledWith(latestTurn);
   });
 
+  it("does not offer retry without persona for a response that is already neutral", async () => {
+    const user = userEvent.setup();
+    const onRetryAssistantTurn = vi.fn();
+    const onRetryAssistantTurnWithoutPersona = vi.fn();
+    const turn = {
+      userMessage: "Plain prompt.",
+      assistantText: "Plain response.",
+      personaId: "neutral",
+      outputs: [{ type: "text" as const, text: "Plain response." }]
+    };
+
+    render(
+      <ConversationHistory
+        turns={[turn]}
+        onRetryAssistantTurn={onRetryAssistantTurn}
+        onRetryAssistantTurnWithoutPersona={onRetryAssistantTurnWithoutPersona}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "More response actions" }));
+    expect(screen.getByRole("menuitem", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Retry without persona" })).not.toBeInTheDocument();
+  });
+
   it("submits an unsafe-output report from the response action menu", async () => {
     const user = userEvent.setup();
     const onReportAssistantTurn = vi.fn().mockResolvedValue(undefined);

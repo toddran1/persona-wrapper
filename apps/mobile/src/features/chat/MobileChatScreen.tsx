@@ -4236,7 +4236,7 @@ export function MobileChatScreen() {
                   <Text style={[styles.actionSheetText, { color: theme.text }]}>Retry</Text>
                 </Pressable>
               ) : null}
-              {canRetryAssistantAction ? (
+              {canRetryAssistantAction && assistantActionTurn?.personaId !== NEUTRAL_PERSONA_ID ? (
                 <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
                   const turn = assistantActionTurn;
                   setAssistantActionTurn(undefined);

@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { stripGeneratedFileDownloadPrompt, type ChatResponse, type ContentBlock, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
+import { NEUTRAL_PERSONA_ID, stripGeneratedFileDownloadPrompt, type ChatResponse, type ContentBlock, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
 import { useEffect, useId, useRef, useState } from "react";
 import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
@@ -763,7 +763,7 @@ export function ConversationHistory({
                     autoPlayAudio={turnIndex === autoPlayAudioTurnIndex}
                     onAudioPlaybackChange={onAudioPlaybackChange}
                     onRetry={onRetryAssistantTurn && turnIndex === turns.length - 1 ? () => onRetryAssistantTurn(turn) : undefined}
-                    onRetryWithoutPersona={onRetryAssistantTurnWithoutPersona && turnIndex === turns.length - 1 ? () => onRetryAssistantTurnWithoutPersona(turn) : undefined}
+                    onRetryWithoutPersona={onRetryAssistantTurnWithoutPersona && turnIndex === turns.length - 1 && turnPersonaId !== NEUTRAL_PERSONA_ID ? () => onRetryAssistantTurnWithoutPersona(turn) : undefined}
                     onReport={onReportAssistantTurn ? () => {
                       setReportTarget(turn);
                       setReportConversationId(conversationId);

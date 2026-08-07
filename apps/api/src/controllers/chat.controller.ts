@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { chatRequestSchema, type ChatRequest, type ChatResponse } from "@persona/shared";
+import { chatRequestSchema, type ChatRequest, type ChatResponse, type PersonaDefinition } from "@persona/shared";
 import { ChatService } from "../services/chatService.js";
 import { ConversationStore } from "../services/conversationStore.js";
 import { EvalCaptureService } from "../services/evalCaptureService.js";
@@ -103,9 +103,11 @@ export async function postChat(request: Request, response: Response): Promise<vo
   try {
     let payload = await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity);
     payload = await selectToolsForRequest(payload, identity);
-    if (!getPersonaById(payload.personaId)) {
+    const persona = getPersonaById(payload.personaId);
+    if (!persona) {
       throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
     }
+    payload = withoutNeutralPersonaAudio(payload, persona);
     const plan = await customerUsageService.assertPersonaAccess(identity, payload.personaId);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
@@ -211,9 +213,11 @@ export async function postChatStream(request: Request, response: Response): Prom
   try {
     payload = await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity);
     payload = await selectToolsForRequest(payload, identity);
-    if (!getPersonaById(payload.personaId)) {
+    const persona = getPersonaById(payload.personaId);
+    if (!persona) {
       throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
     }
+    payload = withoutNeutralPersonaAudio(payload, persona);
     const plan = await customerUsageService.assertPersonaAccess(identity, payload.personaId);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
@@ -385,6 +389,14 @@ async function applyModelProviderPreference(payload: ChatRequest, identity: stri
     ...payload,
     provider: storedProvider ?? payload.provider
   };
+}
+
+// Neutral-style personas never produce audio. Normalize before usage
+// reservation so no audio seconds are reserved or billed; ChatService enforces
+// the same for every other entry point. The client's audio toggle itself is
+// left untouched so audio resumes when the user switches back to a persona.
+function withoutNeutralPersonaAudio(payload: ChatRequest, persona: PersonaDefinition): ChatRequest {
+  return persona.neutralStyle && payload.audio ? { ...payload, audio: false } : payload;
 }
 
 async function releaseUsageReservation(identity: string, reservationId: string, requestId?: string): Promise<void> {
