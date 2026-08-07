@@ -77,6 +77,9 @@ describe("conversation media context", () => {
       "Go back to the original uploads.",
       "Use them as the reference.",
       "Try it in watercolor.",
+      "Now in anime style.",
+      "Now in anime",
+      "In watercolor.",
       "Put these images side by side.",
       "Use images 1 and 3.",
       "Zoom in.",
@@ -112,6 +115,9 @@ describe("conversation media context", () => {
     };
 
     expect(shouldPlanHistoricalVisualTransformation(conversation, "Make the background blue.")).toBe(true);
+    expect(shouldPlanHistoricalVisualTransformation(conversation, "Now in anime style.")).toBe(true);
+    expect(shouldPlanHistoricalVisualTransformation(conversation, "Now in anime")).toBe(true);
+    expect(shouldPlanHistoricalVisualTransformation(conversation, "In watercolor.")).toBe(true);
     expect(shouldPlanHistoricalVisualTransformation(conversation, "What color is the background?")).toBe(false);
     expect(shouldPlanHistoricalVisualTransformation(conversation, "Start over from scratch with a new image.")).toBe(false);
     expect(shouldPlanHistoricalVisualTransformation(conversation, "I am uploading a new image to edit.")).toBe(false);
@@ -950,6 +956,222 @@ describe("conversation media context", () => {
       candidateCount: 1,
       attachments: [],
       unavailableCount: 1
+    });
+  });
+
+  // Regression corpus of realistic visual follow-up phrasings. Positive entries must be
+  // detected as conversation-media references (and, for edits, plan a historical visual
+  // transformation); negative entries must stay untriggered so ordinary chat never pulls
+  // in prior images.
+  describe("visual follow-up phrasing corpus", () => {
+    const conversationWithImageTurn = {
+      id: "conv_corpus",
+      turns: [{
+        userMessage: "Create a portrait.",
+        assistantText: "Here it is.",
+        outputs: [{
+          type: "image" as const,
+          url: "data:image/png;base64,dGVzdA==",
+          alt: "Portrait"
+        }]
+      }]
+    };
+
+    const transformFollowUps = [
+      // Style / aesthetic transfers
+      "Now in anime style.",
+      "Make it a cartoon.",
+      "As a watercolor.",
+      "Ghibli version please.",
+      "More realistic.",
+      "Cyberpunk it.",
+      "Turn it into a painting.",
+      "Comic book style please.",
+      "Make it look like a comic book.",
+      "Can you make it anime?",
+      "Redo it in pixel art.",
+      "Make it photorealistic.",
+      "Same but in oil painting style.",
+      "Render it as a sketch.",
+      "In pop art style.",
+      "Make it more cinematic.",
+      // Attribute edits
+      "Change her hair to red.",
+      "Different background.",
+      "Make the lighting moody.",
+      "Smiling instead.",
+      "Give her green eyes.",
+      "Change the outfit to a red dress.",
+      "Make him frown.",
+      "Can you change the background to a beach?",
+      "Make her hair longer.",
+      "Put her in a business suit.",
+      "Make the sky more dramatic.",
+      // Add / remove / replace
+      "Add a hat.",
+      "Remove the background.",
+      "Put sunglasses on him.",
+      "Take out the text.",
+      "Swap the car for a motorcycle.",
+      "Add a cat next to her.",
+      "Get rid of the watermark.",
+      "Remove the person in the background.",
+      // Composition / crop / zoom / reframe
+      "Zoom in.",
+      "Zoom out a bit.",
+      "Crop tighter.",
+      "Make it square.",
+      "Wider shot.",
+      "Close up on her face.",
+      "Portrait orientation.",
+      "Crop it to a square.",
+      "Reframe it as a close-up.",
+      "Make it wider.",
+      // Quality / enhancement
+      "Sharper.",
+      "Higher quality.",
+      "Upscale it.",
+      "Less blurry.",
+      "Enhance the details.",
+      "Make it sharper.",
+      "More detail in the face.",
+      // Variations / redo
+      "Again.",
+      "Another one.",
+      "Same but different.",
+      "One more version.",
+      "Remix it.",
+      "Do it again but cooler.",
+      "Try again with a different pose.",
+      "Give me another version.",
+      // Combinations
+      "Merge them.",
+      "Combine both.",
+      "Put them side by side.",
+      "Blend the two images.",
+      "Collage of all three.",
+      "Mash them up.",
+      // Text in image
+      "Change the text to say hello.",
+      "Remove the caption.",
+      "Fix the typo in it.",
+      // Format / medium
+      "Make it a sticker.",
+      "As an album cover.",
+      "Poster version.",
+      "Turn it into a logo.",
+      "Phone wallpaper.",
+      "Make it a meme.",
+      // Subject preservation
+      "Keep her face but change everything else.",
+      "Same character, new scene.",
+      "Don't change the pose.",
+      "Keep the pose but change the background.",
+      // Continuations relying on prior context
+      "Now the same for Bam Bam.",
+      "Do the same with the other one.",
+      "And now at night.",
+      "Now make it nighttime."
+    ];
+
+    const multiImageFollowUps = [
+      "Merge them.",
+      "Combine both.",
+      "Put them side by side.",
+      "Blend the two images.",
+      "Collage of all three.",
+      "Mash them up."
+    ];
+
+    const inspectionFollowUps = [
+      "What color is the background?",
+      "Tell me about the image.",
+      "What's in the picture?",
+      "Describe the photo.",
+      "What is she wearing?",
+      "Is there a dog in the image?",
+      "How many people are in the picture?"
+    ];
+
+    const selectionReferences = [
+      "The first one.",
+      "Image 2.",
+      "Use the third.",
+      "The one on the left.",
+      "Second version.",
+      "Use image 2."
+    ];
+
+    const nonReferences = [
+      "Now in French.",
+      "What's your style?",
+      "Nice, I like your style.",
+      "Love your style.",
+      "Now draw a cat.",
+      "Now let's talk about something else.",
+      "In my opinion, that would be wrong.",
+      "Style guide for my blog?",
+      "Give me a pound cake recipe.",
+      "Let's change the subject.",
+      "Turn left at the next intersection.",
+      "Make me a sandwich.",
+      "How do I change the oil in my car?"
+    ];
+
+    it("detects edit follow-ups as transform-intent media references that plan a historical transformation", async () => {
+      const {
+        inferVisualIntent,
+        shouldPlanHistoricalVisualTransformation,
+        shouldUseConversationMediaContext
+      } = await import("../services/conversationMediaContext.js");
+
+      for (const message of transformFollowUps) {
+        expect(shouldUseConversationMediaContext(message), `referenced: ${message}`).toBe(true);
+        expect(inferVisualIntent(message), `transform: ${message}`).toBe("transform");
+        expect(shouldPlanHistoricalVisualTransformation(conversationWithImageTurn, message), `plan: ${message}`).toBe(true);
+      }
+    });
+
+    it("asks for at least two images for merge-style follow-ups", async () => {
+      const { inferConversationMediaMinimum } = await import("../services/conversationMediaContext.js");
+
+      for (const message of multiImageFollowUps) {
+        expect(inferConversationMediaMinimum(message), `minimum 2: ${message}`).toBe(2);
+      }
+    });
+
+    it("keeps questions about the image as inspect-only references", async () => {
+      const {
+        inferVisualIntent,
+        shouldPlanHistoricalVisualTransformation,
+        shouldUseConversationMediaContext
+      } = await import("../services/conversationMediaContext.js");
+
+      for (const message of inspectionFollowUps) {
+        expect(shouldUseConversationMediaContext(message), `referenced: ${message}`).toBe(true);
+        expect(inferVisualIntent(message), `inspect: ${message}`).toBe("inspect");
+        expect(shouldPlanHistoricalVisualTransformation(conversationWithImageTurn, message), `no plan: ${message}`).toBe(false);
+      }
+    });
+
+    it("detects ordinal and spatial selection references", async () => {
+      const { shouldUseConversationMediaContext } = await import("../services/conversationMediaContext.js");
+
+      for (const message of selectionReferences) {
+        expect(shouldUseConversationMediaContext(message), `referenced: ${message}`).toBe(true);
+      }
+    });
+
+    it("does not treat ordinary chat as a media reference", async () => {
+      const {
+        shouldPlanHistoricalVisualTransformation,
+        shouldUseConversationMediaContext
+      } = await import("../services/conversationMediaContext.js");
+
+      for (const message of nonReferences) {
+        expect(shouldUseConversationMediaContext(message), `not referenced: ${message}`).toBe(false);
+        expect(shouldPlanHistoricalVisualTransformation(conversationWithImageTurn, message), `no plan: ${message}`).toBe(false);
+      }
     });
   });
 });

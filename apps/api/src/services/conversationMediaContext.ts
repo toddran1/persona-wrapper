@@ -50,6 +50,45 @@ export type ConversationMediaContextResult = {
 export const CONVERSATION_MEDIA_UNAVAILABLE_TEXT =
   "I still have the chat text, but that image file is no longer available. Please re-upload it or regenerate it.";
 
+// Terse single-intent follow-ups people send right after a visual turn
+// ("Ghibli version please.", "Different background.", "Sharper.").
+// All are anchored so ordinary prose cannot match, and they are shared by
+// media-reference detection and transform-intent inference to keep them in sync.
+const TERSE_VISUAL_TRANSFORM_PATTERNS = [
+  // "Ghibli version please.", "Poster version." (not "love this version").
+  /^(?!.*\b(?:love|like|hate)\b)(?:[\w-]+\s+){0,2}version(?:\s+please)?[\s.!]*$/i,
+  // "Comic book style please." (not "what's your style?" or "nice, I like your style.").
+  /^(?!.*\b(?:your|my|his|her|our|their|love|like)\b)(?:(?:a|an)\s+)?(?:[\w-]+\s+){0,2}(?:style|aesthetic|look|vibe|theme|filter)(?:\s+please)?[\s.!]*$/i,
+  // Style used as a verb: "Cyberpunk it.", "Anime this."
+  /^(?:cyberpunk|vaporwave|anime|manga|cartoon|ghibli|pixar|lego|claymation|pixel|noir)(?:\s*ify)?\s+(?:it|this|that|them)[\s.!]*$/i,
+  // "Different background.", "New hairstyle.", "Another angle."
+  /^(?:a\s+)?(?:different|new|another)\s+(?:background|backdrop|outfit|hairstyle|hair|pose|expression|setting|scene|location|angle|filter|font|lighting|perspective|color\s+scheme|colour\s+scheme)[\s.!]*$/i,
+  // "Smiling instead.", "Red hair instead."
+  /^(?:[\w'-]+\s+){0,3}instead[\s.!]*$/i,
+  // "Same but different.", "Same but in oil painting style."
+  /^same\s*,?\s+but\b[\s\S]*$/i,
+  // Single comparative adjective: "Sharper.", "Brighter.", "Moodier."
+  /^(?:sharper|brighter|darker|crisper|cleaner|smoother|softer|bolder|clearer|warmer|cooler|moodier|dreamier|prettier|cuter|sexier|fancier)[\s.!]*$/i,
+  // "Higher quality.", "Better resolution."
+  /^(?:higher|better)\s+(?:quality|resolution|detail|definition)[\s.!]*$/i,
+  // "Wider shot.", "Closer frame."
+  /^(?:a\s+)?(?:wider|closer|tighter|broader)\s+(?:shot|frame|crop|view|angle)[\s.!]*$/i,
+  // "Close up on her face."
+  /^close[-\s]?up\b[\s\S]*$/i,
+  // "Portrait orientation.", "Landscape."
+  /^(?:portrait|landscape|square|widescreen)(?:\s+(?:orientation|format|aspect\s+ratio|ratio|crop|version))?[\s.!]*$/i,
+  // Format/medium recasts: "As an album cover.", "Turn it into a logo" handled elsewhere.
+  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:in|into|as|like)\s+(?:an?\s+)?(?:sticker|logo|poster|wallpaper|meme|banner|thumbnail|avatar|icon|postcard|billboard|tattoo|mural|album\s+cover|book\s+cover|movie\s+poster|comic\s+strip|greeting\s+card|t[-\s]?shirt(?:\s+design)?)\b[\s.!]*$/i,
+  // "Phone wallpaper.", "Poster.", "Album cover."
+  /^(?:a\s+)?(?:phone\s+|desktop\s+)?(?:wallpaper|poster|sticker|logo|meme|banner|thumbnail|avatar|icon|postcard|billboard|tattoo|mural|album\s+cover|book\s+cover|movie\s+poster|comic\s+strip|greeting\s+card)(?:\s+version)?[\s.!]*$/i,
+  // Time/place shifts: "And now at night.", "Now in the rain."
+  /^(?:and\s+)?(?:now|next|then)\s*,?\s+(?:at\s+(?:night|sunset|sunrise|dusk|dawn)|in\s+the\s+(?:rain|snow|fog|desert|city|forest|mountains|future|past|morning|evening|afternoon|dark)|during\s+(?:the\s+)?(?:day|night|winter|summer|daytime|nighttime))[\s.!]*$/i,
+  // Context-dependent continuations: "Now the same for Bam Bam.", "Do the same with the other one."
+  /\b(?:do|now|next|then)\s+(?:the\s+)?same\s+(?:for|with)\b/i,
+  // Multi-image assembly named as a noun: "Collage of all three.", "Montage of them."
+  /\b(?:collage|montage|mash\s*up)\s+(?:of|with|from|using)\b/i
+];
+
 const MEDIA_REFERENCE_PATTERNS = [
   // Direct references to recent visual/media output.
   /\b(this|that|these|those|the|last|latest|previous|prior|same|recent|new|current|above|below|attached|shown|displayed|generated|created|sent)\s+(image|images|picture|pictures|photo|photos|pic|pics|media|asset|assets|attachment|attachments|file|files|visual|visuals|render|renders|output|outputs|result|results|one|ones)\b/i,
@@ -72,13 +111,13 @@ const MEDIA_REFERENCE_PATTERNS = [
   /\b(what\s+am\s+i\s+looking\s+at|what\s+are\s+we\s+looking\s+at|what\s+is\s+going\s+on\s+here|what\s+do\s+you\s+see|tell\s+me\s+what\s+you\s+see|describe\s+what\s+you\s+see|caption\s+this|caption\s+it)\b/i,
 
   // Edit requests against the prior asset.
-  /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth)\b.*\b(it|that|this|these|those|image|images|picture|pictures|photo|photos|pic|pics|asset|assets|attachment|attachments|file|files|visual|visuals|render|renders|output|outputs|result|results|one|ones)\b/i,
+  /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|remix|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth)\b.*\b(it|that|this|these|those|image|images|picture|pictures|photo|photos|pic|pics|asset|assets|attachment|attachments|file|files|visual|visuals|render|renders|output|outputs|result|results|one|ones)\b/i,
   /\b(make|turn|change|convert|transform)\s+(it|that|this|one)\s+(into|to|more|less|look|feel|like)\b/i,
-  /\b(add|remove|replace|swap|change|fix)\s+(the|her|his|their|its|that|this)\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|pose|lighting|color|colour|style|text|logo|object|person|animal)\b/i,
+  /\b(add|remove|take\s+out|get\s+rid\s+of|cut\s+out|replace|swap|change|fix)\s+(the|her|his|their|its|that|this)\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|pose|lighting|color|colour|style|text|caption|watermark|sign|logo|object|person|animal|sky)\b/i,
 
   // Follow-up pronouns commonly used after an image response.
   /\b(use|reuse|keep|base|reference|match|copy|continue\s+with|go\s+with|work\s+from|start\s+from)\b.*\b(it|them|that|this|these|those|one|ones|image|picture|photo|pic|reference|asset|attachment|file|visual|render)\b/i,
-  /\b(again|same\s+again|one\s+more|another\s+version|new\s+version|different\s+version|version\s+of\s+that|do\s+it\s+again|try\s+again|run\s+it\s+back|remake\s+that|redo\s+that)\b/i,
+  /\b(again|same\s+again|one\s+more|another\s+one|another\s+version|new\s+version|different\s+version|version\s+of\s+that|do\s+it\s+again|try\s+again|run\s+it\s+back|remake\s+that|redo\s+that)\b/i,
   /\b(keep|preserve|maintain|do\s+not\s+change|don'?t\s+change|leave)\b.*\b(same|skin\s*tone|face|person|character|pose|background|style|color|colour|outfit|lighting|composition|angle|camera|image|picture|photo)\b/i,
 
   // Deictic and UI-location references.
@@ -96,15 +135,17 @@ const MEDIA_REFERENCE_PATTERNS = [
   /\b(use|look\s+at|compare\s+to|match)\b.*\b(reference|original|upload|uploaded|attachment|attached\s+file|source\s+image|input\s+image)\b/i,
 
   // Follow-ups that refer to visual subjects rather than saying "image".
-  /\b(mix|combine|blend|merge|fuse|morph|composite|remix|cross|hybridize|compare)\b.*\b(them|both|their|the\s+two|all\s+of\s+them|these|those|faces?|features?|looks?|appearances?|designs?|characters?|subjects?|people|outfits?)\b/i,
+  /\b(mix|combine|blend|merge|fuse|morph|composite|remix|mash|cross|hybridize|compare)\b.*\b(them|both|their|the\s+two|all\s+of\s+them|these|those|faces?|features?|looks?|appearances?|designs?|characters?|subjects?|people|outfits?)\b/i,
   /\b(their|both|the\s+two|these|those)\s+(faces?|features?|looks?|appearances?|designs?|characters?|subjects?|outfits?)\b/i,
   /\b(now|next|then)\b.*\b(merge|combine|blend|mix|morph|edit|change|modify|transform|restyle|remake|redo)\b/i,
 
   // Natural subject and attribute follow-ups after a visual turn.
-  /\b(make|put|place|move|dress|show|turn|transform|style|restyle|change|give)\s+(her|him|them|it|the\s+(?:person|character|subject|woman|man|girl|boy|people|characters?))\b/i,
-  /\b(make|change|turn|set)\s+the\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|pose|lighting|color|colour|style|expression|camera|angle|setting|scene)\b/i,
+  // NOTE: "change" is deliberately excluded here so "let's change the subject" stays non-visual;
+  // attribute changes are still caught by the edit-request patterns above.
+  /\b(make|put|place|move|dress|show|turn|transform|style|restyle|give)\s+(her|him|them|it|the\s+(?:person|character|subject|woman|man|girl|boy|people|characters?))\b/i,
+  /\b(make|change|turn|set)\s+the\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|pose|lighting|color|colour|style|expression|camera|angle|setting|scene|sky)\b/i,
   /\b(with|without)\s+(a|an|the|her|his|their)?\s*(red|blue|green|black|white|new|different|same|brighter|darker|realistic|cartoon|anime|smiling|serious)?\s*(background|outfit|clothes|clothing|shirt|dress|hair|eyes|pose|lighting|expression|hat|jacket|shoes?)\b/i,
-  /^(more|less)\s+(realistic|cartoonish|stylized|detailed|dramatic|colorful|colourful|bright|dark|cinematic|natural|professional|polished)\b/i,
+  /^(more|less)\s+(realistic|cartoonish|stylized|detailed|detail|details|texture|dramatic|colorful|colourful|bright|dark|cinematic|natural|professional|polished|blurry|grainy|sharp|dull|flat|saturated|vivid|washed\s+out)\b/i,
   /\b(same|keep\s+the)\s+(pose|person|character|face|subject|background|outfit|style|lighting|composition|camera|angle)\b.*\b(different|new|but|with|without|change)\b/i,
   /\b(go\s+back\s+to|return\s+to|use|reuse)\s+(the\s+)?(originals?|uploads?|sources?|first\s+attempt|earlier\s+version)\b/i,
   /\b(this|that)\s+(new|current)\s+(image|picture|photo|upload|reference)\b.*\b(original|previous|prior|earlier|last)\b/i,
@@ -115,9 +156,24 @@ const MEDIA_REFERENCE_PATTERNS = [
   /\b(?:make|try|render|show)\s+(?:it|them|that|this)\s+(?:in|as|with)\s+(?:a\s+)?(?:watercolor|oil\s+painting|sketch|anime|cartoon|photorealistic|realistic|cinematic|comic|illustration|different|new)\b/i,
   /\b(?:do|apply)\s+the\s+same\b.*\b(?:other|next|previous)\s+one\b/i,
   // Concise visual continuations that rely on the immediately preceding visual set.
-  /^(?:zoom\s+(?:in|out)|crop\s+(?:it\s+)?(?:tighter|closer)|remove\s+(?:the\s+)?background|add\s+(?:a|an|the)\s+\w+|put\s+.+\s+on\s+(?:her|him|them|it))[\s.!?]*$/i,
+  /^(?:zoom\s+(?:in|out)(?:\s+(?:a\s+)?(?:bit|little|touch|more|further|farther|closer|tighter))?|crop\s+(?:it\s+)?(?:tighter|closer)|remove\s+(?:the\s+)?background|add\s+(?:a|an|the)\s+.+|put\s+.+\s+on\s+(?:her|him|them|it))[\s.!?]*$/i,
+  // Terse style-only follow-ups after a visual turn ("Now in anime style.", "In watercolor.", "Now as a cartoon").
+  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:in|into|as)\s+(?:an?\s+)?[\w\s-]{1,32}?\b(?:style|aesthetic|look|vibe|theme|filter)\b[\s.!?]*$/i,
+  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:in|into|as|like)\s+(?:an?\s+)?(?:anime|manga|cartoon|comic|watercolor|watercolour|oil\s+painting|sketch|pixel\s+art|photorealistic|realistic|cinematic|illustration|pop\s+art|cyberpunk|vaporwave|claymation|line\s+art|noir|ghibli|pixar|disney|3d|lego|clay)\b[\s.!?]*$/i,
   /\b(?:choose|pick|select)\s+(?:the\s+)?(?:best|clearest|sharpest|favorite|favourite)\s+(?:one|image|picture|photo|result)\b/i,
-  /\b(?:use|choose|pick|select)\s+(?:the\s+)?one\s+(?:where|with|that\s+has|showing)\b/i
+  /\b(?:use|choose|pick|select)\s+(?:the\s+)?one\s+(?:where|with|that\s+has|showing)\b/i,
+
+  // Terse transform follow-ups shared with transform-intent inference (see above).
+  ...TERSE_VISUAL_TRANSFORM_PATTERNS,
+
+  // Swapping one depicted thing for another: "Swap the car for a motorcycle."
+  /\b(?:swap|replace|exchange|substitute)\s+(?:the\s+|a\s+|an\s+)?(?:car|vehicle|object|person|character|background|outfit|hat|text|logo|color|colour|dog|cat|tree|building|font|frame)\b[\w\s-]{0,40}\b(?:for|with)\b/i,
+  // Quality work on the current visual: "Enhance the details.", "Boost the contrast."
+  /\b(?:enhance|improve|sharpen|boost|increase)\s+(?:the\s+)?(?:details?|sharpness|clarity|quality|resolution|contrast|colors?|colours?|lighting)\b/i,
+  // Ordinal selection without a noun: "Use the third.", "Pick the second."
+  /\b(?:use|choose|pick|select)\s+(?:the\s+)?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th))\b/i,
+  // Spatial selection: "The one on the left."
+  /\bthe\s+one\s+on\s+the\s+(?:left|right|top|bottom)\b/i
 ];
 
 export function shouldUseConversationMediaContext(message: string): boolean {
@@ -139,17 +195,22 @@ const USER_UPLOAD_PREFERENCE_PATTERN =
 const GENERATED_OUTPUT_PREFERENCE_PATTERN =
   /\b(generated|results?|outputs?|renders?|versions?|attempts?|you\s+(?:made|generated|created))\b/i;
 const VISUAL_TRANSFORM_PATTERN = [
-  /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth|zoom|mix|combine|blend|merge|fuse|morph|composite|remix|cross|hybridize|dress|place|move|give)\b/i,
+  /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|take\s+out|get\s+rid\s+of|cut\s+out|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth|zoom|mix|combine|blend|merge|fuse|morph|composite|remix|mash|cross|hybridize|dress|place|move|give)\b/i,
   /\b(?:make|try|render|show)\s+(?:it|them|that|this)\s+(?:in|as|with)\s+(?:a\s+)?(?:watercolor|oil\s+painting|sketch|anime|cartoon|photorealistic|realistic|cinematic|comic|illustration|different|new)\b/i,
-  /^(more|less)\s+(realistic|cartoonish|stylized|detailed|dramatic|colorful|colourful|bright|dark|cinematic|natural|professional|polished)\b/i,
+  /^(more|less)\s+(realistic|cartoonish|stylized|detailed|detail|details|texture|dramatic|colorful|colourful|bright|dark|cinematic|natural|professional|polished|blurry|grainy|sharp|dull|flat|saturated|vivid|washed\s+out)\b/i,
   /\b(same|keep\s+the)\s+(pose|person|character|face|subject|background|outfit|style|lighting|composition|camera|angle)\b.*\b(different|new|but|with|without|change)\b/i,
-  /^(?:do\s+it\s+again|run\s+it\s+back|same\s+again|one\s+more|try\s+again)[\s.!?]*(?:but\b.*)?$/i,
+  /^(?:again|do\s+it\s+again|run\s+it\s+back|same\s+again|one\s+more(?:\s+(?:one|version|time))?|try\s+again|another\s+one)[\s.!?]*(?:\s*(?:but|with)\b[\s\S]*)?$/i,
   /^(?:now\s+)?(?:with|without)\s+(?:a|an|the|her|his|their)?\s*.+/i,
-  /^(?:zoom\s+(?:in|out)|crop\s+(?:it\s+)?(?:tighter|closer)|remove\s+(?:the\s+)?background|add\s+(?:a|an|the)\s+.+|put\s+.+\s+on\s+(?:her|him|them|it))[\s.!?]*$/i
+  // Terse style-only follow-ups ("Now in anime style.", "In watercolor.", "Now as a cartoon").
+  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:in|into|as)\s+(?:an?\s+)?[\w\s-]{1,32}?\b(?:style|aesthetic|look|vibe|theme|filter)\b[\s.!?]*$/i,
+  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:in|into|as|like)\s+(?:an?\s+)?(?:anime|manga|cartoon|comic|watercolor|watercolour|oil\s+painting|sketch|pixel\s+art|photorealistic|realistic|cinematic|illustration|pop\s+art|cyberpunk|vaporwave|claymation|line\s+art|noir|ghibli|pixar|disney|3d|lego|clay)\b[\s.!?]*$/i,
+  /^(?:zoom\s+(?:in|out)(?:\s+(?:a\s+)?(?:bit|little|touch|more|further|farther|closer|tighter))?|crop\s+(?:it\s+)?(?:tighter|closer)|remove\s+(?:the\s+)?background|add\s+(?:a|an|the)\s+.+|put\s+.+\s+on\s+(?:her|him|them|it))[\s.!?]*$/i,
+  // Terse transform follow-ups shared with media-reference detection (see above).
+  ...TERSE_VISUAL_TRANSFORM_PATTERNS
 ];
 const MULTI_IMAGE_FOLLOW_UP_PATTERN = [
   /\b(both|the\s+two|two|pair|multiple)\b/i,
-  /\b(mix|combine|blend|merge|fuse|morph|composite|remix|cross|hybridize|compare|collage|montage|stitch|rank)\b.*\b(them|their|these|those|all|images?|pictures?|photos?|pics?)\b/i,
+  /\b(mix|combine|blend|merge|fuse|morph|composite|remix|mash|cross|hybridize|compare|collage|montage|stitch|rank)\b.*\b(them|their|these|those|all|images?|pictures?|photos?|pics?)\b/i,
   /\b(their|these|those)\s+(faces?|features?|looks?|appearances?|designs?|characters?|subjects?|people|outfits?)\b/i,
   /\b(side[-\s]?by[-\s]?side|each\s+other)\b/i
 ];
@@ -159,7 +220,7 @@ export function inferConversationMediaMinimum(message: string): number {
   return MULTI_IMAGE_FOLLOW_UP_PATTERN.some((pattern) => pattern.test(normalized)) ? 2 : 1;
 }
 
-function inferVisualIntent(message: string): "inspect" | "transform" {
+export function inferVisualIntent(message: string): "inspect" | "transform" {
   return VISUAL_TRANSFORM_PATTERN.some((pattern) => pattern.test(message)) ? "transform" : "inspect";
 }
 
