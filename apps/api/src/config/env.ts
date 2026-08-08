@@ -130,7 +130,7 @@ const envSchema = z.object({
   CHAT_IP_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(120),
   AUTH_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(20),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
-  AUTH_SIGNUP_DEVICE_LIMIT: z.coerce.number().int().positive().default(3),
+  AUTH_SIGNUP_DEVICE_LIMIT: z.coerce.number().int().positive().default(5),
   AUTH_SIGNUP_IP_LIMIT: z.coerce.number().int().positive().default(100),
   AUTH_SIGNUP_WINDOW_MS: z.coerce.number().int().min(60_000).max(90 * 24 * 60 * 60 * 1000).default(30 * 24 * 60 * 60 * 1000),
   DATA_TRANSFER_RATE_LIMIT_REQUESTS: z.coerce.number().int().min(1).max(100).default(10),

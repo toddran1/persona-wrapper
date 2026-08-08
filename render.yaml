@@ -85,7 +85,7 @@ services:
       - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS
         value: "30"
       - key: AUTH_SIGNUP_DEVICE_LIMIT
-        value: "3"
+        value: "5"
       - key: AUTH_SIGNUP_IP_LIMIT
         value: "100"
       - key: AUTH_SIGNUP_WINDOW_MS

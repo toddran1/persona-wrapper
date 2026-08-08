@@ -60,6 +60,7 @@ export function authRateLimit(request: Request, response: Response, next: NextFu
     response.setHeader("Retry-After", String(retryAfterSeconds));
     response.status(429).json({
       error: "Too many authentication attempts. Please try again later.",
+      message: "Too many authentication attempts. Please try again later.",
       code: "RATE_LIMITED",
       requestId: response.locals.requestId
     });
@@ -86,6 +87,7 @@ export function signupAbuseRateLimit(request: Request, response: Response, next:
   if (limits.length === 0) {
     response.status(400).json({
       error: "A valid client network signal is required.",
+      message: "A valid client network signal is required.",
       code: "INVALID_CLIENT_SIGNAL",
       requestId: response.locals.requestId
     });
@@ -263,7 +265,8 @@ function finishRateLimit(
   response.setHeader("RateLimit-Reset", String(Math.ceil(entry.resetAt / 1000)));
   if (entry.count > limit) {
     response.setHeader("Retry-After", String(Math.max(1, Math.ceil((entry.resetAt - Date.now()) / 1000))));
-    response.status(429).json({ error: message, code: "RATE_LIMITED", requestId: response.locals.requestId });
+    // better-auth clients surface `message`; keep `error` for contract callers.
+    response.status(429).json({ error: message, message, code: "RATE_LIMITED", requestId: response.locals.requestId });
     return;
   }
   next();

@@ -168,6 +168,10 @@ export const auth = database ? betterAuth({
     // Soft verification: the email is sent but sign-in is never blocked, so
     // username-only accounts (synthetic @users.invalid addresses) keep working.
     sendOnSignUp: true,
+    // Clicking the verify link signs the user in on whichever browser opens
+    // it, so verification from a mail client on another device still lands
+    // on an authenticated session.
+    autoSignInAfterVerification: true,
     expiresIn: 60 * 60,
     ...(authEmailEnabled ? {
       sendVerificationEmail: async ({ user, url }: { user: { email: string; name: string }; url: string }) => {
@@ -176,11 +180,13 @@ export const auth = database ? betterAuth({
         // notice instead of the API's default callback.
         const verificationUrl = new URL(url);
         verificationUrl.searchParams.set("callbackURL", `${env.WEB_APP_URL}/?emailVerified=1`);
+        // Verification is soft — a delivery failure must never fail sign-up.
+        // deliverAuthEmail already logged the sanitized SMTP error.
         await sendVerificationEmail({
           email: user.email,
           displayName: user.name,
           verificationUrl: verificationUrl.toString()
-        });
+        }).catch(() => undefined);
       }
     } : {})
   },

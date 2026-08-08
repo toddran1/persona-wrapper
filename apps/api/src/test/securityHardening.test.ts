@@ -33,6 +33,7 @@ describe("security hardening", () => {
         expect(response.status).toHaveBeenCalledWith(429);
         expect(response.json).toHaveBeenCalledWith({
           error: "Too many authentication attempts. Please try again later.",
+          message: "Too many authentication attempts. Please try again later.",
           code: "RATE_LIMITED",
           requestId: "request-rate-limit"
         });
@@ -103,6 +104,7 @@ describe("security hardening", () => {
           expect(response.status).toHaveBeenCalledWith(429);
           expect(response.json).toHaveBeenCalledWith({
             error: "Too many accounts were created or attempted from this device or network. Please try again later.",
+            message: "Too many accounts were created or attempted from this device or network. Please try again later.",
             code: "RATE_LIMITED",
             requestId: "request-signup-limit"
           });
