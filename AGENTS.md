@@ -193,7 +193,11 @@ deterministic stub output without a key). Mobile reads `EXPO_PUBLIC_API_URL`
   `POST /api/uploads` is a local-dev fallback only.
 - Auth is better-auth; production sets `AUTH_REQUIRED=true` and
   `AUTH_REQUIRE_OWNED_MEDIA_ACCESS=true`. Rate limits exist for chat, auth, and
-  data-transfer routes — keep new sensitive endpoints behind them.
+  data-transfer routes — keep new sensitive endpoints behind them. Accounts
+  with a real email must verify it: verification emails are sent on sign-up
+  (soft gate screens on both clients) and `requireVerifiedEmail`
+  (middleware/authMiddleware.ts) blocks protected `/api/*` routes for
+  unverified sessions; username-only `@users.invalid` accounts are exempt.
 - Test mode (`APP_TEST_MODE=true`) forces the local TTS provider server-side so
   tests can never hit ElevenLabs; keep that safeguard intact.
 - Persisted conversation "memory" summaries are advisory, untrusted context —

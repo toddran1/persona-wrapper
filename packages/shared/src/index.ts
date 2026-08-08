@@ -554,6 +554,7 @@ export type CurrentPoliciesResponse = z.infer<typeof currentPoliciesResponseSche
 export const authUserSchema = z.object({
   id: z.string(),
   email: z.string().email().nullable().optional(),
+  emailVerified: z.boolean().optional(),
   role: z.enum(["user", "admin"]).optional(),
   username: z.string().nullable().optional(),
   displayName: z.string().nullable().optional(),

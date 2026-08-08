@@ -10,6 +10,7 @@ import { conversationsPageQueryOptions, conversationTurnsQueryOptions, personaQu
 import { ChatComposer } from "./components/ChatComposer.js";
 import { ConversationSidebar } from "./components/ConversationSidebar.js";
 import { PolicyConsentGate } from "./components/PolicyConsentGate.js";
+import { VerifyEmailGate } from "./components/VerifyEmailGate.js";
 import { ConversationHistory, type RenderedTurn, type UserPromptAsset } from "./components/ConversationHistory.js";
 import { DebugPanel } from "./components/DebugPanel.js";
 import { EvalCapturePanel } from "./components/EvalCapturePanel.js";
@@ -1857,6 +1858,24 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
             termsVersion: currentPolicies.termsVersion,
             privacyVersion: currentPolicies.privacyVersion
           }));
+        }}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  // Accounts with a real email must verify before entering the app.
+  // Username-only accounts (no email) skip this entirely.
+  if (authUser?.email && authUser.emailVerified === false) {
+    const accountEmail = authUser.email;
+    return (
+      <VerifyEmailGate
+        email={accountEmail}
+        onResend={() => api.resendVerificationEmail(accountEmail)}
+        onCheckStatus={async () => {
+          const me = await api.getCurrentUser();
+          setAuthUser(me.user);
+          return me.user.emailVerified === true;
         }}
         onLogout={handleLogout}
       />

@@ -71,6 +71,7 @@ import { useAccountSettingsController, type SettingsPanel } from "./useAccountSe
 import { PersonaVisualStage, type PersonaVisualState } from "./PersonaVisualStage";
 import { MobileAuthScreen, type MobileAuthMode } from "../auth/MobileAuthScreen";
 import { MobilePolicyConsentScreen } from "../auth/MobilePolicyConsentScreen";
+import { MobileVerifyEmailScreen } from "../auth/MobileVerifyEmailScreen";
 import {
   getClientContext,
   mergeCrossSessionTurns,
@@ -3076,6 +3077,25 @@ export function MobileChatScreen() {
           }));
         }}
         onRetry={() => void retryLoadAppData()}
+        onLogout={async () => confirmLogout()}
+      />
+    );
+  }
+
+  // Accounts with a real email must verify before entering the app.
+  // Username-only accounts (no email) skip this entirely.
+  if (!offlineReadOnly && authUser.email && authUser.emailVerified === false) {
+    const accountEmail = authUser.email;
+    return (
+      <MobileVerifyEmailScreen
+        email={accountEmail}
+        theme={theme}
+        onResend={() => api.resendVerificationEmail(accountEmail)}
+        onCheckStatus={async () => {
+          const me = await api.getCurrentUser();
+          setAuthUser(me.user);
+          return me.user.emailVerified === true;
+        }}
         onLogout={async () => confirmLogout()}
       />
     );

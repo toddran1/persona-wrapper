@@ -32,6 +32,7 @@ function toAuthUser(user: typeof users.$inferSelect): AuthUser {
   return {
     id: user.id,
     email: user.email.endsWith("@users.invalid") ? null : user.email,
+    emailVerified: user.emailVerified,
     role: user.role === "admin" ? "admin" : "user",
     username: user.displayUsername ?? user.username,
     displayName: user.displayName,

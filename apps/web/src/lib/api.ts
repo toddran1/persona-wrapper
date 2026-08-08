@@ -306,6 +306,7 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
   return {
     id: String(user.id),
     email,
+    emailVerified: typeof user.emailVerified === "boolean" ? user.emailVerified : false,
     role: user.role === "admin" ? "admin" : "user",
     username: typeof user.displayUsername === "string"
       ? user.displayUsername
@@ -628,6 +629,13 @@ export const api = {
   },
   resetPassword: async (token: string, newPassword: string): Promise<void> => {
     const result = await authClient.resetPassword({ token, newPassword });
+    if (result.error) throw authError(result.error);
+  },
+  resendVerificationEmail: async (email: string): Promise<void> => {
+    const result = await authClient.sendVerificationEmail({
+      email: email.trim().toLowerCase(),
+      callbackURL: new URL("/?emailVerified=1", window.location.origin).toString()
+    });
     if (result.error) throw authError(result.error);
   },
   changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {

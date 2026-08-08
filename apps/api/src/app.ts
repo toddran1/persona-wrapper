@@ -10,7 +10,7 @@ import { apiContract } from "@persona/shared";
 import { createExpressEndpoints } from "@ts-rest/express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
-import { authenticateRequest, requireCurrentPolicyConsent } from "./middleware/authMiddleware.js";
+import { authenticateRequest, requireCurrentPolicyConsent, requireVerifiedEmail } from "./middleware/authMiddleware.js";
 import { authRateLimit, dataTransferRateLimit, safetyReportRateLimit, signupAbuseRateLimit } from "./middleware/authRateLimit.js";
 import { chatRouter } from "./routes/chat.routes.js";
 import { apiContractRouter } from "./routes/contract.routes.js";
@@ -239,11 +239,13 @@ export function createApp() {
     authenticateRequest,
     requireAuthenticatedRequest,
     requireCurrentPolicyConsent,
+    requireVerifiedEmail,
     express.json({ limit: env.DATA_TRANSFER_MAX_BYTES })
   );
   app.use(express.json({ limit: env.API_JSON_MAX_BYTES }));
   app.use(authenticateRequest);
   app.use(requireCurrentPolicyConsent);
+  app.use(requireVerifiedEmail);
 
   // OAuth state created by older clients may still contain `/` as its final
   // callback. Send those completed flows back to the web app instead of

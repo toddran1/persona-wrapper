@@ -6,7 +6,7 @@ import { acceptPolicies, getCurrentPolicies } from "../controllers/account.contr
 import { backgroundChatJobService } from "../services/backgroundChatJobService.js";
 import { openAIResponseLifecycleService } from "../services/openAIResponseLifecycleService.js";
 import { usageControlService } from "../services/usageControlService.js";
-import { requireCurrentPolicyConsent } from "../middleware/authMiddleware.js";
+import { requireCurrentPolicyConsent, requireVerifiedEmail } from "../middleware/authMiddleware.js";
 import { personaSummariesForAccess } from "../routes/contract.routes.js";
 
 afterEach(() => {
@@ -78,6 +78,35 @@ describe("controllers", () => {
         policyConsentRequired: true
       }
     } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it("blocks authenticated API use until the account email is verified", () => {
+    const auth = {
+      userId: "user_verify",
+      sessionId: "session_verify",
+      clientType: "web",
+      policyConsentRequired: false,
+      emailVerificationRequired: true
+    };
+    const next = vi.fn();
+
+    requireVerifiedEmail({ path: "/api/chat", auth } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+
+    next.mockClear();
+    requireVerifiedEmail({ path: "/api/auth/get-session", auth } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith();
+
+    next.mockClear();
+    requireVerifiedEmail({
+      path: "/api/chat",
+      auth: { ...auth, emailVerificationRequired: false }
+    } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith();
+
+    next.mockClear();
+    requireVerifiedEmail({ path: "/api/chat" } as Request, {} as Response, next);
     expect(next).toHaveBeenCalledWith();
   });
 
