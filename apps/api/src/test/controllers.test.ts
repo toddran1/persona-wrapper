@@ -70,6 +70,18 @@ describe("controllers", () => {
 
     next.mockClear();
     requireCurrentPolicyConsent({
+      path: "/api/account/me",
+      auth: {
+        userId: "user_policy",
+        sessionId: "session_policy",
+        clientType: "web",
+        policyConsentRequired: true
+      }
+    } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith();
+
+    next.mockClear();
+    requireCurrentPolicyConsent({
       path: "/api/personas/larae",
       auth: {
         userId: "user_policy",
@@ -96,6 +108,10 @@ describe("controllers", () => {
 
     next.mockClear();
     requireVerifiedEmail({ path: "/api/auth/get-session", auth } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith();
+
+    next.mockClear();
+    requireVerifiedEmail({ path: "/api/account/me", auth } as Request, {} as Response, next);
     expect(next).toHaveBeenCalledWith();
 
     next.mockClear();

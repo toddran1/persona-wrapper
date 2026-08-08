@@ -355,6 +355,13 @@ const envSchema = z.object({
       message: "GMAIL_SMTP_USER and GMAIL_SMTP_APP_PASSWORD must be configured together."
     });
   }
+  if (value.NODE_ENV === "production" && value.AUTH_REQUIRED && !value.GMAIL_SMTP_USER) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["GMAIL_SMTP_USER"],
+      message: "Gmail SMTP is required in production so email verification and password recovery remain available."
+    });
+  }
   if (value.STORAGE_DRIVER === "s3") {
     if (value.NODE_ENV !== "production") {
       context.addIssue({

@@ -75,6 +75,10 @@ export async function authenticateRequest(request: Request, _response: Response,
 }
 
 const policyConsentExemptPaths = new Set([
+  // Clients need the authenticated user snapshot to decide which account gate
+  // to render and to refresh that gate after consent or email verification.
+  // This endpoint exposes no app data beyond the caller's own account record.
+  "/api/account/me",
   "/api/account/policies/current",
   "/api/account/policies/accept",
   "/api/account/oauth/providers"

@@ -690,6 +690,7 @@ export const api = {
   listActiveSessions: async (): Promise<ActiveSession[]> => {
     const [sessionsResult, currentResult] = await Promise.all([authClient.listSessions(), authClient.getSession()]);
     if (sessionsResult.error) throw authError(sessionsResult.error);
+    if (currentResult.error) throw authError(currentResult.error);
     return (sessionsResult.data ?? []).map((value) => {
       const session = value as unknown as Record<string, unknown>;
       return {
