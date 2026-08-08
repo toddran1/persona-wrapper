@@ -1285,13 +1285,25 @@ textarea {
   background: var(--theme-accent);
 }
 
+.settings-memory-switch:hover:not(:disabled),
+.settings-memory-switch:focus-visible:not(:disabled) {
+  border-color: rgba(214, 181, 94, 0.56);
+  outline: none;
+}
+
+.settings-memory-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .settings-audio-card {
   display: flex;
   align-items: center;
   gap: 1rem;
   justify-content: space-between;
-  padding: 1rem;
-  border: 1px solid rgba(214, 181, 94, 0.24);
+  min-height: 86px;
+  padding: 15px;
+  border: 1px solid rgba(214, 181, 94, 0.2);
   border-radius: 14px;
   background: linear-gradient(135deg, rgba(91, 54, 121, 0.22), rgba(255, 255, 255, 0.035));
 }
@@ -1302,8 +1314,10 @@ textarea {
 }
 
 .settings-audio-card-copy small {
-  color: var(--muted);
-  line-height: 1.5;
+  color: rgba(207, 195, 219, 0.68);
+  font-size: 0.68rem;
+  font-weight: 620;
+  line-height: 1.45;
 }
 
 .settings-recommended-badge {
@@ -1499,6 +1513,13 @@ textarea {
 .settings-delete-confirmation input:focus {
   border-color: rgba(188, 135, 255, 0.56);
   box-shadow: 0 0 0 3px rgba(188, 135, 255, 0.1);
+}
+
+.settings-form-grid input:disabled,
+.settings-form-grid select:disabled,
+.settings-delete-confirmation input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .settings-form-grid select {
@@ -6220,33 +6241,54 @@ button:disabled {
 
 .settings-provider-option {
   align-items: center;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid rgba(218, 179, 83, 0.2);
-  border-radius: 0.85rem;
+  min-height: 84px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(214, 181, 94, 0.16);
+  border-radius: 14px;
   color: inherit;
   cursor: pointer;
   display: flex;
   font: inherit;
   justify-content: space-between;
-  padding: 0.9rem 1rem;
+  padding: 15px;
   text-align: left;
   width: 100%;
 }
 
+.settings-provider-option:hover:not(:disabled),
+.settings-provider-option:focus-visible:not(:disabled) {
+  border-color: rgba(214, 181, 94, 0.38);
+  background: linear-gradient(135deg, rgba(214, 181, 94, 0.08), rgba(168, 111, 232, 0.06));
+  outline: none;
+}
+
+.settings-provider-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .settings-provider-option span:first-child {
   display: grid;
-  gap: 0.25rem;
+  gap: 7px;
+}
+
+.settings-provider-option strong {
+  color: #fff8ef;
+  font-size: 0.76rem;
+  font-weight: 820;
 }
 
 .settings-provider-option small,
 .settings-provider-note {
-  color: #b9aec8;
+  color: rgba(207, 195, 219, 0.68);
+  font-size: 0.68rem;
+  font-weight: 620;
   line-height: 1.45;
 }
 
 .settings-provider-option-selected {
-  background: rgba(218, 179, 83, 0.1);
-  border-color: #dab353;
+  border-color: rgba(214, 181, 94, 0.72);
+  background: linear-gradient(135deg, rgba(214, 181, 94, 0.11), rgba(168, 111, 232, 0.08));
 }
 
 .settings-provider-radio {
