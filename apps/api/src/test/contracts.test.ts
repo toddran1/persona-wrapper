@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, contentBlockSchema, currentPoliciesResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, hasCompletePersonaVisualVideoSet, llmInputSchema, personaVisualStageSchema, registerRequestSchema, restoreAccountRequestSchema, ttsOutputSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, contentBlockSchema, currentPoliciesResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, hasCompletePersonaVisualVideoSet, llmInputSchema, PASSWORD_MAX_LENGTH, personaVisualStageSchema, registerRequestSchema, restoreAccountRequestSchema, ttsOutputSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
   it("defaults omitted persona videos to image-only stages", () => {
@@ -124,6 +124,26 @@ describe("shared schemas", () => {
       email: "new@example.com",
       password: "password123",
       clientType: "web"
+    })).toThrow();
+  });
+
+  it("aligns the registration password rule with the server-side limits", () => {
+    const consent = { termsVersion: "2026-07-29", privacyVersion: "2026-07-29" };
+
+    expect(() => registerRequestSchema.parse({
+      email: "new@example.com",
+      password: "short1234",
+      policyConsent: consent
+    })).toThrow();
+    expect(registerRequestSchema.parse({
+      email: "new@example.com",
+      password: "longenough1",
+      policyConsent: consent
+    }).password).toBe("longenough1");
+    expect(() => registerRequestSchema.parse({
+      email: "new@example.com",
+      password: "x".repeat(PASSWORD_MAX_LENGTH + 1),
+      policyConsent: consent
     })).toThrow();
   });
   it("applies chat request defaults", () => {

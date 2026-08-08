@@ -610,10 +610,31 @@ export const revokeOtherSessionsResponseSchema = z.object({
 });
 export type RevokeOtherSessionsResponse = z.infer<typeof revokeOtherSessionsResponseSchema>;
 
+// Mirrors the server-side better-auth limits (AUTH_PASSWORD_MIN_LENGTH default
+// and the hard max in apps/api/src/auth.ts) so client validation matches what
+// the API will accept.
+export const PASSWORD_MIN_LENGTH = 10;
+export const PASSWORD_MAX_LENGTH = 128;
+
+export type PasswordStrength = 0 | 1 | 2 | 3 | 4;
+
+// Lightweight client-side strength hint: 0 empty, 1 below the minimum length,
+// 2 meets the minimum, 3 adds length or character variety, 4 has both.
+export function passwordStrengthScore(password: string): PasswordStrength {
+  if (!password) return 0;
+  if (password.length < PASSWORD_MIN_LENGTH) return 1;
+  const characterClasses = [/[a-z]/, /[A-Z]/, /\d/, /[^a-zA-Z\d]/]
+    .filter((pattern) => pattern.test(password)).length;
+  const long = password.length >= 14;
+  if (long && characterClasses >= 3) return 4;
+  if (long || characterClasses >= 3) return 3;
+  return 2;
+}
+
 export const registerRequestSchema = z.object({
   email: z.string().email().optional(),
   username: z.string().min(3).max(64).optional(),
-  password: z.string().min(8).max(256),
+  password: z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH),
   displayName: z.string().min(1).max(120).optional(),
   policyConsent: policyVersionsSchema,
   clientType: authClientTypeSchema.default("web"),

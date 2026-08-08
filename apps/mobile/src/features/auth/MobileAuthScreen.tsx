@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CurrentPoliciesResponse, OAuthProvider, OAuthProviderStatus } from "@persona/shared";
 import type { MobileTheme } from "../../theme/personaTheme";
 import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
+import { PasswordStrengthMeter } from "../../components/PasswordStrengthMeter";
 import { useLocalization } from "../../localization/LocalizationProvider";
 import { useNetwork } from "../../network/NetworkProvider";
 
@@ -238,6 +239,7 @@ export function MobileAuthScreen({
                       <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={20} color={theme.muted} />
                     </Pressable>
                   </View>
+                  {mode === "register" ? <PasswordStrengthMeter password={password} theme={theme} /> : null}
                 </View> : null}
                 {mode === "register" ? (
                   <Pressable

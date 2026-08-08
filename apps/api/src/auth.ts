@@ -8,11 +8,19 @@ import { env } from "./config/env.js";
 import { getDatabase } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { hashPassword, verifyPassword } from "./services/passwordService.js";
-import { passwordResetEmailEnabled, sendPasswordResetEmail } from "./services/authEmailService.js";
+import { authEmailEnabled, sendAccountRestoredEmail, sendPasswordChangedEmail, sendPasswordResetEmail, sendVerificationEmail } from "./services/authEmailService.js";
 import { authCookieAttributes } from "./utils/authCookieConfig.js";
+import { logger } from "./utils/logger.js";
 
 const database = getDatabase();
 const apiOrigin = env.BETTER_AUTH_URL ?? `http://localhost:${env.PORT}`;
+
+if (database && !authEmailEnabled) {
+  logger.warn(
+    "Auth email delivery is not configured (GMAIL_SMTP_USER/GMAIL_SMTP_APP_PASSWORD) — "
+    + "password-reset and email-verification messages will not be sent."
+  );
+}
 
 const socialProviders = {
   ...(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET ? {
@@ -81,6 +89,10 @@ export const auth = database ? betterAuth({
               deletionScheduledFor: null,
               updatedAt: new Date()
             }).where(eq(schema.users.id, user.id));
+            void sendAccountRestoredEmail({
+              email: user.email,
+              displayName: user.displayName ?? user.username ?? ""
+            });
           } else if (user.status !== "active") {
             return false;
           }
@@ -92,6 +104,21 @@ export const auth = database ? betterAuth({
             ? requestedClientType
             : "unknown";
           return { data: { ...session, clientType } };
+        }
+      }
+    },
+    account: {
+      update: {
+        after: async (account) => {
+          // Credential accounts only change when the password does (change or
+          // reset) — notify the account email so a hijack is visible.
+          if (account.providerId !== "credential" || !account.password) return;
+          const user = await database.query.users.findFirst({ where: eq(schema.users.id, account.userId) });
+          if (!user) return;
+          void sendPasswordChangedEmail({
+            email: user.email,
+            displayName: user.displayName ?? user.username ?? ""
+          });
         }
       }
     }
@@ -137,13 +164,33 @@ export const auth = database ? betterAuth({
   verification: {
     modelName: "betterAuthVerifications"
   },
+  emailVerification: {
+    // Soft verification: the email is sent but sign-in is never blocked, so
+    // username-only accounts (synthetic @users.invalid addresses) keep working.
+    sendOnSignUp: true,
+    expiresIn: 60 * 60,
+    ...(authEmailEnabled ? {
+      sendVerificationEmail: async ({ user, url }: { user: { email: string; name: string }; url: string }) => {
+        if (user.email.endsWith("@users.invalid")) return;
+        // Land verified users back on the web app home with a confirmation
+        // notice instead of the API's default callback.
+        const verificationUrl = new URL(url);
+        verificationUrl.searchParams.set("callbackURL", `${env.WEB_APP_URL}/?emailVerified=1`);
+        await sendVerificationEmail({
+          email: user.email,
+          displayName: user.name,
+          verificationUrl: verificationUrl.toString()
+        });
+      }
+    } : {})
+  },
   emailAndPassword: {
     enabled: true,
     minPasswordLength: env.AUTH_PASSWORD_MIN_LENGTH,
     maxPasswordLength: 128,
     resetPasswordTokenExpiresIn: 60 * 60,
     revokeSessionsOnPasswordReset: true,
-    ...(passwordResetEmailEnabled ? {
+    ...(authEmailEnabled ? {
       sendResetPassword: async ({ user, url }: { user: { email: string; name: string }; url: string }) => {
         // Better Auth should not report completion until Gmail accepted the
         // message. The mail service logs a sanitized SMTP error and throws a

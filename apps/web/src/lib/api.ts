@@ -3,6 +3,7 @@ import type {
   AuthUser,
   AuthSession,
   AccountDeletionResponse,
+  ActiveSession,
   ChatResponse,
   ChatJobResponse,
   ClientContext,
@@ -26,6 +27,7 @@ import type {
   ProviderId,
   RegisterRequest,
   RestoreAccountRequest,
+  RevokeOtherSessionsResponse,
   ToolOptions,
   UpdateUserProfileRequest,
   UploadedAsset
@@ -657,6 +659,32 @@ export const api = {
   unlinkConnectedAccount: async (providerId: string, accountId?: string): Promise<void> => {
     const result = await authClient.unlinkAccount({ providerId, ...(accountId ? { accountId } : {}) });
     if (result.error) throw authError(result.error);
+  },
+  listActiveSessions: async (): Promise<ActiveSession[]> => {
+    const [sessionsResult, currentResult] = await Promise.all([authClient.listSessions(), authClient.getSession()]);
+    if (sessionsResult.error) throw authError(sessionsResult.error);
+    return (sessionsResult.data ?? []).map((value) => {
+      const session = value as unknown as Record<string, unknown>;
+      return {
+        id: String(session.token),
+        clientType: "unknown" as const,
+        deviceId: null,
+        userAgent: typeof session.userAgent === "string" ? session.userAgent : null,
+        createdAt: new Date(session.createdAt as string | Date).toISOString(),
+        lastActiveAt: new Date(session.updatedAt as string | Date).toISOString(),
+        refreshExpiresAt: new Date(session.expiresAt as string | Date).toISOString(),
+        current: session.id === currentResult.data?.session.id
+      };
+    });
+  },
+  revokeActiveSession: async (sessionToken: string): Promise<void> => {
+    const result = await authClient.revokeSession({ token: sessionToken });
+    if (result.error) throw authError(result.error);
+  },
+  revokeOtherSessions: async (): Promise<RevokeOtherSessionsResponse> => {
+    const result = await authClient.revokeOtherSessions();
+    if (result.error) throw authError(result.error);
+    return { revoked: 0 };
   },
   getPersonas: async (): Promise<PersonaSummary[]> => {
     const response = await contractClient.personas.list();

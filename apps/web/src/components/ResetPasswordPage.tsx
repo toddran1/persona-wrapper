@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { PASSWORD_MIN_LENGTH } from "@persona/shared";
 import { api } from "../lib/api.js";
-
-const MIN_PASSWORD_LENGTH = 10;
+import { PasswordInput } from "./PasswordInput.js";
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -14,7 +14,7 @@ export function ResetPasswordPage() {
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const canSubmit = useMemo(
-    () => !invalidToken && password.length >= MIN_PASSWORD_LENGTH && password === confirmation && !busy,
+    () => !invalidToken && password.length >= PASSWORD_MIN_LENGTH && password === confirmation && !busy,
     [busy, confirmation, invalidToken, password]
   );
 
@@ -51,14 +51,14 @@ export function ResetPasswordPage() {
           </>
         ) : (
           <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-            <p>Choose a new password with at least {MIN_PASSWORD_LENGTH} characters.</p>
+            <p>Choose a new password with at least {PASSWORD_MIN_LENGTH} characters.</p>
             <label>
               New password
-              <input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} />
+              <PasswordInput ariaLabel="New password" autoComplete="new-password" value={password} onChange={setPassword} disabled={busy} showStrength />
             </label>
             <label>
               Confirm new password
-              <input type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={busy} />
+              <PasswordInput ariaLabel="Confirm new password" autoComplete="new-password" value={confirmation} onChange={setConfirmation} disabled={busy} />
             </label>
             {confirmation && password !== confirmation ? <p className="auth-lifecycle-error" role="alert">Passwords do not match.</p> : null}
             {error ? <p className="auth-lifecycle-error" role="alert">{error}</p> : null}

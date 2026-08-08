@@ -20,6 +20,7 @@ import { hasDatabaseErrorCode } from "../utils/databaseError.js";
 import { conversationStore } from "./chat.controller.js";
 import { customerUsageService } from "../services/customerUsageService.js";
 import { planAllowsModelProvider } from "../services/planCatalog.js";
+import { sendAccountDeletionScheduledEmail, sendAccountRestoredEmail } from "../services/authEmailService.js";
 
 function requireDatabase() {
   const db = getDatabase();
@@ -198,6 +199,10 @@ export async function restoreAccount(request: Request, response: Response): Prom
     deletionScheduledFor: null,
     updatedAt: new Date()
   }).where(eq(users.id, user.id));
+  void sendAccountRestoredEmail({
+    email: user.email,
+    displayName: user.displayName ?? user.username ?? ""
+  });
   response.status(200).json({ restored: true });
 }
 
@@ -231,6 +236,11 @@ export async function deleteAccount(request: Request, response: Response): Promi
       updatedAt: deletionRequestedAt
     }).where(eq(users.id, user.id));
     await tx.delete(betterAuthSessions).where(eq(betterAuthSessions.userId, user.id));
+  });
+  void sendAccountDeletionScheduledEmail({
+    email: user.email,
+    displayName: user.displayName ?? user.username ?? "",
+    deletionScheduledFor
   });
   response.status(202).json({
     status: "pending_deletion",

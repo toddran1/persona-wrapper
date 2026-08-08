@@ -1,4 +1,6 @@
+import { PASSWORD_MIN_LENGTH } from "@persona/shared";
 import type {
+  ActiveSession,
   AuthUser,
   ConnectedAccount,
   ConversationSummary,
@@ -9,12 +11,14 @@ import type {
   PlanUsageSummary,
   OAuthProviderStatus,
   PersonaSummary,
+  RevokeOtherSessionsResponse,
   UpdateUserProfileRequest,
 } from "@persona/shared";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { PasswordInput } from "./PasswordInput.js";
 
-const REGISTER_PASSWORD_MIN_LENGTH = 10;
+const REGISTER_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 type SettingsSection = "account" | "provider" | "plan" | "audio" | "security" | "memory" | "data" | "about" | "delete";
 
@@ -85,6 +89,9 @@ export function ConversationSidebar({
   onListConnectedAccounts,
   onLinkConnectedAccount,
   onUnlinkConnectedAccount,
+  onListActiveSessions,
+  onRevokeActiveSession,
+  onRevokeOtherSessions,
   onDeleteAccount,
   onExportAccount,
   onExportConversation,
@@ -133,6 +140,9 @@ export function ConversationSidebar({
   onListConnectedAccounts: () => Promise<ConnectedAccount[]>;
   onLinkConnectedAccount: (provider: OAuthProvider) => Promise<void>;
   onUnlinkConnectedAccount: (providerId: string, accountId?: string) => Promise<void>;
+  onListActiveSessions: () => Promise<ActiveSession[]>;
+  onRevokeActiveSession: (sessionToken: string) => Promise<void>;
+  onRevokeOtherSessions: () => Promise<RevokeOtherSessionsResponse>;
   onDeleteAccount: (payload: { confirmation: "DELETE"; password?: string }) => Promise<void>;
   onExportAccount: () => Promise<void>;
   onExportConversation: (conversationId: string) => Promise<void>;
@@ -169,6 +179,7 @@ export function ConversationSidebar({
   const [deletePassword, setDeletePassword] = useState("");
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
@@ -491,14 +502,47 @@ export function ConversationSidebar({
     const requestedAccountId = authUser?.id;
     setAuthBusy(true);
     try {
-      const accounts = await onListConnectedAccounts();
-      if (accountIdRef.current === requestedAccountId) setConnectedAccounts(accounts);
+      const [accounts, sessions] = await Promise.all([onListConnectedAccounts(), onListActiveSessions()]);
+      if (accountIdRef.current === requestedAccountId) {
+        setConnectedAccounts(accounts);
+        setActiveSessions(sessions);
+      }
     } catch (error) {
       if (accountIdRef.current === requestedAccountId) {
         setLocalAuthError(error instanceof Error ? error.message : "Could not load connected accounts.");
       }
     } finally {
       if (accountIdRef.current === requestedAccountId) setAuthBusy(false);
+    }
+  }
+
+  async function revokeSession(session: ActiveSession): Promise<void> {
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    setSecurityNotice(undefined);
+    try {
+      await onRevokeActiveSession(session.id);
+      setActiveSessions((current) => current.filter((candidate) => candidate.id !== session.id));
+      setSecurityNotice("That device was signed out.");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not sign out that device.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function revokeOtherSessions(): Promise<void> {
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    setSecurityNotice(undefined);
+    try {
+      await onRevokeOtherSessions();
+      setActiveSessions((current) => current.filter((session) => session.current));
+      setSecurityNotice("Other devices were signed out.");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not sign out other devices.");
+    } finally {
+      setAuthBusy(false);
     }
   }
 
@@ -911,17 +955,15 @@ export function ConversationSidebar({
                       autoComplete="username"
                       disabled={authBusy || authLoading}
                     />
-                    <input
+                    <PasswordInput
                       value={registerPassword}
-                      onChange={(event) =>
-                        setRegisterPassword(event.target.value)
-                      }
+                      onChange={setRegisterPassword}
                       placeholder={`Password (${REGISTER_PASSWORD_MIN_LENGTH}+ chars)`}
-                      aria-label="Password"
-                      data-testid="auth-register-password"
-                      type="password"
+                      ariaLabel="Password"
+                      testId="auth-register-password"
                       autoComplete="new-password"
                       disabled={authBusy || authLoading}
+                      showStrength
                     />
                     <label className="conversation-registration-consent">
                       <input
@@ -1555,9 +1597,9 @@ export function ConversationSidebar({
                           <h4>Change password</h4>
                           {connectedAccounts.some((account) => account.providerId === "credential") ? (
                             <div className="settings-form-grid">
-                              <label>Current password<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} disabled={authBusy} /></label>
-                              <label>New password<input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} disabled={authBusy} /></label>
-                              <label>Confirm new password<input type="password" autoComplete="new-password" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} disabled={authBusy} /></label>
+                              <label>Current password<PasswordInput ariaLabel="Current password" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} disabled={authBusy} /></label>
+                              <label>New password<PasswordInput ariaLabel="New password" autoComplete="new-password" value={newPassword} onChange={setNewPassword} disabled={authBusy} showStrength /></label>
+                              <label>Confirm new password<PasswordInput ariaLabel="Confirm new password" autoComplete="new-password" value={passwordConfirmation} onChange={setPasswordConfirmation} disabled={authBusy} /></label>
                               <button type="button" className="settings-action settings-action-primary" onClick={() => void submitChangePassword()} disabled={authBusy || !currentPassword || !newPassword || !passwordConfirmation}>
                                 {authBusy ? "Updating..." : "Update password"}
                               </button>
@@ -1587,6 +1629,34 @@ export function ConversationSidebar({
                               </button>
                             ))}
                           </div>
+                        </div>
+                        <div className="settings-subsection">
+                          <h4>Signed-in devices</h4>
+                          {activeSessions.length > 0 ? (
+                            <>
+                              <div className="settings-list">
+                                {activeSessions.map((session) => (
+                                  <div className="settings-list-row settings-list-row-action" key={session.id}>
+                                    <span>
+                                      {session.current ? "This device" : session.userAgent ?? "Unknown device"}
+                                      {" · "}
+                                      <small>active {new Date(session.lastActiveAt).toLocaleDateString([], { month: "short", day: "numeric" })}</small>
+                                    </span>
+                                    {session.current ? <strong>Current</strong> : (
+                                      <button type="button" className="settings-inline-action" onClick={() => void revokeSession(session)} disabled={authBusy}>Sign out</button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              {activeSessions.some((session) => !session.current) ? (
+                                <div className="settings-action-row">
+                                  <button type="button" className="settings-action" disabled={authBusy} onClick={() => void revokeOtherSessions()}>
+                                    Sign out other devices
+                                  </button>
+                                </div>
+                              ) : null}
+                            </>
+                          ) : authBusy ? <p className="settings-empty-copy">Loading devices...</p> : null}
                         </div>
                       </div>
                     ) : null}

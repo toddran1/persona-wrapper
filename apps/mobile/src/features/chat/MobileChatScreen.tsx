@@ -49,6 +49,7 @@ import { conversationsPageQueryOptions, conversationTurnsQueryOptions, personaQu
 import { clearUserQueryCache, restoreUserQueryCache, subscribeUserQueryCache } from "../../api/queryPersistence";
 import { IconButton } from "../../components/IconButton";
 import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
+import { PasswordStrengthMeter } from "../../components/PasswordStrengthMeter";
 import { useLocalization } from "../../localization/LocalizationProvider";
 import { useNetwork } from "../../network/NetworkProvider";
 import {
@@ -77,7 +78,7 @@ import {
   turnFromChatResponse,
   turnsFromConversationTurns
 } from "./mobileChatUtils";
-import { NEUTRAL_PERSONA_ID, stripGeneratedFileDownloadPrompt } from "@persona/shared";
+import { NEUTRAL_PERSONA_ID, PASSWORD_MIN_LENGTH, stripGeneratedFileDownloadPrompt } from "@persona/shared";
 import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
@@ -1036,8 +1037,8 @@ export function MobileChatScreen() {
   }
 
   async function changeAccountPassword(): Promise<void> {
-    if (newPassword.length < 10) {
-      setSecurityError("New password must be at least 10 characters.");
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
+      setSecurityError(`New password must be at least ${PASSWORD_MIN_LENGTH} characters.`);
       return;
     }
     if (newPassword !== newPasswordConfirmation) {
@@ -2630,8 +2631,8 @@ export function MobileChatScreen() {
       setAuthError("Enter the email address on your account.");
       return;
     }
-    if (authMode === "register" && password.length < 10) {
-      setAuthError("Password must be at least 10 characters.");
+    if (authMode === "register" && password.length < PASSWORD_MIN_LENGTH) {
+      setAuthError(`Password must be at least ${PASSWORD_MIN_LENGTH} characters.`);
       return;
     }
     setAuthBusy(true);
@@ -3828,7 +3829,8 @@ export function MobileChatScreen() {
                 <View style={styles.settingsSection}>
                   <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Change password</Text>
                   <TextInput accessibilityLabel="Current password" secureTextEntry autoCapitalize="none" autoComplete="current-password" value={currentPassword} onChangeText={setCurrentPassword} placeholder="Current password" placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
-                  <TextInput accessibilityLabel="New password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={newPassword} onChangeText={setNewPassword} placeholder="New password (10+ characters)" placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
+                  <TextInput accessibilityLabel="New password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={newPassword} onChangeText={setNewPassword} placeholder={`New password (${PASSWORD_MIN_LENGTH}+ characters)`} placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
+                  <PasswordStrengthMeter password={newPassword} theme={theme} />
                   <TextInput accessibilityLabel="Confirm new password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={newPasswordConfirmation} onChangeText={setNewPasswordConfirmation} placeholder="Confirm new password" placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
                   <Pressable accessibilityRole="button" disabled={securityLoading || !currentPassword || !newPassword || !newPasswordConfirmation} onPress={() => void changeAccountPassword()} style={[styles.settingsRow, { backgroundColor: theme.accent2, opacity: securityLoading || !currentPassword || !newPassword || !newPasswordConfirmation ? 0.45 : 1 }]}>
                     <Ionicons name="key-outline" size={22} color={theme.background} />

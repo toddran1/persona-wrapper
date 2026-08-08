@@ -41,8 +41,6 @@ import { authClient, MOBILE_AUTH_CALLBACK_URL } from "./authClient";
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL || Constants.expoConfig?.extra?.apiUrl;
 export const API_BASE_URL = String(configuredApiUrl || "http://localhost:4000").replace(/\/$/, "");
-const configuredWebAppUrl = process.env.EXPO_PUBLIC_WEB_APP_URL || Constants.expoConfig?.extra?.webAppUrl;
-const WEB_APP_BASE_URL = String(configuredWebAppUrl || "http://localhost:5173").replace(/\/$/, "");
 
 export type MobileChatPayload = {
   personaId: string;
@@ -734,8 +732,13 @@ export const api = {
   requestPasswordReset: async (email: string): Promise<void> => {
     const result = await authClient.requestPasswordReset({
       email: email.trim().toLowerCase(),
-      redirectTo: `${WEB_APP_BASE_URL}/reset-password`
+      // Deep link back into the app's native reset screen.
+      redirectTo: "personawrapper://reset-password"
     });
+    if (result.error) throw authError(result.error);
+  },
+  resetPassword: async (token: string, newPassword: string): Promise<void> => {
+    const result = await authClient.resetPassword({ token, newPassword });
     if (result.error) throw authError(result.error);
   },
   changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {

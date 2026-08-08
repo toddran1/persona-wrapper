@@ -306,6 +306,21 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [authError, setAuthError] = useState<string | undefined>();
   const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
+  // Landing state after the better-auth verify-email link redirects home.
+  const [emailVerificationNotice, setEmailVerificationNotice] = useState<"verified" | "invalid" | undefined>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("emailVerified") === "1") return "verified";
+    if (params.get("error") === "INVALID_TOKEN") return "invalid";
+    return undefined;
+  });
+
+  useEffect(() => {
+    if (!emailVerificationNotice) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("emailVerified");
+    url.searchParams.delete("error");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [emailVerificationNotice]);
 
   useEffect(() => {
     if (authUser?.modelProvider) setProvider(authUser.modelProvider);
@@ -1853,6 +1868,25 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       <GoldenPairReviewPage />
     ) : (
     <main className="page-shell" style={themeStyle}>
+      {emailVerificationNotice ? (
+        <div
+          className={`email-verification-notice${emailVerificationNotice === "invalid" ? " email-verification-notice-error" : ""}`}
+          role={emailVerificationNotice === "invalid" ? "alert" : "status"}
+        >
+          <span>
+            {emailVerificationNotice === "verified"
+              ? "Your email is verified — you're all set."
+              : "That verification link is invalid or has expired."}
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss email verification notice"
+            onClick={() => setEmailVerificationNotice(undefined)}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       <button
         type="button"
         className={`mobile-sidebar-toggle${mobileSidebarOpen ? " mobile-sidebar-toggle-open" : ""}`}
@@ -1908,6 +1942,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           onListConnectedAccounts={api.listConnectedAccounts}
           onLinkConnectedAccount={api.linkConnectedAccount}
           onUnlinkConnectedAccount={api.unlinkConnectedAccount}
+          onListActiveSessions={api.listActiveSessions}
+          onRevokeActiveSession={api.revokeActiveSession}
+          onRevokeOtherSessions={api.revokeOtherSessions}
           onDeleteAccount={handleDeleteAccount}
           onExportAccount={handleExportAccount}
           onExportConversation={handleExportConversation}

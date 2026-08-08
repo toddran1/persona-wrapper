@@ -29,6 +29,28 @@ const planUsage = {
   meters: [],
   enforcementEnabled: false
 };
+const activeSessions = [
+  {
+    id: "session-current",
+    clientType: "unknown" as const,
+    deviceId: null,
+    userAgent: null,
+    createdAt: now,
+    lastActiveAt: now,
+    refreshExpiresAt: now,
+    current: true
+  },
+  {
+    id: "session-other",
+    clientType: "unknown" as const,
+    deviceId: null,
+    userAgent: "Chrome on macOS",
+    createdAt: now,
+    lastActiveAt: now,
+    refreshExpiresAt: now,
+    current: false
+  }
+];
 const persona = personaSummarySchema.parse({
   id: "larae",
   name: "LaRae the Baddest",
@@ -94,6 +116,9 @@ function renderSidebar(options: {
       onClearConversationMemory={vi.fn().mockResolvedValue(undefined)}
       onClearAllMemory={onClearAllMemory}
       onGetPlanUsage={vi.fn().mockResolvedValue(options.planUsageOverride ?? planUsage)}
+      onListActiveSessions={vi.fn().mockResolvedValue(activeSessions)}
+      onRevokeActiveSession={vi.fn().mockResolvedValue(undefined)}
+      onRevokeOtherSessions={vi.fn().mockResolvedValue({ revoked: 1 })}
       onListConnectedAccounts={vi.fn().mockResolvedValue([
         {
           id: "account_credential",
@@ -148,6 +173,9 @@ describe("ConversationSidebar settings", () => {
         onClearConversationMemory={vi.fn()}
         onClearAllMemory={vi.fn()}
         onGetPlanUsage={vi.fn().mockResolvedValue(planUsage)}
+        onListActiveSessions={vi.fn()}
+        onRevokeActiveSession={vi.fn()}
+        onRevokeOtherSessions={vi.fn()}
         onListConnectedAccounts={vi.fn()}
         onLinkConnectedAccount={vi.fn()}
         onUnlinkConnectedAccount={vi.fn()}
@@ -251,6 +279,11 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(dialog).getByRole("button", { name: "Security & sign-in" }));
     expect(await within(dialog).findByRole("heading", { name: "Connected accounts" })).toBeInTheDocument();
     expect(within(dialog).getByText("Email & password")).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "Signed-in devices" })).toBeInTheDocument();
+    expect(within(dialog).getByText(/This device/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Chrome on macOS/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Sign out other devices" }));
+    await waitFor(() => expect(within(dialog).queryByText(/Chrome on macOS/)).not.toBeInTheDocument());
 
     await user.click(within(dialog).getByRole("button", { name: "Memory" }));
     await waitFor(() => expect(onGetMemorySettings).toHaveBeenCalledOnce());

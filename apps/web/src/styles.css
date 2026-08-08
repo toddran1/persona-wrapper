@@ -1513,6 +1513,87 @@ textarea {
   outline: none;
 }
 
+.password-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.password-field-shell {
+  align-items: center;
+  display: flex;
+  position: relative;
+}
+
+.password-field-shell input {
+  flex: 1;
+  padding-right: 58px;
+  width: 100%;
+}
+
+.password-field-toggle {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+  position: absolute;
+  right: 4px;
+  text-transform: uppercase;
+}
+
+.password-field-toggle:hover {
+  color: var(--theme-text);
+}
+
+.password-strength {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  padding: 0 2px;
+}
+
+.password-strength-bars {
+  display: flex;
+  flex: 1;
+  gap: 5px;
+}
+
+.password-strength-bar {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  flex: 1;
+  height: 4px;
+}
+
+.password-strength-1 .password-strength-bar-filled {
+  background: var(--theme-danger, #ff6b7a);
+}
+
+.password-strength-2 .password-strength-bar-filled {
+  background: #e0a54a;
+}
+
+.password-strength-3 .password-strength-bar-filled {
+  background: var(--accent-2);
+}
+
+.password-strength-4 .password-strength-bar-filled {
+  background: #3ecf8e;
+}
+
+.password-strength-label {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  min-width: 56px;
+  text-align: right;
+  text-transform: uppercase;
+}
+
 .settings-birthday-fields {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(88px, 0.7fr);
@@ -1617,6 +1698,42 @@ textarea {
   border-color: rgba(255, 107, 127, 0.3);
   color: #ffd4db;
   background: rgba(127, 31, 58, 0.13);
+}
+
+.email-verification-notice {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(480px, calc(100vw - 32px));
+  padding: 11px 16px;
+  border: 1px solid rgba(214, 181, 94, 0.28);
+  border-radius: 12px;
+  color: rgba(255, 244, 211, 0.92);
+  background: rgba(24, 18, 32, 0.96);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  font-size: 0.78rem;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.email-verification-notice button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.email-verification-notice-error {
+  border-color: rgba(255, 107, 127, 0.35);
+  color: #ffd4db;
 }
 
 .settings-data-actions {
