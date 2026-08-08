@@ -31,7 +31,7 @@ import {
   estimatedAudioSecondsForCharacters,
   maxOutputTokensForRequest
 } from "../services/audioResponsePolicy.js";
-import { conciseAudioResponsesForUser, modelProviderForUser } from "../services/accountPreferenceService.js";
+import { conciseAudioResponsesForUser, modelProviderForUser, personaInfluenceLevelForUser } from "../services/accountPreferenceService.js";
 
 export const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -102,7 +102,10 @@ export async function postChat(request: Request, response: Response): Promise<vo
   let customerUsageOperationId: string | undefined;
   let reservationReconciled = false;
   try {
-    let payload = await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity);
+    let payload = await applyPersonaInfluencePreference(
+      await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity),
+      identity
+    );
     payload = await selectToolsForRequest(payload, identity);
     const persona = getPersonaById(payload.personaId);
     if (!persona) {
@@ -213,7 +216,10 @@ export async function postChatStream(request: Request, response: Response): Prom
   let reservationReconciled = false;
   let payload: ChatRequest;
   try {
-    payload = await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity);
+    payload = await applyPersonaInfluencePreference(
+      await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity),
+      identity
+    );
     payload = await selectToolsForRequest(payload, identity);
     const persona = getPersonaById(payload.personaId);
     if (!persona) {
@@ -391,6 +397,13 @@ async function applyModelProviderPreference(payload: ChatRequest, identity: stri
   return {
     ...payload,
     provider: storedProvider ?? payload.provider
+  };
+}
+
+async function applyPersonaInfluencePreference(payload: ChatRequest, identity: string): Promise<ChatRequest> {
+  return {
+    ...payload,
+    personaInfluenceLevel: await personaInfluenceLevelForUser(identity)
   };
 }
 

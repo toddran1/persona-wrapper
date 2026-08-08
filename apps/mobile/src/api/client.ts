@@ -391,6 +391,11 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
     memoryEnabled: typeof user.memoryEnabled === "boolean" ? user.memoryEnabled : true,
     conciseAudioResponses: typeof user.conciseAudioResponses === "boolean" ? user.conciseAudioResponses : true,
     modelProvider: user.modelProvider === "gemini" ? "gemini" : "openai",
+    personaInfluenceLevel: user.personaInfluenceLevel === undefined || user.personaInfluenceLevel === null
+      ? "uncensored"
+      : user.personaInfluenceLevel === "uncensored"
+        ? "uncensored"
+        : "professional",
     termsVersionAccepted: typeof user.termsVersionAccepted === "string" ? user.termsVersionAccepted : null,
     termsAcceptedAt: user.termsAcceptedAt ? new Date(user.termsAcceptedAt as string | Date).toISOString() : null,
     privacyVersionAccepted: typeof user.privacyVersionAccepted === "string" ? user.privacyVersionAccepted : null,

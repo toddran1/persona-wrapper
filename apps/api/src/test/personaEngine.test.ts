@@ -37,6 +37,30 @@ describe("PersonaEngine", () => {
     expect(prompt).not.toContain("Clock it.");
   });
 
+  it("uses clean persona-specific direction in professional mode", () => {
+    const persona = getPersonaById("larae");
+    const engine = new PersonaEngine();
+
+    expect(persona).toBeDefined();
+    const input = engine.prepareInput(persona!, {
+      personaId: "larae",
+      personaInfluenceLevel: "professional",
+      provider: "openai",
+      message: "Help me plan a presentation.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+
+    expect(input.personaInfluenceLevel).toBe("professional");
+    expect(input.systemPrompt).toContain("Professional persona direction:");
+    expect(input.systemPrompt).toContain("workplace-appropriate language");
+    expect(input.systemPrompt).toContain("bold Miami energy");
+    expect(input.systemPrompt).not.toContain("Speech style: slang-heavy, profanity-heavy");
+    expect(input.systemPrompt).not.toContain("Catchphrases: Ok bitch!");
+    expect(input.baseSystemPrompt).toBe(input.systemPrompt);
+  });
+
   it("adds optional user personalization without inferring age or pronouns", () => {
     const persona = getPersonaById("larae");
     const engine = new PersonaEngine();

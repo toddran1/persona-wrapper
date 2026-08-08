@@ -24,6 +24,9 @@ export type ProviderId = z.infer<typeof providerSchema>;
 export const modelProviderPreferenceSchema = z.enum(["openai", "gemini"]);
 export type ModelProviderPreference = z.infer<typeof modelProviderPreferenceSchema>;
 
+export const personaInfluenceLevelSchema = z.enum(["uncensored", "professional"]);
+export type PersonaInfluenceLevel = z.infer<typeof personaInfluenceLevelSchema>;
+
 export const outputTypeSchema = z.enum([
   "text",
   "json",
@@ -462,14 +465,15 @@ export const userPersonalizationProfileSchema = z.object({
   gender: userGenderSchema.nullable().optional(),
   birthday: userBirthdaySchema.nullable().optional(),
   conciseAudioResponses: z.boolean().optional(),
-  modelProvider: modelProviderPreferenceSchema.optional()
+  modelProvider: modelProviderPreferenceSchema.optional(),
+  personaInfluenceLevel: personaInfluenceLevelSchema.optional()
 });
 export type UserPersonalizationProfile = z.infer<typeof userPersonalizationProfileSchema>;
 
 export const updateUserProfileRequestSchema = userPersonalizationProfileSchema.extend({
   username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_.]+$/, "Use letters, numbers, periods, or underscores only.").optional()
 }).refine(
-  (value) => value.preferredName !== undefined || value.gender !== undefined || value.birthday !== undefined || value.username !== undefined || value.conciseAudioResponses !== undefined || value.modelProvider !== undefined,
+  (value) => value.preferredName !== undefined || value.gender !== undefined || value.birthday !== undefined || value.username !== undefined || value.conciseAudioResponses !== undefined || value.modelProvider !== undefined || value.personaInfluenceLevel !== undefined,
   { message: "At least one profile field must be provided." }
 );
 export type UpdateUserProfileRequest = z.infer<typeof updateUserProfileRequestSchema>;
@@ -565,6 +569,7 @@ export const authUserSchema = z.object({
   memoryEnabled: z.boolean().optional(),
   conciseAudioResponses: z.boolean().optional(),
   modelProvider: modelProviderPreferenceSchema.optional(),
+  personaInfluenceLevel: personaInfluenceLevelSchema.optional(),
   termsVersionAccepted: z.string().nullable().optional(),
   termsAcceptedAt: z.string().nullable().optional(),
   privacyVersionAccepted: z.string().nullable().optional(),
@@ -692,6 +697,7 @@ export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
 
 export const chatRequestSchema = z.object({
   personaId: z.string().min(1),
+  personaInfluenceLevel: personaInfluenceLevelSchema.default("uncensored"),
   message: z.string().max(
     MAX_CHAT_MESSAGE_CHARACTERS,
     `Messages must be ${MAX_CHAT_MESSAGE_CHARACTERS.toLocaleString("en-US")} characters or fewer.`
@@ -877,6 +883,7 @@ export const personaDefinitionSchema = personaSummarySchema.extend({
   characterInfluences: personaCharacterInfluencesSchema.optional(),
   responseStyle: personaResponseStyleSchema.optional(),
   directResponseInstructions: z.array(z.string().min(1)).default([]),
+  professionalInstructions: z.array(z.string().min(1)).default([]),
   styleReference: personaStyleReferenceSchema.optional(),
   imagePromptSanitization: personaImagePromptSanitizationSchema.optional(),
   // When true, the persona engine sends no persona/style instructions and the
@@ -928,6 +935,7 @@ export type PersonaDefinitionInput = z.input<typeof personaDefinitionSchema>;
 
 export const llmInputSchema = z.object({
   persona: personaDefinitionSchema,
+  personaInfluenceLevel: personaInfluenceLevelSchema.default("uncensored"),
   systemPrompt: z.string(),
   baseSystemPrompt: z.string().optional(),
   messages: z.array(chatMessageSchema),

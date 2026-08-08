@@ -1,6 +1,7 @@
-import type { PersonaDefinition } from "@persona/shared";
+import type { PersonaDefinition, PersonaInfluenceLevel } from "@persona/shared";
 import { env } from "../config/env.js";
 import { applyPersonaVoicePerformance } from "./personaVoicePerformance.js";
+import { sanitizeProfessionalSpeech } from "./professionalLanguageService.js";
 
 const STATE_NAMES: Record<string, string> = {
   AL: "Alabama",
@@ -210,13 +211,24 @@ function addPersonaPerformanceCues(text: string, persona: PersonaDefinition): st
   return applyPersonaVoicePerformance(text, persona, modelId);
 }
 
-export function buildTtsScript(text: string, persona: PersonaDefinition): string {
-  const cleanText = stripEmojiForSpeech(stripMarkdownForSpeech(text));
+export function buildTtsScript(
+  text: string,
+  persona: PersonaDefinition,
+  influenceLevel: PersonaInfluenceLevel = "uncensored"
+): string {
+  const sourceText = influenceLevel === "professional"
+    ? sanitizeProfessionalSpeech(text).text
+    : text;
+  const cleanText = stripEmojiForSpeech(stripMarkdownForSpeech(sourceText));
   const normalizedText = normalizeSymbols(normalizeOrdinals(normalizeTimes(normalizePercentages(normalizeMoney(cleanText)))));
   const expandedText = applyCommonSpeechReplacements(expandStateAbbreviations(normalizedText));
   return addPersonaPerformanceCues(addPacing(expandedText), persona);
 }
 
-export async function buildTtsScriptForSpeech(text: string, persona: PersonaDefinition): Promise<{ script: string; mode: "mechanical" }> {
-  return { script: buildTtsScript(text, persona), mode: "mechanical" };
+export async function buildTtsScriptForSpeech(
+  text: string,
+  persona: PersonaDefinition,
+  influenceLevel: PersonaInfluenceLevel = "uncensored"
+): Promise<{ script: string; mode: "mechanical" }> {
+  return { script: buildTtsScript(text, persona, influenceLevel), mode: "mechanical" };
 }

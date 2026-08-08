@@ -301,7 +301,7 @@ function authError(error: { message?: string | undefined } | null): Error {
   return new Error(error?.message || "Authentication failed. Please try again.");
 }
 
-function toAuthUser(user: Record<string, unknown>): AuthUser {
+export function toAuthUser(user: Record<string, unknown>): AuthUser {
   const email = typeof user.email === "string" && !user.email.endsWith("@users.invalid") ? user.email : null;
   return {
     id: String(user.id),
@@ -325,6 +325,11 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
     memoryEnabled: typeof user.memoryEnabled === "boolean" ? user.memoryEnabled : true,
     conciseAudioResponses: typeof user.conciseAudioResponses === "boolean" ? user.conciseAudioResponses : true,
     modelProvider: user.modelProvider === "gemini" ? "gemini" : "openai",
+    personaInfluenceLevel: user.personaInfluenceLevel === undefined || user.personaInfluenceLevel === null
+      ? "uncensored"
+      : user.personaInfluenceLevel === "uncensored"
+        ? "uncensored"
+        : "professional",
     termsVersionAccepted: typeof user.termsVersionAccepted === "string" ? user.termsVersionAccepted : null,
     termsAcceptedAt: user.termsAcceptedAt ? new Date(user.termsAcceptedAt as string | Date).toISOString() : null,
     privacyVersionAccepted: typeof user.privacyVersionAccepted === "string" ? user.privacyVersionAccepted : null,

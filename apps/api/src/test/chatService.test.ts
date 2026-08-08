@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
 import { StubStyleTransferProvider } from "../providers/styleTransfer/StubStyleTransferProvider.js";
+import { OpenAIProvider } from "../providers/llm/OpenAIProvider.js";
 import { ChatService } from "../services/chatService.js";
 import { ConversationStore } from "../services/conversationStore.js";
 import { generatedAudioService } from "../services/generatedAudioService.js";
@@ -173,6 +174,100 @@ describe("ChatService", () => {
     });
 
     expect(transferSpy).toHaveBeenCalled();
+  });
+
+  it("skips uncensored style transfer and phrase replacements in professional mode", async () => {
+    const transferSpy = vi.spyOn(StubStyleTransferProvider.prototype, "transferStyle");
+    const response = await new ChatService().handleChat({
+      personaId: "larae",
+      personaInfluenceLevel: "professional",
+      provider: "claude",
+      message: "Give me a professional introduction.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+
+    expect(transferSpy).not.toHaveBeenCalled();
+    const text = response.outputs.find((output) => output.type === "text");
+    expect(text?.type === "text" ? text.text : "").not.toMatch(/\bbitch\b/i);
+  });
+
+  it("keeps direct stub responses clean in professional mode", async () => {
+    const response = await new ChatService().handleChat({
+      personaId: "larae",
+      personaInfluenceLevel: "professional",
+      provider: "openai",
+      message: "Please introduce yourself.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+
+    const text = response.outputs.find((output) => output.type === "text");
+    const responseText = text?.type === "text" ? text.text : "";
+    expect(responseText).toContain("bold personality");
+    expect(responseText).not.toMatch(/\b(?:bitch|fuck|hoe)\b/i);
+  });
+
+  it("sanitizes unexpected provider profanity in every professional text block", async () => {
+    vi.spyOn(OpenAIProvider.prototype, "generateResponse").mockResolvedValue({
+      provider: "openai",
+      rawText: "Bitch, this damn answer is useful as hell.",
+      content: [
+        { type: "text", text: "Bitch, this damn answer is useful as hell." },
+        { type: "text", text: "A second fucking text block." },
+        { type: "code", title: "A damn exact example", language: "text", code: 'const quote = "fuck";' },
+        { type: "status", status: "completed", message: "This shit is ready." }
+      ]
+    });
+
+    const response = await new ChatService().handleChat({
+      personaId: "larae",
+      personaInfluenceLevel: "professional",
+      provider: "openai",
+      message: "Give me an update.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+
+    const allText = response.outputs
+      .filter((output) => output.type === "text")
+      .map((output) => output.type === "text" ? output.text : "")
+      .join(" ");
+    expect(allText).not.toMatch(/\b(?:bitch|damn|hell|fuck(?:ing)?)\b/i);
+    const code = response.outputs.find((output) => output.type === "code");
+    const status = response.outputs.find((output) => output.type === "status");
+    expect(code?.type === "code" ? code.title : "").toBe("A serious exact example");
+    expect(code?.type === "code" ? code.code : "").toContain('"fuck"');
+    expect(status?.type === "status" ? status.message : "").toBe("This mess is ready.");
+  });
+
+  it("buffers professional stream deltas until the final response is sanitized", async () => {
+    vi.spyOn(OpenAIProvider.prototype, "generateResponseStream").mockImplementation(async (_input, callbacks) => {
+      callbacks.onTextDelta("Bitch, this shit should never stream raw.");
+      return {
+        provider: "openai",
+        rawText: "Bitch, this shit should never stream raw.",
+        content: [{ type: "text", text: "Bitch, this shit should never stream raw." }]
+      };
+    });
+    const deltas: string[] = [];
+
+    const response = await new ChatService().handleChat({
+      personaId: "larae",
+      personaInfluenceLevel: "professional",
+      provider: "openai",
+      message: "Give me an update.",
+      audio: false,
+      testMode: false,
+      history: []
+    }, { onTextDelta: (delta) => deltas.push(delta) });
+
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]).not.toMatch(/\b(?:bitch|shit)\b/i);
+    expect(deltas[0]).toBe(response.outputs.find((output) => output.type === "text")?.text);
   });
 
   it("never attempts audio generation for the neutral persona, even when audio is requested", async () => {

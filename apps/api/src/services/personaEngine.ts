@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   ChatRequest,
   LLMInput,
+  PersonaInfluenceLevel,
   PersonaDefinition,
   UserPersonalizationProfile
 } from "@persona/shared";
@@ -55,7 +56,12 @@ function userPersonalizationPrompt(profile?: UserPersonalizationProfile): string
 }
 
 export class PersonaEngine {
-  createSystemPrompt(persona: PersonaDefinition, userProfile?: UserPersonalizationProfile): string {
+  createSystemPrompt(
+    persona: PersonaDefinition,
+    userProfile?: UserPersonalizationProfile,
+    influenceLevel: PersonaInfluenceLevel = "uncensored"
+  ): string {
+    influenceLevel ??= "uncensored";
     if (persona.neutralStyle) {
       return [
         "You are a helpful AI assistant. Answer directly and accurately without any persona, character voice, or styling.",
@@ -65,26 +71,45 @@ export class PersonaEngine {
         "If a tool is needed, declare a structured tool call."
       ].join("\n");
     }
+    const performanceInstructions = influenceLevel === "professional"
+      ? persona.professionalInstructions
+      : persona.directResponseInstructions;
     return [
       `You are ${persona.name}, a fictional AI persona.`,
-      `Biography: ${persona.biography}`,
+      ...(influenceLevel === "uncensored" ? [`Biography: ${persona.biography}`] : []),
       `Personality traits: ${persona.personalityTraits.join(", ")}`,
-      `Speech style: ${persona.speechStyle.join("; ")}`,
-      `Catchphrases: ${persona.catchphrases.join(" | ")}`,
-      `Visual style: ${persona.visualStyle.join(", ")}`,
+      ...(influenceLevel === "uncensored" ? [
+        `Speech style: ${persona.speechStyle.join("; ")}`,
+        `Catchphrases: ${persona.catchphrases.join(" | ")}`
+      ] : []),
+      ...(influenceLevel === "uncensored" ? [`Visual style: ${persona.visualStyle.join(", ")}`] : []),
       ...characterInfluencePrompt(persona),
       ...userPersonalizationPrompt(userProfile),
       ...personaAttributionInstructions(persona),
       `Safety boundaries: ${persona.safetyBoundaries.join(" ")}`,
+      ...(performanceInstructions.length > 0
+        ? [
+            influenceLevel === "professional" ? "Professional persona direction:" : "Persona performance direction:",
+            ...performanceInstructions
+          ]
+        : []),
       "Stay entertaining, stylized, and coherent.",
       "Return multimodal output when useful, not only plain text.",
       "If a tool is needed, declare a structured tool call."
     ].join("\n");
   }
 
-  createBaseSystemPrompt(persona: PersonaDefinition, userProfile?: UserPersonalizationProfile): string {
+  createBaseSystemPrompt(
+    persona: PersonaDefinition,
+    userProfile?: UserPersonalizationProfile,
+    influenceLevel: PersonaInfluenceLevel = "uncensored"
+  ): string {
+    influenceLevel ??= "uncensored";
     if (persona.neutralStyle) {
-      return this.createSystemPrompt(persona, userProfile);
+      return this.createSystemPrompt(persona, userProfile, influenceLevel);
+    }
+    if (influenceLevel === "professional") {
+      return this.createSystemPrompt(persona, userProfile, influenceLevel);
     }
     return [
       `You are generating a base answer for ${persona.name}.`,
@@ -116,13 +141,15 @@ export class PersonaEngine {
   }
 
   prepareInput(persona: PersonaDefinition, request: ChatRequest, userProfile?: UserPersonalizationProfile): LLMInput {
-    const systemPrompt = this.createSystemPrompt(persona, userProfile);
-    const baseSystemPrompt = this.createBaseSystemPrompt(persona, userProfile);
+    const personaInfluenceLevel = request.personaInfluenceLevel ?? "uncensored";
+    const systemPrompt = this.createSystemPrompt(persona, userProfile, personaInfluenceLevel);
+    const baseSystemPrompt = this.createBaseSystemPrompt(persona, userProfile, personaInfluenceLevel);
     const messages = this.buildMessages(systemPrompt, request.history, request.message);
     const baseMessages = this.buildMessages(baseSystemPrompt, request.history, request.message);
 
     return {
       persona,
+      personaInfluenceLevel,
       systemPrompt,
       baseSystemPrompt,
       messages,

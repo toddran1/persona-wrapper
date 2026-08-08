@@ -13,6 +13,9 @@ export function validatePersonaRegistry(inputs: readonly PersonaDefinitionInput[
     if (seenIds.has(persona.id)) {
       throw new Error(`Duplicate persona ID "${persona.id}". Persona IDs must be unique and stable.`);
     }
+    if (!persona.neutralStyle && persona.professionalInstructions.length === 0) {
+      throw new Error(`Persona "${persona.id}" must define professional instructions.`);
+    }
     seenIds.add(persona.id);
   }
   return parsed;

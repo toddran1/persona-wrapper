@@ -784,7 +784,7 @@ export function MobileChatScreen() {
     setProfileSelection(undefined);
     setProfileError(undefined);
     setProfileNotice(undefined);
-    if (panel === "audio" || panel === "provider") {
+    if (panel === "audio" || panel === "provider" || panel === "influence") {
       setAudioSettingsError(undefined);
       setAudioSettingsNotice(undefined);
     }
@@ -892,6 +892,26 @@ export function MobileChatScreen() {
       setAudioSettingsNotice(`${modelProvider === "gemini" ? "Gemini" : "ChatGPT"} will answer new requests.`);
     } catch (providerError) {
       setAudioSettingsError(providerError instanceof Error ? providerError.message : "Could not update the model provider.");
+    } finally {
+      setAudioSettingsBusy(false);
+    }
+  }
+
+  async function updatePersonaInfluenceLevel(personaInfluenceLevel: "uncensored" | "professional"): Promise<void> {
+    if (personaInfluenceLevel === (authUser?.personaInfluenceLevel ?? "uncensored")) return;
+    setAudioSettingsBusy(true);
+    setAudioSettingsError(undefined);
+    setAudioSettingsNotice(undefined);
+    try {
+      const updatedUser = await api.updateProfile({ personaInfluenceLevel });
+      setAuthUser(updatedUser);
+      setAudioSettingsNotice(personaInfluenceLevel === "professional"
+        ? "Professional persona style will apply to new responses."
+        : "The full uncensored persona experience will apply to new responses.");
+    } catch (influenceError) {
+      setAudioSettingsError(influenceError instanceof Error
+        ? influenceError.message
+        : "Could not update the persona influence level.");
     } finally {
       setAudioSettingsBusy(false);
     }
@@ -3424,7 +3444,7 @@ export function MobileChatScreen() {
             </Pressable>
             {settingsPanel !== "main" ? (
               <Text style={[styles.settingsPanelTitle, { color: theme.text }]}>
-                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "provider" ? "Provider settings" : settingsPanel === "plan" ? "Plan & usage" : settingsPanel === "audio" ? "Audio" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "memory" ? "Memory" : settingsPanel === "about" ? "About" : "Your data"}
+                {settingsPanel === "profile" ? "Personalization" : settingsPanel === "influence" ? "Persona influence" : settingsPanel === "provider" ? "Provider settings" : settingsPanel === "plan" ? "Plan & usage" : settingsPanel === "audio" ? "Audio" : settingsPanel === "security" ? "Security & sign-in" : settingsPanel === "sessions" ? "Active sessions" : settingsPanel === "memory" ? "Memory" : settingsPanel === "about" ? "About" : "Your data"}
               </Text>
             ) : null}
           </View>
@@ -3482,6 +3502,14 @@ export function MobileChatScreen() {
                   <View style={styles.settingsRowCopy}>
                     <Text style={[styles.settingsRowText, { color: theme.text }]}>Provider settings</Text>
                     <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{(authUser?.modelProvider ?? "openai") === "gemini" ? "Gemini" : "ChatGPT"}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Open persona influence settings" onPress={() => openSettingsPanel("influence")} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                  <Ionicons name="sparkles-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Persona influence</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{(authUser?.personaInfluenceLevel ?? "uncensored") === "professional" ? "Professional" : "Uncensored"}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
                 </Pressable>
@@ -3719,6 +3747,37 @@ export function MobileChatScreen() {
                 );
               })}
               <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Image generation may use the app’s specialized image service even when Gemini is selected.</Text>
+              {audioSettingsBusy ? <ActivityIndicator color={theme.accent2} /> : null}
+            </View>
+          ) : null}
+          {settingsPanel === "influence" ? (
+            <View style={styles.settingsSection}>
+              <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Choose how strongly persona language shapes new responses. This does not change safety protections.</Text>
+              {audioSettingsError ? <Text style={[styles.settingsPanelDescription, { color: theme.danger }]} accessibilityRole="alert">{audioSettingsError}</Text> : null}
+              {audioSettingsNotice ? <Text style={[styles.settingsPanelDescription, { color: theme.accent2 }]} accessibilityLiveRegion="polite">{audioSettingsNotice}</Text> : null}
+              {([[
+                "uncensored", "Uncensored", "The full persona experience with unfiltered language and the strongest character voice."
+              ], [
+                "professional", "Professional", "Keeps the persona's style and slang while avoiding profanity and vulgar language."
+              ]] as const).map(([value, label, description]) => {
+                const selected = (authUser?.personaInfluenceLevel ?? "uncensored") === value;
+                return (
+                  <Pressable
+                    key={value}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected, disabled: audioSettingsBusy }}
+                    disabled={audioSettingsBusy}
+                    onPress={() => void updatePersonaInfluenceLevel(value)}
+                    style={[styles.settingsRow, { backgroundColor: selected ? `${theme.accent}30` : "rgba(255,255,255,0.09)", borderColor: selected ? theme.accent2 : theme.border, borderWidth: 1 }]}
+                  >
+                    <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={22} color={selected ? theme.accent2 : theme.muted} />
+                    <View style={styles.settingsRowCopy}>
+                      <Text style={[styles.settingsRowText, { color: theme.text }]}>{label}</Text>
+                      <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{description}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
               {audioSettingsBusy ? <ActivityIndicator color={theme.accent2} /> : null}
             </View>
           ) : null}

@@ -28,6 +28,24 @@ describe("shared schemas", () => {
     expect(() => updateUserProfileRequestSchema.parse({ birthday: { month: 2, day: 30 } })).toThrow();
     expect(() => updateUserProfileRequestSchema.parse({ username: "not allowed" })).toThrow();
     expect(() => updateUserProfileRequestSchema.parse({})).toThrow();
+    expect(updateUserProfileRequestSchema.parse({ personaInfluenceLevel: "professional" }))
+      .toEqual({ personaInfluenceLevel: "professional" });
+    expect(() => updateUserProfileRequestSchema.parse({ personaInfluenceLevel: "anything" })).toThrow();
+  });
+
+  it("defaults chat requests to the existing uncensored persona experience", () => {
+    const request = chatRequestSchema.parse({
+      personaId: "larae",
+      message: "Hello",
+      provider: "openai",
+      audio: false
+    });
+    expect(request.personaInfluenceLevel).toBe("uncensored");
+    expect(() => chatRequestSchema.parse({
+      personaId: "larae",
+      personaInfluenceLevel: "invalid",
+      message: "Hello"
+    })).toThrow();
   });
 
   it("validates bounded unsafe-output reports", () => {

@@ -25,6 +25,11 @@ import { applyPersonaPhraseReplacements } from "./personaPhraseReplacementServic
 import { getDatabase } from "../db/client.js";
 import { users } from "../db/schema.js";
 import { analyzeImageReferenceRequirement, missingImageReferenceMessage } from "./imageReferenceRequirement.js";
+import {
+  sanitizeProfessionalContentBlock,
+  sanitizeProfessionalLanguage,
+  sanitizeProfessionalSpeech
+} from "./professionalLanguageService.js";
 
 export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
@@ -121,6 +126,10 @@ export class ChatService {
     options: ChatServiceOptions = {}
   ): Promise<ChatResponse> {
     signal?.throwIfAborted();
+    request = {
+      ...request,
+      personaInfluenceLevel: request.personaInfluenceLevel ?? "uncensored"
+    };
     const persona = getPersonaById(request.personaId);
     if (!persona) {
       throw new HttpError(`Unknown persona: ${request.personaId}`, 404);
@@ -503,16 +512,19 @@ export class ChatService {
         });
       }
     }
+    const providerStreamCallbacks = streamCallbacks && request.personaInfluenceLevel === "professional"
+      ? { onTextDelta: (_delta: string) => undefined }
+      : streamCallbacks;
     let llmOutput;
     try {
       llmOutput = llmOutputSchema.parse(await measureOperation("provider.llm", {
         provider: request.provider,
-        mode: streamCallbacks && llmProvider.generateResponseStream ? "stream" : "standard",
+        mode: providerStreamCallbacks && llmProvider.generateResponseStream ? "stream" : "standard",
         imageGeneration: Boolean(llmInput.toolOptions?.imageGeneration),
         codeInterpreter: Boolean(llmInput.toolOptions?.codeInterpreter),
         webSearch: Boolean(llmInput.toolOptions?.webSearch)
-      }, () => streamCallbacks && llmProvider.generateResponseStream
-        ? llmProvider.generateResponseStream(llmInput, streamCallbacks, signal, progressCallbacks)
+      }, () => providerStreamCallbacks && llmProvider.generateResponseStream
+        ? llmProvider.generateResponseStream(llmInput, providerStreamCallbacks, signal, progressCallbacks)
         : llmProvider.generateResponse(llmInput, signal, progressCallbacks)));
     } catch (error) {
       logger.llmTurn({
@@ -560,7 +572,7 @@ export class ChatService {
         ? firstNeutralTextBlock.text
         : llmOutput.rawText;
     const neutralText = stripPersonaAttributionMarkers(rawNeutralText);
-    if (streamCallbacks && !llmProvider.generateResponseStream && neutralText) {
+    if (streamCallbacks && request.personaInfluenceLevel !== "professional" && !llmProvider.generateResponseStream && neutralText) {
       streamCallbacks.onTextDelta(neutralText);
     }
 
@@ -572,7 +584,12 @@ export class ChatService {
       userMessage: request.message
     };
 
-    const useStyleTransfer = shouldUseStyleTransfer(request.provider) && !persona.neutralStyle;
+    // Trained style-transfer examples intentionally target the uncensored
+    // voice. Professional mode uses the persona's clean instructions directly
+    // so the second pass cannot reintroduce profanity or vulgar catchphrases.
+    const useStyleTransfer = shouldUseStyleTransfer(request.provider)
+      && !persona.neutralStyle
+      && request.personaInfluenceLevel === "uncensored";
     if (testMode) {
       console.log(useStyleTransfer ? "\nNeutral LLM response object data:" : "\nDirect persona LLM response object data:", neutralResponseMetadata);
       console.log(
@@ -632,17 +649,36 @@ export class ChatService {
     const styledTextBeforePhraseReplacements = stripPersonaAttributionMarkers(
       styleTransferOutput.styledText || neutralText
     );
-    const phraseReplacementResult = applyPersonaPhraseReplacements(styledTextBeforePhraseReplacements, persona);
+    const phraseReplacementResult = request.personaInfluenceLevel === "professional"
+      ? { text: styledTextBeforePhraseReplacements, totalReplacements: 0, replacementsByRule: {} }
+      : applyPersonaPhraseReplacements(styledTextBeforePhraseReplacements, persona);
+    const professionalLanguageResult = request.personaInfluenceLevel === "professional"
+      ? sanitizeProfessionalLanguage(phraseReplacementResult.text)
+      : { text: phraseReplacementResult.text, replacements: 0 };
     const responseText = request.audio
-      ? limitAudioResponseText(phraseReplacementResult.text, request.conciseAudioResponse)
-      : phraseReplacementResult.text;
+      ? limitAudioResponseText(professionalLanguageResult.text, request.conciseAudioResponse)
+      : professionalLanguageResult.text;
     let styledPrimaryText = false;
+    let professionalContentBlockReplacements = 0;
     const styledLlmOutput = llmOutputSchema.parse({
       ...llmOutput,
-      rawText: responseText || llmOutput.rawText,
+      rawText: request.personaInfluenceLevel === "professional"
+        ? responseText
+        : responseText || llmOutput.rawText,
       content: llmOutput.content.map((block) => {
-        if (block.type !== "text") return block;
-        if (styledPrimaryText) return { ...block, text: stripPersonaAttributionMarkers(block.text) };
+        if (block.type !== "text") {
+          if (request.personaInfluenceLevel !== "professional") return block;
+          const sanitized = sanitizeProfessionalContentBlock(block);
+          professionalContentBlockReplacements += sanitized.replacements;
+          return sanitized.block;
+        }
+        if (styledPrimaryText) {
+          const text = stripPersonaAttributionMarkers(block.text);
+          if (request.personaInfluenceLevel !== "professional") return { ...block, text };
+          const sanitized = sanitizeProfessionalContentBlock({ ...block, text });
+          professionalContentBlockReplacements += sanitized.replacements;
+          return sanitized.block;
+        }
         styledPrimaryText = true;
         return { ...block, text: responseText };
       }),
@@ -652,9 +688,15 @@ export class ChatService {
         personaPhraseReplacements: {
           totalReplacements: phraseReplacementResult.totalReplacements,
           replacementsByRule: phraseReplacementResult.replacementsByRule
-        }
+        },
+        professionalLanguageReplacements:
+          professionalLanguageResult.replacements + professionalContentBlockReplacements
       }
     });
+
+    if (request.personaInfluenceLevel === "professional" && streamCallbacks && responseText) {
+      streamCallbacks.onTextDelta(responseText);
+    }
 
     const ownershipMetadata = {
       provider: llmOutput.provider,
@@ -697,14 +739,20 @@ export class ChatService {
           ? stripPersonaAttributionMarkers(llmOutput.metadata.ttsScript.trim())
           : "";
         const inlineTtsScript = rawInlineTtsScript
-          ? buildTtsScript(applyPersonaPhraseReplacements(rawInlineTtsScript, persona).text, persona)
+          ? buildTtsScript(
+              request.personaInfluenceLevel === "professional"
+                ? sanitizeProfessionalSpeech(rawInlineTtsScript).text
+                : applyPersonaPhraseReplacements(rawInlineTtsScript, persona).text,
+              persona,
+              request.personaInfluenceLevel
+            )
           : "";
         let ttsScript = "";
         let ttsScriptMode: "mechanical" | "openai_inline" = inlineTtsScript ? "openai_inline" : "mechanical";
         try {
           const ttsScriptResult = inlineTtsScript
             ? { script: inlineTtsScript, mode: "openai_inline" as const }
-            : await buildTtsScriptForSpeech(speechText, persona);
+            : await buildTtsScriptForSpeech(speechText, persona, request.personaInfluenceLevel);
           ttsScriptMode = ttsScriptResult.mode;
           ttsScript = limitAudioResponseText(
             ttsScriptResult.script.trim(),

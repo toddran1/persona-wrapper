@@ -220,7 +220,9 @@ function toolsForInput(input: LLMInput): InteractionTool[] {
 function interactionRequest(input: LLMInput, steps: InteractionStep[], tools: InteractionTool[]): InteractionRequest {
   const systemInstruction = [
     buildOpenAIResponseInstructions(input, "full"),
-    input.persona.styleReference?.enabled ? buildPersonaStyleReference(input.persona) : ""
+    input.personaInfluenceLevel !== "professional" && input.persona.styleReference?.enabled
+      ? buildPersonaStyleReference(input.persona)
+      : ""
   ].filter(Boolean).join("\n\n");
   const dualText = shouldRequestTtsScript(input);
   return {

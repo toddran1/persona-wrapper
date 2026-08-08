@@ -134,6 +134,20 @@
       "when": 1785798000000,
       "tag": "0018_model_provider_preference",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786156800000,
+      "tag": "0019_persona_influence_level",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786243200000,
+      "tag": "0020_persona_influence_level_constraint",
+      "breakpoints": true
     }
   ]
 }

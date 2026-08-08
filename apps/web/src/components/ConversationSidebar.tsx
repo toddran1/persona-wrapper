@@ -20,11 +20,12 @@ import { PasswordInput } from "./PasswordInput.js";
 
 const REGISTER_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
-type SettingsSection = "account" | "provider" | "plan" | "audio" | "security" | "memory" | "data" | "about" | "delete";
+type SettingsSection = "account" | "influence" | "provider" | "plan" | "audio" | "security" | "memory" | "data" | "about" | "delete";
 
 function SettingsGlyph({ section }: { section: SettingsSection }) {
   const paths: Record<SettingsSection, React.ReactNode> = {
     account: <><circle cx="12" cy="8" r="3" /><path d="M5.5 19c.8-3.2 3-5 6.5-5s5.7 1.8 6.5 5" /></>,
+    influence: <><path d="M12 3 14.2 8.1 20 9l-4.2 4.1 1 5.8L12 16.2 7.2 19l1-5.8L4 9l5.8-.9L12 3Z" /></>,
     provider: <><circle cx="7" cy="12" r="3" /><circle cx="17" cy="7" r="3" /><circle cx="17" cy="17" r="3" /><path d="m9.7 10.7 4.5-2.4M9.7 13.3l4.5 2.4" /></>,
     plan: <><path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z" /><path d="m6 10.5 6 3.5 6-3.5M6 14l6 3.5 6-3.5" /></>,
     audio: <><path d="M5 10v4h3l4 4V6L8 10H5Z" /><path d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7.5 7.5 0 0 1 0 10" /></>,
@@ -191,6 +192,7 @@ export function ConversationSidebar({
   const [conciseAudioResponses, setConciseAudioResponses] = useState(authUser?.conciseAudioResponses ?? true);
   const [audioNotice, setAudioNotice] = useState<string | undefined>();
   const [providerNotice, setProviderNotice] = useState<string | undefined>();
+  const [influenceNotice, setInfluenceNotice] = useState<string | undefined>();
   const [memoryNotice, setMemoryNotice] = useState<string | undefined>();
   const [memoryConfirmation, setMemoryConfirmation] = useState<"chat" | "all" | undefined>();
   const [planUsage, setPlanUsage] = useState<PlanUsageSummary | undefined>();
@@ -254,6 +256,7 @@ export function ConversationSidebar({
       setMemoryEnabled(authUser?.memoryEnabled ?? true);
       setConciseAudioResponses(authUser?.conciseAudioResponses ?? true);
       setAudioNotice(undefined);
+      setInfluenceNotice(undefined);
       setMemoryNotice(undefined);
       setMemoryConfirmation(undefined);
       setDeleteAccountOpen(false);
@@ -613,6 +616,23 @@ export function ConversationSidebar({
       setProviderNotice(`${modelProvider === "gemini" ? "Gemini" : "ChatGPT"} will answer new requests.`);
     } catch (error) {
       setLocalAuthError(error instanceof Error ? error.message : "Could not update the model provider.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function choosePersonaInfluenceLevel(personaInfluenceLevel: "uncensored" | "professional"): Promise<void> {
+    if (personaInfluenceLevel === (authUser?.personaInfluenceLevel ?? "uncensored")) return;
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    setInfluenceNotice(undefined);
+    try {
+      await onUpdateProfile({ personaInfluenceLevel });
+      setInfluenceNotice(personaInfluenceLevel === "professional"
+        ? "Professional persona style will apply to new responses."
+        : "The full uncensored persona experience will apply to new responses.");
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not update the persona influence level.");
     } finally {
       setAuthBusy(false);
     }
@@ -1341,6 +1361,7 @@ export function ConversationSidebar({
                   <nav className="settings-modal-nav" aria-label="Settings sections">
                     {([
                       ["account", "Account"],
+                      ["influence", "Persona influence"],
                       ["provider", "Provider settings"],
                       ["plan", "Plan & usage"],
                       ["audio", "Audio"],
@@ -1521,6 +1542,40 @@ export function ConversationSidebar({
                               </button>
                             </div>
                           </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {settingsSection === "influence" ? (
+                      <div className="settings-section">
+                        <div className="settings-section-heading">
+                          <span className="settings-section-eyebrow">Persona style</span>
+                          <h3>Persona influence level</h3>
+                          <p>Choose how strongly persona language shapes new responses. This does not change safety protections.</p>
+                        </div>
+                        {influenceNotice ? <div className="settings-notice" role="status">{influenceNotice}</div> : null}
+                        <div className="settings-provider-options" role="radiogroup" aria-label="Persona influence level">
+                          {([[
+                            "uncensored", "Uncensored", "The full persona experience with unfiltered language and the strongest character voice."
+                          ], [
+                            "professional", "Professional", "Keeps the persona's style and slang while avoiding profanity and vulgar language."
+                          ]] as const).map(([value, label, description]) => {
+                            const selected = (authUser.personaInfluenceLevel ?? "uncensored") === value;
+                            return (
+                              <button
+                                type="button"
+                                role="radio"
+                                aria-checked={selected}
+                                className={`settings-provider-option${selected ? " settings-provider-option-selected" : ""}`}
+                                disabled={authBusy}
+                                onClick={() => void choosePersonaInfluenceLevel(value)}
+                                key={value}
+                              >
+                                <span><strong>{label}</strong><small>{description}</small></span>
+                                <span className="settings-provider-radio" aria-hidden="true" />
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     ) : null}

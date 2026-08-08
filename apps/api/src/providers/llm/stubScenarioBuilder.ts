@@ -55,6 +55,7 @@ function buildText(params: {
   wantsSearch: boolean;
   wantsAnalysis: boolean;
   persona: PersonaDefinition;
+  professional: boolean;
 }): string {
   const personaName = params.persona.shortName ?? params.persona.name;
   const catchphrase = params.persona.catchphrases[0];
@@ -118,6 +119,23 @@ function buildText(params: {
       : " I’m also keeping the thread in view, so this answer builds on the prior turn instead of restarting the whole thing."
     : "";
 
+  if (params.professional) {
+    const professionalCoreText = isIntroRequest
+      ? `I’m ${params.persona.name}. I bring bold personality, quick wit, confident advice, and a polished version of my signature style.`
+      : params.wantsChart
+        ? `The chart is ready with clear sample data and ${personaName}'s confident, polished perspective.`
+        : params.wantsImage
+          ? `I built the visual concept with ${personaName}'s stylish, confident point of view.`
+          : params.wantsFile
+            ? "I packaged this into a polished, practical deliverable that is ready to use."
+            : params.wantsSearch
+              ? "I’d verify this with current sources before making the call, because confident answers still need receipts."
+              : params.wantsAnalysis
+                ? "I analyzed the strongest signals and kept the take clear, confident, and practical."
+                : `Here’s the answer with ${personaName}'s confidence, quick wit, and workplace-ready personality.`;
+    return `${personaName} is on it. ${professionalCoreText}${memoryLine}`;
+  }
+
   if (params.mode === "base") {
     return `${baseCallbacks[params.provider]} ${baseCoreText}${memoryLine}`;
   }
@@ -170,6 +188,7 @@ export function buildStubOutput(input: LLMInput, provider: ProviderId, mode: Stu
         wantsSearch,
         wantsAnalysis,
         persona: input.persona,
+        professional: input.personaInfluenceLevel === "professional",
         ...(previousUserMessage ? { priorMessage: previousUserMessage } : {})
       })
     }

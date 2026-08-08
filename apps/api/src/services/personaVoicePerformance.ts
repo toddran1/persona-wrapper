@@ -1,4 +1,4 @@
-import type { PersonaDefinition } from "@persona/shared";
+import type { PersonaDefinition, PersonaInfluenceLevel } from "@persona/shared";
 
 type PerformancePreset = {
   transformMechanicalScript: (text: string, modelId: string) => string;
@@ -107,7 +107,13 @@ export function applyPersonaVoicePerformance(
 
 export function personaVoicePromptInstructions(
   persona: PersonaDefinition,
-  modelId: string
+  modelId: string,
+  influenceLevel: PersonaInfluenceLevel = "uncensored"
 ): string[] {
-  return presetFor(persona).promptInstructions(persona, modelId);
+  const instructions = presetFor(persona).promptInstructions(persona, modelId);
+  if (influenceLevel !== "professional") return instructions;
+  return [
+    ...instructions.filter((instruction) => !/\b(?:bitch|fuck|hoe|nigg|profan|vulgar)\b/iu.test(instruction)),
+    "Keep the narration workplace-appropriate. Do not add profanity, slurs, vulgarity, or profane persona catchphrases."
+  ];
 }

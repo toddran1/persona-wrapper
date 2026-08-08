@@ -297,6 +297,19 @@ describe("ConversationSidebar settings", () => {
     await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ modelProvider: "gemini" }));
   });
 
+  it("switches the persona influence level from settings", async () => {
+    const user = userEvent.setup();
+    const { onUpdateProfile } = renderSidebar();
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Persona influence" }));
+    expect(within(dialog).getByRole("radio", { name: /Uncensored/ })).toHaveAttribute("aria-checked", "true");
+    await user.click(within(dialog).getByRole("radio", { name: /Professional/ }));
+    await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ personaInfluenceLevel: "professional" }));
+  });
+
   it("keeps the account menu compact and moves account controls into the settings modal", async () => {
     const user = userEvent.setup();
     const { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory } = renderSidebar();

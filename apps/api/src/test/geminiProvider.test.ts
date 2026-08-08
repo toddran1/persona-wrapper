@@ -4,11 +4,12 @@ import { getPersonaById } from "../personas/index.js";
 import { GeminiProvider } from "../providers/llm/GeminiProvider.js";
 import { PersonaEngine } from "../services/personaEngine.js";
 
-function geminiInput(imageGeneration = false): LLMInput {
+function geminiInput(imageGeneration = false, professional = false): LLMInput {
   const persona = getPersonaById("larae");
   if (!persona) throw new Error("LaRae persona not found");
   return new PersonaEngine().prepareInput(persona, {
     personaId: persona.id,
+    ...(professional ? { personaInfluenceLevel: "professional" as const } : {}),
     provider: "gemini",
     message: imageGeneration ? "Create an image of a neon skyline." : "Introduce yourself.",
     audio: false,
@@ -85,6 +86,24 @@ describe("GeminiProvider", () => {
       sources: [expect.objectContaining({ url: "https://example.com/source" })]
     }));
     expect(output.metadata?.interactionStored).toBe(false);
+  });
+
+  it("does not append uncensored style references in professional mode", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "interaction_professional",
+      status: "completed",
+      output_text: "A polished answer.",
+      steps: [{ type: "model_output", content: [{ type: "text", text: "A polished answer." }] }],
+      usage: { total_input_tokens: 12, total_output_tokens: 4, total_tokens: 16 }
+    });
+
+    await new GeminiProvider({ createInteraction }).generateResponse(geminiInput(false, true));
+
+    const instruction = String(createInteraction.mock.calls[0]?.[0]?.system_instruction ?? "");
+    expect(instruction).toContain("Professional persona direction:");
+    expect(instruction).toContain("workplace-appropriate language");
+    expect(instruction).not.toContain("LaRae style reference examples");
+    expect(instruction).not.toContain("Catchphrases and vocabulary cues");
   });
 
   it("encodes mixed-provider and mixed-persona history as quoted context instead of Gemini model steps", async () => {

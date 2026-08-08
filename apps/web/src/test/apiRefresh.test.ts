@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../lib/api.js";
+import { api, toAuthUser } from "../lib/api.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -17,6 +17,40 @@ describe("web API authentication refresh", () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
     localStorage.clear();
+  });
+
+  it("hydrates the stored persona influence level from a refreshed session", () => {
+    const now = new Date().toISOString();
+    const professional = toAuthUser({
+      id: "user_professional",
+      email: "pro@example.com",
+      name: "Professional User",
+      personaInfluenceLevel: "professional",
+      status: "active",
+      createdAt: now,
+      updatedAt: now
+    });
+    const invalid = toAuthUser({
+      id: "user_invalid",
+      email: "invalid@example.com",
+      name: "Invalid User",
+      personaInfluenceLevel: "unexpected",
+      status: "active",
+      createdAt: now,
+      updatedAt: now
+    });
+    const missing = toAuthUser({
+      id: "user_missing",
+      email: "missing@example.com",
+      name: "Missing Preference User",
+      status: "active",
+      createdAt: now,
+      updatedAt: now
+    });
+
+    expect(professional.personaInfluenceLevel).toBe("professional");
+    expect(invalid.personaInfluenceLevel).toBe("professional");
+    expect(missing.personaInfluenceLevel).toBe("uncensored");
   });
 
   it("uses the Better Auth cookie session for API requests", async () => {

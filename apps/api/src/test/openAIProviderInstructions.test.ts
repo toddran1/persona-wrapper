@@ -97,6 +97,49 @@ describe("OpenAIProvider instructions", () => {
     expect(baseInstructions).not.toContain("Silent style checklist before finalizing");
   });
 
+  it("uses professional direction without uncensored directives", () => {
+    const persona = getPersonaById("larae");
+    if (!persona) throw new Error("LaRae persona not found");
+    const input = new PersonaEngine().prepareInput(persona, {
+      personaId: "larae",
+      personaInfluenceLevel: "professional",
+      provider: "openai",
+      message: "Introduce yourself.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+    const instructions = buildOpenAIResponseInstructions(input, "full");
+
+    expect(instructions).toContain("workplace-appropriate language");
+    expect(instructions).toContain("free of profanity, slurs, and vulgarity");
+    expect(instructions).not.toContain("Use heavy HEAVY slang and profanity");
+    expect(instructions).not.toContain("Vary catchphrases and profanity naturally");
+  });
+
+  it("keeps hidden audio-script direction professional", () => {
+    const persona = getPersonaById("larae");
+    if (!persona) throw new Error("LaRae persona not found");
+    const input = new PersonaEngine().prepareInput(persona, {
+      personaId: "larae",
+      personaInfluenceLevel: "professional",
+      provider: "openai",
+      message: "Give me a spoken update.",
+      audio: true,
+      testMode: false,
+      history: []
+    });
+    const original = env.OPENAI_TTS_SCRIPT_ENABLED;
+    env.OPENAI_TTS_SCRIPT_ENABLED = true;
+    try {
+      const instructions = buildOpenAIResponseInstructions(input, "full");
+      expect(instructions).toContain("Keep the narration workplace-appropriate");
+      expect(instructions).not.toContain("Bitch—");
+    } finally {
+      env.OPENAI_TTS_SCRIPT_ENABLED = original;
+    }
+  });
+
   it("only applies the short audio instruction when the account preference is enabled", () => {
     const conciseInput = inputForLaRae(true);
     const fullLengthInput = { ...conciseInput, conciseAudioResponse: false };

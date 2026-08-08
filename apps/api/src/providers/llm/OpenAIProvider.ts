@@ -145,6 +145,7 @@ export function buildInput(input: LLMInput, promptMode: OpenAIPromptMode): OpenA
 function withStyleReference(input: LLMInput, promptMode: OpenAIPromptMode, responseInput: OpenAIItem[]): OpenAIItem[] {
   if (
     promptMode !== "full" ||
+    input.personaInfluenceLevel === "professional" ||
     !input.persona.styleReference?.enabled ||
     input.toolOptions?.imageGeneration ||
     input.toolOptions?.codeInterpreter
@@ -313,7 +314,9 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
   const extraInstructions: string[] = [];
 
   if (promptMode === "full") {
-    const personaInstructions = input.persona.directResponseInstructions;
+    const personaInstructions = input.personaInfluenceLevel === "professional"
+      ? input.persona.professionalInstructions
+      : input.persona.directResponseInstructions;
     extraInstructions.push(
       [
         ...(personaInstructions.length > 0
@@ -324,7 +327,9 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         "When web search is used, cite sources through normal citation metadata if available. Do not stuff raw source URLs or repeated source links into every sentence.",
         "When recommending a product, store, booking, ticket, or other destination and a safe direct page URL is available, make the relevant call-to-action text a markdown link to that page. Do not write phrases such as 'buy it here', 'view the product', or 'open the listing' as plain bold text when the destination URL is known. Keep the broader source list in citation metadata as well.",
         "Preserve facts, names, dates, numbers, URLs, citations, quotes, code, chart data, table values, image/file links, and user-selected options exactly. Style the wording around protected details instead of changing the details.",
-        "Vary catchphrases and profanity naturally. Do not repeat the same catchphrase in every response."
+        input.personaInfluenceLevel === "professional"
+          ? "Keep every part of the response workplace-appropriate and free of profanity, slurs, and vulgarity."
+          : "Vary catchphrases and profanity naturally. Do not repeat the same catchphrase in every response."
       ].join("\n")
     );
   }
@@ -364,7 +369,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         ...(input.conciseAudioResponse
           ? [`Keep tts_script at or below ${env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS} characters.`]
           : ["The user allows full-length audio. Keep tts_script aligned with the complete visible response."]),
-        ...personaVoicePromptInstructions(input.persona, ttsModelId),
+        ...personaVoicePromptInstructions(input.persona, ttsModelId, input.personaInfluenceLevel),
         "Make the tts_script sound like a human performance script, not a transcript copy."
       ].join("\n")
     );

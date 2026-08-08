@@ -1,5 +1,5 @@
-import { relations } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
+import { boolean, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -16,6 +16,7 @@ export const users = pgTable("users", {
   memoryEnabled: boolean("memory_enabled").notNull().default(true),
   conciseAudioResponses: boolean("concise_audio_responses").notNull().default(true),
   modelProvider: text("model_provider").notNull().default("openai"),
+  personaInfluenceLevel: text("persona_influence_level").notNull().default("uncensored"),
   termsVersionAccepted: text("terms_version_accepted"),
   termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
   privacyVersionAccepted: text("privacy_version_accepted"),
@@ -33,7 +34,11 @@ export const users = pgTable("users", {
   roleIdx: index("users_role_idx").on(table.role),
   usernameUnique: uniqueIndex("users_username_unique").on(table.username),
   statusIdx: index("users_status_idx").on(table.status),
-  deletionScheduledForIdx: index("users_deletion_scheduled_for_idx").on(table.deletionScheduledFor)
+  deletionScheduledForIdx: index("users_deletion_scheduled_for_idx").on(table.deletionScheduledFor),
+  personaInfluenceLevelCheck: check(
+    "users_persona_influence_level_check",
+    sql`${table.personaInfluenceLevel} in ('uncensored', 'professional')`
+  )
 }));
 
 export const betterAuthAccounts = pgTable("better_auth_accounts", {

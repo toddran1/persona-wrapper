@@ -32,4 +32,15 @@ describe("persona registry", () => {
       persona as PersonaDefinitionInput
     ])).toThrow('Duplicate persona ID "larae"');
   });
+
+  it("requires professional instructions for every styled persona", () => {
+    const persona = getPersonaById("larae");
+    expect(persona).toBeDefined();
+
+    expect(() => validatePersonaRegistry([{
+      ...persona!,
+      id: "missing-professional-mode",
+      professionalInstructions: []
+    }])).toThrow('Persona "missing-professional-mode" must define professional instructions.');
+  });
 });

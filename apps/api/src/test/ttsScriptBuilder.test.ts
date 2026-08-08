@@ -55,6 +55,17 @@ describe("buildTtsScript", () => {
     expect(result.script).toContain("Dallas, Texas");
   });
 
+  it("removes profanity from professional speech scripts", async () => {
+    const result = await buildTtsScriptForSpeech(
+      'Bitch, this damn plan is fucking good as hell. The quote says "fuck this."',
+      larae,
+      "professional"
+    );
+
+    expect(result.script).toContain("Friend");
+    expect(result.script).not.toMatch(/\b(?:bitch|damn|fuck|hell)\b/i);
+  });
+
   it("falls back to neutral delivery for an unregistered persona performance preset", () => {
     const neutralPersona = {
       ...larae,
