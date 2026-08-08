@@ -55,6 +55,13 @@ export const auth = database ? betterAuth({
             name: user.name?.trim() || user.username?.toString() || "Baddie"
           };
           if (context?.path !== "/sign-up/email") return { data };
+          // Registration requires a real, verifiable mailbox. Synthetic
+          // @users.invalid addresses were the old username-only sign-up path.
+          if (typeof user.email === "string" && user.email.toLowerCase().endsWith("@users.invalid")) {
+            throw new APIError("BAD_REQUEST", {
+              message: "An email address is required to create an account."
+            });
+          }
           if (
             user.termsVersionAccepted !== env.TERMS_POLICY_VERSION
             || user.privacyVersionAccepted !== env.PRIVACY_POLICY_VERSION

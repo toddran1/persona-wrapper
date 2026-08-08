@@ -1641,7 +1641,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
   }
 
-  async function handleRegister(payload: { email?: string; username?: string; password: string; policyConsent: PolicyVersions }): Promise<void> {
+  async function handleRegister(payload: { email: string; username?: string; password: string; policyConsent: PolicyVersions }): Promise<void> {
     setAuthLoading(true);
     setAuthError(undefined);
     try {

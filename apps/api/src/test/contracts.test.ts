@@ -146,6 +146,21 @@ describe("shared schemas", () => {
       policyConsent: consent
     })).toThrow();
   });
+
+  it("requires a real email at registration while username stays optional", () => {
+    const consent = { termsVersion: "2026-07-29", privacyVersion: "2026-07-29" };
+
+    expect(() => registerRequestSchema.parse({
+      username: "baddie42",
+      password: "longenough1",
+      policyConsent: consent
+    })).toThrow();
+    expect(registerRequestSchema.parse({
+      email: "new@example.com",
+      password: "longenough1",
+      policyConsent: consent
+    }).username).toBeUndefined();
+  });
   it("applies chat request defaults", () => {
     const parsed = chatRequestSchema.parse({
       personaId: "larae",

@@ -522,7 +522,7 @@ export const api = {
     if (response.status !== 204) throw contractError(response.body, "Could not delete this vector store.");
   },
   register: async (payload: RegisterRequest): Promise<{ user: AuthUser }> => {
-    const email = payload.email?.trim().toLowerCase() ?? `${payload.username?.trim().toLowerCase()}@users.invalid`;
+    const email = payload.email.trim().toLowerCase();
     const signUpPayload = {
       email,
       password: payload.password,

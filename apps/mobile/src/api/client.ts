@@ -583,7 +583,7 @@ export const api = {
   },
   register: async (payload: MobileRegisterRequest): Promise<{ user: AuthUser }> => {
     const installationId = await getOwnerId();
-    const email = payload.email?.trim().toLowerCase() ?? `${payload.username?.trim().toLowerCase()}@users.invalid`;
+    const email = payload.email.trim().toLowerCase();
     const signUpPayload = {
       email,
       password: payload.password,

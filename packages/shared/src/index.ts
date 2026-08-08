@@ -633,16 +633,15 @@ export function passwordStrengthScore(password: string): PasswordStrength {
 }
 
 export const registerRequestSchema = z.object({
-  email: z.string().email().optional(),
+  // Registration always requires a real, verifiable email. Username stays
+  // optional; existing username-only accounts can still sign in.
+  email: z.string().email(),
   username: z.string().min(3).max(64).optional(),
   password: z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH),
   displayName: z.string().min(1).max(120).optional(),
   policyConsent: policyVersionsSchema,
   clientType: authClientTypeSchema.default("web"),
   deviceId: z.string().max(200).optional()
-}).refine((value) => Boolean(value.email || value.username), {
-  message: "Either email or username is required.",
-  path: ["email"]
 });
 export type RegisterRequest = z.infer<typeof registerRequestSchema>;
 

@@ -13,6 +13,7 @@ export const englishMessages = {
   "auth.continueWith": "Continue with {provider}",
   "auth.or": "or",
   "auth.identifier": "Email or username",
+  "auth.email": "Email",
   "auth.displayName": "Display name",
   "auth.optional": "optional",
   "auth.displayNamePlaceholder": "How should we address you?",

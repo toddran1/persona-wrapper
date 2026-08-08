@@ -123,7 +123,7 @@ export function ConversationSidebar({
   onLoadMoreConversations?: (() => void) | undefined;
   onLogin: (identifier: string, password: string) => Promise<void>;
   onRegister: (payload: {
-    email?: string;
+    email: string;
     username?: string;
     password: string;
     policyConsent: PolicyVersions;
@@ -373,21 +373,23 @@ export function ConversationSidebar({
       setLocalAuthError("Accept the Terms of Use and Privacy Policy to create an account.");
       return;
     }
-    const payload: { email?: string; username?: string; password: string; policyConsent: PolicyVersions } = {
+    const email = registerEmail.trim();
+    const username = registerUsername.trim();
+    // Sign-up requires a real email so the account can be verified; existing
+    // username-only accounts can still log in.
+    if (!email || !email.includes("@")) {
+      setLocalAuthError("Enter an email address to create your account.");
+      return;
+    }
+    const payload: { email: string; username?: string; password: string; policyConsent: PolicyVersions } = {
+      email,
       password: registerPassword,
       policyConsent: {
         termsVersion: currentPolicies.termsVersion,
         privacyVersion: currentPolicies.privacyVersion
       }
     };
-    const email = registerEmail.trim();
-    const username = registerUsername.trim();
-    if (email) payload.email = email;
     if (username) payload.username = username;
-    if (!payload.email && !payload.username) {
-      setLocalAuthError("Enter an email or username.");
-      return;
-    }
     if (username && username.length < 3) {
       setLocalAuthError("Username must be at least 3 characters.");
       return;
@@ -937,7 +939,7 @@ export function ConversationSidebar({
                     <input
                       value={registerEmail}
                       onChange={(event) => setRegisterEmail(event.target.value)}
-                      placeholder="Email"
+                      placeholder="Email (required)"
                       aria-label="Email"
                       data-testid="auth-register-email"
                       type="email"
@@ -949,7 +951,7 @@ export function ConversationSidebar({
                       onChange={(event) =>
                         setRegisterUsername(event.target.value)
                       }
-                      placeholder="Username"
+                      placeholder="Username (optional)"
                       aria-label="Username"
                       data-testid="auth-register-username"
                       autoComplete="username"

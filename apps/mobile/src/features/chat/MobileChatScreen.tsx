@@ -804,6 +804,15 @@ export function MobileChatScreen() {
     if (panel === "plan" || panel === "provider") void refreshPlanUsage();
   }
 
+  function revealFocusedSettingsField(): void {
+    // The security screen can be taller than the remaining viewport once the
+    // software keyboard opens. Wait for the keyboard resize, then keep the
+    // focused field and its label above it on both Android and iOS.
+    setTimeout(() => {
+      settingsScrollRef.current?.scrollToEnd({ animated: true });
+    }, 180);
+  }
+
   async function refreshPlanUsage(): Promise<void> {
     const requestedAccountId = authUser?.id;
     setPlanUsageLoading(true);
@@ -2650,13 +2659,17 @@ export function MobileChatScreen() {
         setAuthError("Accept the Terms of Use and Privacy Policy to create an account.");
         return;
       }
+      if (authMode === "register" && !trimmedIdentifier.includes("@")) {
+        setAuthError("Enter an email address to create your account.");
+        return;
+      }
       const auth = authMode === "login"
         ? await api.login({ identifier: trimmedIdentifier, password })
         : authMode === "restore"
           ? await api.restoreAccount({ identifier: trimmedIdentifier, password })
           : await api.register({
+          email: trimmedIdentifier,
           password,
-          ...(trimmedIdentifier.includes("@") ? { email: trimmedIdentifier } : { username: trimmedIdentifier }),
           ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
           policyConsent: {
             termsVersion: currentPolicies!.termsVersion,
@@ -3359,6 +3372,10 @@ export function MobileChatScreen() {
       </Animated.View>
 
       {settingsVisible ? (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.settingsKeyboard}
+        >
         <ScrollView
           ref={settingsScrollRef}
           style={[styles.settingsScreen, { backgroundColor: theme.background }]}
@@ -3367,7 +3384,7 @@ export function MobileChatScreen() {
             landscapeLayout ? styles.settingsContentLandscape : null,
             {
               paddingTop: insets.top + 12,
-              paddingBottom: Math.max(insets.bottom, 18),
+              paddingBottom: Math.max(insets.bottom + 28, 48),
               paddingLeft: Math.max(
                 (landscapeLayout ? landscapeLeftInset : insets.left) + 16,
                 landscapeLayout ? 32 : 20
@@ -3378,7 +3395,9 @@ export function MobileChatScreen() {
               )
             }
           ]}
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           onScroll={(event) => {
             latestSettingsScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
@@ -3848,10 +3867,20 @@ export function MobileChatScreen() {
               {connectedAccounts.some((account) => account.providerId === "credential") ? (
                 <View style={styles.settingsSection}>
                   <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Change password</Text>
-                  <TextInput accessibilityLabel="Current password" secureTextEntry autoCapitalize="none" autoComplete="current-password" value={currentPassword} onChangeText={setCurrentPassword} placeholder="Current password" placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
-                  <TextInput accessibilityLabel="New password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={newPassword} onChangeText={setNewPassword} placeholder={`New password (${PASSWORD_MIN_LENGTH}+ characters)`} placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
+                  <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Choose a strong password you do not use elsewhere.</Text>
+                  <View style={styles.settingsFieldGroup}>
+                    <Text style={[styles.settingsFieldLabel, { color: theme.muted }]}>Current password</Text>
+                    <TextInput accessibilityLabel="Current password" secureTextEntry autoCapitalize="none" autoComplete="current-password" value={currentPassword} onChangeText={setCurrentPassword} onFocus={revealFocusedSettingsField} placeholder="Enter your current password" placeholderTextColor={theme.muted} style={[styles.loginInput, styles.settingsTextInput, { borderColor: theme.border, color: theme.text }]} />
+                  </View>
+                  <View style={styles.settingsFieldGroup}>
+                    <Text style={[styles.settingsFieldLabel, { color: theme.muted }]}>New password</Text>
+                    <TextInput accessibilityLabel="New password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={newPassword} onChangeText={setNewPassword} onFocus={revealFocusedSettingsField} placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`} placeholderTextColor={theme.muted} style={[styles.loginInput, styles.settingsTextInput, { borderColor: theme.border, color: theme.text }]} />
+                  </View>
                   <PasswordStrengthMeter password={newPassword} theme={theme} />
-                  <TextInput accessibilityLabel="Confirm new password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={newPasswordConfirmation} onChangeText={setNewPasswordConfirmation} placeholder="Confirm new password" placeholderTextColor={theme.muted} style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]} />
+                  <View style={styles.settingsFieldGroup}>
+                    <Text style={[styles.settingsFieldLabel, { color: theme.muted }]}>Confirm new password</Text>
+                    <TextInput accessibilityLabel="Confirm new password" secureTextEntry autoCapitalize="none" autoComplete="new-password" value={newPasswordConfirmation} onChangeText={setNewPasswordConfirmation} onFocus={revealFocusedSettingsField} placeholder="Re-enter your new password" placeholderTextColor={theme.muted} style={[styles.loginInput, styles.settingsTextInput, { borderColor: theme.border, color: theme.text }]} />
+                  </View>
                   <Pressable accessibilityRole="button" disabled={securityLoading || !currentPassword || !newPassword || !newPasswordConfirmation} onPress={() => void changeAccountPassword()} style={[styles.settingsRow, { backgroundColor: theme.accent2, opacity: securityLoading || !currentPassword || !newPassword || !newPasswordConfirmation ? 0.45 : 1 }]}>
                     <Ionicons name="key-outline" size={22} color={theme.background} />
                     <Text style={[styles.settingsRowText, { color: theme.background }]}>Update password</Text>
@@ -3941,6 +3970,7 @@ export function MobileChatScreen() {
             </View>
           ) : null}
         </ScrollView>
+        </KeyboardAvoidingView>
       ) : null}
 
       <Modal
@@ -5065,6 +5095,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     maxWidth: "82%"
   },
+  settingsFieldGroup: {
+    gap: 7
+  },
+  settingsFieldLabel: {
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.25,
+    paddingHorizontal: 4
+  },
+  settingsKeyboard: {
+    bottom: 0,
+    left: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 9
+  },
   settingsName: {
     fontSize: 32,
     fontWeight: "900",
@@ -5128,12 +5175,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between"
   },
   settingsScreen: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-    zIndex: 9
+    flex: 1
   },
   settingsContent: {
     alignSelf: "center",
@@ -5157,6 +5199,14 @@ const styles = StyleSheet.create({
   },
   settingsTopBar: {
     minHeight: 60
+  },
+  settingsTextInput: {
+    backgroundColor: "rgba(168,111,232,0.10)",
+    borderColor: "rgba(214,181,94,0.34)",
+    minHeight: 54,
+    shadowColor: "#000",
+    shadowOpacity: 0.14,
+    shadowRadius: 8
   },
   settingsTotalUsageCard: {
     backgroundColor: "rgba(255,255,255,0.065)",

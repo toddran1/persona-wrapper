@@ -58,7 +58,7 @@ export default function ResetPasswordScreen() {
 
   return (
     <LinearGradient colors={["#09060f", "#190d25", "#0b0712"]} locations={[0, 0.56, 1]} style={styles.screen}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.keyboard}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboard}>
         <ScrollView
           contentContainerStyle={[
             styles.content,
@@ -69,6 +69,8 @@ export default function ResetPasswordScreen() {
               paddingRight: Math.max(insets.right + 12, 24)
             }
           ]}
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -211,7 +213,7 @@ const styles = StyleSheet.create({
     gap: 7
   },
   fieldLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "800",
     letterSpacing: 0.3
   },

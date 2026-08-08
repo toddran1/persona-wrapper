@@ -212,6 +212,63 @@ describe("ConversationSidebar settings", () => {
     })));
   });
 
+  it("requires an email address to create an account", async () => {
+    const user = userEvent.setup();
+    const onRegister = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ConversationSidebar
+        personaName="LaRae the Baddest"
+        personas={[]}
+        onSelectPersona={vi.fn()}
+        currentPolicies={{
+          termsVersion: "2026-07-29",
+          privacyVersion: "2026-07-29",
+          termsPath: "/terms",
+          privacyPath: "/privacy"
+        }}
+        conversations={[]}
+        onLogin={vi.fn()}
+        onRegister={onRegister}
+        onRestoreAccount={vi.fn()}
+        onRequestPasswordReset={vi.fn()}
+        onChangePassword={vi.fn()}
+        onUpdateProfile={vi.fn()}
+        onGetMemorySettings={vi.fn()}
+        onUpdateMemorySettings={vi.fn()}
+        onClearConversationMemory={vi.fn()}
+        onClearAllMemory={vi.fn()}
+        onGetPlanUsage={vi.fn().mockResolvedValue(planUsage)}
+        onListActiveSessions={vi.fn()}
+        onRevokeActiveSession={vi.fn()}
+        onRevokeOtherSessions={vi.fn()}
+        onListConnectedAccounts={vi.fn()}
+        onLinkConnectedAccount={vi.fn()}
+        onUnlinkConnectedAccount={vi.fn()}
+        onDeleteAccount={vi.fn()}
+        onExportAccount={vi.fn()}
+        onExportConversation={vi.fn()}
+        onImportConversations={vi.fn()}
+        onLogout={vi.fn()}
+        onOAuthLogin={vi.fn()}
+        onNewConversation={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        onRenameConversation={vi.fn()}
+        onPinConversation={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Log in \| Create account/i }));
+    await user.click(screen.getByTestId("auth-register-tab"));
+    await user.type(screen.getByTestId("auth-register-username"), "baddie42");
+    await user.type(screen.getByTestId("auth-register-password"), "longenough1");
+    await user.click(screen.getByTestId("auth-register-consent"));
+    await user.click(screen.getByTestId("auth-submit"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter an email address to create your account.");
+    expect(onRegister).not.toHaveBeenCalled();
+  });
+
   it("renders persona profiles as selectable themed options", async () => {
     const user = userEvent.setup();
     const onSelectPersona = vi.fn();
