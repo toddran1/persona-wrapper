@@ -186,7 +186,7 @@ services:
       - key: STORAGE_S3_ENDPOINT
         value: https://e54c506a4049687d239b5c7909b9cee7.r2.cloudflarestorage.com
       - key: STORAGE_S3_FORCE_PATH_STYLE
-        value: "true"
+        value: "false"
       - key: STORAGE_S3_ACCESS_KEY_ID
         sync: false
       - key: STORAGE_S3_SECRET_ACCESS_KEY
