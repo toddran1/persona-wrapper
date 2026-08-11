@@ -41,7 +41,7 @@ export function MobileVerifyEmailScreen({
           <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>Verify your email</Text>
           <Text style={[styles.copy, { color: theme.muted }]}>
             We sent a verification link to <Text style={{ color: theme.text, fontWeight: "800" }}>{email}</Text>.
-            Open it to activate your account, then come back here.
+            Open it to activate your account. On this phone, the verification page will try to bring you back to the app.
           </Text>
           {notice ? <Text accessibilityLiveRegion="polite" style={[styles.notice, { color: theme.accent2 }]}>{notice}</Text> : null}
           {error ? <Text accessibilityRole="alert" style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}

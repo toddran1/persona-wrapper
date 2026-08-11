@@ -182,12 +182,22 @@ export const auth = database ? betterAuth({
     autoSignInAfterVerification: true,
     expiresIn: 60 * 60,
     ...(authEmailEnabled ? {
-      sendVerificationEmail: async ({ user, url }: { user: { email: string; name: string }; url: string }) => {
+      sendVerificationEmail: async (
+        { user, url }: { user: { email: string; name: string }; url: string },
+        request?: Request
+      ) => {
         if (user.email.endsWith("@users.invalid")) return;
-        // Land verified users back on the web app home with a confirmation
-        // notice instead of the API's default callback.
+        const clientType = request?.headers.get("x-client-type");
+        const mobileClient = clientType === "ios" || clientType === "android";
+        // Mobile verification still finishes on HTTPS so email clients can
+        // open it reliably. The landing page then returns to the installed app
+        // (or presents an explicit Open app button when automatic deep-linking
+        // is blocked). Web sign-ups continue to land on the normal app home.
+        const callbackUrl = mobileClient
+          ? new URL("/auth/mobile-callback?emailVerified=1", env.WEB_APP_URL).toString()
+          : new URL("/?emailVerified=1", env.WEB_APP_URL).toString();
         const verificationUrl = new URL(url);
-        verificationUrl.searchParams.set("callbackURL", `${env.WEB_APP_URL}/?emailVerified=1`);
+        verificationUrl.searchParams.set("callbackURL", callbackUrl);
         // Verification is soft — a delivery failure must never fail sign-up.
         // deliverAuthEmail already logged the sanitized SMTP error.
         await sendVerificationEmail({

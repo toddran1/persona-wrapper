@@ -1144,7 +1144,17 @@ export function MobileChatScreen() {
         .then((result) => {
           if (!active) return;
           if (result.status === "authenticated") {
+            const verificationCompleted = authUser.emailVerified === false && result.user.emailVerified === true;
             setAuthUser(result.user);
+            if (verificationCompleted) {
+              // Protected persona/chat requests may have failed while this
+              // session was unverified. Clear that stale banner and rebuild
+              // the account-scoped query state now that verification changed.
+              setError(undefined);
+              setAuthError(undefined);
+              void retryLoadAppData();
+              return;
+            }
             void reconcilePendingBackgroundTurn();
             // Cross-session sync: pick up messages and chats created on other
             // devices while this app was backgrounded.
@@ -3126,8 +3136,14 @@ export function MobileChatScreen() {
         onResend={() => api.resendVerificationEmail(accountEmail)}
         onCheckStatus={async () => {
           const me = await api.getCurrentUser();
+          if (me.user.emailVerified === true) {
+            setError(undefined);
+            setAuthError(undefined);
+            await retryLoadAppData();
+            return true;
+          }
           setAuthUser(me.user);
-          return me.user.emailVerified === true;
+          return false;
         }}
         onLogout={async () => confirmLogout()}
       />
