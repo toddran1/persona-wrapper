@@ -1,0 +1,22 @@
+{
+  "Rules": [
+    {
+      "ID": "abort-incomplete-multipart-uploads",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+    },
+    {
+      "ID": "development-uploads-orphan-backstop",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "development/uploads/" },
+      "Expiration": { "Days": 30 }
+    },
+    {
+      "ID": "production-uploads-orphan-backstop",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "production/uploads/" },
+      "Expiration": { "Days": 30 }
+    }
+  ]
+}

@@ -1,13 +1,24 @@
 # Infra
 
-Templates and policies for the AWS resources behind the app. The S3 media
-bucket itself is created and managed manually (outside these templates), so
-the pieces here are applied on top of the existing bucket.
+Templates and policies for hosted infrastructure. Cloudflare R2 is the active
+media backend; the AWS files remain available only for an AWS S3 deployment.
+
+## r2-cors.json
+
+Cloudflare R2 CORS policy for direct presigned browser uploads. Apply it in the
+R2 bucket's Settings page and update the production origin if the final domain
+changes.
+
+## r2-media-lifecycle.json
+
+R2 lifecycle backstop for abandoned multipart uploads and temporary uploads in
+the development and production prefixes. The API remains the authoritative
+retention system. See `docs/cloudflare-r2.md` before applying it.
 
 ## cloudwatch-s3-alarms.yaml
 
-CloudFormation stack with CloudWatch alarms for the media bucket (5xx/4xx
-error rates). Deploy with the bucket name as a parameter.
+Legacy AWS-only CloudFormation stack with CloudWatch alarms for an S3 media
+bucket. It does not monitor Cloudflare R2.
 
 ## s3-media-lifecycle.json
 

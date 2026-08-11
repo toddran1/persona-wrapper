@@ -64,6 +64,7 @@ type PutStreamInput = {
 type StorageHealth = {
   ok: boolean;
   driver: typeof env.STORAGE_DRIVER;
+  backend?: "aws-s3" | "cloudflare-r2" | "s3-compatible";
   root?: string;
   bucket?: string;
   prefix?: string;
@@ -271,17 +272,33 @@ class S3StorageDriver implements StorageDriver {
   private readonly client: S3Client;
   private readonly bucket: string;
   private readonly prefix: string;
+  private readonly backend: NonNullable<StorageHealth["backend"]>;
 
   constructor() {
     if (!env.STORAGE_S3_BUCKET || !env.STORAGE_S3_REGION) {
-      throw new Error("S3 storage requires STORAGE_S3_BUCKET and STORAGE_S3_REGION.");
+      throw new Error("S3-compatible storage requires STORAGE_S3_BUCKET and STORAGE_S3_REGION.");
     }
     this.bucket = env.STORAGE_S3_BUCKET;
     this.prefix = normalizePrefix(env.STORAGE_S3_PREFIX);
+    this.backend = storageBackend(env.STORAGE_S3_ENDPOINT);
+    const credentials = env.STORAGE_S3_ACCESS_KEY_ID && env.STORAGE_S3_SECRET_ACCESS_KEY
+      ? {
+          accessKeyId: env.STORAGE_S3_ACCESS_KEY_ID,
+          secretAccessKey: env.STORAGE_S3_SECRET_ACCESS_KEY
+        }
+      : undefined;
+    const isR2 = this.backend === "cloudflare-r2";
     this.client = new S3Client({
       region: env.STORAGE_S3_REGION,
       ...(env.STORAGE_S3_ENDPOINT ? { endpoint: env.STORAGE_S3_ENDPOINT } : {}),
+      ...(credentials ? { credentials } : {}),
       forcePathStyle: env.STORAGE_S3_FORCE_PATH_STYLE,
+      // R2 does not implement the SDK's x-amz-sdk-checksum-algorithm header.
+      // Required checksums still run, while optional AWS-specific negotiation is disabled.
+      ...(isR2 ? {
+        requestChecksumCalculation: "WHEN_REQUIRED" as const,
+        responseChecksumValidation: "WHEN_REQUIRED" as const
+      } : {}),
       maxAttempts: 3
     });
   }
@@ -458,6 +475,7 @@ class S3StorageDriver implements StorageDriver {
     return {
       ok,
       driver: env.STORAGE_DRIVER,
+      backend: this.backend,
       bucket: this.bucket,
       ...(this.prefix ? { prefix: this.prefix } : {}),
       ...(message ? { message } : {})
@@ -519,6 +537,17 @@ export class StorageService implements StorageDriver {
 
 function normalizePrefix(prefix: string | undefined): string {
   return (prefix ?? "").replace(/^\/+|\/+$/g, "");
+}
+
+function storageBackend(endpoint: string | undefined): NonNullable<StorageHealth["backend"]> {
+  if (!endpoint) return "aws-s3";
+  try {
+    return new URL(endpoint).hostname.toLowerCase().endsWith(".r2.cloudflarestorage.com")
+      ? "cloudflare-r2"
+      : "s3-compatible";
+  } catch {
+    return "s3-compatible";
+  }
 }
 
 function isS3NotFound(error: unknown): boolean {

@@ -43,7 +43,7 @@ With `DATABASE_URL` set, the API currently persists:
 - generated-audio metadata
 - background job status, provider response IDs, and completed/failed job payloads
 
-Uploaded file bytes, generated image/file bytes, and generated audio bytes are stored through the storage adapter. Local development uses the `local` storage driver and stores bytes on disk. Production should use the `s3` storage driver so object bytes live in S3. The database stores ownership, MIME type, filenames, size, expiration, public URLs, storage keys, and provider IDs needed to manage those objects.
+Uploaded file bytes, generated image/file bytes, and generated audio bytes are stored through the storage adapter. Local development uses the `local` storage driver and stores bytes on disk. Hosted environments use the `s3` protocol driver against Cloudflare R2. The database stores ownership, MIME type, filenames, size, expiration, public URLs, storage keys, and provider IDs needed to manage those objects.
 
 Recommended local media root:
 
@@ -113,68 +113,30 @@ For production:
 
 ## Production
 
-Production should use AWS RDS PostgreSQL for the database and S3 for file/media storage. The database should store metadata for uploads, generated media, generated audio, vector stores, conversations, messages, and background jobs; object bytes should live in S3.
-
-Production S3 storage is enabled only when `NODE_ENV=production`:
+Production should use managed PostgreSQL for application metadata and private
+object storage for file/media bytes. Cloudflare R2 is the current hosted object
+store and uses the existing S3-compatible storage adapter:
 
 ```env
 NODE_ENV=production
 STORAGE_DRIVER=s3
-STORAGE_S3_BUCKET=persona-wrapper-prod-media
-STORAGE_S3_REGION=us-east-1
-STORAGE_S3_PREFIX=prod
+STORAGE_S3_BUCKET=forthebaddiez-media-production
+STORAGE_S3_REGION=auto
+STORAGE_S3_PREFIX=production
+STORAGE_S3_ENDPOINT=https://e54c506a4049687d239b5c7909b9cee7.r2.cloudflarestorage.com
+STORAGE_S3_FORCE_PATH_STYLE=false
+STORAGE_S3_ACCESS_KEY_ID=<production R2 Access Key ID>
+STORAGE_S3_SECRET_ACCESS_KEY=<production R2 Secret Access Key>
 ```
 
-Use the app server IAM role for S3 access in AWS instead of long-lived access keys. The role should be scoped to the configured bucket and prefix with permissions for:
+Use a distinct R2 bucket and bucket-scoped Object Read & Write token for each
+environment. Prefixes organize keys but do not isolate credentials within one
+R2 bucket. Keep public bucket access disabled. Full setup, CORS, lifecycle,
+migration, and verification instructions are in `docs/cloudflare-r2.md`.
 
-- `s3:PutObject`
-- `s3:GetObject`
-- `s3:DeleteObject`
-- `s3:ListBucket` limited to the configured prefix
-
-For the Render development configuration (`STORAGE_S3_PREFIX=development`), attach this policy to the IAM user or role represented by Render's `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. Replace `YOUR_BUCKET_NAME` if your configured bucket has a different name:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "ListForTheBaddiezDevelopmentObjects",
-      "Effect": "Allow",
-      "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME",
-      "Condition": {
-        "StringLike": {
-          "s3:prefix": ["development/*"]
-        }
-      }
-    },
-    {
-      "Sid": "ManageForTheBaddiezDevelopmentObjects",
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-      "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/development/*"
-    }
-  ]
-}
-```
-
-If the bucket uses a customer-managed AWS KMS key with a restrictive key policy, also grant this same IAM principal `kms:Encrypt`, `kms:Decrypt`, and `kms:GenerateDataKey` on that KMS key. S3 default encryption alone does not require those additional grants.
-
-Direct browser and native uploads also require bucket CORS for the deployed web
-origins and the `PUT` method. A minimal rule is:
-
-```json
-[
-  {
-    "AllowedOrigins": ["https://for-the-baddiez-web.onrender.com", "https://for-the-baddiez-web-dev.onrender.com"],
-    "AllowedMethods": ["PUT"],
-    "AllowedHeaders": ["content-type"],
-    "ExposeHeaders": ["etag"],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
+AWS S3 remains supported by leaving `STORAGE_S3_ENDPOINT` blank and using the
+AWS SDK credential chain. If AWS S3 is selected again, prefer an app-server IAM
+role scoped to the configured bucket and prefix instead of long-lived keys.
 
 The storage service boundary is isolated in `apps/api/src/services/storageService.ts`. Both local and S3 drivers implement:
 
@@ -188,8 +150,8 @@ For production, keep object bytes outside the app container and only store stabl
 
 Recommended cost controls:
 
-- Use an S3 lifecycle rule to expire temporary uploads and generated media/audio that should not be retained forever.
-- Keep `STORAGE_S3_PREFIX` environment-specific, for example `prod`, so cleanup and IAM can be scoped safely.
+- Use an object lifecycle rule only as a backstop for temporary uploads the API fails to clean up.
+- Keep `STORAGE_S3_PREFIX` environment-specific for clear key organization, and use separate buckets/tokens for the actual environment security boundary.
 - Keep metadata JSON small; store searchable values in typed columns when they become query-heavy.
 - Avoid database indexes on large JSON payloads until there is a concrete query path that needs them.
 

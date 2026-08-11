@@ -141,8 +141,8 @@ OpenAI and the style-transfer HTTP request.
 
 ### `POST /api/uploads/presign` and `POST /api/uploads/:id/complete`
 
-Production clients request an owner-scoped, short-lived S3 PUT URL, upload bytes
-directly to S3, and then complete the upload through the API. Completion verifies
+Production clients request an owner-scoped, short-lived S3-compatible PUT URL,
+upload bytes directly to Cloudflare R2, and then complete the upload through the API. Completion verifies
 the object size, MIME metadata, and file signature before the asset becomes usable.
 The multipart `POST /api/uploads` route remains only as the local-storage
 development fallback. When OpenAI is configured, completion also creates a

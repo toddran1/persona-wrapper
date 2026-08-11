@@ -35,6 +35,15 @@ function commaSeparatedStrings(value: unknown): unknown {
   return value.split(",").map((entry) => entry.trim()).filter(Boolean);
 }
 
+function isCloudflareR2Endpoint(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    return new URL(value).hostname.toLowerCase().endsWith(".r2.cloudflarestorage.com");
+  } catch {
+    return false;
+  }
+}
+
 const reasoningEffortSchema = z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]);
 const reasoningSummarySchema = z.enum(["auto", "concise", "detailed"]);
 const textVerbositySchema = z.enum(["low", "medium", "high"]);
@@ -165,6 +174,8 @@ const envSchema = z.object({
   STORAGE_S3_PREFIX: z.preprocess(optionalTrimmedString, z.string().optional()),
   STORAGE_S3_ENDPOINT: z.preprocess(optionalTrimmedString, z.string().url().optional()),
   STORAGE_S3_FORCE_PATH_STYLE: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  STORAGE_S3_ACCESS_KEY_ID: z.preprocess(optionalWhitespaceFreeSecret, z.string().min(1).optional()),
+  STORAGE_S3_SECRET_ACCESS_KEY: z.preprocess(optionalWhitespaceFreeSecret, z.string().min(1).optional()),
   UPLOAD_DIR: z.string().default("apps/api/uploads"),
   GENERATED_MEDIA_DIR: z.preprocess(emptyStringToUndefined, z.string().optional()),
   GENERATED_MEDIA_TTL_HOURS: z.coerce.number().int().nonnegative().default(0),
@@ -382,6 +393,27 @@ const envSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ["STORAGE_S3_REGION"],
         message: "STORAGE_S3_REGION is required when STORAGE_DRIVER=s3."
+      });
+    }
+    if (Boolean(value.STORAGE_S3_ACCESS_KEY_ID) !== Boolean(value.STORAGE_S3_SECRET_ACCESS_KEY)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["STORAGE_S3_ACCESS_KEY_ID"],
+        message: "STORAGE_S3_ACCESS_KEY_ID and STORAGE_S3_SECRET_ACCESS_KEY must be configured together."
+      });
+    }
+    if (value.STORAGE_S3_ENDPOINT && (!value.STORAGE_S3_ACCESS_KEY_ID || !value.STORAGE_S3_SECRET_ACCESS_KEY)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["STORAGE_S3_ACCESS_KEY_ID"],
+        message: "Explicit storage credentials are required when STORAGE_S3_ENDPOINT is configured."
+      });
+    }
+    if (isCloudflareR2Endpoint(value.STORAGE_S3_ENDPOINT) && value.STORAGE_S3_REGION !== "auto") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["STORAGE_S3_REGION"],
+        message: "Cloudflare R2 requires STORAGE_S3_REGION=auto."
       });
     }
   }

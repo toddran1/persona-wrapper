@@ -142,6 +142,11 @@ site and routing failures.
 
 ## S3 alarms
 
+This section applies only when deploying the storage adapter against AWS S3.
+Cloudflare R2 is the current hosted backend and is not covered by these
+CloudWatch alarms; use Cloudflare's R2 analytics and application storage-health
+telemetry instead.
+
 The template at `infra/cloudwatch-s3-alarms.yaml` creates 4xx and 5xx alarms for the existing media bucket. S3 only publishes request-error metrics after request metrics are enabled for the bucket. In the S3 console, create a metrics configuration with id `EntireBucket` and no filter, then deploy:
 
 ```sh
