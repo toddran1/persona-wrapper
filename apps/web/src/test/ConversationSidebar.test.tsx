@@ -197,6 +197,7 @@ describe("ConversationSidebar settings", () => {
     await user.click(screen.getByTestId("auth-register-tab"));
     await user.type(screen.getByTestId("auth-register-email"), "new@example.com");
     await user.type(screen.getByTestId("auth-register-password"), "password123");
+    await user.type(screen.getByTestId("auth-register-password-confirmation"), "password123");
     expect(screen.getByTestId("auth-submit")).toBeDisabled();
     expect(screen.getByRole("link", { name: "Terms of Use" })).toHaveAttribute("href", "/terms");
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
@@ -262,6 +263,7 @@ describe("ConversationSidebar settings", () => {
     await user.click(screen.getByTestId("auth-register-tab"));
     await user.type(screen.getByTestId("auth-register-username"), "baddie42");
     await user.type(screen.getByTestId("auth-register-password"), "longenough1");
+    await user.type(screen.getByTestId("auth-register-password-confirmation"), "longenough1");
     await user.click(screen.getByTestId("auth-register-consent"));
     await user.click(screen.getByTestId("auth-submit"));
 

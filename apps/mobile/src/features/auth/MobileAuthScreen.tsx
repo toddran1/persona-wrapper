@@ -30,8 +30,9 @@ type MobileAuthScreenProps = {
   checkingSession: boolean;
   mode: MobileAuthMode;
   identifier: string;
-  displayName: string;
+  username: string;
   password: string;
+  passwordConfirmation: string;
   busy: boolean;
   error?: string | undefined;
   oauthProviders: OAuthProviderStatus[];
@@ -40,8 +41,9 @@ type MobileAuthScreenProps = {
   theme: MobileTheme;
   onModeChange: (mode: MobileAuthMode) => void;
   onIdentifierChange: (value: string) => void;
-  onDisplayNameChange: (value: string) => void;
+  onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
+  onPasswordConfirmationChange: (value: string) => void;
   onRegistrationConsentChange: (value: boolean) => void;
   onSubmit: () => void;
   onOAuth: (provider: OAuthProvider) => void;
@@ -53,8 +55,9 @@ export function MobileAuthScreen({
   checkingSession,
   mode,
   identifier,
-  displayName,
+  username,
   password,
+  passwordConfirmation,
   busy,
   error,
   oauthProviders,
@@ -63,8 +66,9 @@ export function MobileAuthScreen({
   theme,
   onModeChange,
   onIdentifierChange,
-  onDisplayNameChange,
+  onUsernameChange,
   onPasswordChange,
+  onPasswordConfirmationChange,
   onRegistrationConsentChange,
   onSubmit,
   onOAuth,
@@ -76,12 +80,13 @@ export function MobileAuthScreen({
   const { height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [passwordConfirmationVisible, setPasswordConfirmationVisible] = useState(false);
   const compact = height < 700 || width < 360;
   const horizontalGutter = compact ? 20 : 24;
   const enabledProviders = oauthProviders.filter((provider) => provider.enabled);
   const canSubmit = identifier.trim().length > 0
     && (mode === "forgot" || password.length > 0)
-    && (mode !== "register" || (registrationConsent && Boolean(currentPolicies)))
+    && (mode !== "register" || (password === passwordConfirmation && registrationConsent && Boolean(currentPolicies)))
     && !busy
     && isOnline;
 
@@ -199,16 +204,16 @@ export function MobileAuthScreen({
 
                 {mode === "register" ? (
                   <View style={styles.fieldGroup}>
-                    <Text style={[styles.fieldLabel, { color: theme.muted }]}>{t("auth.displayName")} <Text style={styles.optional}>({t("auth.optional")})</Text></Text>
+                    <Text style={[styles.fieldLabel, { color: theme.muted }]}>{t("auth.username")} <Text style={styles.optional}>({t("auth.optional")})</Text></Text>
                     <TextInput
-                      testID="mobile-auth-display-name"
-                      accessibilityLabel={t("auth.displayName")}
-                      autoCapitalize="words"
-                      autoComplete="name"
+                      testID="mobile-auth-username"
+                      accessibilityLabel={t("auth.username")}
+                      autoCapitalize="none"
+                      autoComplete="username"
                       editable={!busy && isOnline}
-                      value={displayName}
-                      onChangeText={onDisplayNameChange}
-                      placeholder={t("auth.displayNamePlaceholder")}
+                      value={username}
+                      onChangeText={onUsernameChange}
+                      placeholder={t("auth.usernamePlaceholder")}
                       placeholderTextColor="rgba(200,189,216,0.54)"
                       returnKeyType="next"
                       style={[styles.input, { borderColor: theme.border, color: theme.text }]}
@@ -241,6 +246,31 @@ export function MobileAuthScreen({
                     </Pressable>
                   </View>
                   {mode === "register" ? <PasswordStrengthMeter password={password} theme={theme} /> : null}
+                </View> : null}
+                {mode === "register" ? <View style={styles.fieldGroup}>
+                  <Text style={[styles.fieldLabel, { color: theme.muted }]}>{t("auth.confirmPassword")}</Text>
+                  <View style={[styles.passwordShell, { borderColor: theme.border }]}>
+                    <TextInput
+                      testID="mobile-auth-password-confirmation"
+                      accessibilityLabel={t("auth.confirmPassword")}
+                      autoCapitalize="none"
+                      autoComplete="new-password"
+                      editable={!busy && isOnline}
+                      secureTextEntry={!passwordConfirmationVisible}
+                      value={passwordConfirmation}
+                      onChangeText={onPasswordConfirmationChange}
+                      onSubmitEditing={() => {
+                        if (canSubmit) onSubmit();
+                      }}
+                      placeholder={t("auth.confirmPasswordPlaceholder")}
+                      placeholderTextColor="rgba(200,189,216,0.54)"
+                      returnKeyType="go"
+                      style={[styles.passwordInput, { color: theme.text }]}
+                    />
+                    <Pressable accessibilityRole="button" accessibilityLabel={passwordConfirmationVisible ? t("auth.hidePassword") : t("auth.showPassword")} onPress={() => setPasswordConfirmationVisible((visible) => !visible)} style={styles.passwordToggle}>
+                      <Ionicons name={passwordConfirmationVisible ? "eye-off-outline" : "eye-outline"} size={20} color={theme.muted} />
+                    </Pressable>
+                  </View>
                 </View> : null}
                 {mode === "register" ? (
                   <Pressable

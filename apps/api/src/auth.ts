@@ -50,9 +50,12 @@ export const auth = database ? betterAuth({
     user: {
       create: {
         before: async (user, context) => {
+          const requestedUsername = typeof user.username === "string" ? user.username.trim() : "";
+          const username = requestedUsername ? requestedUsername.toLowerCase() : undefined;
           const data = {
             ...user,
-            name: user.name?.trim() || user.username?.toString() || "Baddie"
+            ...(username ? { username, displayUsername: requestedUsername } : {}),
+            name: user.name?.trim() || requestedUsername || "Baddie"
           };
           if (context?.path !== "/sign-up/email") return { data };
           // Registration requires a real, verifiable mailbox. Synthetic
@@ -61,6 +64,15 @@ export const auth = database ? betterAuth({
             throw new APIError("BAD_REQUEST", {
               message: "An email address is required to create an account."
             });
+          }
+          if (username) {
+            const existingUser = await database.query.users.findFirst({
+              columns: { id: true },
+              where: eq(schema.users.username, username)
+            });
+            if (existingUser) {
+              throw new APIError("BAD_REQUEST", { message: "That username is already taken." });
+            }
           }
           if (
             user.termsVersionAccepted !== env.TERMS_POLICY_VERSION

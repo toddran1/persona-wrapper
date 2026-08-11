@@ -292,8 +292,9 @@ export function MobileChatScreen() {
   const [personaCardExpanded, setPersonaCardExpanded] = useState(false);
   const [personaCardHidden, setPersonaCardHidden] = useState(false);
   const [identifier, setIdentifier] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [registrationUsername, setRegistrationUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [registrationConsent, setRegistrationConsent] = useState(false);
   const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
   const [quickMenuVisible, setQuickMenuVisible] = useState(false);
@@ -2126,7 +2127,8 @@ export function MobileChatScreen() {
     setAuthError(undefined);
     setPassword("");
     setIdentifier("");
-    setDisplayName("");
+    setRegistrationUsername("");
+    setPasswordConfirmation("");
     setRegistrationConsent(false);
     try {
       const savedConversationId = await getSelectedConversationId().catch(() => undefined);
@@ -2675,6 +2677,14 @@ export function MobileChatScreen() {
       setAuthError(`Password must be at least ${PASSWORD_MIN_LENGTH} characters.`);
       return;
     }
+    if (authMode === "register" && password !== passwordConfirmation) {
+      setAuthError("Passwords do not match.");
+      return;
+    }
+    if (authMode === "register" && registrationUsername.trim() && !/^[a-zA-Z0-9_.]{3,64}$/.test(registrationUsername.trim())) {
+      setAuthError("Username must be 3–64 characters and use letters, numbers, periods, or underscores only.");
+      return;
+    }
     setAuthBusy(true);
     setAuthError(undefined);
     try {
@@ -2700,7 +2710,7 @@ export function MobileChatScreen() {
           : await api.register({
           email: trimmedIdentifier,
           password,
-          ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
+          ...(registrationUsername.trim() ? { username: registrationUsername.trim() } : {}),
           policyConsent: {
             termsVersion: currentPolicies!.termsVersion,
             privacyVersion: currentPolicies!.privacyVersion
@@ -3078,8 +3088,9 @@ export function MobileChatScreen() {
         checkingSession={!authChecked}
         mode={authMode}
         identifier={identifier}
-        displayName={displayName}
+        username={registrationUsername}
         password={password}
+        passwordConfirmation={passwordConfirmation}
         busy={authBusy}
         error={authError ?? error}
         oauthProviders={oauthProviders}
@@ -3091,8 +3102,9 @@ export function MobileChatScreen() {
           setAuthError(undefined);
         }}
         onIdentifierChange={setIdentifier}
-        onDisplayNameChange={setDisplayName}
+        onUsernameChange={setRegistrationUsername}
         onPasswordChange={setPassword}
+        onPasswordConfirmationChange={setPasswordConfirmation}
         onRegistrationConsentChange={setRegistrationConsent}
         onSubmit={() => void submitAuth()}
         onOAuth={(oauthProvider) => void startOAuth(oauthProvider)}

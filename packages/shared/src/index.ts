@@ -641,9 +641,8 @@ export const registerRequestSchema = z.object({
   // Registration always requires a real, verifiable email. Username stays
   // optional; existing username-only accounts can still sign in.
   email: z.string().email(),
-  username: z.string().min(3).max(64).optional(),
+  username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_.]+$/, "Use letters, numbers, periods, or underscores only.").optional(),
   password: z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH),
-  displayName: z.string().min(1).max(120).optional(),
   policyConsent: policyVersionsSchema,
   clientType: authClientTypeSchema.default("web"),
   deviceId: z.string().max(200).optional()

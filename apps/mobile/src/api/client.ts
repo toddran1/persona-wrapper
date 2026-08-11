@@ -589,11 +589,12 @@ export const api = {
   register: async (payload: MobileRegisterRequest): Promise<{ user: AuthUser }> => {
     const installationId = await getOwnerId();
     const email = payload.email.trim().toLowerCase();
+    const username = payload.username?.trim();
     const signUpPayload = {
       email,
       password: payload.password,
-      name: payload.displayName?.trim() || payload.username?.trim() || email,
-      ...(payload.username ? { username: payload.username, displayUsername: payload.username } : {}),
+      name: username || email,
+      ...(username ? { username: username.toLowerCase(), displayUsername: username } : {}),
       termsVersionAccepted: payload.policyConsent.termsVersion,
       privacyVersionAccepted: payload.policyConsent.privacyVersion,
       fetchOptions: {

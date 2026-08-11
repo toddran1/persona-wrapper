@@ -167,6 +167,7 @@ export function ConversationSidebar({
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerUsername, setRegisterUsername] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
+  const [registerPasswordConfirmation, setRegisterPasswordConfirmation] = useState("");
   const [registrationConsent, setRegistrationConsent] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [localAuthError, setLocalAuthError] = useState<string | undefined>();
@@ -397,6 +398,10 @@ export function ConversationSidebar({
       setLocalAuthError("Username must be at least 3 characters.");
       return;
     }
+    if (username && !/^[a-zA-Z0-9_.]+$/.test(username)) {
+      setLocalAuthError("Username can use letters, numbers, periods, and underscores only.");
+      return;
+    }
     if (
       !payload.password ||
       payload.password.length < REGISTER_PASSWORD_MIN_LENGTH
@@ -406,11 +411,16 @@ export function ConversationSidebar({
       );
       return;
     }
+    if (payload.password !== registerPasswordConfirmation) {
+      setLocalAuthError("Passwords do not match.");
+      return;
+    }
     setAuthBusy(true);
     setLocalAuthError(undefined);
     try {
       await onRegister(payload);
       setRegisterPassword("");
+      setRegisterPasswordConfirmation("");
       setRegistrationConsent(false);
       setAuthPanelOpen(false);
     } catch (error) {
@@ -986,6 +996,15 @@ export function ConversationSidebar({
                       autoComplete="new-password"
                       disabled={authBusy || authLoading}
                       showStrength
+                    />
+                    <PasswordInput
+                      value={registerPasswordConfirmation}
+                      onChange={setRegisterPasswordConfirmation}
+                      placeholder="Confirm password"
+                      ariaLabel="Confirm password"
+                      testId="auth-register-password-confirmation"
+                      autoComplete="new-password"
+                      disabled={authBusy || authLoading}
                     />
                     <label className="conversation-registration-consent">
                       <input

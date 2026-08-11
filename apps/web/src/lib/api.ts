@@ -528,11 +528,12 @@ export const api = {
   },
   register: async (payload: RegisterRequest): Promise<{ user: AuthUser }> => {
     const email = payload.email.trim().toLowerCase();
+    const username = payload.username?.trim();
     const signUpPayload = {
       email,
       password: payload.password,
-      name: payload.displayName?.trim() || payload.username?.trim() || email,
-      ...(payload.username ? { username: payload.username, displayUsername: payload.username } : {}),
+      name: username || email,
+      ...(username ? { username: username.toLowerCase(), displayUsername: username } : {}),
       termsVersionAccepted: payload.policyConsent.termsVersion,
       privacyVersionAccepted: payload.policyConsent.privacyVersion
     } as Parameters<typeof authClient.signUp.email>[0] & {
