@@ -331,8 +331,9 @@ a maximum tool-call iteration limit:
 - `generate_artifact`
 - `places_search`
 
-`places_search` requires the Places API (New) to be enabled for the Google
-Cloud project and `GOOGLE_MAPS_API_KEY` to be configured. Map results are also
+`places_search` is advertised to model providers only when `PLACES_SEARCH_ENABLED=true`,
+the Places API (New) is enabled for the Google Cloud project, and
+`GOOGLE_MAPS_API_KEY` is configured. Map results are also
 returned as typed references so clients can expose the original Google Maps
 links.
 

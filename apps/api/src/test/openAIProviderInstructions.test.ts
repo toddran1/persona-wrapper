@@ -152,6 +152,20 @@ describe("OpenAIProvider instructions", () => {
     );
   });
 
+  it("does not instruct providers to call disabled or unavailable application tools", () => {
+    const input = inputForLaRae();
+    const instructions = buildOpenAIResponseInstructions(input, "full");
+
+    expect(instructions).toContain("Use generate_artifact whenever");
+    expect(instructions).not.toContain("Use places_search");
+
+    input.toolOptions = {
+      ...input.toolOptions,
+      appFunctions: false
+    };
+    expect(buildOpenAIResponseInstructions(input, "full")).not.toContain("Use generate_artifact whenever");
+  });
+
   it("reads direct performance direction from the active persona profile rather than its id", () => {
     const input = inputForLaRae();
     input.persona = {

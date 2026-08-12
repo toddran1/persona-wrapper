@@ -9,6 +9,7 @@ import {
   type ToolName
 } from "@persona/shared";
 import { z } from "zod";
+import { env } from "../../config/env.js";
 import { generateArtifact } from "../../services/artifactGenerationService.js";
 import { searchPlaces } from "../../services/placesSearchService.js";
 
@@ -253,7 +254,13 @@ const toolRegistry: Partial<Record<ToolName, ToolDefinition>> = {
 export function getToolsByNames(names: string[]): ToolDefinition[] {
   return names
     .map((name) => toolRegistry[name as ToolName])
-    .filter((tool): tool is ToolDefinition => Boolean(tool));
+    .filter((tool): tool is ToolDefinition => {
+      if (!tool) return false;
+      if (tool.name === "places_search") {
+        return env.PLACES_SEARCH_ENABLED && Boolean(env.GOOGLE_MAPS_API_KEY);
+      }
+      return true;
+    });
 }
 
 const currentTimeArgumentsSchema = z.object({

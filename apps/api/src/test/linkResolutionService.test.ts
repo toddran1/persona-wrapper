@@ -26,6 +26,22 @@ describe("LinkResolutionService", () => {
     expect(link?.extractedText).not.toContain("ignore me");
   });
 
+  it("preserves malformed numeric entities without failing page inspection", async () => {
+    const service = new LinkResolutionService({
+      fetch: vi.fn(async () => new Response(
+        "<title>Malformed &#99999999; title</title><p>Readable text &#x110000; and &#55296; remains.</p>",
+        { headers: { "content-type": "text/html" } }
+      )),
+      assertPublicUrl: publicOnly()
+    });
+
+    const result = await service.resolve("https://example.com/malformed-entities");
+
+    expect(result).toMatchObject({ status: "accessible", title: "Malformed &#99999999; title" });
+    expect(result.extractedText).toContain("Readable text &#x110000;");
+    expect(result.extractedText).toContain("&#55296;");
+  });
+
   it("canonicalizes YouTube links and adds verified captions when available", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       title: "A real video",

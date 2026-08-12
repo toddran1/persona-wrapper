@@ -108,8 +108,20 @@ function decodeHtmlEntities(value: string): string {
     amp: "&", apos: "'", gt: ">", hellip: "…", lt: "<", nbsp: " ", quot: "\""
   };
   return value.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
-    if (entity.startsWith("#x")) return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
-    if (entity.startsWith("#")) return String.fromCodePoint(Number.parseInt(entity.slice(1), 10));
+    if (entity.startsWith("#")) {
+      const hexadecimal = entity.slice(0, 2).toLowerCase() === "#x";
+      const codePoint = Number.parseInt(entity.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10);
+      // Invalid numeric entities occur in malformed pages. Treat them as
+      // untrusted text instead of allowing String.fromCodePoint to throw and
+      // turn an otherwise readable page into a resolver failure.
+      if (
+        !Number.isInteger(codePoint) ||
+        codePoint < 0 ||
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) return match;
+      return String.fromCodePoint(codePoint);
+    }
     return named[entity.toLowerCase()] ?? match;
   });
 }

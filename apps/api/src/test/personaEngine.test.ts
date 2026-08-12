@@ -96,8 +96,10 @@ describe("PersonaEngine", () => {
 
     expect(input.toolDefinitions).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "render_chart", owner: "application" }),
-      expect.objectContaining({ name: "generate_artifact", owner: "application" }),
-      expect.objectContaining({ name: "places_search", owner: "application" })
+      expect.objectContaining({ name: "generate_artifact", owner: "application" })
+    ]));
+    expect(input.toolDefinitions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "places_search" })
     ]));
   });
 

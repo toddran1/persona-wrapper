@@ -314,6 +314,9 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
   const inlineTtsScript = inlineTtsScriptOverride ?? shouldRequestInlineTtsScript(input, promptMode);
   const instructions = promptMode === "full" ? input.systemPrompt : (input.baseSystemPrompt ?? input.systemPrompt);
   const extraInstructions: string[] = [];
+  const applicationToolEnabled = (name: string) =>
+    input.toolOptions?.appFunctions !== false &&
+    input.toolDefinitions.some((tool) => tool.owner === "application" && tool.name === name);
 
   if (promptMode === "full") {
     const personaInstructions = input.personaInfluenceLevel === "professional"
@@ -383,9 +386,20 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
     );
   }
 
-  extraInstructions.push(
-    "Application utilities: Use generate_artifact whenever the user asks for a supported downloadable file, whether or not code execution is needed. Use places_search for local businesses, restaurants, venues, attractions, stores, or services. If a place request has no usable city, area, address, landmark, or device location, ask for a location before searching. Base local recommendations only on returned place records, include useful Google Maps links, and make clear that hours, ratings, prices, and availability can change."
-  );
+  const applicationUtilities: string[] = [];
+  if (applicationToolEnabled("generate_artifact")) {
+    applicationUtilities.push(
+      "Use generate_artifact whenever the user asks for a supported downloadable file, whether or not code execution is needed."
+    );
+  }
+  if (applicationToolEnabled("places_search")) {
+    applicationUtilities.push(
+      "Use places_search for local businesses, restaurants, venues, attractions, stores, or services. If a place request has no usable city, area, address, landmark, or device location, ask for a location before searching. Base local recommendations only on returned place records, include useful Google Maps links, and make clear that hours, ratings, prices, and availability can change."
+    );
+  }
+  if (applicationUtilities.length > 0) {
+    extraInstructions.push(`Application utilities: ${applicationUtilities.join(" ")}`);
+  }
 
   if (input.toolOptions?.imageGeneration) {
     extraInstructions.push(

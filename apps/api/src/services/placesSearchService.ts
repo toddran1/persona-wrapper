@@ -152,7 +152,8 @@ export async function searchPlaces(
     const places = (payload.places ?? []).flatMap((place) => {
       const name = place.displayName?.text?.trim();
       if (!name || !place.id) return [];
-      const mapsUrl = place.googleMapsUri ?? `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(place.id)}`;
+      const mapsQuery = place.formattedAddress ?? name;
+      const mapsUrl = place.googleMapsUri ?? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}&query_place_id=${encodeURIComponent(place.id)}`;
       return [{
         id: place.id,
         name,

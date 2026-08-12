@@ -665,7 +665,7 @@ async function resolveOwnedChatAssets(request: Request, signal?: AbortSignal) {
   const ownerId = requestOwnerId(request);
   await uploadService.validateVectorStores(ownerId, vectorStoreIds);
   const resolvedAssets = assetIds.length > 0
-    ? await uploadService.resolveAssets(ownerId, assetIds)
+    ? await uploadService.resolveAssets(ownerId, assetIds, payload.provider)
     : [];
   const importedAssets = await remoteAttachmentImportService.importFromMessage(
     ownerId,
@@ -677,7 +677,7 @@ async function resolveOwnedChatAssets(request: Request, signal?: AbortSignal) {
   const combinedIds = [...new Set([...resolvedAssets, ...importedAssets].map((asset) => asset.id))];
   return {
     ...payload,
-    attachments: await uploadService.resolveAssets(ownerId, combinedIds)
+    attachments: await uploadService.resolveAssets(ownerId, combinedIds, payload.provider)
   };
 }
 

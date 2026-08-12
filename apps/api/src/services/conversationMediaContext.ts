@@ -1,4 +1,4 @@
-import type { ContentBlock, ConversationUserAsset, UploadedAsset } from "@persona/shared";
+import type { ContentBlock, ConversationUserAsset, ProviderId, UploadedAsset } from "@persona/shared";
 import { logger } from "../utils/logger.js";
 import { generatedMediaService } from "./generatedMediaService.js";
 import { analyzeImageReferenceRequirement } from "./imageReferenceRequirement.js";
@@ -22,6 +22,7 @@ export type ConversationWithOutputs = {
 type ConversationMediaContextOptions = {
   message: string;
   ownerId?: string;
+  provider?: ProviderId;
   maxImages?: number;
   currentImageCount?: number;
   minimumImages?: number;
@@ -792,7 +793,7 @@ export async function resolveConversationMediaContext(
     for (const candidate of limitedCandidates) {
       try {
         if (!options.ownerId) throw new Error("Historical uploads require an authenticated owner.");
-        const [asset] = await uploadService.resolveAssets(options.ownerId, [candidate.id]);
+        const [asset] = await uploadService.resolveAssets(options.ownerId, [candidate.id], options.provider);
         if (!asset || asset.kind !== "image") throw new Error("Historical image upload is unavailable.");
         attachments.push(historicalUploadAttachment(asset));
       } catch (error) {

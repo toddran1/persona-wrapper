@@ -87,7 +87,11 @@ export class RemoteAttachmentImportService {
     const imported: UploadedAsset[] = [];
     const existingIds = new Set(existingAssets.map((asset) => asset.id));
 
-    for (const originalUrl of extractHttpUrls(message).slice(0, remaining)) {
+    // Inspect at most one request's supported attachment count, but do not
+    // pre-slice to `remaining`: a cached asset that is already attached must
+    // not consume a candidate slot and prevent a later new URL from importing.
+    for (const originalUrl of extractHttpUrls(message).slice(0, MAX_CHAT_ATTACHMENTS)) {
+      if (imported.length >= remaining) break;
       signal?.throwIfAborted();
       const sourceFingerprint = fingerprint(new URL(originalUrl).toString());
       const cached = await uploadService.findRemoteImport(ownerId, sourceFingerprint);

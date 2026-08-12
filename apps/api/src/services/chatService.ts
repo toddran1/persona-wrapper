@@ -162,6 +162,7 @@ export class ChatService {
     const conversationMediaAttachments = await resolveConversationMediaContext(retryContext?.conversation ?? conversation, {
       message: request.message,
       ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+      provider: request.provider,
       maxImages: Math.max(MAX_CHAT_ATTACHMENTS - currentImageCount, 0),
       currentImageCount,
       minimumImages: imageReferenceRequirement.minimumImages,

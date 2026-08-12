@@ -14,10 +14,10 @@ describe("application tool registry", () => {
     });
   });
 
-  it("registers artifact and Maps-backed place tools as application-owned functions", () => {
+  it("omits disabled application tools from the provider-facing registry", () => {
     const tools = getToolsByNames(["generate_artifact", "places_search"]);
 
-    expect(tools.map((tool) => tool.name)).toEqual(["generate_artifact", "places_search"]);
+    expect(tools.map((tool) => tool.name)).toEqual(["generate_artifact"]);
     for (const tool of tools) {
       expect(tool.owner).toBe("application");
       expect(tool.inputSchema).toMatchObject({

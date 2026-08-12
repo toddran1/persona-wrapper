@@ -3,8 +3,8 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { basename, extname } from "node:path";
 import OpenAI, { toFile } from "openai";
 import { fileTypeFromBuffer } from "file-type";
-import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type UploadedAsset } from "@persona/shared";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ProviderId, type UploadedAsset } from "@persona/shared";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { uploads, vectorStores } from "../db/schema.js";
@@ -73,6 +73,7 @@ type StoredVectorStore = {
 export class UploadService {
   private readonly assets = new Map<string, StoredAsset>();
   private readonly vectorStores = new Map<string, StoredVectorStore>();
+  private readonly openAIFilePreparations = new Map<string, Promise<string | undefined>>();
 
   supportsDirectUploads(): boolean {
     return Boolean(getDatabase()) && storageService.supportsPresignedUploads();
@@ -140,7 +141,6 @@ export class UploadService {
       throw new HttpError("Upload is already being processed.", 409);
     }
 
-    let openaiFileId: string | undefined;
     try {
       const object = await storageService.head(row.storageKey);
       if (object.sizeBytes !== row.sizeBytes) {
@@ -152,11 +152,9 @@ export class UploadService {
         throw new HttpError("Uploaded object does not match the requested file metadata.", 400);
       }
       await validateUploadBuffer(buffer, metadata.fileName, metadata.mimeType, row.sizeBytes);
-      openaiFileId = await uploadBufferToOpenAI(buffer, metadata.fileName, metadata.mimeType);
       await db.update(uploads).set({
         fileName: metadata.fileName,
         mimeType: metadata.mimeType,
-        openaiFileId,
         metadata: { ...row.metadata, uploadStatus: "ready" },
         updatedAt: new Date()
       }).where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId)));
@@ -164,7 +162,7 @@ export class UploadService {
         ...row,
         fileName: metadata.fileName,
         mimeType: metadata.mimeType,
-        openaiFileId: openaiFileId ?? null,
+        openaiFileId: null,
         metadata: { ...row.metadata, uploadStatus: "ready" },
         updatedAt: new Date()
       }));
@@ -173,9 +171,6 @@ export class UploadService {
         db.delete(uploads).where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))),
         storageService.delete(row.storageKey)
       ];
-      if (openaiFileId && env.OPENAI_API_KEY) {
-        cleanupTasks.push(new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS }).files.delete(openaiFileId));
-      }
       const cleanup = await Promise.allSettled(cleanupTasks);
       const cleanupFailures = cleanup.filter((result) => result.status === "rejected").length;
       if (cleanupFailures > 0) {
@@ -215,26 +210,6 @@ export class UploadService {
       buffer: input.buffer
     });
     const expiresAt = uploadExpiresAt().toISOString();
-    let openaiFileId: string | undefined;
-
-    try {
-      if (env.OPENAI_API_KEY && supportsOpenAIFileUpload(canonical.mimeType)) {
-        const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
-        const uploaded = await client.files.create({
-          file: await toFile(input.buffer, basename(canonical.fileName), { type: canonical.mimeType }),
-          purpose: "user_data",
-          expires_after: {
-            anchor: "created_at",
-            seconds: Math.max(3600, Math.min(2592000, env.UPLOAD_TTL_HOURS * 3600))
-          }
-        });
-        openaiFileId = uploaded.id;
-      }
-    } catch (error) {
-      await storageService.delete(stored.storageKey).catch(() => undefined);
-      throw error;
-    }
-
     const asset: StoredAsset = {
       id,
       ownerId,
@@ -243,7 +218,6 @@ export class UploadService {
       mimeType: canonical.mimeType,
       sizeBytes,
       url: `/api/uploads/${id}`,
-      ...(openaiFileId ? { openaiFileId } : {}),
       expiresAt,
       ...(stored.localPath ? { localPath: stored.localPath } : {}),
       storageKey: stored.storageKey,
@@ -262,7 +236,6 @@ export class UploadService {
           ...(stored.localPath ? { localPath: stored.localPath } : {}),
           storageKey: stored.storageKey,
           publicUrl: asset.url,
-          openaiFileId,
           expiresAt: new Date(expiresAt),
           metadata: input.metadata ?? {}
         });
@@ -271,9 +244,6 @@ export class UploadService {
       }
     } catch (error) {
       const cleanupTasks: Promise<unknown>[] = [storageService.delete(stored.storageKey)];
-      if (openaiFileId && env.OPENAI_API_KEY) {
-        cleanupTasks.push(new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS }).files.delete(openaiFileId));
-      }
       await Promise.allSettled(cleanupTasks);
       throw error;
     }
@@ -327,10 +297,13 @@ export class UploadService {
     return [...this.assets.values()].filter((asset) => asset.ownerId === ownerId).map((asset) => this.publicAsset(asset));
   }
 
-  async resolveAssets(ownerId: string, assetIds: string[]): Promise<ResolvedUploadAsset[]> {
+  async resolveAssets(ownerId: string, assetIds: string[], provider?: ProviderId): Promise<ResolvedUploadAsset[]> {
     const assets = await Promise.all(assetIds.map((id) => this.get(ownerId, id)));
     validateUploadBatch(assets);
-    return assets.map(({ ownerId: _ownerId, ...asset }) => asset);
+    const prepared = provider === "openai"
+      ? await Promise.all(assets.map((asset) => this.prepareAssetForOpenAI(ownerId, asset)))
+      : assets;
+    return prepared.map(({ ownerId: _ownerId, ...asset }) => asset);
   }
 
   async findRemoteImport(ownerId: string, sourceFingerprint: string): Promise<UploadedAsset | undefined> {
@@ -433,7 +406,7 @@ export class UploadService {
 
   async createVectorStore(ownerId: string, assetIds: string[], name?: string): Promise<{ id: string; expiresAt: string }> {
     if (!env.OPENAI_API_KEY) throw new HttpError("OpenAI is not configured.", 503);
-    const files = await Promise.all(assetIds.map((id) => this.get(ownerId, id)));
+    const files = await Promise.all(assetIds.map(async (id) => this.prepareAssetForOpenAI(ownerId, await this.get(ownerId, id))));
     const fileIds = files.flatMap((file) => file.openaiFileId ? [file.openaiFileId] : []);
     if (fileIds.length !== files.length) throw new HttpError("All vector-store files must be uploaded to OpenAI.", 400);
 
@@ -479,6 +452,59 @@ export class UploadService {
   private publicAsset(asset: StoredAsset): UploadedAsset {
     const { ownerId: _ownerId, localPath: _localPath, storageKey: _storageKey, metadata: _metadata, ...publicAsset } = asset;
     return publicAsset;
+  }
+
+  private async prepareAssetForOpenAI(ownerId: string, asset: StoredAsset): Promise<StoredAsset> {
+    if (asset.openaiFileId || !supportsOpenAIFileUpload(asset.mimeType)) return asset;
+    if (!env.OPENAI_API_KEY) throw new HttpError("OpenAI is not configured.", 503);
+
+    const existing = this.openAIFilePreparations.get(asset.id);
+    const preparation = existing ?? this.registerAssetWithOpenAI(ownerId, asset);
+    if (!existing) this.openAIFilePreparations.set(asset.id, preparation);
+    try {
+      const openaiFileId = await preparation;
+      return openaiFileId ? { ...asset, openaiFileId } : asset;
+    } finally {
+      if (!existing) this.openAIFilePreparations.delete(asset.id);
+    }
+  }
+
+  private async registerAssetWithOpenAI(ownerId: string, asset: StoredAsset): Promise<string | undefined> {
+    const { buffer } = await this.download(ownerId, asset.id);
+    const openaiFileId = await uploadBufferToOpenAI(buffer, asset.fileName, asset.mimeType);
+    if (!openaiFileId) return undefined;
+
+    try {
+      const db = getDatabase();
+      if (!db) {
+        const current = this.assets.get(asset.id);
+        if (!current) throw new HttpError("Upload not found.", 404);
+        current.openaiFileId = openaiFileId;
+        return openaiFileId;
+      }
+
+      const [updated] = await db.update(uploads).set({ openaiFileId, updatedAt: new Date() }).where(and(
+        eq(uploads.id, asset.id),
+        eq(uploads.ownerId, ownerId),
+        isNull(uploads.openaiFileId)
+      )).returning({ id: uploads.id });
+      if (updated) return openaiFileId;
+
+      const current = await db.query.uploads.findFirst({
+        columns: { openaiFileId: true },
+        where: and(eq(uploads.id, asset.id), eq(uploads.ownerId, ownerId))
+      });
+      if (current?.openaiFileId) {
+        await deleteOpenAIFile(openaiFileId, asset.id, "duplicate");
+        return current.openaiFileId;
+      }
+      throw new HttpError("Upload not found.", 404);
+    } catch (error) {
+      // If persistence lost the race with deletion or failed after the remote
+      // upload, do not leave an untracked provider file behind.
+      await deleteOpenAIFile(openaiFileId, asset.id, "untracked");
+      throw error;
+    }
   }
 
   private async cleanupExpired(deleteRemote = true): Promise<void> {
@@ -621,6 +647,18 @@ async function ignoreRemoteNotFound<T>(operation: Promise<T>): Promise<T | undef
   }
 }
 
+async function deleteOpenAIFile(fileId: string, assetId: string, reason: string): Promise<void> {
+  if (!env.OPENAI_API_KEY) return;
+  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
+  await ignoreRemoteNotFound(client.files.delete(fileId)).catch((error) => {
+    logger.warn("Failed to clean up an OpenAI upload", {
+      assetId,
+      reason,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+}
+
 function validateUploadDeclaration(ownerId: string, fileName: string, mimeType: string, sizeBytes: number): void {
   if (!ownerId.trim()) throw new HttpError("An upload owner ID is required.", 400);
   if (!basename(fileName).trim() || basename(fileName).length > 500) throw new HttpError("Invalid upload file name.", 400);
@@ -692,9 +730,8 @@ export async function canonicalUploadMetadata(
 }
 
 function uploadExpiresAt(): Date {
-  // The OpenAI copy of every upload is clamped to a 1-hour..30-day expiry
-  // (see uploadBufferToOpenAI). Keep the local record on the same clock so it
-  // never references a remotely expired file.
+  // Provider copies are clamped to this same 1-hour..30-day expiry when they
+  // are created, including lazy preparation immediately before a request.
   const clampedSeconds = Math.max(3600, Math.min(2592000, env.UPLOAD_TTL_HOURS * 3600));
   return new Date(Date.now() + clampedSeconds * 1000);
 }
