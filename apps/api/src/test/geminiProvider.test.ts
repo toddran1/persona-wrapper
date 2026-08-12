@@ -175,7 +175,7 @@ describe("GeminiProvider", () => {
     ]));
   });
 
-  it("uses the documented tool-free prompt-then-video shape for public YouTube links", async () => {
+  it("uses the documented tool-free video-then-prompt shape for public YouTube links", async () => {
     const createInteraction = vi.fn().mockResolvedValue({
       id: "interaction_youtube",
       status: "completed",
@@ -196,11 +196,11 @@ describe("GeminiProvider", () => {
 
     const content = createInteraction.mock.calls[0]?.[0]?.input;
     expect(content).toEqual([
+      { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0" },
       {
         type: "text",
         text: "Current user request:\nTell me about https://youtu.be/0Y4FoTy0Bf0?si=tracking and https://www.youtube.com/watch?v=0Y4FoTy0Bf0"
-      },
-      { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0" }
+      }
     ]);
     expect(createInteraction.mock.calls[0]?.[0]?.tools).toBeUndefined();
   });
@@ -224,6 +224,49 @@ describe("GeminiProvider", () => {
     const request = createInteraction.mock.calls[0]?.[0];
     expect(request.tools).toBeUndefined();
     expect(request).not.toHaveProperty("response_format");
+  });
+
+  it("falls back to verified resolved-link context when Gemini rejects an individual YouTube video", async () => {
+    const invalidVideoError = Object.assign(new Error("Request contains an invalid argument."), {
+      status: 400,
+      error: { error: { code: "invalid_request" } }
+    });
+    const createInteraction = vi.fn()
+      .mockRejectedValueOnce(invalidVideoError)
+      .mockResolvedValueOnce({
+        id: "interaction_youtube_fallback",
+        status: "completed",
+        output_text: "The verified title and captions describe an EXP system.",
+        steps: [{
+          type: "model_output",
+          content: [{ type: "text", text: "The verified title and captions describe an EXP system." }]
+        }]
+      });
+    const input = geminiInput();
+    input.messages = [
+      input.messages[0]!,
+      {
+        role: "user",
+        content: [
+          "Tool context for the next answer:",
+          "Access status: accessible",
+          "Title: Everyone Mocked Him Until His EXP System Let Him Gain 1 EXP/Sec"
+        ].join("\n")
+      },
+      { role: "user", content: "Tell me about https://youtu.be/0Y4FoTy0Bf0" }
+    ];
+
+    const output = await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    expect(createInteraction).toHaveBeenCalledTimes(2);
+    expect(createInteraction.mock.calls[0]?.[0]?.input[0]).toEqual(
+      { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0" }
+    );
+    expect(createInteraction.mock.calls[1]?.[0]?.input).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "video" })
+    ]));
+    expect(createInteraction.mock.calls[1]?.[0]?.input[0]?.text).toContain("Access status: accessible");
+    expect(output.rawText).toContain("verified title and captions");
   });
 
   it("enables Gemini URL context for non-YouTube links", async () => {

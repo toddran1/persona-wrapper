@@ -196,12 +196,15 @@ async function buildInteractionInput(input: LLMInput): Promise<InteractionConten
     extractYouTubeVideoUrls(message.content)
   ))].slice(0, 10);
   const content: InteractionContent[] = [
-    ...(historyContent ? [historyContent] : []),
-    // Keep the active prompt immediately before the native video blocks. This
-    // matches Gemini's documented YouTube Interactions shape and avoids the
-    // model treating quoted history as the instruction for the video.
-    { type: "text", text: `Current user request:\n${currentMessage.content}` },
+    // Gemini's video guide recommends putting a public YouTube video before
+    // every text part in a mixed video request. This is especially important
+    // for long videos: sending quoted history or the prompt first can make a
+    // valid URL fail request validation before Gemini gets a chance to read it.
     ...youtubeVideos.map((uri): InteractionContent => ({ type: "video", uri })),
+    ...(historyContent ? [historyContent] : []),
+    // Keep the active prompt after the video and quoted history so Gemini can
+    // distinguish the request from the application-provided context.
+    { type: "text", text: `Current user request:\n${currentMessage.content}` },
     ...await Promise.all((input.attachments ?? []).map((attachment) => attachmentContent(attachment)))
   ];
   // The Interactions API accepts initial multimodal content directly at the
@@ -227,6 +230,30 @@ function hasNativeYouTubeInput(input: LLMInput): boolean {
     .filter((message) => message.role !== "system")
     .slice(-2)
     .some((message) => extractYouTubeVideoUrls(message.content).length > 0);
+}
+
+function isNativeYouTubeContent(content: InteractionContent): content is Extract<InteractionContent, { type: "video" }> & {
+  uri: string;
+} {
+  return content.type === "video" && "uri" in content && extractYouTubeVideoUrls(content.uri).length > 0;
+}
+
+function withoutNativeYouTubeContent(
+  interactionInput: InteractionContent[] | InteractionStep[]
+): InteractionContent[] | InteractionStep[] {
+  if (interactionInput.some((item) => "content" in item)) {
+    return (interactionInput as InteractionStep[]).map((step) => step.content
+      ? { ...step, content: step.content.filter((content) => !isNativeYouTubeContent(content)) }
+      : step);
+  }
+  return (interactionInput as InteractionContent[]).filter((content) => !isNativeYouTubeContent(content));
+}
+
+function containsNativeYouTubeContent(interactionInput: InteractionContent[] | InteractionStep[]): boolean {
+  return interactionInput.some((item) => {
+    if ("content" in item) return item.content?.some(isNativeYouTubeContent) ?? false;
+    return isNativeYouTubeContent(item as InteractionContent);
+  });
 }
 
 function toolsForInput(input: LLMInput): InteractionTool[] {
@@ -643,10 +670,13 @@ export class GeminiProvider implements LLMProvider {
     signal: AbortSignal
   ): Promise<InteractionResponse> {
     let lastError: unknown;
-    for (let attempt = 0; attempt <= env.GEMINI_MAX_RETRIES; attempt += 1) {
+    let requestInput = interactionInput;
+    let usedNativeYouTubeFallback = false;
+    let attempt = 0;
+    while (attempt <= env.GEMINI_MAX_RETRIES) {
       signal.throwIfAborted();
       try {
-        return await createInteraction(interactionRequest(input, interactionInput, tools), {
+        return await createInteraction(interactionRequest(input, requestInput, tools), {
           timeout: env.GEMINI_REQUEST_TIMEOUT_MS,
           maxRetries: 0,
           fetchOptions: { signal }
@@ -654,8 +684,23 @@ export class GeminiProvider implements LLMProvider {
       } catch (error) {
         lastError = error;
         const status = errorStatus(error);
+        // Google's native YouTube ingestion is a preview feature and may reject
+        // individual public videos with a generic invalid_request even when
+        // oEmbed verifies that the URL is accessible. Retry once without the
+        // native video block. The app-provided resolved-link context remains in
+        // the request, including verified metadata and captions when available.
+        if (!usedNativeYouTubeFallback && status === 400 && containsNativeYouTubeContent(requestInput)) {
+          requestInput = withoutNativeYouTubeContent(requestInput);
+          usedNativeYouTubeFallback = true;
+          logger.info("Gemini rejected native YouTube input; retrying with resolved-link context", {
+            personaId: input.persona.id,
+            model: env.GEMINI_MODEL
+          });
+          continue;
+        }
         if (attempt >= env.GEMINI_MAX_RETRIES || (status !== 429 && (!status || status < 500))) throw error;
         await wait(Math.min(4_000, 300 * 2 ** attempt), signal);
+        attempt += 1;
       }
     }
     throw lastError;
