@@ -197,8 +197,11 @@ async function buildInteractionInput(input: LLMInput): Promise<InteractionConten
   ))].slice(0, 10);
   const content: InteractionContent[] = [
     ...(historyContent ? [historyContent] : []),
-    ...youtubeVideos.map((uri): InteractionContent => ({ type: "video", uri })),
+    // Keep the active prompt immediately before the native video blocks. This
+    // matches Gemini's documented YouTube Interactions shape and avoids the
+    // model treating quoted history as the instruction for the video.
     { type: "text", text: `Current user request:\n${currentMessage.content}` },
+    ...youtubeVideos.map((uri): InteractionContent => ({ type: "video", uri })),
     ...await Promise.all((input.attachments ?? []).map((attachment) => attachmentContent(attachment)))
   ];
   // The Interactions API accepts initial multimodal content directly at the
@@ -216,7 +219,25 @@ function shouldRequestTtsScript(input: LLMInput): boolean {
     !input.toolOptions?.codeInterpreter;
 }
 
+function hasNativeYouTubeInput(input: LLMInput): boolean {
+  // Only the current turn and its immediately-adjacent resolved-link evidence
+  // are promoted to native video input. Older URLs are quoted history, not
+  // active multimedia inputs.
+  return input.messages
+    .filter((message) => message.role !== "system")
+    .slice(-2)
+    .some((message) => extractYouTubeVideoUrls(message.content).length > 0);
+}
+
 function toolsForInput(input: LLMInput): InteractionTool[] {
+  // Native YouTube analysis is already a first-party Gemini capability. Keep
+  // that request free of search, URL-context, code-execution, and application
+  // tools. It prevents an unsupported multimodal/tool composition from
+  // rejecting an otherwise valid video URI, and the next turn can use normal
+  // app tools against the resulting text context if the user asks for a chart
+  // or downloadable artifact.
+  if (hasNativeYouTubeInput(input)) return [];
+
   const tools: InteractionTool[] = [];
   if (input.toolOptions?.webSearch) {
     tools.push({ type: "google_search" });
@@ -259,6 +280,7 @@ function interactionRequest(
       : ""
   ].filter(Boolean).join("\n\n");
   const dualText = shouldRequestTtsScript(input);
+  const nativeYouTubeInput = hasNativeYouTubeInput(input);
   return {
     model: env.GEMINI_MODEL,
     input: interactionInput,
@@ -274,7 +296,11 @@ function interactionRequest(
     // requests the dual-text JSON shape, and parseDualTextPayload accepts that
     // unenforced JSON after any tool loop. If Gemini returns ordinary text,
     // ChatService safely falls back to the mechanical speech-script builder.
-    ...(dualText && tools.length === 0 ? {
+    // Native YouTube input is still preview functionality. Keep it on the
+    // documented plain-text interaction route instead of also asking Gemini
+    // to enforce a JSON schema for a separate TTS script. ChatService creates
+    // the safe speech-script fallback from the visible answer after response.
+    ...(dualText && tools.length === 0 && !nativeYouTubeInput ? {
       response_format: {
         type: "text",
         mime_type: "application/json",

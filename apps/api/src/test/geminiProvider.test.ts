@@ -175,7 +175,7 @@ describe("GeminiProvider", () => {
     ]));
   });
 
-  it("passes public YouTube links as native video input before the user prompt", async () => {
+  it("uses the documented tool-free prompt-then-video shape for public YouTube links", async () => {
     const createInteraction = vi.fn().mockResolvedValue({
       id: "interaction_youtube",
       status: "completed",
@@ -196,14 +196,34 @@ describe("GeminiProvider", () => {
 
     const content = createInteraction.mock.calls[0]?.[0]?.input;
     expect(content).toEqual([
-      { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0" },
       {
         type: "text",
         text: "Current user request:\nTell me about https://youtu.be/0Y4FoTy0Bf0?si=tracking and https://www.youtube.com/watch?v=0Y4FoTy0Bf0"
-      }
+      },
+      { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0" }
     ]);
-    expect(createInteraction.mock.calls[0]?.[0]?.tools).toContainEqual({ type: "google_search" });
-    expect(createInteraction.mock.calls[0]?.[0]?.tools).not.toContainEqual({ type: "url_context" });
+    expect(createInteraction.mock.calls[0]?.[0]?.tools).toBeUndefined();
+  });
+
+  it("keeps native YouTube audio requests on Gemini's plain-text interaction route", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "interaction_youtube_audio",
+      status: "completed",
+      output_text: "A concise video summary.",
+      steps: [{ type: "model_output", content: [{ type: "text", text: "A concise video summary." }] }]
+    });
+    const input = geminiInput();
+    input.audio = true;
+    input.messages = [
+      input.messages[0]!,
+      { role: "user", content: "Summarize https://youtu.be/0Y4FoTy0Bf0" }
+    ];
+
+    await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    const request = createInteraction.mock.calls[0]?.[0];
+    expect(request.tools).toBeUndefined();
+    expect(request).not.toHaveProperty("response_format");
   });
 
   it("enables Gemini URL context for non-YouTube links", async () => {
