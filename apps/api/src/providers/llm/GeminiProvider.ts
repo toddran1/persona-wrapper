@@ -81,7 +81,7 @@ type InteractionTool =
 
 type InteractionRequest = {
   model: string;
-  input: InteractionStep[];
+  input: InteractionContent[] | InteractionStep[];
   store: false;
   stream: false;
   system_instruction: string;
@@ -181,7 +181,7 @@ function priorConversationContent(messages: LLMInput["messages"]): InteractionCo
   };
 }
 
-async function buildInteractionInput(input: LLMInput): Promise<InteractionStep[]> {
+async function buildInteractionInput(input: LLMInput): Promise<InteractionContent[]> {
   const conversation = input.messages.filter((message) => message.role !== "system");
   const currentMessage = conversation.at(-1);
   if (!currentMessage || currentMessage.role !== "user") {
@@ -201,7 +201,12 @@ async function buildInteractionInput(input: LLMInput): Promise<InteractionStep[]
     { type: "text", text: `Current user request:\n${currentMessage.content}` },
     ...await Promise.all((input.attachments ?? []).map((attachment) => attachmentContent(attachment)))
   ];
-  return [{ type: "user_input", content }];
+  // The Interactions API accepts initial multimodal content directly at the
+  // top level. In particular, native YouTube inputs are rejected when they
+  // are nested inside a user_input step. We only wrap this content in a
+  // user_input step later if a stateless application-tool continuation is
+  // required.
+  return content;
 }
 
 function shouldRequestTtsScript(input: LLMInput): boolean {
@@ -242,7 +247,11 @@ function toolsForInput(input: LLMInput): InteractionTool[] {
   return tools;
 }
 
-function interactionRequest(input: LLMInput, steps: InteractionStep[], tools: InteractionTool[]): InteractionRequest {
+function interactionRequest(
+  input: LLMInput,
+  interactionInput: InteractionContent[] | InteractionStep[],
+  tools: InteractionTool[]
+): InteractionRequest {
   const systemInstruction = [
     buildOpenAIResponseInstructions(input, "full"),
     input.personaInfluenceLevel !== "professional" && input.persona.styleReference?.enabled
@@ -252,7 +261,7 @@ function interactionRequest(input: LLMInput, steps: InteractionStep[], tools: In
   const dualText = shouldRequestTtsScript(input);
   return {
     model: env.GEMINI_MODEL,
-    input: steps,
+    input: interactionInput,
     store: false,
     stream: false,
     system_instruction: systemInstruction,
@@ -424,7 +433,8 @@ export class GeminiProvider implements LLMProvider {
     }
 
     const createInteraction = this.options.createInteraction ?? this.sdkCreateInteraction();
-    const interactionSteps = await buildInteractionInput(input);
+    const initialContent = await buildInteractionInput(input);
+    let continuationSteps: InteractionStep[] | undefined;
     const tools = toolsForInput(input);
     const timeoutSignal = AbortSignal.timeout(env.GEMINI_REQUEST_TIMEOUT_MS);
     const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
@@ -439,7 +449,13 @@ export class GeminiProvider implements LLMProvider {
 
     try {
       for (let iteration = 0; iteration <= env.GEMINI_MAX_TOOL_ITERATIONS; iteration += 1) {
-        response = await this.generateWithRetry(createInteraction, input, interactionSteps, tools, combinedSignal);
+        response = await this.generateWithRetry(
+          createInteraction,
+          input,
+          continuationSteps ?? initialContent,
+          tools,
+          combinedSignal
+        );
         totalUsage.total_input_tokens += response.usage?.total_input_tokens ?? 0;
         totalUsage.total_output_tokens += response.usage?.total_output_tokens ?? 0;
         totalUsage.total_thought_tokens += response.usage?.total_thought_tokens ?? 0;
@@ -452,9 +468,13 @@ export class GeminiProvider implements LLMProvider {
           throw new HttpError("Gemini requested too many consecutive app actions.", 502);
         }
 
-        // Interactions are deliberately not stored by Google. Preserve all returned
-        // signed tool steps locally so the next stateless request has complete context.
-        interactionSteps.push(...response.steps);
+        // Interactions are deliberately not stored by Google. The first request
+        // uses Google's documented top-level multimodal content shape. If the
+        // model calls an application tool, wrap that original content as one
+        // user_input step and preserve all returned signed steps locally for the
+        // next stateless request.
+        continuationSteps ??= [{ type: "user_input", content: initialContent }];
+        continuationSteps.push(...response.steps);
         for (const call of calls) {
           const toolName = input.toolDefinitions.find((definition) =>
             definition.owner === "application" && definition.name === call.name
@@ -494,7 +514,7 @@ export class GeminiProvider implements LLMProvider {
               trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "completed" });
               trace.push({ type: "tool_result", toolName, status: "completed", result });
             }
-            interactionSteps.push({
+            continuationSteps.push({
               type: "function_result",
               call_id: call.id,
               name: toolName,
@@ -508,7 +528,7 @@ export class GeminiProvider implements LLMProvider {
               trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "failed" });
               trace.push({ type: "tool_result", toolName, status: "failed", result: reason });
             }
-            interactionSteps.push({
+            continuationSteps.push({
               type: "function_result",
               call_id: call.id,
               name: toolName,
@@ -592,7 +612,7 @@ export class GeminiProvider implements LLMProvider {
   private async generateWithRetry(
     createInteraction: CreateInteraction,
     input: LLMInput,
-    steps: InteractionStep[],
+    interactionInput: InteractionContent[] | InteractionStep[],
     tools: InteractionTool[],
     signal: AbortSignal
   ): Promise<InteractionResponse> {
@@ -600,7 +620,7 @@ export class GeminiProvider implements LLMProvider {
     for (let attempt = 0; attempt <= env.GEMINI_MAX_RETRIES; attempt += 1) {
       signal.throwIfAborted();
       try {
-        return await createInteraction(interactionRequest(input, steps, tools), {
+        return await createInteraction(interactionRequest(input, interactionInput, tools), {
           timeout: env.GEMINI_REQUEST_TIMEOUT_MS,
           maxRetries: 0,
           fetchOptions: { signal }

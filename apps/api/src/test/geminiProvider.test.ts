@@ -78,7 +78,7 @@ describe("GeminiProvider", () => {
       tools: expect.arrayContaining([{ type: "google_search" }])
     });
     expect(request.input).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "user_input" })
+      expect.objectContaining({ type: "text", text: expect.stringContaining("Current user request:") })
     ]));
     expect(output.usage).toMatchObject({ inputTokens: 21, outputTokens: 8, totalTokens: 29, reasoningTokens: 2 });
     expect(output.content).toContainEqual(expect.objectContaining({
@@ -130,21 +130,16 @@ describe("GeminiProvider", () => {
     await new GeminiProvider({ createInteraction }).generateResponse(input);
 
     const request = createInteraction.mock.calls[0]?.[0];
-    expect(request.input).toHaveLength(1);
+    expect(request.input).toHaveLength(2);
     expect(request.input).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "model_output" })
     ]));
     expect(request.input[0]).toMatchObject({
-      type: "user_input",
-      content: [
-        expect.objectContaining({
-          type: "text",
-          text: expect.stringContaining("[Assistant persona: Bam Bam | id=bambam]")
-        }),
-        { type: "text", text: "Current user request:\nWhat did each persona say?" }
-      ]
+      type: "text",
+      text: expect.stringContaining("[Assistant persona: Bam Bam | id=bambam]")
     });
-    const historyText = request.input[0]?.content?.[0]?.text;
+    expect(request.input[1]).toEqual({ type: "text", text: "Current user request:\nWhat did each persona say?" });
+    const historyText = request.input[0]?.text;
     expect(historyText).toContain("An answer previously returned by another provider.");
     expect(historyText).not.toContain("What did each persona say?");
   });
@@ -174,8 +169,7 @@ describe("GeminiProvider", () => {
     await new GeminiProvider({ createInteraction }).generateResponse(input);
 
     const request = createInteraction.mock.calls[0]?.[0];
-    expect(request.input).toHaveLength(1);
-    expect(request.input[0]?.content).toEqual(expect.arrayContaining([
+    expect(request.input).toEqual(expect.arrayContaining([
       { type: "text", text: "Current user request:\nWhat is in this image?" },
       { type: "image", data: "iVBORw==", mime_type: "image/png" }
     ]));
@@ -200,7 +194,7 @@ describe("GeminiProvider", () => {
 
     await new GeminiProvider({ createInteraction }).generateResponse(input);
 
-    const content = createInteraction.mock.calls[0]?.[0]?.input?.[0]?.content;
+    const content = createInteraction.mock.calls[0]?.[0]?.input;
     expect(content).toEqual([
       { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0" },
       {
@@ -264,6 +258,7 @@ describe("GeminiProvider", () => {
     expect(continuation.store).toBe(false);
     expect(continuation).not.toHaveProperty("previous_interaction_id");
     expect(continuation.input).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "user_input", content: expect.any(Array) }),
       expect.objectContaining({ type: "function_call", id: "call_1" }),
       expect.objectContaining({ type: "function_result", call_id: "call_1", name: "current_time" })
     ]));
