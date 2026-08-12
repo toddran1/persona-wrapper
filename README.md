@@ -158,6 +158,44 @@ short TTL, and deleted from OpenAI when removed or expired. Vector stores expire
 after one day and can be explicitly removed with
 `DELETE /api/uploads/vector-stores/:id`.
 
+### Linked files, connected accounts, and YouTube captions
+
+Chat messages may contain public PDF, image, audio, or video URLs. The API
+downloads supported resources through the same SSRF-protected, size-bounded
+resolver used for page inspection, verifies the file signature, and stores an
+owner-scoped temporary copy through the configured storage driver (Cloudflare
+R2 in hosted environments). The temporary asset then follows the ordinary
+attachment path. Signed URL query credentials are never retained in asset
+metadata.
+
+Google Drive links can use the user's linked Google account when
+`GOOGLE_DRIVE_LINK_IMPORT_ENABLED=true`. This adds the read-only Drive scope to
+Google OAuth; existing users must reconnect Google and the OAuth consent screen
+must be configured for that scope. Google Docs, Sheets, Slides, and Drawings are
+exported to PDF or their corresponding Office format. Browser cookies are never
+forwarded. Public Dropbox shared links are imported directly; private Dropbox
+files and private social-media posts require a future official provider
+connector or a user download/upload because those services cannot safely reuse
+the user's browser session.
+
+YouTube URLs are normalized and verified with YouTube metadata. When captions
+are available, a bounded transcript is added as untrusted context so OpenAI and
+other text-only providers can analyze the video's speech. Gemini continues to
+receive the normalized native YouTube URI. Imported audio/video files are
+transcribed for non-Gemini providers with `MEDIA_TRANSCRIPTION_MODEL`; Gemini
+receives supported media directly, avoiding a duplicate transcription charge.
+
+Relevant controls:
+
+```text
+GOOGLE_DRIVE_LINK_IMPORT_ENABLED=false
+MEDIA_TRANSCRIPTION_ENABLED=true
+MEDIA_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+MEDIA_TRANSCRIPTION_MAX_BYTES=25165824
+UPLOAD_MAX_BYTES=49999999
+UPLOAD_TTL_HOURS=24
+```
+
 ## OpenAI Reliability Controls
 
 - Recent conversation context is bounded by message count, approximate token

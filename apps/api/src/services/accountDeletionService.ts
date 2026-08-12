@@ -18,6 +18,16 @@ import { storageService } from "./storageService.js";
 import { backgroundChatJobService } from "./backgroundChatJobService.js";
 import { dataTransferJobService } from "./dataTransferJobService.js";
 
+const REMOTE_DELETION_BATCH_SIZE = 20;
+
+async function settleInBatches<T>(items: T[], operation: (item: T) => Promise<unknown>): Promise<PromiseSettledResult<unknown>[]> {
+  const results: PromiseSettledResult<unknown>[] = [];
+  for (let offset = 0; offset < items.length; offset += REMOTE_DELETION_BATCH_SIZE) {
+    results.push(...await Promise.allSettled(items.slice(offset, offset + REMOTE_DELETION_BATCH_SIZE).map(operation)));
+  }
+  return results;
+}
+
 function requireDatabase() {
   const db = getDatabase();
   if (!db) throw new Error("Account deletion requires DATABASE_URL.");
@@ -26,7 +36,7 @@ function requireDatabase() {
 
 async function deleteStoredObjects(keys: Array<string | null>): Promise<void> {
   const uniqueKeys = [...new Set(keys.filter((key): key is string => Boolean(key)))];
-  const results = await Promise.allSettled(uniqueKeys.map((key) => storageService.delete(key)));
+  const results = await settleInBatches(uniqueKeys, (key) => storageService.delete(key));
   const failed = results.filter((result) => result.status === "rejected");
   if (failed.length > 0) {
     throw new Error(`Could not delete ${failed.length} stored account object(s).`);
@@ -40,13 +50,14 @@ async function deleteOpenAIResources(
 ): Promise<void> {
   if (!env.OPENAI_API_KEY) return;
   const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
-  const results = await Promise.allSettled([
-    ...fileIds.map((id) => client.files.delete(id)),
-    ...vectorStoreIds.map((id) => client.vectorStores.delete(id)),
-    ...artifacts.map((artifact) => client.containers.files.delete(artifact.fileId, {
+  const operations: Array<() => Promise<unknown>> = [
+    ...fileIds.map((id) => () => client.files.delete(id)),
+    ...vectorStoreIds.map((id) => () => client.vectorStores.delete(id)),
+    ...artifacts.map((artifact) => () => client.containers.files.delete(artifact.fileId, {
       container_id: artifact.containerId
     }))
-  ]);
+  ];
+  const results = await settleInBatches(operations, (operation) => operation());
   const failed = results.filter((result) => {
     if (result.status !== "rejected") return false;
     const status = typeof result.reason === "object" && result.reason !== null && "status" in result.reason

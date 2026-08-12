@@ -1,7 +1,8 @@
 import JSZip from "jszip";
 import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { DataTransferJobService, publicDataTransferError } from "../services/dataTransferJobService.js";
+import { DataTransferJobService, isRetryableDataTransferError, publicDataTransferError } from "../services/dataTransferJobService.js";
+import { HttpError } from "../utils/httpError.js";
 
 const objects = vi.hoisted(() => new Map<string, Buffer>());
 vi.mock("../services/storageService.js", () => ({
@@ -102,5 +103,14 @@ describe("DataTransferJobService", () => {
     expect(publicDataTransferError("Import ZIP is invalid or corrupted.")).toBe(
       "Import ZIP is invalid or corrupted."
     );
+  });
+
+  it("retries only transient data-transfer failures", () => {
+    expect(isRetryableDataTransferError(new Error("connection reset"))).toBe(true);
+    expect(isRetryableDataTransferError(new HttpError("Timed out", 408))).toBe(true);
+    expect(isRetryableDataTransferError(new HttpError("Too many requests", 429))).toBe(true);
+    expect(isRetryableDataTransferError(new HttpError("Unavailable", 503))).toBe(true);
+    expect(isRetryableDataTransferError(new HttpError("Invalid archive", 400))).toBe(false);
+    expect(isRetryableDataTransferError(new HttpError("Too large", 413))).toBe(false);
   });
 });

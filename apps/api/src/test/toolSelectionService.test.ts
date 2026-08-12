@@ -96,5 +96,7 @@ describe("tool selection", () => {
     expect(shouldEnableWebSearchForMessage("Who is the current CEO of Apple?")).toBe(true);
     expect(shouldEnableWebSearchForMessage("What was Playboi Carti's last album and first-week sales?")).toBe(true);
     expect(shouldEnableWebSearchForMessage("How many points did Morez Johnson Jr. score in his last Dallas Mavericks game?")).toBe(true);
+    expect(shouldEnableWebSearchForMessage("https://youtu.be/0Y4FoTy0Bf0?si=test")).toBe(true);
+    expect(shouldEnableWebSearchForMessage("Tell me about https://example.com/article")).toBe(true);
   });
 });

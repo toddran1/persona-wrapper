@@ -1,6 +1,7 @@
 import type { ChatRequest, ToolOptions } from "@persona/shared";
 import OpenAI from "openai";
 import { env } from "../config/env.js";
+import { containsHttpUrl } from "./urlInputService.js";
 
 const WEB_SEARCH_PATTERNS = [
   /\b(search|look up|lookup|browse|google|find online|check online|on the web|from the web|internet|web search)\b/i,
@@ -105,7 +106,7 @@ function deterministicDecision(request: ChatRequest): RouterDecision {
 }
 
 export function shouldEnableWebSearchForMessage(message: string): boolean {
-  return matchesAny(message, WEB_SEARCH_PATTERNS);
+  return containsHttpUrl(message) || matchesAny(message, WEB_SEARCH_PATTERNS);
 }
 
 function shouldUseModelRouter(request: ChatRequest): boolean {
@@ -130,7 +131,7 @@ async function routeWithOpenAI(request: ChatRequest): Promise<RouterDecision> {
       {
         role: "system",
         content:
-          "You are a strict tool router for a ChatGPT-like app. Decide every tool needed for the user's complete request; multiple tools may be true. Return only compact JSON with booleans: webSearch, fileSearch, codeInterpreter, imageGeneration, background. Enable webSearch for current, recent, changing, external, location-specific, recommendation, product, legal, political, financial, sports, entertainment, weather, citation, verification, or public-web facts. Enable codeInterpreter for calculations, quantitative reasoning, charts, dashboards, tables, datasets, spreadsheets, data transformations, generated downloadable files, or any task requiring code execution. Enable imageGeneration for creating, rendering, designing, or editing visual media, including edits to attached images. Enable fileSearch only when attached or uploaded documents must be searched, read, compared, quoted, summarized, or used as evidence. Enable background for explicitly long-running work or large analysis/generation tasks. Keep tools false for ordinary conversation, writing, rewriting, brainstorming, or style-only requests that need no external data or artifacts."
+          "You are a strict tool router for a ChatGPT-like app. Decide every tool needed for the user's complete request; multiple tools may be true. Return only compact JSON with booleans: webSearch, fileSearch, codeInterpreter, imageGeneration, background. Enable webSearch whenever the user supplies a public URL or asks about linked content, and for current, recent, changing, external, location-specific, recommendation, product, legal, political, financial, sports, entertainment, weather, citation, verification, or public-web facts. Enable codeInterpreter for calculations, quantitative reasoning, charts, dashboards, tables, datasets, spreadsheets, data transformations, generated downloadable files, or any task requiring code execution. Enable imageGeneration for creating, rendering, designing, or editing visual media, including edits to attached images. Enable fileSearch only when attached or uploaded documents must be searched, read, compared, quoted, summarized, or used as evidence. Enable background for explicitly long-running work or large analysis/generation tasks. Keep tools false for ordinary conversation, writing, rewriting, brainstorming, or style-only requests that need no external data or artifacts."
       },
       {
         role: "user",

@@ -294,10 +294,11 @@ export class BackgroundChatJobService {
     // pg-boss invokes this handler again while retries remain. Do not show the
     // user a failed turn until its final attempt; otherwise a later successful
     // durable retry is blocked by the app job's terminal state. When the retry
-    // metadata itself is unreadable, treat the attempt as non-terminal so a
-    // transient read blip cannot convert a retryable job into a silent
-    // permanent failure.
-    const terminalAttempt = queueMetadata ? queueMetadata.retryCount >= queueMetadata.retryLimit : false;
+    // metadata itself is unreadable, fail the app job terminally. pg-boss may
+    // still retry its queue entry, but transitionActive() will make that retry
+    // a no-op. This is safer than leaving the user-facing job permanently
+    // "running" if this was the final queue attempt.
+    const terminalAttempt = queueMetadata ? queueMetadata.retryCount >= queueMetadata.retryLimit : true;
     try {
       await this.execute(job, () => this.executor?.(payload.request, job) as Promise<ChatResponse>, terminalAttempt);
     } catch (error) {

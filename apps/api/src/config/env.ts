@@ -165,6 +165,7 @@ const envSchema = z.object({
   BETTER_AUTH_URL: z.preprocess(optionalTrimmedString, z.string().url().optional()),
   GOOGLE_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   GOOGLE_OAUTH_CLIENT_SECRET: z.preprocess(optionalTrimmedString, z.string().optional()),
+  GOOGLE_DRIVE_LINK_IMPORT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
   FACEBOOK_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   FACEBOOK_OAUTH_CLIENT_SECRET: z.preprocess(optionalTrimmedString, z.string().optional()),
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
@@ -186,6 +187,9 @@ const envSchema = z.object({
   // Keep this just below the documented decimal-byte ceiling so every accepted image
   // can also be used as a direct image-edit reference.
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(49_999_999),
+  MEDIA_TRANSCRIPTION_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  MEDIA_TRANSCRIPTION_MODEL: z.string().min(1).default("gpt-4o-mini-transcribe"),
+  MEDIA_TRANSCRIPTION_MAX_BYTES: z.coerce.number().int().min(1024).max(25 * 1024 * 1024).default(24 * 1024 * 1024),
   UPLOAD_TTL_HOURS: z.coerce.number().int().nonnegative().default(24),
   STORAGE_CLEANUP_INTERVAL_MS: z.coerce.number().int().nonnegative().default(15 * 60 * 1000),
   STORAGE_CLEANUP_CRON: z.string().min(1).default("*/15 * * * *"),

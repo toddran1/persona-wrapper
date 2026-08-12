@@ -30,6 +30,9 @@ function inferExtension(mimeType: string): string {
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  if (signal.aborted) {
+    return Promise.reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+  }
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       signal.removeEventListener("abort", handleAbort);

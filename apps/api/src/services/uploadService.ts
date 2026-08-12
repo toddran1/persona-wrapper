@@ -13,6 +13,12 @@ import { logger } from "../utils/logger.js";
 import { storageService } from "./storageService.js";
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const AUDIO_MIME_TYPES = new Set([
+  "audio/flac", "audio/m4a", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/opus", "audio/wav", "audio/webm", "audio/x-m4a", "audio/x-wav"
+]);
+const VIDEO_MIME_TYPES = new Set([
+  "video/mp4", "video/quicktime", "video/webm", "video/x-matroska"
+]);
 export const MAX_UPLOAD_FILES = MAX_CHAT_ATTACHMENTS;
 // Ten images at the Images API's <50 MB per-image ceiling remain below the
 // Responses API's documented 512 MB total image-input payload limit.
@@ -36,10 +42,20 @@ const FILE_MIME_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 ]);
 
+export function isSupportedUploadMimeType(mimeType: string): boolean {
+  return IMAGE_MIME_TYPES.has(mimeType) || FILE_MIME_TYPES.has(mimeType) ||
+    AUDIO_MIME_TYPES.has(mimeType) || VIDEO_MIME_TYPES.has(mimeType);
+}
+
+function supportsOpenAIFileUpload(mimeType: string): boolean {
+  return IMAGE_MIME_TYPES.has(mimeType) || FILE_MIME_TYPES.has(mimeType);
+}
+
 type StoredAsset = UploadedAsset & {
   ownerId: string;
   localPath?: string;
   storageKey?: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type ResolvedUploadAsset = UploadedAsset & {
@@ -170,26 +186,42 @@ export class UploadService {
   }
 
   async save(ownerId: string, file: Express.Multer.File): Promise<UploadedAsset> {
+    return this.saveBuffer(ownerId, {
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      buffer: file.buffer,
+      sizeBytes: file.size
+    });
+  }
+
+  async saveBuffer(ownerId: string, input: {
+    fileName: string;
+    mimeType: string;
+    buffer: Buffer;
+    sizeBytes?: number;
+    metadata?: Record<string, unknown>;
+  }): Promise<UploadedAsset> {
     await this.cleanupExpired();
-    validateUploadDeclaration(ownerId, file.originalname, file.mimetype, file.size);
-    const metadata = await canonicalUploadMetadata(file.originalname, file.mimetype, file.buffer);
-    await validateUploadBuffer(file.buffer, metadata.fileName, metadata.mimeType, file.size);
+    const sizeBytes = input.sizeBytes ?? input.buffer.byteLength;
+    validateUploadDeclaration(ownerId, input.fileName, input.mimeType, sizeBytes);
+    const canonical = await canonicalUploadMetadata(input.fileName, input.mimeType, input.buffer);
+    await validateUploadBuffer(input.buffer, canonical.fileName, canonical.mimeType, sizeBytes);
 
     const id = `asset_${randomUUID()}`;
-    const safeExtension = extname(basename(metadata.fileName)).slice(0, 12);
+    const safeExtension = extname(basename(canonical.fileName)).slice(0, 12);
     const stored = await storageService.put({
       bucket: "uploads",
       fileName: `${id}${safeExtension}`,
-      buffer: file.buffer
+      buffer: input.buffer
     });
     const expiresAt = uploadExpiresAt().toISOString();
     let openaiFileId: string | undefined;
 
     try {
-      if (env.OPENAI_API_KEY) {
+      if (env.OPENAI_API_KEY && supportsOpenAIFileUpload(canonical.mimeType)) {
         const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
         const uploaded = await client.files.create({
-          file: await toFile(file.buffer, basename(metadata.fileName), { type: metadata.mimeType }),
+          file: await toFile(input.buffer, basename(canonical.fileName), { type: canonical.mimeType }),
           purpose: "user_data",
           expires_after: {
             anchor: "created_at",
@@ -206,15 +238,16 @@ export class UploadService {
     const asset: StoredAsset = {
       id,
       ownerId,
-      kind: IMAGE_MIME_TYPES.has(metadata.mimeType) ? "image" : "file",
-      fileName: basename(metadata.fileName),
-      mimeType: metadata.mimeType,
-      sizeBytes: file.size,
+      kind: IMAGE_MIME_TYPES.has(canonical.mimeType) ? "image" : "file",
+      fileName: basename(canonical.fileName),
+      mimeType: canonical.mimeType,
+      sizeBytes,
       url: `/api/uploads/${id}`,
       ...(openaiFileId ? { openaiFileId } : {}),
       expiresAt,
       ...(stored.localPath ? { localPath: stored.localPath } : {}),
-      storageKey: stored.storageKey
+      storageKey: stored.storageKey,
+      ...(input.metadata ? { metadata: input.metadata } : {})
     };
     try {
       const db = getDatabase();
@@ -230,7 +263,8 @@ export class UploadService {
           storageKey: stored.storageKey,
           publicUrl: asset.url,
           openaiFileId,
-          expiresAt: new Date(expiresAt)
+          expiresAt: new Date(expiresAt),
+          metadata: input.metadata ?? {}
         });
       } else {
         this.assets.set(id, asset);
@@ -297,6 +331,55 @@ export class UploadService {
     const assets = await Promise.all(assetIds.map((id) => this.get(ownerId, id)));
     validateUploadBatch(assets);
     return assets.map(({ ownerId: _ownerId, ...asset }) => asset);
+  }
+
+  async findRemoteImport(ownerId: string, sourceFingerprint: string): Promise<UploadedAsset | undefined> {
+    await this.cleanupExpired();
+    const db = getDatabase();
+    if (db) {
+      const row = await db.query.uploads.findFirst({
+        where: and(
+          eq(uploads.ownerId, ownerId),
+          sql`${uploads.metadata}->>'remoteSourceFingerprint' = ${sourceFingerprint}`
+        )
+      });
+      return row && isPersistedUploadReady(row.metadata)
+        ? this.publicAsset(this.assetFromDatabase(row))
+        : undefined;
+    }
+    const asset = [...this.assets.values()].find((candidate) =>
+      candidate.ownerId === ownerId && candidate.metadata?.remoteSourceFingerprint === sourceFingerprint
+    );
+    return asset ? this.publicAsset(asset) : undefined;
+  }
+
+  async metadata(ownerId: string, id: string): Promise<Record<string, unknown>> {
+    const db = getDatabase();
+    if (db) {
+      const row = await db.query.uploads.findFirst({
+        columns: { metadata: true },
+        where: and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))
+      });
+      if (!row) throw new HttpError("Upload not found.", 404);
+      return row.metadata;
+    }
+    return (await this.get(ownerId, id)).metadata ?? {};
+  }
+
+  async updateMetadata(ownerId: string, id: string, updates: Record<string, unknown>): Promise<void> {
+    const db = getDatabase();
+    if (db) {
+      const row = await db.query.uploads.findFirst({
+        columns: { metadata: true },
+        where: and(eq(uploads.id, id), eq(uploads.ownerId, ownerId))
+      });
+      if (!row) throw new HttpError("Upload not found.", 404);
+      await db.update(uploads).set({ metadata: { ...row.metadata, ...updates }, updatedAt: new Date() })
+        .where(and(eq(uploads.id, id), eq(uploads.ownerId, ownerId)));
+      return;
+    }
+    const asset = await this.get(ownerId, id);
+    asset.metadata = { ...asset.metadata, ...updates };
   }
 
   async validateVectorStores(ownerId: string, vectorStoreIds: string[]): Promise<void> {
@@ -394,7 +477,7 @@ export class UploadService {
   }
 
   private publicAsset(asset: StoredAsset): UploadedAsset {
-    const { ownerId: _ownerId, localPath: _localPath, storageKey: _storageKey, ...publicAsset } = asset;
+    const { ownerId: _ownerId, localPath: _localPath, storageKey: _storageKey, metadata: _metadata, ...publicAsset } = asset;
     return publicAsset;
   }
 
@@ -494,7 +577,8 @@ export class UploadService {
       ...(row.openaiFileId ? { openaiFileId: row.openaiFileId } : {}),
       ...(row.expiresAt ? { expiresAt: row.expiresAt.toISOString() } : {}),
       ...(row.localPath ? { localPath: row.localPath } : {}),
-      ...(row.storageKey ? { storageKey: row.storageKey } : {})
+      ...(row.storageKey ? { storageKey: row.storageKey } : {}),
+      metadata: row.metadata
     };
   }
 
@@ -521,7 +605,8 @@ export class UploadService {
       ...(row.openaiFileId ? { openaiFileId: row.openaiFileId } : {}),
       ...(row.expiresAt ? { expiresAt: row.expiresAt.toISOString() } : {}),
       ...(row.localPath ? { localPath: row.localPath } : {}),
-      ...(row.storageKey ? { storageKey: row.storageKey } : {})
+      ...(row.storageKey ? { storageKey: row.storageKey } : {}),
+      metadata: row.metadata
     };
   }
 }
@@ -542,7 +627,7 @@ function validateUploadDeclaration(ownerId: string, fileName: string, mimeType: 
   if (!Number.isInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > env.UPLOAD_MAX_BYTES) {
     throw new HttpError("Upload size is outside the allowed range.", sizeBytes > env.UPLOAD_MAX_BYTES ? 413 : 400);
   }
-  if (!IMAGE_MIME_TYPES.has(mimeType) && !FILE_MIME_TYPES.has(mimeType)) {
+  if (!isSupportedUploadMimeType(mimeType)) {
     throw new HttpError(`Unsupported upload type: ${mimeType}`, 415);
   }
   if (IMAGE_MIME_TYPES.has(mimeType) && sizeBytes > MAX_OPENAI_IMAGE_EDIT_BYTES) {
@@ -561,7 +646,7 @@ export function validateUploadBatch(files: ReadonlyArray<Pick<UploadedAsset, "si
 }
 
 async function uploadBufferToOpenAI(buffer: Buffer, fileName: string, mimeType: string): Promise<string | undefined> {
-  if (!env.OPENAI_API_KEY) return undefined;
+  if (!env.OPENAI_API_KEY || !supportsOpenAIFileUpload(mimeType)) return undefined;
   const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: env.OPENAI_REQUEST_TIMEOUT_MS });
   const uploaded = await client.files.create({
     file: await toFile(buffer, basename(fileName), { type: mimeType }),
@@ -588,15 +673,11 @@ export async function canonicalUploadMetadata(
   declaredMimeType: string,
   buffer: Buffer
 ): Promise<{ fileName: string; mimeType: string }> {
-  if (!IMAGE_MIME_TYPES.has(declaredMimeType)) {
-    return { fileName, mimeType: declaredMimeType };
-  }
-
   const detected = await fileTypeFromBuffer(buffer);
-  if (!detected || !IMAGE_MIME_TYPES.has(detected.mime)) {
+  if (!detected || !isSupportedUploadMimeType(detected.mime)) {
     return { fileName, mimeType: declaredMimeType };
   }
-  if (detected.mime === declaredMimeType) {
+  if (mimeTypesCompatible(detected.mime, declaredMimeType)) {
     return { fileName, mimeType: declaredMimeType };
   }
 
@@ -605,7 +686,7 @@ export async function canonicalUploadMetadata(
   const extensionIndex = name.lastIndexOf(".");
   const stem = extensionIndex > 0 ? name.slice(0, extensionIndex) : name;
   return {
-    fileName: `${stem || "image"}.${extension}`,
+    fileName: `${stem || "upload"}.${extension}`,
     mimeType: detected.mime
   };
 }
@@ -630,9 +711,19 @@ export async function validateFileContents(file: Express.Multer.File): Promise<v
   }
 
   const detected = await fileTypeFromBuffer(buffer);
-  if (detected?.mime !== file.mimetype) {
+  if (!detected || !mimeTypesCompatible(detected.mime, file.mimetype)) {
     throw new HttpError(`File contents do not match declared type: ${file.mimetype}`, 415);
   }
+}
+
+function mimeTypesCompatible(detected: string, declared: string): boolean {
+  if (detected === declared) return true;
+  return new Set([
+    "audio/mp4:audio/m4a",
+    "audio/mp4:audio/x-m4a",
+    "audio/wav:audio/x-wav",
+    "audio/ogg:audio/opus"
+  ]).has(`${detected}:${declared}`);
 }
 
 function isJson(buffer: Buffer): boolean {

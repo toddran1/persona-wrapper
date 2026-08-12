@@ -12,6 +12,7 @@ import { env } from "../../config/env.js";
 import { maxOutputTokensForRequest } from "../../services/audioResponsePolicy.js";
 import { buildPersonaStyleReference } from "../../services/personaStyleReferenceBuilder.js";
 import { storageService } from "../../services/storageService.js";
+import { extractHttpUrls, extractYouTubeVideoUrls } from "../../services/urlInputService.js";
 import { HttpError } from "../../utils/httpError.js";
 import { logger } from "../../utils/logger.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
@@ -39,6 +40,7 @@ type InteractionContent =
   | { type: "image"; data: string; mime_type: string }
   | { type: "audio"; data: string; mime_type: string }
   | { type: "video"; data: string; mime_type: string }
+  | { type: "video"; uri: string }
   | { type: "document"; data: string; mime_type: string };
 
 type InteractionStep = {
@@ -71,6 +73,7 @@ type InteractionResponse = {
 
 type InteractionTool =
   | { type: "google_search" }
+  | { type: "url_context" }
   | { type: "code_execution" }
   | { type: "function"; name: string; description?: string; parameters?: unknown };
 
@@ -185,8 +188,16 @@ async function buildInteractionInput(input: LLMInput): Promise<InteractionStep[]
     throw new HttpError("Gemini conversation context was invalid.", 500);
   }
   const historyContent = priorConversationContent(conversation.slice(0, -1));
+  // The app inserts resolved-link evidence immediately before the current user
+  // request. Include that adjacent context so a follow-up such as “summarize
+  // that video” retains Gemini's native YouTube input without attaching every
+  // historical video in a long conversation.
+  const youtubeVideos = [...new Set(conversation.slice(-2).flatMap((message) =>
+    extractYouTubeVideoUrls(message.content)
+  ))].slice(0, 10);
   const content: InteractionContent[] = [
     ...(historyContent ? [historyContent] : []),
+    ...youtubeVideos.map((uri): InteractionContent => ({ type: "video", uri })),
     { type: "text", text: `Current user request:\n${currentMessage.content}` },
     ...await Promise.all((input.attachments ?? []).map((attachment) => attachmentContent(attachment)))
   ];
@@ -202,7 +213,21 @@ function shouldRequestTtsScript(input: LLMInput): boolean {
 
 function toolsForInput(input: LLMInput): InteractionTool[] {
   const tools: InteractionTool[] = [];
-  if (input.toolOptions?.webSearch) tools.push({ type: "google_search" });
+  if (input.toolOptions?.webSearch) {
+    tools.push({ type: "google_search" });
+    const currentMessage = [...input.messages].reverse().find((message) => message.role === "user")?.content ?? "";
+    const hasNonYouTubeUrl = extractHttpUrls(currentMessage).some((url) => {
+      try {
+        const parsed = new URL(url);
+        const hostname = parsed.hostname.toLowerCase().replace(/^www\./, "");
+        return hostname !== "youtu.be" && hostname !== "youtube.com" && !hostname.endsWith(".youtube.com") &&
+          hostname !== "youtube-nocookie.com" && !hostname.endsWith(".youtube-nocookie.com");
+      } catch {
+        return false;
+      }
+    });
+    if (hasNonYouTubeUrl) tools.push({ type: "url_context" });
+  }
   if (input.toolOptions?.codeInterpreter) tools.push({ type: "code_execution" });
   if (input.toolOptions?.appFunctions) {
     for (const definition of input.toolDefinitions.filter((candidate) => candidate.owner === "application")) {
@@ -359,12 +384,17 @@ function interactionFailure(response: InteractionResponse): HttpError | undefine
 }
 
 async function wait(ms: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
+    const handleAbort = () => {
       clearTimeout(timer);
-      reject(signal.reason);
-    }, { once: true });
+      reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", handleAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", handleAbort, { once: true });
   });
 }
 

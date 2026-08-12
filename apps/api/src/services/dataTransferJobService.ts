@@ -59,6 +59,11 @@ function archiveSizeError(): HttpError {
   return new HttpError("Expanded import archive is too large.", 413);
 }
 
+export function isRetryableDataTransferError(error: unknown): boolean {
+  if (!(error instanceof HttpError)) return true;
+  return error.statusCode === 408 || error.statusCode === 425 || error.statusCode === 429 || error.statusCode >= 500;
+}
+
 export function publicDataTransferError(error: string): string {
   // Keep validation and archive-format messages actionable, but never return
   // database statements, bound parameters, or storage-provider internals from
@@ -97,7 +102,8 @@ export class DataTransferJobService {
   async startWorker(): Promise<void> {
     if (!jobQueueService.enabled) return;
     await jobQueueService.work<{ appJobId: string }>(QUEUE, async (queueJob) => {
-      await this.execute(queueJob.data.appJobId, queueJob.signal);
+      this.queueIds.set(queueJob.data.appJobId, queueJob.id);
+      await this.execute(queueJob.data.appJobId, queueJob.signal, queueJob.id);
     });
   }
 
@@ -258,12 +264,25 @@ export class DataTransferJobService {
     void this.execute(jobId).catch(() => undefined);
   }
 
-  private async execute(jobId: string, queueSignal?: AbortSignal): Promise<void> {
+  private async execute(jobId: string, queueSignal?: AbortSignal, queueJobId?: string): Promise<void> {
     const job = await this.load(jobId);
     if (!job || !["queued", "running", "failed"].includes(job.status)) return;
     const abortFromQueue = () => job.abortController.abort(queueSignal?.reason);
     if (queueSignal?.aborted) abortFromQueue();
     else queueSignal?.addEventListener("abort", abortFromQueue, { once: true });
+    const queueMetadata = queueJobId
+      ? await jobQueueService.getJobMetadata<{ appJobId: string }>(QUEUE, queueJobId).catch((error) => {
+          logger.warn("Could not read data transfer retry metadata", {
+            jobId,
+            queueJobId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return undefined;
+        })
+      : undefined;
+    const terminalAttempt = queueJobId
+      ? queueMetadata ? queueMetadata.retryCount >= queueMetadata.retryLimit : true
+      : true;
     try {
       if (!await this.update(jobId, { status: "running", phase: job.kind === "export" ? "Reading conversations" : "Reading archive", progress: 1 })) return;
       if (job.kind === "export") await this.executeExport(job);
@@ -274,8 +293,22 @@ export class DataTransferJobService {
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
+      if (!terminalAttempt && isRetryableDataTransferError(error)) {
+        logger.warn("Data transfer job will be retried", {
+          jobId,
+          kind: job.kind,
+          queueJobId,
+          retryCount: queueMetadata?.retryCount,
+          retryLimit: queueMetadata?.retryLimit,
+          error: message
+        });
+        throw error;
+      }
       await this.update(jobId, { status: "failed", phase: "Failed", error: message });
       logger.warn("Data transfer job failed", { jobId, kind: job.kind, error: message });
+      // A permanent client/archive error is now reflected in the application
+      // job. Resolve the queue attempt so pg-boss does not repeat invalid work.
+      if (!terminalAttempt) return;
       throw error;
     } finally {
       queueSignal?.removeEventListener("abort", abortFromQueue);

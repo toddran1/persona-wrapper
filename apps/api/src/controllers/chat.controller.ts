@@ -32,6 +32,7 @@ import {
   maxOutputTokensForRequest
 } from "../services/audioResponsePolicy.js";
 import { conciseAudioResponsesForUser, modelProviderForUser, personaInfluenceLevelForUser } from "../services/accountPreferenceService.js";
+import { remoteAttachmentImportService } from "../services/remoteAttachmentImportService.js";
 
 export const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -98,12 +99,13 @@ backgroundChatJobService.setExecutor(async (payload, backgroundJob) => {
 
 export async function postChat(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
+  const controller = requestAbortController(request, response);
   const reservationId = await usageControlService.check(identity, requestAbuseSignals(request));
   let customerUsageOperationId: string | undefined;
   let reservationReconciled = false;
   try {
     let payload = await applyPersonaInfluencePreference(
-      await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity),
+      await applyModelProviderPreference(await resolveOwnedChatAssets(request, controller.signal), identity),
       identity
     );
     payload = await selectToolsForRequest(payload, identity);
@@ -116,6 +118,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
     payload = enforcePlanModelProvider(payload, plan);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
+    controller.signal.throwIfAborted();
     // Never derive the billing idempotency key from client input (requestId
     // can come from the x-request-id header) — a repeated client key would
     // defeat plan-quota reservation and settlement.
@@ -125,6 +128,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
       `usage_op_${randomUUID()}`
     );
     if (shouldRunInBackground(payload)) {
+      controller.signal.throwIfAborted();
       const requestedConversationId = payload.conversationId ?? `conv_${randomUUID()}`;
       const conversation = await conversationStore.getOrCreate(requestedConversationId, payload.history, {
         userId: identity,
@@ -157,7 +161,6 @@ export async function postChat(request: Request, response: Response): Promise<vo
       response.status(202).json(createPendingChatResponse(backgroundPayload, job.id));
       return;
     }
-    const controller = requestAbortController(request, response);
     const result = await chatService.handleChat(payload, undefined, controller.signal, undefined, { ownerId: identity });
     await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd, reservationId);
     reservationReconciled = true;
@@ -211,13 +214,14 @@ export async function cancelChatJob(request: Request, response: Response): Promi
 
 export async function postChatStream(request: Request, response: Response): Promise<void> {
   const identity = requestIdentity(request);
+  const controller = requestAbortController(request, response);
   const reservationId = await usageControlService.check(identity, requestAbuseSignals(request));
   let customerUsageOperationId: string | undefined;
   let reservationReconciled = false;
   let payload: ChatRequest;
   try {
     payload = await applyPersonaInfluencePreference(
-      await applyModelProviderPreference(await resolveOwnedChatAssets(request), identity),
+      await applyModelProviderPreference(await resolveOwnedChatAssets(request, controller.signal), identity),
       identity
     );
     payload = await selectToolsForRequest(payload, identity);
@@ -230,6 +234,7 @@ export async function postChatStream(request: Request, response: Response): Prom
     payload = enforcePlanModelProvider(payload, plan);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
+    controller.signal.throwIfAborted();
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
       payload,
@@ -249,7 +254,6 @@ export async function postChatStream(request: Request, response: Response): Prom
   response.setHeader("Connection", "keep-alive");
   response.setHeader("X-Accel-Buffering", "no");
   response.flushHeaders();
-  const controller = requestAbortController(request, response);
   try {
     const result = await chatService.handleChat(payload, {
       onTextDelta: (delta) => {
@@ -654,17 +658,26 @@ function requestAbortController(request: Request, response: Response): AbortCont
   return controller;
 }
 
-async function resolveOwnedChatAssets(request: Request) {
+async function resolveOwnedChatAssets(request: Request, signal?: AbortSignal) {
   const payload = chatRequestSchema.parse(request.body);
   const assetIds = payload.attachments?.map((attachment) => attachment.id) ?? [];
   const vectorStoreIds = payload.toolOptions?.vectorStoreIds ?? [];
-  if (assetIds.length === 0 && vectorStoreIds.length === 0) return payload;
-
   const ownerId = requestOwnerId(request);
   await uploadService.validateVectorStores(ownerId, vectorStoreIds);
+  const resolvedAssets = assetIds.length > 0
+    ? await uploadService.resolveAssets(ownerId, assetIds)
+    : [];
+  const importedAssets = await remoteAttachmentImportService.importFromMessage(
+    ownerId,
+    payload.message,
+    resolvedAssets,
+    signal
+  );
+  if (resolvedAssets.length === 0 && importedAssets.length === 0) return payload;
+  const combinedIds = [...new Set([...resolvedAssets, ...importedAssets].map((asset) => asset.id))];
   return {
     ...payload,
-    attachments: await uploadService.resolveAssets(ownerId, assetIds)
+    attachments: await uploadService.resolveAssets(ownerId, combinedIds)
   };
 }
 

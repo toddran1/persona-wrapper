@@ -170,6 +170,8 @@ services:
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_SECRET
         sync: false
+      - key: GOOGLE_DRIVE_LINK_IMPORT_ENABLED
+        value: "false"
       - key: FACEBOOK_OAUTH_CLIENT_ID
         sync: false
       - key: FACEBOOK_OAUTH_CLIENT_SECRET

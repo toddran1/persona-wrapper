@@ -181,6 +181,56 @@ describe("GeminiProvider", () => {
     ]));
   });
 
+  it("passes public YouTube links as native video input before the user prompt", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "interaction_youtube",
+      status: "completed",
+      output_text: "The video explains an EXP system.",
+      steps: [{ type: "model_output", content: [{ type: "text", text: "The video explains an EXP system." }] }]
+    });
+    const input = geminiInput();
+    input.messages = [
+      input.messages[0]!,
+      {
+        role: "user",
+        content: "Tell me about https://youtu.be/0Y4FoTy0Bf0?si=tracking and https://www.youtube.com/watch?v=0Y4FoTy0Bf0"
+      }
+    ];
+    input.toolOptions = { ...input.toolOptions, webSearch: true };
+
+    await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    const content = createInteraction.mock.calls[0]?.[0]?.input?.[0]?.content;
+    expect(content).toEqual([
+      { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0" },
+      {
+        type: "text",
+        text: "Current user request:\nTell me about https://youtu.be/0Y4FoTy0Bf0?si=tracking and https://www.youtube.com/watch?v=0Y4FoTy0Bf0"
+      }
+    ]);
+    expect(createInteraction.mock.calls[0]?.[0]?.tools).toContainEqual({ type: "google_search" });
+    expect(createInteraction.mock.calls[0]?.[0]?.tools).not.toContainEqual({ type: "url_context" });
+  });
+
+  it("enables Gemini URL context for non-YouTube links", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "interaction_url",
+      status: "completed",
+      output_text: "The article is available.",
+      steps: [{ type: "model_output", content: [{ type: "text", text: "The article is available." }] }]
+    });
+    const input = geminiInput();
+    input.messages = [input.messages[0]!, { role: "user", content: "Summarize https://example.com/article" }];
+    input.toolOptions = { ...input.toolOptions, webSearch: true };
+
+    await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    expect(createInteraction.mock.calls[0]?.[0]?.tools).toEqual(expect.arrayContaining([
+      { type: "google_search" },
+      { type: "url_context" }
+    ]));
+  });
+
   it("continues application function calls without provider-side stored state", async () => {
     const createInteraction = vi.fn()
       .mockResolvedValueOnce({

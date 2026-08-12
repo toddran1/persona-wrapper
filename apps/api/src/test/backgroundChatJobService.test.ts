@@ -153,6 +153,37 @@ describe("BackgroundChatJobService", () => {
     expect(recordUsage).toHaveBeenCalledWith("owner-retry", undefined, undefined, "usage-reservation-retry");
   });
 
+  it("fails terminally when durable retry metadata cannot be read", async () => {
+    const service = new BackgroundChatJobService();
+    service.setExecutor(async () => { throw new Error("Provider unavailable."); });
+    vi.spyOn(jobQueueService, "getJobMetadata").mockRejectedValue(new Error("Queue metadata unavailable."));
+    const recordUsage = vi.spyOn(usageControlService, "recordUsage").mockResolvedValue();
+    const payload = {
+      appJobId: "chat_job_missing_retry_metadata",
+      request: { personaId: "larae", provider: "openai", message: "Hey", audio: false },
+      ownerId: "owner-metadata-failure",
+      usageReservationId: "usage-reservation-metadata-failure",
+      createdAt: new Date().toISOString()
+    } as any;
+
+    await expect((service as any).executeQueuedJob(
+      payload,
+      "queue_job_missing_retry_metadata",
+      new AbortController().signal
+    )).rejects.toThrow("Provider unavailable.");
+
+    expect(await service.get(payload.appJobId)).toMatchObject({
+      status: "failed",
+      failureReason: "provider_failure"
+    });
+    expect(recordUsage).toHaveBeenCalledWith(
+      "owner-metadata-failure",
+      undefined,
+      undefined,
+      "usage-reservation-metadata-failure"
+    );
+  });
+
   it("fails and aborts a job that exceeds the overall execution deadline", async () => {
     vi.useFakeTimers();
     env.CHAT_JOB_EXECUTION_TIMEOUT_MS = 1000;

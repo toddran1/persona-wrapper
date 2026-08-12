@@ -137,14 +137,14 @@ type RequestTimeout = {
 function createRequestTimeout(externalSignal: AbortSignal | null | undefined, timeoutMs: number): RequestTimeout {
   const controller = new AbortController();
   let timedOut = false;
-  const abortFromCaller = () => controller.abort();
+  const abortFromCaller = () => controller.abort(externalSignal?.reason);
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
   }, timeoutMs);
 
   if (externalSignal) {
-    if (externalSignal.aborted) controller.abort();
+    if (externalSignal.aborted) abortFromCaller();
     else externalSignal.addEventListener("abort", abortFromCaller, { once: true });
   }
 

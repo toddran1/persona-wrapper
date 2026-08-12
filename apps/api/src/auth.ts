@@ -26,7 +26,12 @@ const socialProviders = {
   ...(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET ? {
     google: {
       clientId: env.GOOGLE_OAUTH_CLIENT_ID,
-      clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET
+      clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+      ...(env.GOOGLE_DRIVE_LINK_IMPORT_ENABLED ? {
+        scope: ["openid", "email", "profile", "https://www.googleapis.com/auth/drive.readonly"],
+        accessType: "offline" as const,
+        prompt: "select_account consent" as const
+      } : {})
     }
   } : {}),
   ...(env.FACEBOOK_OAUTH_CLIENT_ID && env.FACEBOOK_OAUTH_CLIENT_SECRET ? {

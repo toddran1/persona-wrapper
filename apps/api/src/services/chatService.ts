@@ -489,7 +489,15 @@ export class ChatService {
         selectedPositions: conversationMediaAttachments.selectedPositions
       };
     }
-    const toolContext = await this.toolContextService.buildContext(request.message, request.clientContext);
+    const toolContext = await this.toolContextService.buildContext(
+      request.message,
+      request.clientContext,
+      retryContext?.history ?? this.conversationStore.getPromptContext(conversation),
+      signal,
+      options.ownerId
+        ? { ownerId: options.ownerId, attachments: llmInput.attachments ?? [], provider: request.provider }
+        : undefined
+    );
     if (toolContext) {
       llmInput.messages = insertToolContext(llmInput.messages, toolContext);
       llmInput.baseMessages = insertToolContext(llmInput.baseMessages ?? llmInput.messages, toolContext);
