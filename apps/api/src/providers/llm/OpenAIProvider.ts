@@ -4,6 +4,7 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   chartOutputSchema,
+  fileOutputSchema,
   type Citation,
   type ContentBlock,
   type LLMInput,
@@ -15,6 +16,7 @@ import { llmOutputSchema, MAX_OPENAI_IMAGE_EDIT_BYTES, stripGeneratedFileDownloa
 import { env } from "../../config/env.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
 import { openAIArtifactService } from "../../services/openAIArtifactService.js";
+import { placesSearchResultSchema } from "../../services/placesSearchService.js";
 import { buildPersonaStyleReference } from "../../services/personaStyleReferenceBuilder.js";
 import { personaVoicePromptInstructions } from "../../services/personaVoicePerformance.js";
 import { buildImageGenerationPrompt, directPersonaVisualReferencePaths } from "../../services/imagePromptBuilder.js";
@@ -377,9 +379,13 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
 
   if (input.toolOptions?.codeInterpreter) {
     extraInstructions.push(
-      "The user is requesting data analysis, calculations, charts, dashboards, or generated files. Use Code Interpreter when calculations, uploaded datasets, transformations, or downloadable files require it. For a chart that can be represented as bar, line, area, scatter, or donut data, call render_chart after determining the exact values so the app can display an accessible native chart. Use raw numeric values and explicit axis units; do not invent missing values. A generated image or file may accompany the native chart when the user requests a complex visualization or downloadable artifact. Keep explanatory text concise. Do not include a download URL, a 'download here' call to action, MIME type, or provider attribution; the app renders generated file controls."
+      "The user is requesting data analysis, calculations, charts, dashboards, or generated files. Use code execution for calculations, uploaded datasets, and transformations. For a chart that can be represented as bar, line, area, scatter, or donut data, call render_chart after determining the exact values so the app can display an accessible native chart. Use raw numeric values and explicit axis units; do not invent missing values. For a downloadable CSV, TSV, XLSX, JSON, text, Markdown, or ZIP file, call generate_artifact with the completed data or text; do not rely on provider sandbox links and do not claim a file exists unless that call succeeds. Keep explanatory text concise. Do not include a download URL, a 'download here' call to action, MIME type, or provider attribution; the app renders generated file controls."
     );
   }
+
+  extraInstructions.push(
+    "Application utilities: Use generate_artifact whenever the user asks for a supported downloadable file, whether or not code execution is needed. Use places_search for local businesses, restaurants, venues, attractions, stores, or services. If a place request has no usable city, area, address, landmark, or device location, ask for a location before searching. Base local recommendations only on returned place records, include useful Google Maps links, and make clear that hours, ratings, prices, and availability can change."
+  );
 
   if (input.toolOptions?.imageGeneration) {
     extraInstructions.push(
@@ -899,6 +905,31 @@ async function runApplicationFunctionCall(
       }
       return { result, trace: [chart.data] };
     }
+    if (call.name === "generate_artifact") {
+      const file = fileOutputSchema.safeParse(result);
+      if (!file.success) throw new Error("The artifact generator returned invalid file data.");
+      return { result, trace: [file.data] };
+    }
+    if (call.name === "places_search") {
+      const places = placesSearchResultSchema.safeParse(result);
+      if (!places.success) throw new Error("The place search returned invalid data.");
+      return {
+        result,
+        trace: [
+          { type: "tool_call", toolName: call.name, arguments: arguments_, status: "completed" },
+          { type: "tool_result", toolName: call.name, status: "completed", result },
+          {
+            type: "source_list",
+            sources: places.data.places.map((place) => ({
+              title: `${place.name} — Google Maps`,
+              url: place.mapsUrl,
+              ...(place.address ? { snippet: place.address } : {}),
+              sourceType: "google_maps"
+            }))
+          }
+        ]
+      };
+    }
     return {
       result,
       trace: [
@@ -909,7 +940,7 @@ async function runApplicationFunctionCall(
   } catch (error) {
     const message = error instanceof Error ? error.message : "The application tool failed.";
     const result = { error: message };
-    if (call.name === "render_chart") {
+    if (call.name === "render_chart" || call.name === "generate_artifact") {
       // Chart validation errors are returned to the model so it can repair the
       // call. They are not user-facing provider diagnostics.
       return { result, trace: [] };

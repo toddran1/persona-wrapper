@@ -63,8 +63,11 @@ function mimeTypeForFileName(fileName: string): string {
   if (extension === ".mp3") return "audio/mpeg";
   if (extension === ".wav") return "audio/wav";
   if (extension === ".csv") return "text/csv";
+  if (extension === ".tsv") return "text/tab-separated-values";
   if (extension === ".txt") return "text/plain";
+  if (extension === ".md") return "text/markdown";
   if (extension === ".json") return "application/json";
+  if (extension === ".zip") return "application/zip";
   if (extension === ".pdf") return "application/pdf";
   if (extension === ".xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   return "application/octet-stream";
@@ -114,6 +117,71 @@ export class OpenAIArtifactService {
       });
     });
     return `/api/openai-artifacts/${id}`;
+  }
+
+  /**
+   * Persist an application-generated file through the same owner-scoped
+   * download route used by provider artifacts. The legacy table/route name is
+   * intentionally retained to avoid breaking existing downloads.
+   */
+  async registerBuffer(
+    buffer: Buffer,
+    fileName: string,
+    options: ArtifactOwnershipOptions = {}
+  ): Promise<string> {
+    const id = `artifact_${randomUUID()}`;
+    const safeName = safeFileName(fileName);
+    const mimeType = mimeTypeForFileName(safeName);
+    const expiresAt = artifactExpiresAt();
+    const extension = extname(safeName) || ".bin";
+    const stored = await storageService.put({
+      bucket: "openai-artifacts",
+      fileName: `${id}${extension}`,
+      buffer
+    });
+    const artifact: Artifact = {
+      id,
+      containerId: "application",
+      fileId: `application:${id}`,
+      fileName: safeName,
+      mimeType,
+      ...withDefinedOwnership(options),
+      storageKey: stored.storageKey,
+      localPath: stored.localPath ?? null,
+      sizeBytes: stored.sizeBytes,
+      metadata: {
+        ...(options.metadata ?? {}),
+        storage: "application_artifact"
+      },
+      expiresAt: expiresAt.getTime()
+    };
+
+    try {
+      const db = getDatabase();
+      if (db) {
+        await db.insert(openAIArtifacts).values({
+          id: artifact.id,
+          containerId: artifact.containerId,
+          fileId: artifact.fileId,
+          fileName: artifact.fileName,
+          mimeType: artifact.mimeType,
+          ownerId: artifact.ownerId,
+          conversationId: artifact.conversationId,
+          messageId: artifact.messageId,
+          storageKey: artifact.storageKey,
+          localPath: artifact.localPath,
+          sizeBytes: artifact.sizeBytes,
+          publicUrl: `/api/openai-artifacts/${artifact.id}`,
+          metadata: artifact.metadata ?? {},
+          expiresAt
+        });
+      }
+      this.artifacts.set(id, artifact);
+      return `/api/openai-artifacts/${id}`;
+    } catch (error) {
+      await storageService.delete(stored.storageKey).catch(() => undefined);
+      throw error;
+    }
   }
 
   async assignOwnership(id: string, options: ArtifactOwnershipOptions): Promise<void> {
@@ -175,12 +243,16 @@ export class OpenAIArtifactService {
         updatedBlocks.push(block);
         continue;
       }
+      const blockMetadata = "metadata" in block && isRecord(block.metadata) ? block.metadata : {};
 
       await this.assignOwnership(artifactId, {
         ...options,
         metadata: {
+          ...blockMetadata,
           ...(options.metadata ?? {}),
-          storage: "openai_artifact",
+          storage: blockMetadata.storage === "application_artifact"
+            ? "application_artifact"
+            : "openai_artifact",
           openAIArtifactId: artifactId
         }
       });
@@ -194,9 +266,11 @@ export class OpenAIArtifactService {
         updatedBlocks.push({
           ...block,
           metadata: {
-            ...(isRecord(block.metadata) ? block.metadata : {}),
+            ...blockMetadata,
             ...(options.metadata ?? {}),
-            storage: "openai_artifact",
+            storage: blockMetadata.storage === "application_artifact"
+              ? "application_artifact"
+              : "openai_artifact",
             openAIArtifactId: artifactId
           }
         });

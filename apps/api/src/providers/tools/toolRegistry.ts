@@ -9,6 +9,8 @@ import {
   type ToolName
 } from "@persona/shared";
 import { z } from "zod";
+import { generateArtifact } from "../../services/artifactGenerationService.js";
+import { searchPlaces } from "../../services/placesSearchService.js";
 
 const chartAxisProperties = {
   label: { type: "string" },
@@ -93,6 +95,100 @@ const renderChartInputSchema = {
   }
 };
 
+const artifactScalarInputSchema = {
+  anyOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }, { type: "null" }]
+};
+
+const generateArtifactInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["format", "fileName", "title", "description", "content", "sheets", "files"],
+  properties: {
+    format: { type: "string", enum: ["csv", "tsv", "xlsx", "json", "text", "markdown", "zip"] },
+    fileName: { type: "string", description: "A concise download filename. The application corrects the extension." },
+    title: { anyOf: [{ type: "string" }, { type: "null" }] },
+    description: { anyOf: [{ type: "string" }, { type: "null" }] },
+    content: {
+      anyOf: [{ type: "string" }, { type: "null" }],
+      description: "Text, Markdown, or valid serialized JSON content. Use null for spreadsheets and ZIP files."
+    },
+    sheets: {
+      type: "array",
+      maxItems: 10,
+      description: "Spreadsheet data. CSV and TSV use the first sheet; XLSX supports multiple sheets.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "columns", "rows"],
+        properties: {
+          name: { type: "string" },
+          columns: { type: "array", maxItems: 100, items: { type: "string" } },
+          rows: {
+            type: "array",
+            maxItems: 10000,
+            items: { type: "array", maxItems: 100, items: artifactScalarInputSchema }
+          }
+        }
+      }
+    },
+    files: {
+      type: "array",
+      maxItems: 100,
+      description: "Text files to include in a ZIP. Paths must be relative and may not contain traversal segments.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "content"],
+        properties: {
+          path: { type: "string" },
+          content: { type: "string" }
+        }
+      }
+    }
+  }
+};
+
+const placesSearchInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "query",
+    "location",
+    "maxResults",
+    "openNow",
+    "minimumRating",
+    "priceLevels",
+    "languageCode",
+    "regionCode"
+  ],
+  properties: {
+    query: { type: "string", description: "The category, business, service, activity, or place to find." },
+    location: {
+      anyOf: [{ type: "string" }, { type: "null" }],
+      description: "City, neighborhood, address, landmark, or region. Use null only when device location is available or location is unnecessary."
+    },
+    maxResults: { anyOf: [{ type: "integer", minimum: 1, maximum: 20 }, { type: "null" }] },
+    openNow: { anyOf: [{ type: "boolean" }, { type: "null" }] },
+    minimumRating: { anyOf: [{ type: "number", minimum: 0, maximum: 5 }, { type: "null" }] },
+    priceLevels: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "string",
+        enum: [
+          "PRICE_LEVEL_FREE",
+          "PRICE_LEVEL_INEXPENSIVE",
+          "PRICE_LEVEL_MODERATE",
+          "PRICE_LEVEL_EXPENSIVE",
+          "PRICE_LEVEL_VERY_EXPENSIVE"
+        ]
+      }
+    },
+    languageCode: { anyOf: [{ type: "string" }, { type: "null" }] },
+    regionCode: { anyOf: [{ type: "string" }, { type: "null" }] }
+  }
+};
+
 const toolRegistry: Partial<Record<ToolName, ToolDefinition>> = {
   web_search: {
     name: "web_search",
@@ -117,6 +213,20 @@ const toolRegistry: Partial<Record<ToolName, ToolDefinition>> = {
     description:
       `Render a validated, accessible chart in the chat UI. Use this after determining the exact numeric values. Use raw numbers, keep labels and units explicit, summarize the main takeaway, and never put formatted number strings in dataset values. Supply 1-${MAX_CHART_DATASETS} datasets and no more than ${MAX_CHART_CATEGORIES} categories or total scatter points. Donut charts require one dataset, non-negative values, and no more than ${MAX_DONUT_CATEGORIES} categories. Currency axes require an ISO 4217 code and duration axes require a unit.`,
     inputSchema: renderChartInputSchema,
+    owner: "application"
+  },
+  generate_artifact: {
+    name: "generate_artifact",
+    description:
+      "Create a real downloadable CSV, TSV, XLSX workbook, JSON, text, Markdown, or ZIP file through the application's provider-independent artifact service. Use this whenever the user asks for a downloadable file. Do not claim a file was created unless this function succeeds. Use sheets for spreadsheet formats, content for JSON/text/Markdown, and files for ZIP archives.",
+    inputSchema: generateArtifactInputSchema,
+    owner: "application"
+  },
+  places_search: {
+    name: "places_search",
+    description:
+      "Search Google Maps-backed place data for current local recommendations such as restaurants, stores, attractions, venues, and services. Ask for the user's city or area when neither an explicit location nor device location is available. Base recommendations only on returned results and include each useful Google Maps link. Never invent ratings, hours, prices, or availability.",
+    inputSchema: placesSearchInputSchema,
     owner: "application"
   },
   image_generation: {
@@ -187,6 +297,14 @@ export async function executeApplicationTool(
         timeStyle: "long"
       }).format(date)
     };
+  }
+
+  if (name === "generate_artifact") {
+    return generateArtifact(rawArguments);
+  }
+
+  if (name === "places_search") {
+    return searchPlaces(rawArguments, clientContext);
   }
 
   throw new Error(`Application tool is not registered: ${name}`);

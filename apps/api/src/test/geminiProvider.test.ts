@@ -384,15 +384,15 @@ describe("GeminiProvider", () => {
     ]));
   });
 
-  it("delegates code interpreter requests to OpenAI for downloadable files", async () => {
+  it("keeps analysis on Gemini now that downloadable files use an application tool", async () => {
     const input = geminiInput();
     input.toolOptions = { ...input.toolOptions, codeInterpreter: true };
 
     const output = await new GeminiProvider().generateResponse(input);
 
     expect(output.provider).toBe("gemini");
-    expect(output.metadata?.delegatedProvider).toBe("openai");
-    expect(output.metadata?.delegatedCapability).toBe("code_interpreter");
+    expect(output.metadata?.delegatedProvider).toBeUndefined();
+    expect(output.metadata?.delegatedCapability).toBeUndefined();
   });
 
   it("does not expose developer-facing Interactions failure details", async () => {

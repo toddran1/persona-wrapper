@@ -172,6 +172,14 @@ services:
         sync: false
       - key: GOOGLE_DRIVE_LINK_IMPORT_ENABLED
         value: "false"
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: PLACES_SEARCH_ENABLED
+        value: "true"
+      - key: PLACES_SEARCH_TIMEOUT_MS
+        value: "10000"
+      - key: PLACES_SEARCH_MAX_RESULTS
+        value: "8"
       - key: FACEBOOK_OAUTH_CLIENT_ID
         sync: false
       - key: FACEBOOK_OAUTH_CLIENT_SECRET

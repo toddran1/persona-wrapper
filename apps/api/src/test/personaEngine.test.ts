@@ -79,7 +79,7 @@ describe("PersonaEngine", () => {
     expect(prompt).toContain("do not infer the user's age or pronouns");
   });
 
-  it("makes the native chart renderer available to every persona", () => {
+  it("makes provider-independent app tools available to every persona", () => {
     const persona = getPersonaById("larae");
     const engine = new PersonaEngine();
 
@@ -95,7 +95,9 @@ describe("PersonaEngine", () => {
     });
 
     expect(input.toolDefinitions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "render_chart", owner: "application" })
+      expect.objectContaining({ name: "render_chart", owner: "application" }),
+      expect.objectContaining({ name: "generate_artifact", owner: "application" }),
+      expect.objectContaining({ name: "places_search", owner: "application" })
     ]));
   });
 

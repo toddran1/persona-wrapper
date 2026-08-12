@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { readFile } from "node:fs/promises";
 import {
   chartOutputSchema,
+  fileOutputSchema,
   llmOutputSchema,
   type Citation,
   type ContentBlock,
@@ -10,6 +11,7 @@ import {
 } from "@persona/shared";
 import { env } from "../../config/env.js";
 import { maxOutputTokensForRequest } from "../../services/audioResponsePolicy.js";
+import { placesSearchResultSchema } from "../../services/placesSearchService.js";
 import { buildPersonaStyleReference } from "../../services/personaStyleReferenceBuilder.js";
 import { storageService } from "../../services/storageService.js";
 import { extractHttpUrls, extractYouTubeVideoUrls } from "../../services/urlInputService.js";
@@ -118,11 +120,9 @@ function canInlineAttachment(attachment: ServerAttachment): boolean {
 
 function delegatedCapability(input: LLMInput): string | undefined {
   if (input.toolOptions?.imageGeneration) return "image_generation";
-  // Gemini Interactions (store: false) cannot deliver generated binary files:
-  // sandbox links are unfetchable and unsupported MIME types (xlsx, zip, ...)
-  // fail the whole request with a 400 inline-conversion error. Route any code
-  // interpreter work through OpenAI's proven file pipeline instead.
-  if (input.toolOptions?.codeInterpreter) return "code_interpreter";
+  // Image generation remains intentionally delegated to OpenAI. Gemini may
+  // use its own code execution for analysis; downloadable files are produced
+  // by the provider-independent generate_artifact application tool.
   if (input.toolOptions?.fileSearch && (input.toolOptions.vectorStoreIds?.length ?? 0) > 0) {
     return "openai_vector_store_search";
   }
@@ -472,6 +472,24 @@ export class GeminiProvider implements LLMProvider {
                 throw new Error("The chart renderer returned invalid chart data.");
               }
               trace.push(chart.data);
+            } else if (toolName === "generate_artifact") {
+              const file = fileOutputSchema.safeParse(result);
+              if (!file.success) throw new Error("The artifact generator returned invalid file data.");
+              trace.push(file.data);
+            } else if (toolName === "places_search") {
+              const places = placesSearchResultSchema.safeParse(result);
+              if (!places.success) throw new Error("The place search returned invalid data.");
+              trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "completed" });
+              trace.push({ type: "tool_result", toolName, status: "completed", result });
+              trace.push({
+                type: "source_list",
+                sources: places.data.places.map((place) => ({
+                  title: `${place.name} — Google Maps`,
+                  url: place.mapsUrl,
+                  ...(place.address ? { snippet: place.address } : {}),
+                  sourceType: "google_maps"
+                }))
+              });
             } else {
               trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "completed" });
               trace.push({ type: "tool_result", toolName, status: "completed", result });
@@ -486,7 +504,7 @@ export class GeminiProvider implements LLMProvider {
             const reason = error instanceof Error ? error.message : String(error);
             // Chart validation errors are returned to the model so it can
             // repair the call. They are not user-facing provider diagnostics.
-            if (toolName !== "render_chart") {
+            if (toolName !== "render_chart" && toolName !== "generate_artifact") {
               trace.push({ type: "tool_call", toolName, arguments: call.arguments ?? {}, status: "failed" });
               trace.push({ type: "tool_result", toolName, status: "failed", result: reason });
             }

@@ -50,6 +50,8 @@ export const toolNameSchema = z.enum([
   "file_search",
   "data_analysis",
   "render_chart",
+  "generate_artifact",
+  "places_search",
   "image_generation",
   "current_time"
 ]);

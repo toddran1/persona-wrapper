@@ -14,6 +14,20 @@ describe("application tool registry", () => {
     });
   });
 
+  it("registers artifact and Maps-backed place tools as application-owned functions", () => {
+    const tools = getToolsByNames(["generate_artifact", "places_search"]);
+
+    expect(tools.map((tool) => tool.name)).toEqual(["generate_artifact", "places_search"]);
+    for (const tool of tools) {
+      expect(tool.owner).toBe("application");
+      expect(tool.inputSchema).toMatchObject({
+        type: "object",
+        additionalProperties: false,
+        required: expect.any(Array)
+      });
+    }
+  });
+
   it("returns a rich chart block while preserving the legacy series fallback", async () => {
     const result = await executeApplicationTool("render_chart", {
       version: 1,

@@ -56,7 +56,7 @@ describe("tool selection", () => {
       toolOptions: { codeInterpreter: true }
     });
     await expect(selectTools(request("Make this into a downloadable CSV file."))).resolves.toMatchObject({
-      toolOptions: { codeInterpreter: true }
+      toolOptions: { codeInterpreter: false, appFunctions: true }
     });
     await expect(selectTools(request("Calculate the median, find outliers, and plot a histogram."))).resolves.toMatchObject({
       toolOptions: { codeInterpreter: true }

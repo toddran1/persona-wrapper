@@ -128,8 +128,11 @@ The response also includes:
 
 OpenAI requests use `gpt-5.4-mini` by default through the Responses API and support opt-in web search, file search,
 Code Interpreter, image generation/editing, image understanding, and strict
-application-owned function calls. Expensive tools are enabled per request from
-the composer rather than enabled globally.
+application-owned function calls. OpenAI and Gemini share application-owned
+artifact generation (`csv`, `tsv`, `xlsx`, `json`, text, Markdown, and ZIP) and
+Google Maps-backed local place search. Image generation remains delegated to
+OpenAI. Expensive hosted tools are enabled per request from the composer rather
+than enabled globally.
 
 ### `POST /api/chat/stream`
 
@@ -204,7 +207,9 @@ UPLOAD_TTL_HOURS=24
   resending the whole transcript.
 - Hosted tools are selected automatically when the prompt clearly requires web
   search, data analysis, image generation/editing, or uploaded-document access.
-- Application-owned tools remain allow-listed and use strict argument schemas.
+- Application-owned tools remain allow-listed, use strict argument schemas,
+  and include chart rendering, downloadable artifact generation, current time,
+  and Google Maps-backed place search.
 - Requests use retry/backoff, timeout, cancellation, per-browser rate limits,
   and an in-memory daily estimated-spend limit.
 - Conversation/history state is persisted when `DATABASE_URL` is configured.
@@ -294,13 +299,13 @@ Included providers:
 
 The OpenAI provider uses the Responses API when `OPENAI_API_KEY` is configured.
 The Gemini provider uses `gemini-3.5-flash-lite` through the Gemini Interactions
-API by default and supports native Google Search, application
-function calls, and inline supported files. Requests set `store: false`; this
+API by default and supports native Google Search, native code execution,
+application function calls, inline supported files, application-generated
+downloads, and Google Maps-backed recommendations. Requests set `store: false`; this
 application's owner-scoped database remains the authoritative conversation
 history instead of creating a second provider-managed history. OpenAI remains
-the delegated provider for image generation, OpenAI vector stores, and code
-interpreter requests when Gemini is selected (Gemini Interactions with
-`store: false` cannot deliver generated files such as xlsx or zip archives).
+the delegated provider for image generation and OpenAI vector stores when
+Gemini is selected.
 Both providers use deterministic stub output in tests and
 non-production environments without their API key. Claude remains a stub, and
 the local provider uses the configured Ollama endpoint.
@@ -318,8 +323,18 @@ function tools. Hosted tools include:
 - data analysis
 - image generation
 
-The application-owned `current_time` function uses a strict JSON schema and is
-executed server-side with a maximum tool-call iteration limit.
+Application-owned tools are executed server-side with strict JSON schemas and
+a maximum tool-call iteration limit:
+
+- `current_time`
+- `render_chart`
+- `generate_artifact`
+- `places_search`
+
+`places_search` requires the Places API (New) to be enabled for the Google
+Cloud project and `GOOGLE_MAPS_API_KEY` to be configured. Map results are also
+returned as typed references so clients can expose the original Google Maps
+links.
 
 Providers can later map these definitions to native function-calling/tool-calling formats.
 

@@ -50,12 +50,6 @@ const FILE_SEARCH_PATTERNS = [
   /\b(in|from|within|across)\s+(the|this|these|my|attached|uploaded)\s+(document|file|pdf|report|contract|manual|notes|attachment|upload)s?\b/i
 ];
 
-const FILE_OUTPUT_PATTERNS = [
-  /\b(export|download|downloadable|save|create|make|generate|produce|build|give|provide|write)\b[\s\S]{0,100}\b(file|csv|tsv|spreadsheet|workbook|xlsx|excel|pdf|document|docx|json|zip|presentation|pptx|report)\b/i,
-  /\b(as|into|to)\s+(a|an)?\s*(csv|tsv|spreadsheet|workbook|xlsx|excel|pdf|document|docx|json|zip|presentation|pptx)\b/i,
-  /\b(download link|downloadable file|attach the file|file I can download)\b/i
-];
-
 function matchesAny(message: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(message));
 }
@@ -94,12 +88,13 @@ function deterministicDecision(request: ChatRequest): RouterDecision {
   const hasFiles = request.attachments?.some((attachment) => attachment.kind === "file") ?? false;
   const hasImages = request.attachments?.some((attachment) => attachment.kind === "image") ?? false;
   const wantsAnalysis = matchesAny(request.message, ANALYSIS_PATTERNS);
-  const wantsFileOutput = matchesAny(request.message, FILE_OUTPUT_PATTERNS);
-
   return {
     webSearch: shouldEnableWebSearchForMessage(request.message),
     fileSearch: hasFiles && matchesAny(request.message, FILE_SEARCH_PATTERNS),
-    codeInterpreter: wantsAnalysis || wantsFileOutput || (hasFiles && wantsAnalysis),
+    // File construction itself is handled by generate_artifact. Only enable
+    // provider code execution when the request also requires real analysis or
+    // transformation work.
+    codeInterpreter: wantsAnalysis || (hasFiles && wantsAnalysis),
     imageGeneration: matchesAny(request.message, IMAGE_GENERATION_PATTERNS) || (hasImages && matchesAny(request.message, IMAGE_EDIT_PATTERNS)),
     background: /\b(in the background|background task|take your time|long[- ]running|large dataset|big dataset)\b/i.test(request.message)
   };
@@ -131,7 +126,7 @@ async function routeWithOpenAI(request: ChatRequest): Promise<RouterDecision> {
       {
         role: "system",
         content:
-          "You are a strict tool router for a ChatGPT-like app. Decide every tool needed for the user's complete request; multiple tools may be true. Return only compact JSON with booleans: webSearch, fileSearch, codeInterpreter, imageGeneration, background. Enable webSearch whenever the user supplies a public URL or asks about linked content, and for current, recent, changing, external, location-specific, recommendation, product, legal, political, financial, sports, entertainment, weather, citation, verification, or public-web facts. Enable codeInterpreter for calculations, quantitative reasoning, charts, dashboards, tables, datasets, spreadsheets, data transformations, generated downloadable files, or any task requiring code execution. Enable imageGeneration for creating, rendering, designing, or editing visual media, including edits to attached images. Enable fileSearch only when attached or uploaded documents must be searched, read, compared, quoted, summarized, or used as evidence. Enable background for explicitly long-running work or large analysis/generation tasks. Keep tools false for ordinary conversation, writing, rewriting, brainstorming, or style-only requests that need no external data or artifacts."
+          "You are a strict tool router for a ChatGPT-like app. Decide every provider-native tool needed for the user's complete request; multiple tools may be true. Return only compact JSON with booleans: webSearch, fileSearch, codeInterpreter, imageGeneration, background. Enable webSearch whenever the user supplies a public URL or asks about linked content, and for current, recent, changing, external, location-specific, recommendation, product, legal, political, financial, sports, entertainment, weather, citation, verification, or public-web facts. Enable codeInterpreter for calculations, quantitative reasoning, charts, dashboards, tables, datasets, spreadsheets, data transformations, or any task requiring code execution. Downloadable files are built by a separate application tool, so a simple file-writing request alone does not require codeInterpreter. Enable imageGeneration for creating, rendering, designing, or editing visual media, including edits to attached images. Enable fileSearch only when attached or uploaded documents must be searched, read, compared, quoted, summarized, or used as evidence. Enable background for explicitly long-running work or large analysis/generation tasks. Keep tools false for ordinary conversation, writing, rewriting, brainstorming, or style-only requests that need no external data or artifacts."
       },
       {
         role: "user",

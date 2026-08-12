@@ -155,7 +155,9 @@ export class PersonaEngine {
       messages,
       baseMessages,
       userMessage: request.message,
-      toolDefinitions: getToolsByNames([...new Set([...persona.defaultTools, "render_chart"])]),
+      toolDefinitions: getToolsByNames([
+        ...new Set([...persona.defaultTools, "render_chart", "generate_artifact", "places_search"])
+      ]),
       requestedOutputs: request.requestedOutputs,
       attachments: request.attachments ?? [],
       toolOptions: request.toolOptions ?? {
