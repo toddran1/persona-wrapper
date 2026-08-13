@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
 import { authRateLimit, signupAbuseRateLimit } from "../middleware/authRateLimit.js";
+import { forwardExpressClientIp } from "../middleware/proxyClientIp.js";
 import { authCookieAttributes } from "../utils/authCookieConfig.js";
 import { contentDisposition } from "../utils/httpHeaders.js";
 import { requestAbuseSignals } from "../utils/requestAbuseSignals.js";
@@ -62,6 +63,19 @@ describe("security hardening", () => {
     } finally {
       env.AUTH_REQUIRED = originalAuthRequired;
     }
+  });
+
+  it("collapses the forwarded-for chain to the Express-resolved client IP", () => {
+    const request = {
+      ip: "203.0.113.42",
+      headers: { "x-forwarded-for": "203.0.113.42, 10.0.0.8" }
+    } as unknown as Request;
+    const next = vi.fn();
+
+    forwardExpressClientIp(request, {} as Response, next);
+
+    expect(request.headers["x-forwarded-for"]).toBe("203.0.113.42");
+    expect(next).toHaveBeenCalledWith();
   });
 
   it("hashes device and IP abuse signals before using them as counter keys", () => {

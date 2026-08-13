@@ -692,9 +692,14 @@ export class GeminiProvider implements LLMProvider {
         if (!usedNativeYouTubeFallback && status === 400 && containsNativeYouTubeContent(requestInput)) {
           requestInput = withoutNativeYouTubeContent(requestInput);
           usedNativeYouTubeFallback = true;
+          // Google's YouTube ingestion rejects some public videos with a generic
+          // invalid_request — most commonly over-long videos (livestream
+          // recordings beyond the model's context window). Log the provider
+          // detail so the next rejection doesn't need a manual repro.
           logger.info("Gemini rejected native YouTube input; retrying with resolved-link context", {
             personaId: input.persona.id,
-            model: env.GEMINI_MODEL
+            model: env.GEMINI_MODEL,
+            message: (error instanceof Error ? error.message : String(error)).slice(0, 500)
           });
           continue;
         }

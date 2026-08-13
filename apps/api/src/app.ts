@@ -12,6 +12,7 @@ import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { authenticateRequest, requireCurrentPolicyConsent, requireVerifiedEmail } from "./middleware/authMiddleware.js";
 import { authRateLimit, dataTransferRateLimit, safetyReportRateLimit, signupAbuseRateLimit } from "./middleware/authRateLimit.js";
+import { forwardExpressClientIp } from "./middleware/proxyClientIp.js";
 import { chatRouter } from "./routes/chat.routes.js";
 import { apiContractRouter } from "./routes/contract.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
@@ -231,7 +232,7 @@ export function createApp() {
   if (auth) {
     // Better Auth owns these routes, so protect credential-bearing endpoints
     // before handing the request to its catch-all handler.
-    app.use("/api/auth", rateLimitSensitiveBetterAuthRequest);
+    app.use("/api/auth", forwardExpressClientIp, rateLimitSensitiveBetterAuthRequest);
     app.all("/api/auth/*", toNodeHandler(auth));
   }
   app.use(
