@@ -37,6 +37,18 @@ describe("provider cost estimator", () => {
     expect(estimate.unpricedComponents).toEqual(["image_generation", "web_search"]);
   });
 
+  it("prices automatic GPT Image 2 quality conservatively for the total-usage guardrail", () => {
+    const estimate = estimateProviderCost({
+      provider: "openai",
+      generatedImageCount: 1,
+      imageQuality: "auto",
+      imageSize: "1024x1024"
+    });
+
+    expect(estimate.components.image_generation).toBe(0.211);
+    expect(estimate.estimatedCostUsd).toBe(0.211);
+  });
+
   it("accounts for Gemini-native search and OpenAI-delegated image generation", () => {
     const estimate = estimateProviderCost({
       provider: "gemini",

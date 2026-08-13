@@ -54,9 +54,11 @@ function openAIImageOutputCost(
   size: string | undefined
 ): number {
   if (count <= 0) return 0;
-  // Product treats auto as medium-equivalent. For auto/arbitrary sizes, use
-  // the documented square reference as a conservative planning estimate.
-  const normalizedQuality = quality === "low" || quality === "high" ? quality : "medium";
+  // Gold is allowed to send `auto`, and GPT Image 2 may select high quality.
+  // Product credits may continue to treat auto as medium-equivalent, but the
+  // internal dollar guardrail must reserve for the highest supported outcome
+  // so an auto request cannot understate provider spend.
+  const normalizedQuality = quality === "low" || quality === "medium" ? quality : "high";
   const shape = size === "1024x1536" || size === "1536x1024" ? "nonSquare" : "square";
   return count * OPENAI_IMAGE_OUTPUT_COST_USD[normalizedQuality][shape];
 }

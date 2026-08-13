@@ -36,7 +36,7 @@ The catalog includes intended monthly prices as metadata only; payment providers
 - Product allowances and provider cost are intentionally separate. Customers receive stable product units even when a provider changes prices; provider-specific pricing adapters translate normalized usage into an internal USD estimate.
 - The monthly provider-cost target is an operating target. The ceiling is the total-usage quota and becomes enforceable with the other product allowances when `CUSTOMER_USAGE_ENFORCEMENT_ENABLED=true`.
 - Audio uses versioned provider-specific price-card metadata on every reservation and settlement: Fish Audio is metered by UTF-8 bytes, ElevenLabs by characters, and local TTS at zero provider cost. The `$0.021/minute` environment rate is only a corrected fallback for legacy or unknown duration-only adapters. Image-input and style-transfer estimates remain provider-neutral environment settings.
-- Using the July 2026 OpenAI reference price for a 1024×1024 `gpt-image-2` medium output ($0.053 before prompt or reference-image input), the image allowance alone is approximately $0.64 / $2.39 / $4.77 for Bronze / Silver / Gold.
+- Using OpenAI's current 1024×1024 `gpt-image-2` reference prices, the medium-output image allowance alone is approximately $0.64 / $2.39 / $4.77 for Bronze / Silver / Gold before prompt or reference-image input. Gold's provider-cost guardrail instead reserves the high-quality reference ($0.211) for `auto`, because auto may select high quality; its $8 total quota therefore remains the controlling limit for unusually image-heavy Gold usage.
 - Reservations older than six hours are released by background cleanup. Settled usage events are retained for 400 days.
 
 The durable tables are:
