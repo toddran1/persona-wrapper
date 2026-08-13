@@ -181,6 +181,26 @@ describe("LinkResolutionService", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("propagates caller cancellation instead of presenting it as a broken link", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      await new Promise<void>((_resolve, reject) => {
+        if (init?.signal?.aborted) {
+          reject(init.signal.reason);
+          return;
+        }
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      });
+      return new Response();
+    });
+    const service = new LinkResolutionService({ fetch: fetchMock, assertPublicUrl: publicOnly() });
+    const controller = new AbortController();
+    const pending = service.resolve("https://example.com/slow", controller.signal);
+
+    controller.abort(new DOMException("Cancelled by user", "AbortError"));
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("rejects excessively long URLs without network access", async () => {
     const fetchMock = vi.fn();
     const service = new LinkResolutionService({ fetch: fetchMock, assertPublicUrl: publicOnly() });

@@ -59,6 +59,7 @@ export function ChatComposer(props: ChatComposerProps) {
     fileSearch: false,
     codeInterpreter: false,
     imageGeneration: false,
+    videoAnalysis: false,
     appFunctions: true,
     background: false,
     vectorStoreIds: [],
@@ -253,6 +254,7 @@ export function ChatComposer(props: ChatComposerProps) {
                           ["fileSearch", "File search"],
                           ["codeInterpreter", "Analysis"],
                           ["imageGeneration", "Images"],
+                          ["videoAnalysis", "Analyze video"],
                         ] as const
                       ).map(([key, label]) => (
                         <label key={key} className="toggle">
@@ -260,12 +262,17 @@ export function ChatComposer(props: ChatComposerProps) {
                             type="checkbox"
                             checked={toolOptions[key]}
                             disabled={props.disabled}
-                            onChange={(event) =>
-                              setToolOptions((current) => ({
+                            onChange={(event) => setToolOptions((current) => {
+                              if (key === "videoAnalysis" && !event.target.checked) {
+                                const { videoAnalysisMode: _mode, ...rest } = current;
+                                return { ...rest, videoAnalysis: false };
+                              }
+                              return {
                                 ...current,
                                 [key]: event.target.checked,
-                              }))
-                            }
+                                ...(key === "videoAnalysis" ? { videoAnalysisMode: "explicit" as const } : {})
+                              };
+                            })}
                           />
                           <span>{label}</span>
                         </label>

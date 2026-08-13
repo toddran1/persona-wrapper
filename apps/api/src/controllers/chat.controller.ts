@@ -144,6 +144,8 @@ export async function postChat(request: Request, response: Response): Promise<vo
           fileSearch: payload.toolOptions?.fileSearch ?? false,
           codeInterpreter: payload.toolOptions?.codeInterpreter ?? false,
           imageGeneration: payload.toolOptions?.imageGeneration ?? false,
+          videoAnalysis: payload.toolOptions?.videoAnalysis ?? false,
+          ...(payload.toolOptions?.videoAnalysisMode ? { videoAnalysisMode: payload.toolOptions.videoAnalysisMode } : {}),
           ...(payload.toolOptions?.imageQuality ? { imageQuality: payload.toolOptions.imageQuality } : {}),
           appFunctions: payload.toolOptions?.appFunctions ?? true,
           background: true,
@@ -389,6 +391,8 @@ async function selectToolsForRequest(payload: ChatRequest, identity: string): Pr
       fileSearch: selected.toolOptions?.fileSearch ?? false,
       codeInterpreter: selected.toolOptions?.codeInterpreter ?? false,
       imageGeneration: true,
+      videoAnalysis: selected.toolOptions?.videoAnalysis ?? false,
+      ...(selected.toolOptions?.videoAnalysisMode ? { videoAnalysisMode: selected.toolOptions.videoAnalysisMode } : {}),
       appFunctions: selected.toolOptions?.appFunctions ?? true,
       background: selected.toolOptions?.background ?? false,
       vectorStoreIds: selected.toolOptions?.vectorStoreIds ?? []

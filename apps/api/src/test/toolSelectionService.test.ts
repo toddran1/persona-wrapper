@@ -91,6 +91,17 @@ describe("tool selection", () => {
     }
   });
 
+  it("uses resolved-link context by default and native video only for deep audiovisual requests", async () => {
+    await expect(selectTools(request("Summarize https://youtu.be/0Y4FoTy0Bf0"))).resolves.toMatchObject({
+      toolOptions: { webSearch: true, videoAnalysis: false }
+    });
+    await expect(selectTools(request(
+      "Watch https://youtu.be/0Y4FoTy0Bf0 and identify the on-screen scenes with timestamps."
+    ))).resolves.toMatchObject({
+      toolOptions: { webSearch: true, videoAnalysis: true, videoAnalysisMode: "explicit" }
+    });
+  });
+
   it("keeps the final web-search guard narrow", () => {
     expect(shouldEnableWebSearchForMessage("Help me write a friendly apology.")).toBe(false);
     expect(shouldEnableWebSearchForMessage("Who is the current CEO of Apple?")).toBe(true);

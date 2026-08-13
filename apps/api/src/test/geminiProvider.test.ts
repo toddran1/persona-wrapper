@@ -3,6 +3,10 @@ import type { LLMInput } from "@persona/shared";
 import { env } from "../config/env.js";
 import { getPersonaById } from "../personas/index.js";
 import { GeminiProvider } from "../providers/llm/GeminiProvider.js";
+import type {
+  PublicMediaAnalysis,
+  PublicMediaAnalysisCache
+} from "../services/publicMediaAnalysisCacheService.js";
 import { PersonaEngine } from "../services/personaEngine.js";
 
 function geminiInput(imageGeneration = false, professional = false): LLMInput {
@@ -176,7 +180,7 @@ describe("GeminiProvider", () => {
     ]));
   });
 
-  it("uses the documented tool-free video-then-prompt shape for public YouTube links", async () => {
+  it("uses compact resolved-link context by default for public YouTube links", async () => {
     const createInteraction = vi.fn().mockResolvedValue({
       id: "interaction_youtube",
       status: "completed",
@@ -196,17 +200,180 @@ describe("GeminiProvider", () => {
     await new GeminiProvider({ createInteraction }).generateResponse(input);
 
     const content = createInteraction.mock.calls[0]?.[0]?.input;
-    expect(content).toEqual([
-      { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0" },
-      {
-        type: "text",
-        text: "Current user request:\nTell me about https://youtu.be/0Y4FoTy0Bf0?si=tracking and https://www.youtube.com/watch?v=0Y4FoTy0Bf0"
-      }
-    ]);
-    expect(createInteraction.mock.calls[0]?.[0]?.tools).toBeUndefined();
+    expect(createInteraction.mock.calls[0]?.[0]?.tools).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "google_search" })
+    ]));
+    expect(content).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "video" })]));
+    expect(content.at(-1)).toEqual({
+      type: "text",
+      text: "Current user request:\nTell me about https://youtu.be/0Y4FoTy0Bf0?si=tracking and https://www.youtube.com/watch?v=0Y4FoTy0Bf0"
+    });
   });
 
-  it("keeps native YouTube audio requests on Gemini's plain-text interaction route", async () => {
+  it("does not run a redundant Google search for a resolved YouTube follow-up", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "interaction_youtube_followup",
+      status: "completed",
+      output_text: "The resolved evidence covers the video.",
+      steps: [{ type: "model_output", content: [{ type: "text", text: "The resolved evidence covers the video." }] }]
+    });
+    const input = geminiInput();
+    input.messages = [
+      input.messages[0]!,
+      {
+        role: "user",
+        content: "Tool context for the next answer:\nCanonical URL: https://www.youtube.com/watch?v=0Y4FoTy0Bf0"
+      },
+      { role: "user", content: "What happens next in that video?" }
+    ];
+    input.toolOptions = { ...input.toolOptions, webSearch: true };
+
+    await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    expect(createInteraction.mock.calls[0]?.[0]?.tools).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "google_search" })
+    ]));
+  });
+
+  it("runs explicit native video analysis as a neutral prepass and injects only its compact evidence", async () => {
+    const createInteraction = vi.fn()
+      .mockResolvedValueOnce({
+        id: "video_analysis",
+        status: "completed",
+        output_text: "Observed: a presenter explains the EXP system at the start.",
+        steps: [{ type: "model_output", content: [{
+          type: "text",
+          text: "Observed: a presenter explains the EXP system at the start."
+        }] }],
+        usage: { total_input_tokens: 100, total_output_tokens: 12, total_tokens: 112 }
+      })
+      .mockResolvedValueOnce({
+        id: "persona_answer",
+        status: "completed",
+        output_text: "The presenter breaks down the EXP system.",
+        steps: [{ type: "model_output", content: [{
+          type: "text",
+          text: "The presenter breaks down the EXP system."
+        }] }],
+        usage: { total_input_tokens: 20, total_output_tokens: 8, total_tokens: 28 }
+      });
+    const values = new Map<string, PublicMediaAnalysis>();
+    const cacheSet = vi.fn<PublicMediaAnalysisCache["set"]>(async (key, value) => {
+      values.set(JSON.stringify(key), value);
+    });
+    const cache: PublicMediaAnalysisCache = {
+      get: vi.fn(async () => values.values().next().value),
+      set: cacheSet
+    };
+    const input = geminiInput();
+    input.messages = [input.messages[0]!, {
+      role: "user",
+      content: "Watch https://youtu.be/0Y4FoTy0Bf0 and identify the opening scene."
+    }];
+    input.toolOptions = { ...input.toolOptions, videoAnalysis: true, videoAnalysisMode: "explicit" };
+
+    const output = await new GeminiProvider({ createInteraction, publicMediaAnalysisCache: cache })
+      .generateResponse(input);
+
+    expect(createInteraction).toHaveBeenCalledTimes(2);
+    expect(createInteraction.mock.calls[0]?.[0]?.input[0]).toEqual({
+      type: "video",
+      uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0",
+      resolution: "low"
+    });
+    expect(createInteraction.mock.calls[0]?.[0]?.system_instruction).toContain("neutral media-analysis");
+    const answerInput = createInteraction.mock.calls[1]?.[0]?.input;
+    expect(answerInput).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "video" })]));
+    expect(answerInput).toEqual(expect.arrayContaining([expect.objectContaining({
+      type: "text",
+      text: expect.stringContaining("Observed: a presenter explains the EXP system")
+    })]));
+    expect(cacheSet).toHaveBeenCalledTimes(1);
+    expect(output.usage).toMatchObject({ inputTokens: 120, outputTokens: 20, totalTokens: 140 });
+    expect(output.metadata?.videoAnalysis).toMatchObject({ attempted: true, status: "completed", cacheHit: false });
+  });
+
+  it("reuses cached public video analysis without billing or sending the video again", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "cached_persona_answer",
+      status: "completed",
+      output_text: "The cached evidence covers the opening scene.",
+      steps: [{ type: "model_output", content: [{
+        type: "text",
+        text: "The cached evidence covers the opening scene."
+      }] }],
+      usage: { total_input_tokens: 21, total_output_tokens: 9, total_tokens: 30 }
+    });
+    const cacheSet = vi.fn<PublicMediaAnalysisCache["set"]>();
+    const cache: PublicMediaAnalysisCache = {
+      get: vi.fn(async () => ({
+        analysisText: "Cached observation: the opening introduces the EXP system.",
+        inputTokens: 380_000,
+        outputTokens: 500,
+        reasoningTokens: 0
+      })),
+      set: cacheSet
+    };
+    const input = geminiInput();
+    input.messages = [input.messages[0]!, {
+      role: "user",
+      content: "Watch https://youtu.be/0Y4FoTy0Bf0 and identify the opening scene."
+    }];
+    input.toolOptions = { ...input.toolOptions, videoAnalysis: true, videoAnalysisMode: "explicit" };
+
+    const output = await new GeminiProvider({ createInteraction, publicMediaAnalysisCache: cache })
+      .generateResponse(input);
+
+    expect(createInteraction).toHaveBeenCalledTimes(1);
+    expect(createInteraction.mock.calls[0]?.[0]?.input).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "video" })
+    ]));
+    expect(createInteraction.mock.calls[0]?.[0]?.input).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: expect.stringContaining("Cached observation") })
+    ]));
+    expect(cacheSet).not.toHaveBeenCalled();
+    expect(output.usage).toMatchObject({ inputTokens: 21, outputTokens: 9, totalTokens: 30 });
+    expect(output.metadata?.videoAnalysis).toMatchObject({ status: "completed", cacheHit: true });
+  });
+
+  it("skips native analysis when a verified duration exceeds the explicit ceiling", async () => {
+    const createInteraction = vi.fn().mockResolvedValue({
+      id: "long_video_answer",
+      status: "completed",
+      output_text: "The verified metadata identifies a very long video.",
+      steps: [{ type: "model_output", content: [{
+        type: "text",
+        text: "The verified metadata identifies a very long video."
+      }] }]
+    });
+    const cache: PublicMediaAnalysisCache = {
+      get: vi.fn(),
+      set: vi.fn()
+    };
+    const input = geminiInput();
+    input.messages = [
+      input.messages[0]!,
+      { role: "user", content: "Tool context for the next answer:\nDuration seconds: 80000" },
+      { role: "user", content: "Watch https://youtu.be/0Y4FoTy0Bf0 and analyze every scene." }
+    ];
+    input.toolOptions = { ...input.toolOptions, videoAnalysis: true, videoAnalysisMode: "explicit" };
+
+    const output = await new GeminiProvider({ createInteraction, publicMediaAnalysisCache: cache })
+      .generateResponse(input);
+
+    expect(createInteraction).toHaveBeenCalledTimes(1);
+    expect(cache.get).not.toHaveBeenCalled();
+    expect(createInteraction.mock.calls[0]?.[0]?.input).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "video" })
+    ]));
+    expect(output.metadata?.videoAnalysis).toMatchObject({
+      attempted: false,
+      status: "skipped",
+      reason: `duration_exceeds_${env.GEMINI_VIDEO_ANALYSIS_EXPLICIT_MAX_DURATION_SECONDS}_seconds`
+    });
+  });
+
+  it("keeps ordinary YouTube audio requests on the normal compact route", async () => {
     const createInteraction = vi.fn().mockResolvedValue({
       id: "interaction_youtube_audio",
       status: "completed",
@@ -223,8 +390,7 @@ describe("GeminiProvider", () => {
     await new GeminiProvider({ createInteraction }).generateResponse(input);
 
     const request = createInteraction.mock.calls[0]?.[0];
-    expect(request.tools).toBeUndefined();
-    expect(request).not.toHaveProperty("response_format");
+    expect(request.input).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "video" })]));
   });
 
   it("falls back to verified resolved-link context when Gemini rejects an individual YouTube video", async () => {
@@ -256,12 +422,13 @@ describe("GeminiProvider", () => {
       },
       { role: "user", content: "Tell me about https://youtu.be/0Y4FoTy0Bf0" }
     ];
+    input.toolOptions = { ...input.toolOptions, videoAnalysis: true, videoAnalysisMode: "explicit" };
 
     const output = await new GeminiProvider({ createInteraction }).generateResponse(input);
 
     expect(createInteraction).toHaveBeenCalledTimes(2);
     expect(createInteraction.mock.calls[0]?.[0]?.input[0]).toEqual(
-      { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0" }
+      { type: "video", uri: "https://www.youtube.com/watch?v=0Y4FoTy0Bf0", resolution: "low" }
     );
     expect(createInteraction.mock.calls[1]?.[0]?.input).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "video" })
@@ -289,15 +456,16 @@ describe("GeminiProvider", () => {
       { role: "user", content: "Tool context for the next answer:\nTitle: A verified livestream" },
       { role: "user", content: "Tell me about https://www.youtube.com/live/Ck_aptcPDek?si=tracking" }
     ];
+    input.toolOptions = { ...input.toolOptions, videoAnalysis: true, videoAnalysisMode: "explicit" };
 
     const output = await new GeminiProvider({ createInteraction }).generateResponse(input);
 
     expect(createInteraction).toHaveBeenCalledTimes(2);
     expect(createInteraction.mock.calls[0]?.[0]?.input).toEqual(expect.arrayContaining([
-      { type: "video", uri: "https://www.youtube.com/watch?v=Ck_aptcPDek" }
+      { type: "video", uri: "https://www.youtube.com/watch?v=Ck_aptcPDek", resolution: "low" }
     ]));
     expect(createInteraction.mock.calls[0]?.[1]?.timeout).toBe(
-      Math.min(env.GEMINI_REQUEST_TIMEOUT_MS, env.GEMINI_NATIVE_YOUTUBE_REQUEST_TIMEOUT_MS)
+      env.GEMINI_NATIVE_YOUTUBE_REQUEST_TIMEOUT_MS
     );
     expect(createInteraction.mock.calls[1]?.[0]?.input).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ type: "video" })

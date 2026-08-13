@@ -992,6 +992,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       fileSearch: false,
       codeInterpreter: false,
       imageGeneration: false,
+      videoAnalysis: false,
       appFunctions: true,
       background: false,
       vectorStoreIds: []

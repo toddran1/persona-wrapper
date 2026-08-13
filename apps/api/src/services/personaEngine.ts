@@ -165,6 +165,7 @@ export class PersonaEngine {
         fileSearch: false,
         codeInterpreter: false,
         imageGeneration: false,
+        videoAnalysis: false,
         appFunctions: true,
         background: false,
         vectorStoreIds: []

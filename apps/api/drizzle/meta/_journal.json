@@ -148,6 +148,13 @@
       "when": 1786243200000,
       "tag": "0020_persona_influence_level_constraint",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786665600000,
+      "tag": "0021_public_media_analyses",
+      "breakpoints": true
     }
   ]
 }

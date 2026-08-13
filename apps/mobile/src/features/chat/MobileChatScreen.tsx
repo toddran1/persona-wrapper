@@ -2531,6 +2531,7 @@ export function MobileChatScreen() {
         fileSearch: fileAttachmentIds.length > 0,
         codeInterpreter: false,
         imageGeneration,
+        videoAnalysis: false,
         appFunctions: true,
         background: true,
         vectorStoreIds: vectorStore ? [vectorStore.id] : []

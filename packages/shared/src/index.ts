@@ -420,6 +420,8 @@ export const toolOptionsSchema = z.object({
   fileSearch: z.boolean().default(false),
   codeInterpreter: z.boolean().default(false),
   imageGeneration: z.boolean().default(false),
+  videoAnalysis: z.boolean().default(false),
+  videoAnalysisMode: z.enum(["auto", "explicit"]).optional(),
   imageQuality: imageGenerationQualitySchema.optional(),
   appFunctions: z.boolean().default(false),
   background: z.boolean().default(false),

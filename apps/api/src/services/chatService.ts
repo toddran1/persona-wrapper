@@ -461,6 +461,10 @@ export class ChatService {
           fileSearch: request.toolOptions?.fileSearch ?? false,
           codeInterpreter: request.toolOptions?.codeInterpreter ?? false,
           imageGeneration: true,
+          videoAnalysis: request.toolOptions?.videoAnalysis ?? false,
+          ...(request.toolOptions?.videoAnalysisMode
+            ? { videoAnalysisMode: request.toolOptions.videoAnalysisMode }
+            : {}),
           ...(request.toolOptions?.imageQuality ? { imageQuality: request.toolOptions.imageQuality } : {}),
           appFunctions: request.toolOptions?.appFunctions ?? true,
           background: request.toolOptions?.background ?? false,

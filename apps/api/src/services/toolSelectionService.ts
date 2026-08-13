@@ -1,7 +1,7 @@
 import type { ChatRequest, ToolOptions } from "@persona/shared";
 import OpenAI from "openai";
 import { env } from "../config/env.js";
-import { containsHttpUrl } from "./urlInputService.js";
+import { containsHttpUrl, extractYouTubeVideoUrls } from "./urlInputService.js";
 
 const WEB_SEARCH_PATTERNS = [
   /\b(search|look up|lookup|browse|google|find online|check online|on the web|from the web|internet|web search)\b/i,
@@ -50,6 +50,14 @@ const FILE_SEARCH_PATTERNS = [
   /\b(in|from|within|across)\s+(the|this|these|my|attached|uploaded)\s+(document|file|pdf|report|contract|manual|notes|attachment|upload)s?\b/i
 ];
 
+const NATIVE_VIDEO_ANALYSIS_PATTERNS = [
+  /\b(?:watch|inspect|analy[sz]e)\b[\s\S]{0,100}\b(?:video|clip|footage|visuals?)\b/i,
+  /\b(?:describe|compare|identify|explain)\b[\s\S]{0,100}\b(?:visuals?|scenes?|frames?|what happens on screen|body language|editing|camera work)\b/i,
+  /\b(?:timestamp|timecode|at\s+\d{1,2}:\d{2}|specific scene|shown on screen|visible in the video)\b/i,
+  /\b(?:listen to|inspect the audio|sound in|music in|speaker in)\b[\s\S]{0,80}\b(?:video|clip|footage)?\b/i,
+  /\b(?:actual|full|deep|frame[- ]by[- ]frame)\s+(?:video|clip|footage|visual|analysis)\b/i
+];
+
 function matchesAny(message: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(message));
 }
@@ -59,6 +67,7 @@ const defaults: ToolOptions = {
   fileSearch: false,
   codeInterpreter: false,
   imageGeneration: false,
+  videoAnalysis: false,
   appFunctions: true,
   background: false,
   vectorStoreIds: []
@@ -69,16 +78,25 @@ type RouterDecision = {
   fileSearch?: boolean;
   codeInterpreter?: boolean;
   imageGeneration?: boolean;
+  videoAnalysis?: boolean;
+  videoAnalysisMode?: "auto" | "explicit";
   background?: boolean;
 };
 
 function mergeTools(explicit: ToolOptions, decision: RouterDecision): ToolOptions {
+  const videoAnalysisMode = explicit.videoAnalysis
+    ? explicit.videoAnalysisMode ?? "explicit"
+    : decision.videoAnalysis === true
+      ? decision.videoAnalysisMode ?? "auto"
+      : explicit.videoAnalysisMode;
   return {
     ...explicit,
     webSearch: explicit.webSearch || decision.webSearch === true,
     fileSearch: explicit.fileSearch || decision.fileSearch === true,
     codeInterpreter: explicit.codeInterpreter || decision.codeInterpreter === true,
     imageGeneration: explicit.imageGeneration || decision.imageGeneration === true,
+    videoAnalysis: explicit.videoAnalysis || decision.videoAnalysis === true,
+    ...(videoAnalysisMode ? { videoAnalysisMode } : {}),
     background: explicit.background || decision.background === true,
     appFunctions: true
   };
@@ -96,6 +114,8 @@ function deterministicDecision(request: ChatRequest): RouterDecision {
     // transformation work.
     codeInterpreter: wantsAnalysis || (hasFiles && wantsAnalysis),
     imageGeneration: matchesAny(request.message, IMAGE_GENERATION_PATTERNS) || (hasImages && matchesAny(request.message, IMAGE_EDIT_PATTERNS)),
+    videoAnalysis: extractYouTubeVideoUrls(request.message).length > 0 && matchesAny(request.message, NATIVE_VIDEO_ANALYSIS_PATTERNS),
+    videoAnalysisMode: "explicit",
     background: /\b(in the background|background task|take your time|long[- ]running|large dataset|big dataset)\b/i.test(request.message)
   };
 }
@@ -126,7 +146,7 @@ async function routeWithOpenAI(request: ChatRequest): Promise<RouterDecision> {
       {
         role: "system",
         content:
-          "You are a strict tool router for a ChatGPT-like app. Decide every provider-native tool needed for the user's complete request; multiple tools may be true. Return only compact JSON with booleans: webSearch, fileSearch, codeInterpreter, imageGeneration, background. Enable webSearch whenever the user supplies a public URL or asks about linked content, and for current, recent, changing, external, location-specific, recommendation, product, legal, political, financial, sports, entertainment, weather, citation, verification, or public-web facts. Enable codeInterpreter for calculations, quantitative reasoning, charts, dashboards, tables, datasets, spreadsheets, data transformations, or any task requiring code execution. Downloadable files are built by a separate application tool, so a simple file-writing request alone does not require codeInterpreter. Enable imageGeneration for creating, rendering, designing, or editing visual media, including edits to attached images. Enable fileSearch only when attached or uploaded documents must be searched, read, compared, quoted, summarized, or used as evidence. Enable background for explicitly long-running work or large analysis/generation tasks. Keep tools false for ordinary conversation, writing, rewriting, brainstorming, or style-only requests that need no external data or artifacts."
+          "You are a strict tool router for a ChatGPT-like app. Decide every provider-native tool needed for the user's complete request; multiple tools may be true. Return only compact JSON with booleans: webSearch, fileSearch, codeInterpreter, imageGeneration, videoAnalysis, background. Enable webSearch whenever the user supplies a public URL or asks about linked content, and for current, recent, changing, external, location-specific, recommendation, product, legal, political, financial, sports, entertainment, weather, citation, verification, or public-web facts. Enable videoAnalysis only when a YouTube URL is present and the user explicitly needs the actual audiovisual content, such as scenes, visuals, timestamps, on-screen details, or audio; metadata, title, captions, or an ordinary summary do not require native video analysis. Enable codeInterpreter for calculations, quantitative reasoning, charts, dashboards, tables, datasets, spreadsheets, data transformations, or any task requiring code execution. Downloadable files are built by a separate application tool, so a simple file-writing request alone does not require codeInterpreter. Enable imageGeneration for creating, rendering, designing, or editing visual media, including edits to attached images. Enable fileSearch only when attached or uploaded documents must be searched, read, compared, quoted, summarized, or used as evidence. Enable background for explicitly long-running work or large analysis/generation tasks. Keep tools false for ordinary conversation, writing, rewriting, brainstorming, or style-only requests that need no external data or artifacts."
       },
       {
         role: "user",
@@ -144,6 +164,8 @@ async function routeWithOpenAI(request: ChatRequest): Promise<RouterDecision> {
     fileSearch: parsed.fileSearch === true,
     codeInterpreter: parsed.codeInterpreter === true,
     imageGeneration: parsed.imageGeneration === true,
+    videoAnalysis: parsed.videoAnalysis === true,
+    videoAnalysisMode: "explicit",
     background: parsed.background === true
   };
 }

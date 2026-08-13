@@ -331,6 +331,32 @@ export const customerUsageEvents = pgTable("customer_usage_events", {
     .on(table.status, table.createdAt)
 }));
 
+/**
+ * Provider-neutral analyses of public media. These rows never contain user,
+ * conversation, or persona context, so one expensive public-video inspection
+ * can be safely reused across users and personas.
+ */
+export const publicMediaAnalyses = pgTable("public_media_analyses", {
+  id: text("id").primaryKey(),
+  mediaKind: text("media_kind").notNull(),
+  mediaId: text("media_id").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  resolution: text("resolution").notNull(),
+  analysisVersion: text("analysis_version").notNull(),
+  analysisText: text("analysis_text").notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  reasoningTokens: integer("reasoning_tokens").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull()
+}, (table) => ({
+  lookupUnique: uniqueIndex("public_media_analyses_lookup_unique")
+    .on(table.mediaKind, table.mediaId, table.provider, table.model, table.resolution, table.analysisVersion),
+  expiresAtIdx: index("public_media_analyses_expires_at_idx").on(table.expiresAt)
+}));
+
 export const conversationRelations = relations(conversations, ({ many }) => ({
   messages: many(messages)
 }));

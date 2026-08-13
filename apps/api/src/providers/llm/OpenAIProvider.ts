@@ -1335,6 +1335,7 @@ export class OpenAIProvider implements LLMProvider {
         fileSearch: false,
         codeInterpreter: false,
         imageGeneration: false,
+        videoAnalysis: false,
         appFunctions: false,
         background: false,
         vectorStoreIds: []
