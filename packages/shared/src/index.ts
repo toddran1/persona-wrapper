@@ -565,6 +565,41 @@ export const planUsageSummarySchema = z.object({
 });
 export type PlanUsageSummary = z.infer<typeof planUsageSummarySchema>;
 
+export const billingProviderSchema = z.enum(["revenuecat"]);
+export type BillingProvider = z.infer<typeof billingProviderSchema>;
+
+export const billingProductCatalog = {
+  silverMonthly: {
+    productId: "ftb_silver_monthly",
+    entitlementId: "silver",
+    planId: "silver"
+  },
+  goldMonthly: {
+    productId: "ftb_gold_monthly",
+    entitlementId: "gold",
+    planId: "gold"
+  }
+} as const;
+
+export const billingCatalogProductSchema = z.object({
+  productId: z.string().min(1),
+  entitlementId: z.string().min(1),
+  planId: planIdSchema,
+  displayName: z.string().min(1),
+  description: z.string().min(1),
+  monthlyPriceCents: z.number().int().positive()
+}).strict();
+export type BillingCatalogProduct = z.infer<typeof billingCatalogProductSchema>;
+
+export const billingCatalogResponseSchema = z.object({
+  enabled: z.boolean(),
+  provider: billingProviderSchema,
+  offeringId: z.string().min(1),
+  products: z.array(billingCatalogProductSchema),
+  currentPlanId: planIdSchema
+}).strict();
+export type BillingCatalogResponse = z.infer<typeof billingCatalogResponseSchema>;
+
 export const policyVersionSchema = z.string().trim().min(1).max(80);
 
 export const policyVersionsSchema = z.object({
@@ -1433,6 +1468,15 @@ export const apiContract = contract.router({
     }
   }),
   account: contract.router({
+    billingCatalog: {
+      method: "GET",
+      path: "/api/account/billing/catalog",
+      responses: {
+        200: billingCatalogResponseSchema,
+        401: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    },
     usage: {
       method: "GET",
       path: "/api/account/usage",

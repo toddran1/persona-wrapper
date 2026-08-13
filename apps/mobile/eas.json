@@ -8,12 +8,16 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
+        "EXPO_PUBLIC_APP_ENV": "development",
         "EXPO_PUBLIC_API_URL": "http://localhost:4000"
       }
     },
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
+      "channel": "preview",
       "env": {
+        "EXPO_PUBLIC_APP_ENV": "preview",
         "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api-dev.onrender.com",
         "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web-dev.onrender.com",
         "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web-dev.onrender.com"
@@ -21,14 +25,22 @@
     },
     "testflight": {
       "autoIncrement": true,
+      "environment": "preview",
+      "channel": "testflight",
       "env": {
+        "EXPO_PUBLIC_APP_ENV": "preview",
         "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api-dev.onrender.com",
         "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web-dev.onrender.com",
         "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web-dev.onrender.com"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "environment": "production",
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "production"
+      }
     }
   },
   "submit": {

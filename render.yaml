@@ -100,6 +100,18 @@ services:
         value: "120"
       - key: CUSTOMER_USAGE_ENFORCEMENT_ENABLED
         value: "true"
+      - key: BILLING_ENABLED
+        value: "false"
+      - key: BILLING_PROVIDER
+        value: revenuecat
+      - key: REVENUECAT_OFFERING_ID
+        value: default
+      - key: REVENUECAT_WEBHOOK_AUTHORIZATION
+        sync: false
+      - key: REVENUECAT_ALLOWED_ENVIRONMENTS
+        value: SANDBOX
+      - key: REVENUECAT_ALLOWED_APP_IDS
+        sync: false
       - key: CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD
         value: "0.021"
       - key: CUSTOMER_USAGE_IMAGE_INPUT_COST_USD

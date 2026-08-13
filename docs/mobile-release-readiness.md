@@ -1,5 +1,10 @@
 # Mobile release readiness
 
+Subscription setup and validation are documented in
+[`billing.md`](./billing.md). Store builds must include both platform-specific
+RevenueCat public SDK keys, even when only one platform is being built, so the
+same production profile cannot silently ship an incomplete billing setup.
+
 This checklist covers the accessibility, localization, and connectivity gates for the iOS and Android releases.
 
 ## Automated gate

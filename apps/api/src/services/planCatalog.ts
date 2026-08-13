@@ -6,7 +6,7 @@ export type PlanDefinition = {
   version: number;
   displayName: string;
   description: string;
-  /** Catalog metadata only until a billing entitlement adapter is connected. */
+  /** Store fallback price; native clients display the localized store price when available. */
   monthlyPriceCents: number | null;
   adsEnabled: boolean;
   priorityQueue: boolean;

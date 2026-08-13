@@ -285,6 +285,47 @@ export const userPlanAssignments = pgTable("user_plan_assignments", {
     .on(table.status, table.expiresAt)
 }));
 
+export const billingSubscriptions = pgTable("billing_subscriptions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  externalSubscriptionId: text("external_subscription_id").notNull(),
+  planAssignmentId: text("plan_assignment_id").notNull().references(() => userPlanAssignments.id, { onDelete: "cascade" }),
+  productId: text("product_id").notNull(),
+  planId: text("plan_id").notNull(),
+  status: text("status").notNull(),
+  store: text("store"),
+  environment: text("environment").notNull(),
+  currentPeriodEndsAt: timestamp("current_period_ends_at", { withTimezone: true }),
+  lastEventId: text("last_event_id").notNull(),
+  lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  providerExternalUnique: uniqueIndex("billing_subscriptions_provider_external_unique")
+    .on(table.provider, table.externalSubscriptionId),
+  userStatusIdx: index("billing_subscriptions_user_status_idx").on(table.userId, table.status),
+  periodEndIdx: index("billing_subscriptions_period_end_idx").on(table.currentPeriodEndsAt)
+}));
+
+export const billingWebhookEvents = pgTable("billing_webhook_events", {
+  id: text("id").primaryKey(),
+  provider: text("provider").notNull(),
+  eventType: text("event_type").notNull(),
+  appUserId: text("app_user_id"),
+  environment: text("environment"),
+  status: text("status").notNull().default("received"),
+  error: text("error"),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  statusReceivedIdx: index("billing_webhook_events_status_received_idx").on(table.status, table.receivedAt),
+  appUserIdx: index("billing_webhook_events_app_user_idx").on(table.appUserId)
+}));
+
 export const customerUsageBalances = pgTable("customer_usage_balances", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

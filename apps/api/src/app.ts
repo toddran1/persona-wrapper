@@ -21,6 +21,7 @@ import { getGeneratedAudio } from "./controllers/generatedAudio.controller.js";
 import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
 import { downloadDataExport, postDataImportUpload } from "./controllers/dataTransfer.controller.js";
+import { postRevenueCatWebhook } from "./controllers/billing.controller.js";
 import { env } from "./config/env.js";
 import { customerUsageService } from "./services/customerUsageService.js";
 import { storageService } from "./services/storageService.js";
@@ -235,6 +236,13 @@ export function createApp() {
     app.use("/api/auth", forwardExpressClientIp, rateLimitSensitiveBetterAuthRequest);
     app.all("/api/auth/*", toNodeHandler(auth));
   }
+  // RevenueCat authenticates this server-to-server endpoint with a dedicated
+  // authorization value. It intentionally remains outside user session gates.
+  app.post(
+    "/api/billing/revenuecat/webhook",
+    express.json({ limit: "256kb" }),
+    postRevenueCatWebhook
+  );
   app.use(
     "/api/data",
     authenticateRequest,

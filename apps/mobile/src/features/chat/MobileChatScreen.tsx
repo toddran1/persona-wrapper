@@ -63,6 +63,15 @@ import {
 import { saveFileToDevice } from "../../storage/downloadDirectory";
 import { clearCachedAuthUser, getCachedAuthUser, getLandscapeLayoutEnabled, setCachedAuthUser, setLandscapeLayoutEnabled } from "../../storage/mobilePreferences";
 import { defaultPersonaTheme, themeFromPersona } from "../../theme/personaTheme";
+import {
+  disconnectRevenueCat,
+  loadStoreBillingProducts,
+  purchaseStorePackage,
+  restoreStorePurchases,
+  revenueCatIsAvailable,
+  showStoreSubscriptionManagement,
+  type StoreBillingProduct
+} from "../../billing/revenueCat";
 import { ChatComposer } from "./ChatComposer";
 import { ChatDrawer } from "./ChatDrawer";
 import { ChatTurn } from "./ChatTurn";
@@ -301,6 +310,10 @@ export function MobileChatScreen() {
   const [authBusy, setAuthBusy] = useState(false);
   const [drawerInteractive, setDrawerInteractive] = useState(false);
   const [offlineReadOnly, setOfflineReadOnly] = useState(false);
+  const [storeBillingProducts, setStoreBillingProducts] = useState<StoreBillingProduct[]>([]);
+  const [billingBusyProductId, setBillingBusyProductId] = useState<string | undefined>();
+  const [billingError, setBillingError] = useState<string | undefined>();
+  const [billingNotice, setBillingNotice] = useState<string | undefined>();
   const drawerX = useSharedValue(-drawerWidth);
   const scrollRef = useRef<FlashListRef<RenderedTurn>>(null);
   const turnsRef = useRef<RenderedTurn[]>([]);
@@ -398,6 +411,8 @@ export function MobileChatScreen() {
     setPlanUsageLoading,
     planUsageError,
     setPlanUsageError,
+    billingCatalog,
+    setBillingCatalog,
     memoryEnabled,
     setMemoryEnabled,
     memoryBusy,
@@ -429,6 +444,16 @@ export function MobileChatScreen() {
   } = useAccountSettingsController(authUser);
   const currentAccountIdRef = useRef(authUser?.id);
   currentAccountIdRef.current = authUser?.id;
+
+  useEffect(() => {
+    // Store products and purchase feedback are account-scoped even though
+    // RevenueCat owns the native cache. Clear them synchronously whenever the
+    // signed-in account changes so a late result cannot appear for another user.
+    setStoreBillingProducts([]);
+    setBillingBusyProductId(undefined);
+    setBillingError(undefined);
+    setBillingNotice(undefined);
+  }, [authUser?.id]);
 
   useEffect(() => {
     if (authUser?.modelProvider) setProvider(authUser.modelProvider);
@@ -802,7 +827,8 @@ export function MobileChatScreen() {
     if (panel === "sessions") void refreshActiveSessions();
     if (panel === "security") void refreshConnectedAccounts();
     if (panel === "memory") void refreshMemorySettings();
-    if (panel === "plan" || panel === "provider") void refreshPlanUsage();
+    if (panel === "plan") void refreshBilling();
+    if (panel === "provider") void refreshPlanUsage();
   }
 
   function revealFocusedSettingsField(): void {
@@ -827,6 +853,133 @@ export function MobileChatScreen() {
       }
     } finally {
       if (currentAccountIdRef.current === requestedAccountId) setPlanUsageLoading(false);
+    }
+  }
+
+  async function refreshBilling(): Promise<void> {
+    const requestedAccountId = authUser?.id;
+    if (!requestedAccountId) return;
+    setPlanUsageLoading(true);
+    setPlanUsageError(undefined);
+    setBillingError(undefined);
+    setStoreBillingProducts([]);
+    try {
+      const [usage, catalog] = await Promise.all([api.getPlanUsage(), api.getBillingCatalog()]);
+      if (currentAccountIdRef.current !== requestedAccountId) return;
+      setPlanUsage(usage);
+      setBillingCatalog(catalog);
+      if (!catalog.enabled || !revenueCatIsAvailable()) {
+        setStoreBillingProducts([]);
+        return;
+      }
+      const products = await loadStoreBillingProducts(requestedAccountId, catalog);
+      if (currentAccountIdRef.current === requestedAccountId) setStoreBillingProducts(products);
+    } catch (billingLoadError) {
+      if (currentAccountIdRef.current === requestedAccountId) {
+        setBillingError(billingLoadError instanceof Error ? billingLoadError.message : "Could not load subscription options.");
+      }
+    } finally {
+      if (currentAccountIdRef.current === requestedAccountId) setPlanUsageLoading(false);
+    }
+  }
+
+  async function waitForBillingPlan(expectedPlanId?: "silver" | "gold"): Promise<boolean> {
+    const requestedAccountId = authUser?.id;
+    if (!requestedAccountId) return false;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        const [usage, catalog] = await Promise.all([api.getPlanUsage(), api.getBillingCatalog()]);
+        if (currentAccountIdRef.current !== requestedAccountId) return false;
+        setPlanUsage(usage);
+        setBillingCatalog(catalog);
+        if (!expectedPlanId || catalog.currentPlanId === expectedPlanId) return true;
+      } catch {
+        // The store purchase already succeeded. A transient API or webhook
+        // delay must not turn that success into a misleading purchase failure.
+      }
+      if (currentAccountIdRef.current !== requestedAccountId) return false;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    if (currentAccountIdRef.current === requestedAccountId) {
+      setBillingNotice("Your purchase was received. Access may take a moment to update.");
+    }
+    return false;
+  }
+
+  async function purchaseBillingProduct(product: StoreBillingProduct): Promise<void> {
+    const requestedAccountId = authUser?.id;
+    if (!requestedAccountId) return;
+    const catalogProduct = billingCatalog?.products.find((candidate) => candidate.productId === product.productId);
+    if (!catalogProduct) {
+      setBillingError("This subscription option is no longer available. Refresh the plan page and try again.");
+      return;
+    }
+    setBillingBusyProductId(product.productId);
+    setBillingError(undefined);
+    setBillingNotice(undefined);
+    try {
+      const result = await purchaseStorePackage(requestedAccountId, product.package);
+      if (result === "cancelled") return;
+      if (currentAccountIdRef.current !== requestedAccountId) return;
+      setBillingNotice("Purchase received. Updating your access…");
+      const updated = await waitForBillingPlan(catalogProduct.planId === "gold" ? "gold" : "silver");
+      if (updated) {
+        setBillingNotice("Purchase complete. Your plan is now available.");
+      }
+    } catch (purchaseError) {
+      if (currentAccountIdRef.current === requestedAccountId) {
+        setBillingError(purchaseError instanceof Error ? purchaseError.message : "Could not complete this purchase.");
+      }
+    } finally {
+      if (currentAccountIdRef.current === requestedAccountId) setBillingBusyProductId(undefined);
+    }
+  }
+
+  async function restoreBillingPurchases(): Promise<void> {
+    const requestedAccountId = authUser?.id;
+    if (!requestedAccountId) return;
+    setBillingBusyProductId("restore");
+    setBillingError(undefined);
+    setBillingNotice(undefined);
+    try {
+      const customerInfo = await restoreStorePurchases(requestedAccountId);
+      if (currentAccountIdRef.current !== requestedAccountId) return;
+      const restoredPlanId = (["gold", "silver"] as const).find((planId) => {
+        const entitlementId = billingCatalog?.products.find((product) => product.planId === planId)?.entitlementId;
+        return Boolean(entitlementId && customerInfo.entitlements.active[entitlementId]);
+      });
+      if (!restoredPlanId) {
+        await refreshBilling();
+        if (currentAccountIdRef.current === requestedAccountId) {
+          setBillingNotice("Restore complete. No active paid subscription was found for this store account.");
+        }
+        return;
+      }
+      setBillingNotice("Purchases restored. Updating your access…");
+      const updated = await waitForBillingPlan(restoredPlanId);
+      if (updated) setBillingNotice("Purchases restored. Your plan is now available.");
+    } catch (restoreError) {
+      if (currentAccountIdRef.current === requestedAccountId) {
+        setBillingError(restoreError instanceof Error ? restoreError.message : "Could not restore purchases.");
+      }
+    } finally {
+      if (currentAccountIdRef.current === requestedAccountId) setBillingBusyProductId(undefined);
+    }
+  }
+
+  async function manageBillingSubscription(): Promise<void> {
+    const requestedAccountId = authUser?.id;
+    if (!requestedAccountId) return;
+    setBillingBusyProductId("manage");
+    setBillingError(undefined);
+    try {
+      await showStoreSubscriptionManagement(requestedAccountId);
+    } catch (manageError) {
+      if (currentAccountIdRef.current === requestedAccountId) {
+        setBillingError(manageError instanceof Error ? manageError.message : "Could not open subscription management.");
+      }
+    } finally {
+      if (currentAccountIdRef.current === requestedAccountId) setBillingBusyProductId(undefined);
     }
   }
 
@@ -2762,6 +2915,7 @@ export function MobileChatScreen() {
     } catch (error) {
       logoutError = error instanceof Error ? error.message : "Could not reach the server to revoke this session.";
     }
+    await disconnectRevenueCat().catch(() => undefined);
     if (signedOutUserId) {
       await purgeUserCache(signedOutUserId).catch(() => undefined);
     }
@@ -2972,6 +3126,7 @@ export function MobileChatScreen() {
       setDeletePassword("");
       setAuthMode("restore");
       setAuthError(`Account deletion is scheduled for ${recoveryDate}. Restore it before then to keep your data.`);
+      await disconnectRevenueCat().catch(() => undefined);
       if (deletedUserId) {
         await purgeUserCache(deletedUserId).catch(() => undefined);
       }
@@ -3889,10 +4044,58 @@ export function MobileChatScreen() {
                       </View>
                     );
                   })}
-                  <View style={[styles.settingsPlanCard, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: theme.border }]}>
-                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Silver and Gold</Text>
-                    <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Upgrade options will appear here when subscriptions launch.</Text>
-                  </View>
+                  {billingError ? <Text accessibilityRole="alert" style={[styles.settingsPanelDescription, { color: theme.danger }]}>{billingError}</Text> : null}
+                  {billingNotice ? <Text accessibilityLiveRegion="polite" style={[styles.settingsPanelDescription, { color: theme.accent2 }]}>{billingNotice}</Text> : null}
+                  {billingCatalog?.enabled ? (
+                    <View style={styles.settingsSection}>
+                      <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Subscription plans</Text>
+                      {billingCatalog.products.map((product) => {
+                        const storeProduct = storeBillingProducts.find((candidate) => candidate.productId === product.productId);
+                        const current = billingCatalog.currentPlanId === product.planId;
+                        const hasPaidPlan = billingCatalog.currentPlanId !== "bronze";
+                        const price = storeProduct?.price ?? `$${(product.monthlyPriceCents / 100).toFixed(2)}`;
+                        return (
+                          <View key={product.productId} style={[styles.settingsPlanCard, { backgroundColor: "rgba(255,255,255,0.07)", borderColor: current ? theme.accent2 : theme.border }]}>
+                            <View style={styles.settingsUsageHeading}>
+                              <Text style={[styles.settingsRowText, { color: theme.text }]}>{product.displayName}</Text>
+                              <Text style={[styles.settingsTotalUsageRemaining, { color: theme.accent2 }]}>{price}/month</Text>
+                            </View>
+                            <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>{product.description}</Text>
+                            {current ? (
+                              <Text style={[styles.settingsRowHint, { color: theme.accent2 }]}>Current plan</Text>
+                            ) : hasPaidPlan ? (
+                              <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Change paid plans through Manage subscription.</Text>
+                            ) : (
+                              <Pressable
+                                accessibilityRole="button"
+                                disabled={!storeProduct || Boolean(billingBusyProductId)}
+                                onPress={() => storeProduct ? void purchaseBillingProduct(storeProduct) : undefined}
+                                style={[styles.settingsBillingButton, { backgroundColor: theme.accent2, opacity: storeProduct && !billingBusyProductId ? 1 : 0.45 }]}
+                              >
+                                {billingBusyProductId === product.productId ? <ActivityIndicator color={theme.background} /> : <Text style={[styles.settingsBillingButtonText, { color: theme.background }]}>Choose {product.displayName}</Text>}
+                              </Pressable>
+                            )}
+                          </View>
+                        );
+                      })}
+                      {!revenueCatIsAvailable() ? <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Store purchases are not configured in this build.</Text> : null}
+                      <View style={styles.settingsBillingActions}>
+                        <Pressable accessibilityRole="button" disabled={Boolean(billingBusyProductId) || !revenueCatIsAvailable()} onPress={() => void restoreBillingPurchases()} style={[styles.settingsBillingSecondaryButton, { borderColor: theme.border, opacity: billingBusyProductId || !revenueCatIsAvailable() ? 0.45 : 1 }]}>
+                          {billingBusyProductId === "restore" ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.settingsBillingSecondaryText, { color: theme.text }]}>Restore purchases</Text>}
+                        </Pressable>
+                        {billingCatalog.currentPlanId !== "bronze" ? (
+                          <Pressable accessibilityRole="button" disabled={Boolean(billingBusyProductId) || !revenueCatIsAvailable()} onPress={() => void manageBillingSubscription()} style={[styles.settingsBillingSecondaryButton, { borderColor: theme.border, opacity: billingBusyProductId || !revenueCatIsAvailable() ? 0.45 : 1 }]}>
+                            {billingBusyProductId === "manage" ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.settingsBillingSecondaryText, { color: theme.text }]}>Manage subscription</Text>}
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={[styles.settingsPlanCard, { backgroundColor: "rgba(255,255,255,0.06)", borderColor: theme.border }]}>
+                      <Text style={[styles.settingsRowText, { color: theme.text }]}>Silver and Gold</Text>
+                      <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Subscriptions are not available in this environment yet.</Text>
+                    </View>
+                  )}
                 </>
               ) : null}
             </View>
@@ -5224,6 +5427,32 @@ const styles = StyleSheet.create({
   },
   settingsPlanName: {
     fontSize: 28,
+    fontWeight: "900"
+  },
+  settingsBillingActions: {
+    gap: 10
+  },
+  settingsBillingButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: 18
+  },
+  settingsBillingButtonText: {
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  settingsBillingSecondaryButton: {
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 46,
+    paddingHorizontal: 16
+  },
+  settingsBillingSecondaryText: {
+    fontSize: 15,
     fontWeight: "900"
   },
   settingsPanelTitle: {

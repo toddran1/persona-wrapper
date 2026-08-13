@@ -4,6 +4,7 @@ import type {
   AuthUser,
   ConnectedAccount,
   DataTransferJob,
+  BillingCatalogResponse,
   PlanUsageSummary
 } from "@persona/shared";
 
@@ -37,6 +38,7 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
   const [planUsage, setPlanUsage] = useState<PlanUsageSummary | undefined>();
   const [planUsageLoading, setPlanUsageLoading] = useState(false);
   const [planUsageError, setPlanUsageError] = useState<string | undefined>();
+  const [billingCatalog, setBillingCatalog] = useState<BillingCatalogResponse | undefined>();
   const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [memoryBusy, setMemoryBusy] = useState(false);
   const [memoryError, setMemoryError] = useState<string | undefined>();
@@ -80,6 +82,7 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
       setPlanUsage(undefined);
       setPlanUsageLoading(false);
       setPlanUsageError(undefined);
+      setBillingCatalog(undefined);
       setMemoryEnabled(true);
       setMemoryBusy(false);
       setMemoryError(undefined);
@@ -179,6 +182,8 @@ export function useAccountSettingsController(authUser: AuthUser | undefined) {
     setPlanUsageLoading,
     planUsageError,
     setPlanUsageError,
+    billingCatalog,
+    setBillingCatalog,
     memoryEnabled,
     setMemoryEnabled,
     memoryBusy,

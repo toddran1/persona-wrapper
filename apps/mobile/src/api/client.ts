@@ -25,6 +25,7 @@ import type {
   OAuthProviderStatus,
   CurrentPoliciesResponse,
   PolicyVersions,
+  BillingCatalogResponse,
   PlanUsageSummary,
   PersonaDefinition,
   PersonaSummary,
@@ -668,6 +669,11 @@ export const api = {
   getPlanUsage: async (): Promise<PlanUsageSummary> => {
     const response = await contractClient.account.usage({});
     if (response.status !== 200) throw contractError(response.body, "Could not load plan usage.");
+    return response.body;
+  },
+  getBillingCatalog: async (): Promise<BillingCatalogResponse> => {
+    const response = await contractClient.account.billingCatalog({});
+    if (response.status !== 200) throw contractError(response.body, "Could not load subscription options.");
     return response.body;
   },
   updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {

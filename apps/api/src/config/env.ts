@@ -136,7 +136,16 @@ const envSchema = z.object({
   OPENAI_DAILY_SPEND_LIMIT_USD: z.coerce.number().nonnegative().default(5),
   OPENAI_DAILY_TOKEN_LIMIT: z.coerce.number().int().nonnegative().default(1000000),
   CUSTOMER_USAGE_ENFORCEMENT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
-  CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD: z.coerce.number().nonnegative().default(0.01),
+  BILLING_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  BILLING_PROVIDER: z.literal("revenuecat").default("revenuecat"),
+  REVENUECAT_OFFERING_ID: z.preprocess(optionalTrimmedString, z.string().min(1).default("default")),
+  REVENUECAT_WEBHOOK_AUTHORIZATION: z.preprocess(optionalTrimmedString, z.string().min(24).optional()),
+  REVENUECAT_ALLOWED_ENVIRONMENTS: z.preprocess(
+    commaSeparatedStrings,
+    z.array(z.enum(["SANDBOX", "PRODUCTION"])).default(["SANDBOX"])
+  ),
+  REVENUECAT_ALLOWED_APP_IDS: z.preprocess(commaSeparatedStrings, z.array(z.string().min(1)).default([])),
+  CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD: z.coerce.number().nonnegative().default(0.021),
   CUSTOMER_USAGE_IMAGE_INPUT_COST_USD: z.coerce.number().nonnegative().default(0.02),
   CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD: z.coerce.number().nonnegative().default(0.01),
   CHAT_RATE_LIMIT_REQUESTS: z.coerce.number().int().positive().default(30),
@@ -385,6 +394,27 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["GMAIL_SMTP_USER"],
       message: "Gmail SMTP is required in production so email verification and password recovery remain available."
+    });
+  }
+  if (value.BILLING_ENABLED && !value.REVENUECAT_WEBHOOK_AUTHORIZATION) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["REVENUECAT_WEBHOOK_AUTHORIZATION"],
+      message: "REVENUECAT_WEBHOOK_AUTHORIZATION is required when billing is enabled."
+    });
+  }
+  if (value.BILLING_ENABLED && value.REVENUECAT_ALLOWED_ENVIRONMENTS.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["REVENUECAT_ALLOWED_ENVIRONMENTS"],
+      message: "At least one RevenueCat environment must be allowed when billing is enabled."
+    });
+  }
+  if (value.BILLING_ENABLED && value.REVENUECAT_ALLOWED_APP_IDS.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["REVENUECAT_ALLOWED_APP_IDS"],
+      message: "At least one RevenueCat app id must be allowed when billing is enabled."
     });
   }
   if (value.STORAGE_DRIVER === "s3") {

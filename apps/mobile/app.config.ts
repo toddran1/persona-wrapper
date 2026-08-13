@@ -1,5 +1,26 @@
 import type { ExpoConfig } from "expo/config";
 
+const appEnvironment = process.env.EXPO_PUBLIC_APP_ENV?.trim() || "development";
+const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() || "http://localhost:4000";
+const webAppUrl = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "http://localhost:5173";
+
+if (appEnvironment === "production") {
+  const required = [
+    ["EXPO_PUBLIC_API_URL", apiUrl],
+    ["EXPO_PUBLIC_WEB_APP_URL", webAppUrl],
+    ["EXPO_PUBLIC_REVENUECAT_IOS_API_KEY", process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim()],
+    ["EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY", process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY?.trim()]
+  ] as const;
+  const missing = required.filter(([, value]) => !value).map(([name]) => name);
+  if (missing.length > 0) throw new Error(`Production mobile configuration is missing: ${missing.join(", ")}`);
+  if ([apiUrl, webAppUrl].some((value) => /(?:localhost|127\.0\.0\.1)/i.test(value))) {
+    throw new Error("Production mobile builds cannot use localhost API or web URLs.");
+  }
+  if (!apiUrl.startsWith("https://") || !webAppUrl.startsWith("https://")) {
+    throw new Error("Production mobile API and web URLs must use HTTPS.");
+  }
+}
+
 const config: ExpoConfig = {
   name: "For the Baddiez",
   slug: "persona-wrapper",
@@ -73,8 +94,9 @@ const config: ExpoConfig = {
     typedRoutes: true
   },
   extra: {
-    apiUrl: process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000",
-    webAppUrl: process.env.EXPO_PUBLIC_WEB_APP_URL ?? "http://localhost:5173",
+    appEnvironment,
+    apiUrl,
+    webAppUrl,
     eas: {
       projectId: "075598af-c09e-4a7f-81b6-0151a8549441"
     }

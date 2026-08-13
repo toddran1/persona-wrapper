@@ -7,6 +7,7 @@ import {
 import { initServer } from "@ts-rest/express";
 import type { Request, Response } from "express";
 import { acceptPolicies, clearAccountMemory, deleteAccount, getAccountUsage, getCurrentPolicies, getMemorySettings, getOAuthProviders, restoreAccount, updateMemorySettings, updateProfile } from "../controllers/account.controller.js";
+import { getAccountBillingCatalog } from "../controllers/billing.controller.js";
 import {
   cancelChatJob,
   clearConversationMemory,
@@ -153,6 +154,7 @@ export const apiContractRouter = server.router(apiContract, {
     reportOutput: captured(postUnsafeOutputReport)
   },
   account: {
+    billingCatalog: captured(getAccountBillingCatalog),
     usage: captured(getAccountUsage),
     currentPolicies: captured(getCurrentPolicies),
     acceptPolicies: captured(acceptPolicies),
