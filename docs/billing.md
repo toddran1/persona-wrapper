@@ -68,6 +68,34 @@ allow SANDBOX in production; sandbox events would otherwise grant paid access.
 without committing them. Enable billing only after the database migration and
 RevenueCat webhook are configured.
 
+## Production Render environment
+
+`render.yaml` defines a separate production stack alongside development:
+
+- API: `for-the-baddiez-api` at `https://for-the-baddiez-api.onrender.com`
+- Web: `for-the-baddiez-web` at `https://for-the-baddiez-web.onrender.com`
+- Database: `for-the-baddiez-db`
+
+The production API uses a separate Better Auth secret and Postgres database,
+and writes R2 objects beneath the `production/` prefix. Before creating or
+deploying the blueprint, enter the production values for every Render variable
+marked `sync: false`, including the provider keys, Gmail app password, OAuth
+credentials, R2 access-key pair, and observability credentials if used. Use a
+production-specific R2 token if possible; prefixes organize objects but do not
+isolate credentials within the same bucket.
+
+After Render provisions the stack, add these callback URLs in Google and
+Facebook before testing sign-in:
+
+```text
+https://for-the-baddiez-api.onrender.com/api/auth/callback/google
+https://for-the-baddiez-api.onrender.com/api/auth/callback/facebook
+```
+
+For mobile production builds, create the documented EAS production environment
+variables using these production API and web URLs. Do not point a store build
+at the development Render services.
+
 ## EAS environment
 
 The SDK keys are RevenueCat public app-specific keys, not RevenueCat secret API

@@ -1,8 +1,9 @@
 # yaml-language-server: $schema=https://render.com/schema/render.yaml.json
 
-# Hosted development environment. Local development continues to use the
-# existing local .env files and Docker Postgres configuration. Production
-# resources can be added later with distinct -prod names and credentials.
+# Hosted development and production environments. Local development continues
+# to use the existing local .env files and Docker Postgres configuration.
+# Production uses distinct Render services, database credentials, Better Auth
+# secret, and a separate R2 key prefix from development.
 services:
   - type: web
     runtime: node
@@ -278,6 +279,267 @@ services:
         source: /*
         destination: /index.html
 
+  - type: web
+    runtime: node
+    name: for-the-baddiez-api
+    region: ohio
+    plan: starter
+    autoDeployTrigger: commit
+    buildCommand: npm ci --include=dev && npm run build -w @persona/shared && npm run build -w @persona/api
+    preDeployCommand: NODE_ENV=production npm run db:migrate -w @persona/api
+    startCommand: NODE_ENV=production npm run start -w @persona/api
+    healthCheckPath: /health
+    maxShutdownDelaySeconds: 30
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/shared/**
+        - package.json
+        - package-lock.json
+        - render.yaml
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: APP_TEST_MODE
+        value: "false"
+      - key: API_TRUST_PROXY_HOPS
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: for-the-baddiez-db
+          property: connectionString
+      - key: WEB_APP_URL
+        value: https://for-the-baddiez-web.onrender.com
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://for-the-baddiez-web.onrender.com
+      - key: OBSERVABILITY_DASHBOARD_TOKEN
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_HEADERS
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+      - key: OTEL_SERVICE_NAME
+        value: for-the-baddiez-api
+      - key: OTEL_RESOURCE_ATTRIBUTES
+        value: deployment.environment.name=production,service.namespace=for-the-baddiez
+      - key: OTEL_TRACES_SAMPLER
+        value: parentbased_traceidratio
+      - key: OTEL_TRACES_SAMPLER_ARG
+        value: "0.1"
+      - key: BETTER_AUTH_URL
+        value: https://for-the-baddiez-api.onrender.com
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      - key: GMAIL_SMTP_USER
+        value: forthebaddiez.ai@gmail.com
+      - key: GMAIL_SMTP_APP_PASSWORD
+        sync: false
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: APP_ADMIN_EMAILS
+        value: "todd@yahoo.com,todd_ran222@yahoo.com,toddran1@gmail.com"
+      - key: AUTH_REQUIRE_OWNED_MEDIA_ACCESS
+        value: "true"
+      - key: AUTH_REFRESH_TOKEN_TTL_DAYS
+        value: "30"
+      - key: TERMS_POLICY_VERSION
+        value: "2026-07-29"
+      - key: PRIVACY_POLICY_VERSION
+        value: "2026-07-31"
+      - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS
+        value: "30"
+      - key: AUTH_SIGNUP_DEVICE_LIMIT
+        value: "5"
+      - key: AUTH_SIGNUP_IP_LIMIT
+        value: "100"
+      - key: AUTH_SIGNUP_WINDOW_MS
+        value: "2592000000"
+      - key: CHAT_RATE_LIMIT_REQUESTS
+        value: "30"
+      - key: CHAT_RATE_LIMIT_WINDOW_MS
+        value: "60000"
+      - key: CHAT_DEVICE_RATE_LIMIT_REQUESTS
+        value: "45"
+      - key: CHAT_IP_RATE_LIMIT_REQUESTS
+        value: "120"
+      - key: CUSTOMER_USAGE_ENFORCEMENT_ENABLED
+        value: "true"
+      # Leave billing disabled until Store Connect, Google Play, and RevenueCat
+      # products/webhook have all been configured for production.
+      - key: BILLING_ENABLED
+        value: "false"
+      - key: BILLING_PROVIDER
+        value: revenuecat
+      - key: REVENUECAT_OFFERING_ID
+        value: default
+      - key: REVENUECAT_WEBHOOK_AUTHORIZATION
+        sync: false
+      - key: REVENUECAT_ALLOWED_ENVIRONMENTS
+        value: PRODUCTION
+      - key: REVENUECAT_ALLOWED_APP_IDS
+        sync: false
+      - key: CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD
+        value: "0.021"
+      - key: CUSTOMER_USAGE_IMAGE_INPUT_COST_USD
+        value: "0.01"
+      - key: CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD
+        value: "0.01"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_NATIVE_YOUTUBE_REQUEST_TIMEOUT_MS
+        value: "120000"
+      - key: GEMINI_VIDEO_ANALYSIS_ENABLED
+        value: "true"
+      - key: GEMINI_VIDEO_ANALYSIS_CACHE_TTL_MS
+        value: "604800000"
+      - key: GEMINI_VIDEO_ANALYSIS_AUTO_MAX_DURATION_SECONDS
+        value: "3600"
+      - key: GEMINI_VIDEO_ANALYSIS_EXPLICIT_MAX_DURATION_SECONDS
+        value: "10800"
+      - key: GEMINI_VIDEO_ANALYSIS_MAX_OUTPUT_TOKENS
+        value: "1600"
+      - key: OPENAI_MODEL
+        value: gpt-5.6-luna
+      - key: OPENAI_TOOL_ROUTER_MODEL
+        value: gpt-5.6-luna
+      - key: OPENAI_IMAGE_MODEL
+        value: gpt-image-2
+      - key: OPENAI_ENABLE_WEB_SEARCH
+        value: "true"
+      - key: OPENAI_ENABLE_FILE_SEARCH
+        value: "true"
+      - key: OPENAI_ENABLE_CODE_INTERPRETER
+        value: "true"
+      - key: OPENAI_ENABLE_IMAGE_GENERATION
+        value: "true"
+      - key: CHAT_JOB_EXECUTION_TIMEOUT_MS
+        value: "660000"
+      - key: OPENAI_DIRECT_IMAGE_API_ENABLED
+        value: "true"
+      - key: UPLOAD_MAX_BYTES
+        value: "49999999"
+      - key: CHAT_AUDIO_MAX_RESPONSE_CHARACTERS
+        value: "675"
+      - key: OPENAI_AUDIO_MAX_OUTPUT_TOKENS
+        value: "690"
+      - key: TTS_PROVIDER
+        value: fish_audio
+      - key: FISH_AUDIO_API_KEY
+        sync: false
+      - key: FISH_AUDIO_REFERENCE_ID
+        sync: false
+      - key: FISH_AUDIO_REFERENCE_ID_LARAE
+        sync: false
+      - key: FISH_AUDIO_REFERENCE_ID_BAMBAM
+        sync: false
+      - key: FISH_AUDIO_MODEL
+        value: "s2.1-pro-free"
+      - key: OPENAI_TTS_SCRIPT_ENABLED
+        value: "true"
+      - key: TTS_AUDIT_LOG_ENABLED
+        value: "true"
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+      - key: ELEVENLABS_VOICE_ID_LARAE
+        sync: false
+      - key: ELEVENLABS_VOICE_ID_BAMBAM
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_DRIVE_LINK_IMPORT_ENABLED
+        value: "false"
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: PLACES_SEARCH_ENABLED
+        value: "false"
+      - key: PLACES_SEARCH_TIMEOUT_MS
+        value: "10000"
+      - key: PLACES_SEARCH_MAX_RESULTS
+        value: "8"
+      - key: FACEBOOK_OAUTH_CLIENT_ID
+        sync: false
+      - key: FACEBOOK_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: STORAGE_S3_BUCKET
+        value: forthebaddiez-media
+      - key: STORAGE_S3_REGION
+        value: auto
+      - key: STORAGE_S3_PREFIX
+        value: production
+      - key: STORAGE_S3_ENDPOINT
+        value: https://e54c506a4049687d239b5c7909b9cee7.r2.cloudflarestorage.com
+      - key: STORAGE_S3_FORCE_PATH_STYLE
+        value: "false"
+      - key: STORAGE_S3_ACCESS_KEY_ID
+        sync: false
+      - key: STORAGE_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: DATA_TRANSFER_ARCHIVE_MAX_BYTES
+        value: "5368709120"
+      - key: DATA_TRANSFER_JSON_MAX_BYTES
+        value: "134217728"
+      - key: DATA_TRANSFER_PRESIGNED_UPLOAD_TTL_SECONDS
+        value: "18000"
+      - key: DATA_TRANSFER_RATE_LIMIT_REQUESTS
+        value: "10"
+      - key: DATA_TRANSFER_RATE_LIMIT_WINDOW_MS
+        value: "900000"
+      - key: DATA_TRANSFER_JOB_TTL_HOURS
+        value: "24"
+
+  - type: web
+    runtime: static
+    name: for-the-baddiez-web
+    autoDeployTrigger: commit
+    buildCommand: npm ci --include=dev && npm run build -w @persona/shared && npm run build -w @persona/web
+    staticPublishPath: ./apps/web/dist
+    buildFilter:
+      paths:
+        - apps/web/**
+        - packages/shared/**
+        - package.json
+        - package-lock.json
+        - render.yaml
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: VITE_API_URL
+        value: https://for-the-baddiez-api.onrender.com
+      - key: VITE_SUPPORT_EMAIL
+        value: forthebaddiez.ai@gmail.com
+      - key: VITE_TEST_MODE
+        value: "false"
+      - key: VITE_TELEMETRY_ENABLED
+        value: "true"
+      - key: VITE_TELEMETRY_SAMPLE_RATE
+        value: "0.1"
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), geolocation=(), payment=()
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
 databases:
   - name: for-the-baddiez-db-dev
     region: ohio
@@ -287,5 +549,15 @@ databases:
     postgresMajorVersion: "17"
     databaseName: for_the_baddiez_dev
     user: for_the_baddiez_dev
+    connectionPool: none
+    ipAllowList: []
+  - name: for-the-baddiez-db
+    region: ohio
+    plan: basic-256mb
+    diskSizeGB: 5
+    storageAutoscalingEnabled: false
+    postgresMajorVersion: "17"
+    databaseName: for_the_baddiez
+    user: for_the_baddiez
     connectionPool: none
     ipAllowList: []
