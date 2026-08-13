@@ -16,8 +16,7 @@ export type ProviderCostEstimateInput = {
   imageSize?: string;
   imageInputCount?: number;
   imageInputCostUsd?: number;
-  audioSeconds?: number;
-  audioCostPerMinuteUsd?: number;
+  audioCost?: number;
   styleTransferCalls?: number;
   styleTransferCostPerCallUsd?: number;
   webSearchCalls?: number;
@@ -69,7 +68,7 @@ function addSharedProviderCosts(
   const imageInputCost = positive(input.imageInputCount) * positive(input.imageInputCostUsd);
   if (imageInputCost > 0) components.image_input = roundedUsd(imageInputCost);
 
-  const audioCost = (positive(input.audioSeconds) / 60) * positive(input.audioCostPerMinuteUsd);
+  const audioCost = positive(input.audioCost);
   if (audioCost > 0) components.audio_generation = roundedUsd(audioCost);
 
   const styleTransferCost = positive(input.styleTransferCalls) * positive(input.styleTransferCostPerCallUsd);
@@ -158,7 +157,6 @@ export function estimateProviderCost(input: ProviderCostEstimateInput): Provider
     unpricedComponents: [
       ...(positive(input.generatedImageCount) > 0 ? ["image_generation"] : []),
       ...(positive(input.imageInputCount) > 0 && positive(input.imageInputCostUsd) === 0 ? ["image_input"] : []),
-      ...(positive(input.audioSeconds) > 0 && positive(input.audioCostPerMinuteUsd) === 0 ? ["audio_generation"] : []),
       ...(positive(input.styleTransferCalls) > 0 && positive(input.styleTransferCostPerCallUsd) === 0 ? ["style_transfer"] : []),
       ...(positive(input.webSearchCalls) > 0 ? ["web_search"] : []),
       ...(positive(input.fileSearchCalls) > 0 ? ["file_search"] : []),

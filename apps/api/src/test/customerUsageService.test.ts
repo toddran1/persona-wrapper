@@ -18,7 +18,7 @@ describe("customer usage plans", () => {
     });
     expect(summary.meters).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "credits", label: "Image credits", limit: 24, used: 0, reserved: 0 }),
-      expect.objectContaining({ key: "audio_seconds", limit: 600, used: 0, reserved: 0 })
+      expect.objectContaining({ key: "audio_seconds", limit: 1_200, used: 0, reserved: 0 })
     ]));
   });
 

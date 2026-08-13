@@ -34,6 +34,7 @@ type SettleOptions = {
   conversationId?: string;
   estimatedCostUsd?: number;
   actualCostUsd?: number;
+  metadata?: Record<string, unknown>;
 };
 type PendingSettlement = {
   actual: MeterQuantities;
@@ -127,7 +128,12 @@ export class CustomerUsageService {
   async reserve(
     userId: string,
     quantities: MeterQuantities,
-    options: { idempotencyKey: string; provider?: string; conversationId?: string }
+    options: {
+      idempotencyKey: string;
+      provider?: string;
+      conversationId?: string;
+      metadata?: Record<string, unknown>;
+    }
   ): Promise<string> {
     const normalized = normalizeMeterQuantities(quantities);
     const idempotencyScope = `${userId}:${options.idempotencyKey}`;
@@ -254,6 +260,7 @@ export class CustomerUsageService {
           planVersion: plan.version,
           ...(options.provider ? { provider: options.provider } : {}),
           ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+          ...(options.metadata ? { metadata: options.metadata } : {}),
           periodStart: period.start,
           periodEnd: period.end
         });
@@ -345,6 +352,7 @@ export class CustomerUsageService {
             ...(options.provider ? { provider: options.provider } : {}),
             ...(options.model ? { model: options.model } : {}),
             ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+            ...(options.metadata ? { metadata: options.metadata } : {}),
             estimatedCostMicroUsd: !costRecorded && options.estimatedCostUsd && options.estimatedCostUsd > 0
               ? Math.ceil(options.estimatedCostUsd * 1_000_000)
               : 0,
@@ -376,6 +384,7 @@ export class CustomerUsageService {
             ...(options.provider ? { provider: options.provider } : {}),
             ...(options.model ? { model: options.model } : {}),
             ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+            ...(options.metadata ? { metadata: options.metadata } : {}),
             periodStart: period.start,
             periodEnd: period.end,
             settledAt: new Date()

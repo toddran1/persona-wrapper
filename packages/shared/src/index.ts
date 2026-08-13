@@ -1035,7 +1035,10 @@ export const ttsOutputSchema = z.object({
   provider: z.enum(["openai_tts", "elevenlabs_tts", "fish_audio_tts", "local_tts"]),
   url: z.string(),
   mimeType: z.string(),
-  durationMs: z.number().finite().int().nonnegative().optional()
+  durationMs: z.number().finite().int().nonnegative().optional(),
+  model: z.string().optional(),
+  billableCharacters: z.number().int().nonnegative().optional(),
+  billableUtf8Bytes: z.number().int().nonnegative().optional()
 });
 export type TTSOutput = z.infer<typeof ttsOutputSchema>;
 
@@ -1071,6 +1074,8 @@ export const chatResponseSchema = z.object({
       error: z.string().optional(),
       reason: z.string().optional(),
       textCharacters: z.number().int().nonnegative().optional(),
+      textUtf8Bytes: z.number().int().nonnegative().optional(),
+      providerModel: z.string().optional(),
       scriptMode: z.enum(["mechanical", "openai_inline"]).optional()
     }).optional()
   }),

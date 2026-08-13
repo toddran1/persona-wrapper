@@ -64,8 +64,7 @@ describe("provider cost estimator", () => {
       reportedModelCostUsd: 0.01,
       imageInputCount: 2,
       imageInputCostUsd: 0.005,
-      audioSeconds: 90,
-      audioCostPerMinuteUsd: 0.1,
+      audioCost: 0.15,
       styleTransferCalls: 1,
       styleTransferCostPerCallUsd: 0.02
     });

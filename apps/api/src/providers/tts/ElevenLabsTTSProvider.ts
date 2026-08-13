@@ -174,7 +174,10 @@ export class ElevenLabsTTSProvider implements TTSProvider {
     return {
       provider: "elevenlabs_tts",
       url,
-      mimeType
+      mimeType,
+      model: voiceConfig.modelId,
+      billableCharacters: text.length,
+      billableUtf8Bytes: Buffer.byteLength(text, "utf8")
     };
   }
 }

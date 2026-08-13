@@ -27,12 +27,19 @@ import { env } from "../config/env.js";
 import { shouldPlanHistoricalVisualTransformation } from "../services/conversationMediaContext.js";
 import { applyPlanImageQuality } from "../services/planImageQualityPolicy.js";
 import {
+  audioUsageReservationCharacters,
   audioUsageReservationSeconds,
   estimatedAudioSecondsForCharacters,
   maxOutputTokensForRequest
 } from "../services/audioResponsePolicy.js";
 import { conciseAudioResponsesForUser, modelProviderForUser, personaInfluenceLevelForUser } from "../services/accountPreferenceService.js";
 import { remoteAttachmentImportService } from "../services/remoteAttachmentImportService.js";
+import {
+  configuredAudioBillingInput,
+  estimateAudioProviderCost,
+  PROVIDER_PRICE_CARD_VERSION,
+  resolvedAudioBillingInput
+} from "../services/providerPriceCatalog.js";
 
 export const conversationStore = new ConversationStore();
 const chatService = new ChatService(conversationStore);
@@ -441,9 +448,24 @@ async function releaseUsageReservation(identity: string, reservationId: string, 
 }
 
 async function reserveCustomerUsage(identity: string, payload: ChatRequest, idempotencyKey: string): Promise<string> {
+  const persona = getPersonaById(payload.personaId);
+  if (!persona) throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
+  const conciseAudioResponse = payload.conciseAudioResponse ?? true;
   const reservedAudioSeconds = payload.audio
-    ? audioUsageReservationSeconds(payload.conciseAudioResponse)
+    ? audioUsageReservationSeconds(conciseAudioResponse, payload.toolOptions?.codeInterpreter)
     : 0;
+  const reservedAudioCharacters = payload.audio
+    ? audioUsageReservationCharacters(conciseAudioResponse, payload.toolOptions?.codeInterpreter)
+    : 0;
+  // A JavaScript character can occupy up to four UTF-8 bytes. Reserving the
+  // maximum prevents multibyte scripts or emoji from bypassing the total-cost
+  // quota; settlement replaces this with the exact provider payload size.
+  const reservedAudioBilling = estimateAudioProviderCost(configuredAudioBillingInput(
+    persona,
+    reservedAudioCharacters,
+    reservedAudioSeconds,
+    reservedAudioCharacters * 4
+  ));
   const providerCost = estimateProviderCost({
     provider: payload.provider,
     reportedModelCostUsd: (
@@ -459,8 +481,7 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
     imageSize: env.OPENAI_IMAGE_SIZE,
     imageInputCount: payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
     imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
-    audioSeconds: reservedAudioSeconds,
-    audioCostPerMinuteUsd: env.CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD,
+    audioCost: reservedAudioBilling.estimatedCostUsd,
     styleTransferCalls: (payload.provider === "claude" || payload.provider === "local") && env.STYLE_TRANSFER_PROVIDER !== "stub" ? 1 : 0,
     styleTransferCostPerCallUsd: env.CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD,
     webSearchCalls: payload.toolOptions?.webSearch ? 1 : 0,
@@ -488,7 +509,11 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
     ...(payload.audio ? { audio_seconds: reservedAudioSeconds } : {})
   }, {
     idempotencyKey,
-    provider: payload.provider
+    provider: payload.provider,
+    metadata: {
+      priceCardVersion: PROVIDER_PRICE_CARD_VERSION,
+      audioBilling: reservedAudioBilling.metadata
+    }
   });
 }
 
@@ -501,7 +526,19 @@ async function settleCustomerUsage(
   const audioCharacters = result.diagnostics.tts?.status === "generated"
     ? result.diagnostics.tts.textCharacters ?? 0
     : 0;
+  const audioUtf8Bytes = result.diagnostics.tts?.status === "generated"
+    ? result.diagnostics.tts.textUtf8Bytes ?? audioCharacters
+    : 0;
   const audioSeconds = estimatedAudioSecondsForCharacters(audioCharacters);
+  const persona = getPersonaById(payload.personaId);
+  if (!persona) throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
+  const audioBilling = estimateAudioProviderCost(resolvedAudioBillingInput(persona, {
+    ...(result.diagnostics.tts?.provider ? { provider: result.diagnostics.tts.provider } : {}),
+    ...(result.diagnostics.tts?.providerModel ? { model: result.diagnostics.tts.providerModel } : {}),
+    textCharacters: audioCharacters,
+    textUtf8Bytes: audioUtf8Bytes,
+    estimatedAudioSeconds: audioSeconds
+  }));
   const generatedImageCount = billableGeneratedImageCount(result);
   const providerCost = estimateProviderCost({
     provider: result.provider,
@@ -517,8 +554,7 @@ async function settleCustomerUsage(
     imageSize: env.OPENAI_IMAGE_SIZE,
     imageInputCount: payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
     imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
-    audioSeconds,
-    audioCostPerMinuteUsd: env.CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD,
+    audioCost: audioBilling.estimatedCostUsd,
     styleTransferCalls: (payload.provider === "claude" || payload.provider === "local")
       && env.STYLE_TRANSFER_PROVIDER !== "stub"
       && result.outputs.some((output) => output.type === "text" && output.text.trim())
@@ -548,7 +584,11 @@ async function settleCustomerUsage(
     provider: result.provider,
     ...(result.diagnostics.providerModel ? { model: result.diagnostics.providerModel } : {}),
     conversationId: result.conversationId,
-    ...(providerCost.estimatedCostUsd > 0 ? { estimatedCostUsd: providerCost.estimatedCostUsd } : {})
+    ...(providerCost.estimatedCostUsd > 0 ? { estimatedCostUsd: providerCost.estimatedCostUsd } : {}),
+    metadata: {
+      priceCardVersion: PROVIDER_PRICE_CARD_VERSION,
+      audioBilling: audioBilling.metadata
+    }
   });
 }
 

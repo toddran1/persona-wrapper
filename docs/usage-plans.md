@@ -8,9 +8,9 @@ Plan definitions are versioned in `apps/api/src/services/planCatalog.ts`.
 
 | Plan | Intended monthly price | Total monthly usage ceiling | Image credits / month | Medium-image equivalent | Image quality | Audio / month | Internal provider-cost target / ceiling | Personas | Ads | Concurrent media jobs |
 | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | ---: |
-| Bronze | Free | $3.00 internal cost | 24 | 12 | Auto, capped at medium | 10 minutes | $1.25 / $3.00 | LaRae | Planned | 1 |
-| Silver | $7.99 | $5.00 internal cost | 90 | 45 | Auto, capped at medium | 45 minutes | $2.75 / $5.00 | Most/current configured personas | No | 2 |
-| Gold | $11.99 | $8.00 internal cost | 180 | 90 | Unrestricted auto | 75 minutes | $4.50 / $8.00 | All/current configured personas | No | 3 |
+| Bronze | Free | $3.00 internal cost | 24 | 12 | Auto, capped at medium | 20 minutes | $1.25 / $3.00 | LaRae | Planned | 1 |
+| Silver | $7.99 | $5.00 internal cost | 90 | 45 | Auto, capped at medium | 90 minutes | $2.75 / $5.00 | Most/current configured personas | No | 2 |
+| Gold | $11.99 | $8.00 internal cost | 180 | 90 | Unrestricted auto | 180 minutes | $4.50 / $8.00 | All/current configured personas | No | 3 |
 
 This catalog is the version 1 product baseline. These are initial product assumptions, not billing promises. Future material entitlement or allowance changes should introduce a new plan version rather than rewriting historical usage events.
 
@@ -35,7 +35,7 @@ The catalog includes intended monthly prices as metadata only; payment providers
 - Image output counts, text tokens, searches, file analysis, provider/model, and estimated provider cost remain as detailed ledger meters for reconciliation and analytics.
 - Product allowances and provider cost are intentionally separate. Customers receive stable product units even when a provider changes prices; provider-specific pricing adapters translate normalized usage into an internal USD estimate.
 - The monthly provider-cost target is an operating target. The ceiling is the total-usage quota and becomes enforceable with the other product allowances when `CUSTOMER_USAGE_ENFORCEMENT_ENABLED=true`.
-- TTS, image-input, and style-transfer estimates are provider-neutral environment settings. Review them whenever those providers or contracts change. Unknown provider features are reported as unpriced rather than silently assigned an invented cost.
+- Audio uses versioned provider-specific price-card metadata on every reservation and settlement: Fish Audio is metered by UTF-8 bytes, ElevenLabs by characters, and local TTS at zero provider cost. The `$0.021/minute` environment rate is only a corrected fallback for legacy or unknown duration-only adapters. Image-input and style-transfer estimates remain provider-neutral environment settings.
 - Using the July 2026 OpenAI reference price for a 1024×1024 `gpt-image-2` medium output ($0.053 before prompt or reference-image input), the image allowance alone is approximately $0.64 / $2.39 / $4.77 for Bronze / Silver / Gold.
 - Reservations older than six hours are released by background cleanup. Settled usage events are retained for 400 days.
 

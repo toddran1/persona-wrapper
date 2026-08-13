@@ -813,7 +813,9 @@ export class ChatService {
               provider: ttsOutput.provider,
               url: ttsOutput.url,
               mimeType: ttsOutput.mimeType,
-              textCharacters: ttsScript.length,
+              textCharacters: ttsOutput.billableCharacters ?? ttsScript.length,
+              textUtf8Bytes: ttsOutput.billableUtf8Bytes ?? Buffer.byteLength(ttsScript, "utf8"),
+              ...(ttsOutput.model ? { providerModel: ttsOutput.model } : {}),
               scriptMode: ttsScriptMode
             };
           }

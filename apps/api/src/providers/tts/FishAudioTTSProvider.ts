@@ -347,7 +347,10 @@ export class FishAudioTTSProvider implements TTSProvider {
     return {
       provider: "fish_audio_tts",
       url,
-      mimeType
+      mimeType,
+      model: voiceConfig.model,
+      billableCharacters: text.length,
+      billableUtf8Bytes: Buffer.byteLength(text, "utf8")
     };
   }
 }

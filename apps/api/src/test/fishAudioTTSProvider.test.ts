@@ -134,7 +134,10 @@ describe("FishAudioTTSProvider", () => {
     expect(output).toEqual({
       provider: "fish_audio_tts",
       url: "/api/generated-audio/test-token",
-      mimeType: "audio/mpeg"
+      mimeType: "audio/mpeg",
+      model: "s2.1-pro-free",
+      billableCharacters: 9,
+      billableUtf8Bytes: 9
     });
   });
 

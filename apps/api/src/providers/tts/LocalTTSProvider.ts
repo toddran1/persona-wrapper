@@ -8,7 +8,10 @@ export class LocalTTSProvider implements TTSProvider {
       provider: "local_tts",
       url: `https://example.com/local-audio/${encodeURIComponent(input.persona.id)}.wav`,
       mimeType: "audio/wav",
-      durationMs: 3900
+      durationMs: 3900,
+      model: "local",
+      billableCharacters: input.text.length,
+      billableUtf8Bytes: Buffer.byteLength(input.text, "utf8")
     };
   }
 }

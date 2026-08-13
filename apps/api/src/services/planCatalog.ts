@@ -46,7 +46,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     allowances: {
       total_usage_microusd: 3_000_000,
       credits: 24,
-      audio_seconds: 10 * 60
+      audio_seconds: 20 * 60
     },
     monthlyProviderCostBudget: {
       targetMicroUsd: 1_250_000,
@@ -68,7 +68,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     allowances: {
       total_usage_microusd: 5_000_000,
       credits: 90,
-      audio_seconds: 45 * 60
+      audio_seconds: 90 * 60
     },
     monthlyProviderCostBudget: {
       targetMicroUsd: 2_750_000,
@@ -90,7 +90,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     allowances: {
       total_usage_microusd: 8_000_000,
       credits: 180,
-      audio_seconds: 75 * 60
+      audio_seconds: 180 * 60
     },
     monthlyProviderCostBudget: {
       targetMicroUsd: 4_500_000,

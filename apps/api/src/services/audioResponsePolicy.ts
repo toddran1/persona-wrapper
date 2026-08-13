@@ -42,14 +42,21 @@ export function estimatedAudioSecondsForCharacters(characters: number): number {
   return Math.max(1, Math.ceil(characters / ESTIMATED_SPEECH_CHARACTERS_PER_SECOND));
 }
 
-export function audioUsageReservationSeconds(concise = true): number {
-  const characters = concise
-    ? env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS
-    : env.OPENAI_MAX_OUTPUT_TOKENS * 4;
+export function audioUsageReservationSeconds(concise = true, codeInterpreter = false): number {
+  const characters = audioUsageReservationCharacters(concise, codeInterpreter);
   return Math.ceil(
     estimatedAudioSecondsForCharacters(characters)
       * RESERVATION_SAFETY_MULTIPLIER
   );
+}
+
+export function audioUsageReservationCharacters(concise = true, codeInterpreter = false): number {
+  if (codeInterpreter) {
+    return Math.max(env.OPENAI_MAX_OUTPUT_TOKENS, env.OPENAI_CODE_INTERPRETER_MAX_OUTPUT_TOKENS) * 4;
+  }
+  return concise
+    ? env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS
+    : env.OPENAI_MAX_OUTPUT_TOKENS * 4;
 }
 
 export function maxOutputTokensForRequest(audioEnabled: boolean, conciseAudioResponse = true, codeInterpreter = false): number {
