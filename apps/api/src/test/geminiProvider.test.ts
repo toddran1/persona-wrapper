@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LLMInput } from "@persona/shared";
+import { env } from "../config/env.js";
 import { getPersonaById } from "../personas/index.js";
 import { GeminiProvider } from "../providers/llm/GeminiProvider.js";
 import { PersonaEngine } from "../services/personaEngine.js";
@@ -267,6 +268,42 @@ describe("GeminiProvider", () => {
     ]));
     expect(createInteraction.mock.calls[1]?.[0]?.input[0]?.text).toContain("Access status: accessible");
     expect(output.rawText).toContain("verified title and captions");
+  });
+
+  it("falls back to resolved-link context when native YouTube processing times out", async () => {
+    const timeoutError = Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
+    const createInteraction = vi.fn()
+      .mockRejectedValueOnce(timeoutError)
+      .mockResolvedValueOnce({
+        id: "interaction_youtube_timeout_fallback",
+        status: "completed",
+        output_text: "The verified title describes the livestream.",
+        steps: [{
+          type: "model_output",
+          content: [{ type: "text", text: "The verified title describes the livestream." }]
+        }]
+      });
+    const input = geminiInput();
+    input.messages = [
+      input.messages[0]!,
+      { role: "user", content: "Tool context for the next answer:\nTitle: A verified livestream" },
+      { role: "user", content: "Tell me about https://www.youtube.com/live/Ck_aptcPDek?si=tracking" }
+    ];
+
+    const output = await new GeminiProvider({ createInteraction }).generateResponse(input);
+
+    expect(createInteraction).toHaveBeenCalledTimes(2);
+    expect(createInteraction.mock.calls[0]?.[0]?.input).toEqual(expect.arrayContaining([
+      { type: "video", uri: "https://www.youtube.com/watch?v=Ck_aptcPDek" }
+    ]));
+    expect(createInteraction.mock.calls[0]?.[1]?.timeout).toBe(
+      Math.min(env.GEMINI_REQUEST_TIMEOUT_MS, env.GEMINI_NATIVE_YOUTUBE_REQUEST_TIMEOUT_MS)
+    );
+    expect(createInteraction.mock.calls[1]?.[0]?.input).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "video" })
+    ]));
+    expect(createInteraction.mock.calls[1]?.[1]?.timeout).toBe(env.GEMINI_REQUEST_TIMEOUT_MS);
+    expect(output.rawText).toContain("verified title");
   });
 
   it("enables Gemini URL context for non-YouTube links", async () => {

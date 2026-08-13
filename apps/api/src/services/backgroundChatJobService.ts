@@ -588,6 +588,13 @@ function executionTimeoutError(jobId: string): Error {
 }
 
 function isDurablyRetryable(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  // GeminiProvider has already retried transient provider failures and, for a
+  // native YouTube timeout, retried once with owner-scoped resolved-link
+  // context. Replaying the entire durable job only repeats the same long
+  // ingestion timeout while leaving the client in a misleading active state.
+  if (message.includes("gemini took too long to respond")) return false;
+
   const status = typeof error === "object" && error !== null && "status" in error
     ? Number((error as { status?: unknown }).status)
     : typeof error === "object" && error !== null && "statusCode" in error
@@ -595,7 +602,6 @@ function isDurablyRetryable(error: unknown): boolean {
       : Number.NaN;
   if (status === 408 || status === 425 || status === 429 || status >= 500) return true;
 
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
   if (
     message.includes("background response timed out")
     || message.includes("execution deadline")

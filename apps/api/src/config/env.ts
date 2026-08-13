@@ -123,6 +123,7 @@ const envSchema = z.object({
   GOOGLE_GEMINI_API_KEY: z.preprocess(optionalWhitespaceFreeSecret, z.string().optional()),
   GEMINI_MODEL: z.string().default("gemini-3.5-flash-lite"),
   GEMINI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  GEMINI_NATIVE_YOUTUBE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
   GEMINI_MAX_RETRIES: z.coerce.number().int().min(0).max(6).default(3),
   GEMINI_MAX_TOOL_ITERATIONS: z.coerce.number().int().min(1).max(10).default(4),
   GEMINI_INPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(0.3),

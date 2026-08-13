@@ -28,6 +28,33 @@ function normalizeTranscriptText(segments: TranscriptSegment[]): string {
     .slice(0, MAX_TRANSCRIPT_CHARACTERS);
 }
 
+/**
+ * Some transcript-provider implementations do not settle promptly when their
+ * signal aborts. This makes the timeout real for the caller while still
+ * observing the original promise if it later resolves or rejects.
+ */
+async function awaitWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", handleAbort);
+    const handleAbort = () => {
+      cleanup();
+      reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+    void operation.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      }
+    );
+  });
+}
+
 export class YouTubeTranscriptService {
   private readonly cache = new Map<string, CachedTranscript>();
 
@@ -43,10 +70,10 @@ export class YouTubeTranscriptService {
     const timeoutSignal = AbortSignal.timeout(TRANSCRIPT_REQUEST_TIMEOUT_MS);
     try {
       const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-      const segments = await this.transcriptFetcher(videoId, {
+      const segments = await awaitWithAbort(this.transcriptFetcher(videoId, {
         retries: 2,
         signal: requestSignal
-      });
+      }), requestSignal);
       const text = normalizeTranscriptText(segments);
       const language = segments.find((segment: TranscriptSegment) => segment.lang)?.lang;
       const transcript = text

@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 import { BackgroundChatJobService } from "../services/backgroundChatJobService.js";
 import { jobQueueService } from "../services/jobQueueService.js";
 import { usageControlService } from "../services/usageControlService.js";
+import { HttpError } from "../utils/httpError.js";
 
 const originalChatJobExecutionTimeoutMs = env.CHAT_JOB_EXECUTION_TIMEOUT_MS;
 
@@ -127,6 +128,31 @@ describe("BackgroundChatJobService", () => {
     expect((await service.get(payload.appJobId))?.status).toBe("completed");
     expect(executor).toHaveBeenCalledTimes(2);
     expect(metadata).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not durably retry a finalized Gemini provider timeout", async () => {
+    const service = new BackgroundChatJobService();
+    service.setExecutor(async () => {
+      throw new HttpError("Gemini took too long to respond. Please try again.", 504);
+    });
+    vi.spyOn(jobQueueService, "getJobMetadata")
+      .mockResolvedValue({ retryCount: 0, retryLimit: 3 } as any);
+    const payload = {
+      appJobId: "chat_job_gemini_timeout",
+      request: { personaId: "larae", provider: "gemini", message: "Analyze this livestream", audio: false },
+      createdAt: new Date().toISOString()
+    } as any;
+
+    await expect((service as any).executeQueuedJob(
+      payload,
+      "queue_job_gemini_timeout",
+      new AbortController().signal
+    )).resolves.toBeUndefined();
+
+    expect(await service.get(payload.appJobId)).toMatchObject({
+      status: "failed",
+      error: "Gemini took too long to respond. Please try again."
+    });
   });
 
   it("keeps usage reserved during retries and releases it after the terminal failure", async () => {

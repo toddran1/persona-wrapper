@@ -413,9 +413,16 @@ function codeBlocksFrom(response: InteractionResponse): ContentBlock[] {
 
 function errorStatus(error: unknown): number | undefined {
   if (!error || typeof error !== "object") return undefined;
-  const candidate = error as { status?: unknown; code?: unknown };
-  const value = candidate.status ?? candidate.code;
+  const candidate = error as { status?: unknown; statusCode?: unknown; code?: unknown };
+  const value = candidate.status ?? candidate.statusCode ?? candidate.code;
   return typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : undefined;
+}
+
+function isTimeoutError(error: unknown): boolean {
+  const status = errorStatus(error);
+  if (status === 408 || status === 504) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /abort|timeout|timed out|deadline exceeded/i.test(message);
 }
 
 function mapGeminiError(error: unknown): Error {
@@ -460,6 +467,35 @@ async function wait(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/**
+ * The Gemini SDK accepts an abort signal, but a provider-side operation can
+ * still occasionally outlive that signal. Race it locally so a durable chat
+ * job always reaches a terminal state instead of waiting for its outer job
+ * deadline. The underlying promise is still observed after abort to avoid an
+ * unhandled rejection if the SDK settles later.
+ */
+async function awaitWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener("abort", handleAbort);
+    const handleAbort = () => {
+      cleanup();
+      reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+    void operation.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error);
+      }
+    );
+  });
+}
+
 export class GeminiProvider implements LLMProvider {
   constructor(private readonly options: GeminiProviderOptions = {}) {}
 
@@ -489,8 +525,11 @@ export class GeminiProvider implements LLMProvider {
     const initialContent = await buildInteractionInput(input);
     let continuationSteps: InteractionStep[] | undefined;
     const tools = toolsForInput(input);
-    const timeoutSignal = AbortSignal.timeout(env.GEMINI_REQUEST_TIMEOUT_MS);
-    const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+    // Keep the caller's cancellation signal separate from each provider
+    // attempt. A timed-out native YouTube attempt must be able to retry once
+    // with resolved-link evidence, while an explicit user cancellation must
+    // stop immediately.
+    const requestSignal = signal ?? new AbortController().signal;
     const trace: ContentBlock[] = [];
     const totalUsage: Required<InteractionUsage> = {
       total_input_tokens: 0,
@@ -507,7 +546,7 @@ export class GeminiProvider implements LLMProvider {
           input,
           continuationSteps ?? initialContent,
           tools,
-          combinedSignal
+          requestSignal
         );
         totalUsage.total_input_tokens += response.usage?.total_input_tokens ?? 0;
         totalUsage.total_output_tokens += response.usage?.total_output_tokens ?? 0;
@@ -675,12 +714,18 @@ export class GeminiProvider implements LLMProvider {
     let attempt = 0;
     while (attempt <= env.GEMINI_MAX_RETRIES) {
       signal.throwIfAborted();
+      const hasNativeYouTube = containsNativeYouTubeContent(requestInput);
+      const requestTimeoutMs = hasNativeYouTube
+        ? Math.min(env.GEMINI_REQUEST_TIMEOUT_MS, env.GEMINI_NATIVE_YOUTUBE_REQUEST_TIMEOUT_MS)
+        : env.GEMINI_REQUEST_TIMEOUT_MS;
+      const timeoutSignal = AbortSignal.timeout(requestTimeoutMs);
+      const attemptSignal = AbortSignal.any([signal, timeoutSignal]);
       try {
-        return await createInteraction(interactionRequest(input, requestInput, tools), {
-          timeout: env.GEMINI_REQUEST_TIMEOUT_MS,
+        return await awaitWithAbort(createInteraction(interactionRequest(input, requestInput, tools), {
+          timeout: requestTimeoutMs,
           maxRetries: 0,
-          fetchOptions: { signal }
-        });
+          fetchOptions: { signal: attemptSignal }
+        }), attemptSignal);
       } catch (error) {
         lastError = error;
         const status = errorStatus(error);
@@ -689,16 +734,22 @@ export class GeminiProvider implements LLMProvider {
         // oEmbed verifies that the URL is accessible. Retry once without the
         // native video block. The app-provided resolved-link context remains in
         // the request, including verified metadata and captions when available.
-        if (!usedNativeYouTubeFallback && status === 400 && containsNativeYouTubeContent(requestInput)) {
+        if (
+          !signal.aborted &&
+          !usedNativeYouTubeFallback &&
+          (status === 400 || isTimeoutError(error)) &&
+          hasNativeYouTube
+        ) {
           requestInput = withoutNativeYouTubeContent(requestInput);
           usedNativeYouTubeFallback = true;
           // Google's YouTube ingestion rejects some public videos with a generic
           // invalid_request — most commonly over-long videos (livestream
           // recordings beyond the model's context window). Log the provider
           // detail so the next rejection doesn't need a manual repro.
-          logger.info("Gemini rejected native YouTube input; retrying with resolved-link context", {
+          logger.info("Gemini native YouTube input failed; retrying with resolved-link context", {
             personaId: input.persona.id,
             model: env.GEMINI_MODEL,
+            reason: isTimeoutError(error) ? "timeout" : "rejected",
             message: (error instanceof Error ? error.message : String(error)).slice(0, 500)
           });
           continue;

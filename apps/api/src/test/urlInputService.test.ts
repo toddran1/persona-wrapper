@@ -6,10 +6,12 @@ describe("URL input service", () => {
     expect(extractYouTubeVideoUrls([
       "Tell me about https://youtu.be/0Y4FoTy0Bf0?is=tracking",
       "and https://www.youtube.com/watch?v=0Y4FoTy0Bf0&feature=share",
-      "plus https://youtube.com/shorts/abcdefghijk?si=tracking."
+      "plus https://youtube.com/shorts/abcdefghijk?si=tracking",
+      "or https://www.youtube.com/live/Ck_aptcPDek?si=tracking."
     ].join(" "))).toEqual([
       "https://www.youtube.com/watch?v=0Y4FoTy0Bf0",
-      "https://www.youtube.com/watch?v=abcdefghijk"
+      "https://www.youtube.com/watch?v=abcdefghijk",
+      "https://www.youtube.com/watch?v=Ck_aptcPDek"
     ]);
   });
 
