@@ -11,7 +11,7 @@ const clientEventSchema = z.object({
   message: z.string().min(1).max(500),
   path: z.string().max(300).optional(),
   traceId: z.string().regex(/^[a-zA-Z0-9_-]{16,128}$/).optional(),
-  durationMs: z.number().min(0).max(15 * 60 * 1000).optional(),
+  durationMs: z.number().finite().min(0).max(15 * 60 * 1000).optional(),
   status: z.number().int().min(0).max(599).optional()
 });
 

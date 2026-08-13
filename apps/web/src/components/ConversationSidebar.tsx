@@ -1,4 +1,4 @@
-import { PASSWORD_MIN_LENGTH } from "@persona/shared";
+import { clampFiniteNumber, finiteNonnegativeIntegerOr, PASSWORD_MIN_LENGTH } from "@persona/shared";
 import type {
   ActiveSession,
   AuthUser,
@@ -1611,7 +1611,7 @@ export function ConversationSidebar({
                             <div className="settings-total-usage">
                               <div className="settings-total-usage-heading">
                                 <strong>Total usage</strong>
-                                <span>{planUsage.totalUsage.percentRemaining}% left</span>
+                                <span>{Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}% left</span>
                               </div>
                               <div
                                 className="settings-total-usage-track"
@@ -1619,10 +1619,10 @@ export function ConversationSidebar({
                                 aria-label="Total monthly usage remaining"
                                 aria-valuemin={0}
                                 aria-valuemax={100}
-                                aria-valuenow={planUsage.totalUsage.percentRemaining}
-                                aria-valuetext={`${planUsage.totalUsage.percentRemaining}% left`}
+                                aria-valuenow={Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}
+                                aria-valuetext={`${Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}% left`}
                               >
-                                <span style={{ width: `${planUsage.totalUsage.percentRemaining}%` }} />
+                                <span style={{ width: `${Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}%` }} />
                               </div>
                               <small>
                                 Includes text, searches, file work, charts, images, and audio · Resets{" "}
@@ -1635,18 +1635,24 @@ export function ConversationSidebar({
                             </div>
                             <div className="settings-list">
                               {planUsage.meters.map((meter) => {
-                                const used = meter.used + meter.reserved;
-                                const percent = meter.limit ? Math.min(100, Math.round((used / meter.limit) * 100)) : 0;
-                                const formatAmount = (value: number) => meter.unit === "seconds"
-                                  ? value === 0 ? "0 min" : value < 60 ? "<1 min" : `${Math.ceil(value / 60)} min`
-                                  : value.toLocaleString();
+                                const used = finiteNonnegativeIntegerOr(meter.used) + finiteNonnegativeIntegerOr(meter.reserved);
+                                const limit = meter.limit === null ? null : finiteNonnegativeIntegerOr(meter.limit);
+                                const percent = limit && limit > 0
+                                  ? Math.round(clampFiniteNumber((used / limit) * 100, 0, 100))
+                                  : 0;
+                                const formatAmount = (value: number) => {
+                                  const safeValue = finiteNonnegativeIntegerOr(value);
+                                  return meter.unit === "seconds"
+                                    ? safeValue === 0 ? "0 min" : safeValue < 60 ? "<1 min" : `${Math.ceil(safeValue / 60)} min`
+                                    : safeValue.toLocaleString();
+                                };
                                 return (
                                   <div className="settings-usage-meter" key={meter.key}>
                                     <div className="settings-usage-meter-heading">
                                       <strong>{meter.label}</strong>
-                                      <span>{formatAmount(used)} of {meter.limit === null ? "unlimited" : formatAmount(meter.limit)}</span>
+                                      <span>{formatAmount(used)} of {limit === null ? "unlimited" : formatAmount(limit)}</span>
                                     </div>
-                                    {meter.limit !== null ? <div className="settings-usage-track"><span style={{ width: `${percent}%` }} /></div> : null}
+                                    {limit !== null ? <div className="settings-usage-track"><span style={{ width: `${percent}%` }} /></div> : null}
                                     <small>Resets {new Date(meter.periodEnd).toLocaleDateString([], { month: "long", day: "numeric", timeZone: "UTC" })}</small>
                                   </div>
                                 );

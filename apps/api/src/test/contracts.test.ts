@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, contentBlockSchema, currentPoliciesResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, hasCompletePersonaVisualVideoSet, llmInputSchema, PASSWORD_MAX_LENGTH, personaVisualStageSchema, registerRequestSchema, restoreAccountRequestSchema, ttsOutputSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, clampFiniteNumber, clientContextSchema, contentBlockSchema, currentPoliciesResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, finiteNonnegativeIntegerOr, finiteNumberOr, hasCompletePersonaVisualVideoSet, llmInputSchema, PASSWORD_MAX_LENGTH, personaVisualStageSchema, registerRequestSchema, restoreAccountRequestSchema, statusOutputSchema, tableOutputSchema, ttsOutputSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
+  it("rejects or normalizes non-finite numeric values at application boundaries", () => {
+    expect(finiteNumberOr(Number.NaN, 7)).toBe(7);
+    expect(finiteNumberOr(Number.POSITIVE_INFINITY, 7)).toBe(7);
+    expect(finiteNonnegativeIntegerOr(Number.NaN, 3)).toBe(3);
+    expect(finiteNonnegativeIntegerOr(-10, 3)).toBe(3);
+    expect(clampFiniteNumber(Number.NaN, 0, 100, 25)).toBe(25);
+    expect(clampFiniteNumber(Number.POSITIVE_INFINITY, 0, 100, 25)).toBe(25);
+    expect(clampFiniteNumber(140, 0, 100)).toBe(100);
+
+    expect(tableOutputSchema.safeParse({ type: "table", columns: ["Value"], rows: [[Number.NaN]] }).success).toBe(false);
+    expect(statusOutputSchema.safeParse({ type: "status", status: "completed", message: "Done", progress: Number.POSITIVE_INFINITY }).success).toBe(false);
+    expect(clientContextSchema.safeParse({ location: { latitude: Number.NaN, longitude: -96.8 } }).success).toBe(false);
+  });
+
   it("defaults omitted persona videos to image-only stages", () => {
     const stage = personaVisualStageSchema.parse({
       fallbackImages: {

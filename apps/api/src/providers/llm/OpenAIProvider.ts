@@ -4,6 +4,7 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   chartOutputSchema,
+  finiteNonnegativeIntegerOr,
   fileOutputSchema,
   type Citation,
   type ContentBlock,
@@ -1027,20 +1028,20 @@ function mergeUsage(primaryUsage: OpenAIItem | null | undefined, secondaryUsage:
 
   return {
     ...(primaryUsage ?? {}),
-    input_tokens: Number(primaryUsage?.input_tokens ?? 0) + Number(secondaryUsage?.input_tokens ?? 0),
-    output_tokens: Number(primaryUsage?.output_tokens ?? 0) + Number(secondaryUsage?.output_tokens ?? 0),
-    total_tokens: Number(primaryUsage?.total_tokens ?? 0) + Number(secondaryUsage?.total_tokens ?? 0),
+    input_tokens: finiteNonnegativeIntegerOr(primaryUsage?.input_tokens) + finiteNonnegativeIntegerOr(secondaryUsage?.input_tokens),
+    output_tokens: finiteNonnegativeIntegerOr(primaryUsage?.output_tokens) + finiteNonnegativeIntegerOr(secondaryUsage?.output_tokens),
+    total_tokens: finiteNonnegativeIntegerOr(primaryUsage?.total_tokens) + finiteNonnegativeIntegerOr(secondaryUsage?.total_tokens),
     input_tokens_details: {
       ...(primaryUsage?.input_tokens_details ?? {}),
       cached_tokens:
-        Number(primaryUsage?.input_tokens_details?.cached_tokens ?? 0) +
-        Number(secondaryUsage?.input_tokens_details?.cached_tokens ?? 0)
+        finiteNonnegativeIntegerOr(primaryUsage?.input_tokens_details?.cached_tokens) +
+        finiteNonnegativeIntegerOr(secondaryUsage?.input_tokens_details?.cached_tokens)
     },
     output_tokens_details: {
       ...(primaryUsage?.output_tokens_details ?? {}),
       reasoning_tokens:
-        Number(primaryUsage?.output_tokens_details?.reasoning_tokens ?? 0) +
-        Number(secondaryUsage?.output_tokens_details?.reasoning_tokens ?? 0)
+        finiteNonnegativeIntegerOr(primaryUsage?.output_tokens_details?.reasoning_tokens) +
+        finiteNonnegativeIntegerOr(secondaryUsage?.output_tokens_details?.reasoning_tokens)
     }
   };
 }
@@ -1286,9 +1287,11 @@ export class OpenAIProvider implements LLMProvider {
     const rawText = extractOutputText(response);
     const dualText = parseDualTextPayload(rawText);
     const visibleText = dualText.payload?.visibleText ?? displayTextFromDualText(rawText);
+    const inputTokens = finiteNonnegativeIntegerOr(usage?.input_tokens);
+    const outputTokens = finiteNonnegativeIntegerOr(usage?.output_tokens);
     const estimatedCostUsd = usage
-      ? ((usage.input_tokens ?? 0) * env.OPENAI_INPUT_COST_PER_MILLION +
-          (usage.output_tokens ?? 0) * env.OPENAI_OUTPUT_COST_PER_MILLION) / 1_000_000
+      ? (inputTokens * env.OPENAI_INPUT_COST_PER_MILLION +
+          outputTokens * env.OPENAI_OUTPUT_COST_PER_MILLION) / 1_000_000
       : 0;
     const output: LLMOutput = {
       provider: this.providerId,
@@ -1296,11 +1299,11 @@ export class OpenAIProvider implements LLMProvider {
       content: [...mapOutput(response, input.userMessage), ...applicationTrace],
       ...(usage ? {
         usage: {
-          inputTokens: usage.input_tokens ?? 0,
-          outputTokens: usage.output_tokens ?? 0,
-          totalTokens: usage.total_tokens ?? 0,
-          cachedInputTokens: usage.input_tokens_details?.cached_tokens ?? 0,
-          reasoningTokens: usage.output_tokens_details?.reasoning_tokens ?? 0,
+          inputTokens,
+          outputTokens,
+          totalTokens: finiteNonnegativeIntegerOr(usage.total_tokens, inputTokens + outputTokens),
+          cachedInputTokens: finiteNonnegativeIntegerOr(usage.input_tokens_details?.cached_tokens),
+          reasoningTokens: finiteNonnegativeIntegerOr(usage.output_tokens_details?.reasoning_tokens),
           ...(estimatedCostUsd > 0 ? { estimatedCostUsd } : {})
         }
       } : {}),

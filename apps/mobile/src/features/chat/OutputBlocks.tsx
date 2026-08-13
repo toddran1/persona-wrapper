@@ -425,7 +425,11 @@ function OutputBlock({
             </View>
             {output.rows.map((row, rowIndex) => (
               <View key={`row-${rowIndex}`} style={[styles.tableRow, { borderColor: theme.border, backgroundColor: tableRowColors[rowIndex % tableRowColors.length] }]}> 
-                {row.map((cell, cellIndex) => <Text selectable key={`${rowIndex}-${cellIndex}`} style={[styles.tableCell, { color: theme.text }]}>{cell === null ? "—" : String(cell)}</Text>)}
+                {row.map((cell, cellIndex) => (
+                  <Text selectable key={`${rowIndex}-${cellIndex}`} style={[styles.tableCell, { color: theme.text }]}>
+                    {cell === null ? "—" : typeof cell === "number" ? Number.isFinite(cell) ? String(cell) : "—" : String(cell)}
+                  </Text>
+                ))}
               </View>
             ))}
           </View>

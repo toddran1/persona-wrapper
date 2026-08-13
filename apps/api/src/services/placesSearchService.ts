@@ -16,7 +16,7 @@ export const placesSearchArgumentsSchema = z.object({
   location: z.string().trim().max(200).nullable(),
   maxResults: z.number().int().min(1).max(20).nullable(),
   openNow: z.boolean().nullable(),
-  minimumRating: z.number().min(0).max(5).nullable(),
+  minimumRating: z.number().finite().min(0).max(5).nullable(),
   priceLevels: z.array(priceLevelSchema).max(5),
   languageCode: z.string().trim().regex(/^[a-z]{2,3}(?:-[A-Z]{2})?$/).nullable(),
   regionCode: z.string().trim().regex(/^[A-Z]{2}$/).nullable()
@@ -69,12 +69,12 @@ export const placesSearchResultSchema = z.object({
     address: z.string().optional(),
     primaryType: z.string().optional(),
     mapsUrl: z.string().url(),
-    rating: z.number().optional(),
-    ratingCount: z.number().optional(),
+    rating: z.number().finite().min(0).max(5).optional(),
+    ratingCount: z.number().finite().int().nonnegative().optional(),
     priceLevel: z.string().optional(),
     openNow: z.boolean().optional(),
-    latitude: z.number().optional(),
-    longitude: z.number().optional()
+    latitude: z.number().finite().min(-90).max(90).optional(),
+    longitude: z.number().finite().min(-180).max(180).optional()
   })),
   note: z.string()
 });
@@ -160,12 +160,22 @@ export async function searchPlaces(
         ...(place.formattedAddress ? { address: place.formattedAddress } : {}),
         ...(place.primaryType ? { primaryType: place.primaryType } : {}),
         mapsUrl,
-        ...(typeof place.rating === "number" ? { rating: place.rating } : {}),
-        ...(typeof place.userRatingCount === "number" ? { ratingCount: place.userRatingCount } : {}),
+        ...(typeof place.rating === "number" && Number.isFinite(place.rating) && place.rating >= 0 && place.rating <= 5
+          ? { rating: place.rating }
+          : {}),
+        ...(typeof place.userRatingCount === "number" && Number.isSafeInteger(place.userRatingCount) && place.userRatingCount >= 0
+          ? { ratingCount: place.userRatingCount }
+          : {}),
         ...(place.priceLevel ? { priceLevel: place.priceLevel } : {}),
         ...(typeof place.currentOpeningHours?.openNow === "boolean" ? { openNow: place.currentOpeningHours.openNow } : {}),
-        ...(typeof place.location?.latitude === "number" ? { latitude: place.location.latitude } : {}),
-        ...(typeof place.location?.longitude === "number" ? { longitude: place.location.longitude } : {})
+        ...(typeof place.location?.latitude === "number" && Number.isFinite(place.location.latitude)
+          && place.location.latitude >= -90 && place.location.latitude <= 90
+          ? { latitude: place.location.latitude }
+          : {}),
+        ...(typeof place.location?.longitude === "number" && Number.isFinite(place.location.longitude)
+          && place.location.longitude >= -180 && place.location.longitude <= 180
+          ? { longitude: place.location.longitude }
+          : {})
       }];
     });
 

@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { readFile } from "node:fs/promises";
 import {
   chartOutputSchema,
+  finiteNonnegativeIntegerOr,
   fileOutputSchema,
   llmOutputSchema,
   type Citation,
@@ -576,10 +577,10 @@ export class GeminiProvider implements LLMProvider {
     // stop immediately.
     const trace: ContentBlock[] = [];
     const totalUsage: Required<InteractionUsage> = {
-      total_input_tokens: videoAnalysis?.billableUsage.total_input_tokens ?? 0,
-      total_output_tokens: videoAnalysis?.billableUsage.total_output_tokens ?? 0,
-      total_thought_tokens: videoAnalysis?.billableUsage.total_thought_tokens ?? 0,
-      total_tokens: videoAnalysis?.billableUsage.total_tokens ?? 0
+      total_input_tokens: finiteNonnegativeIntegerOr(videoAnalysis?.billableUsage.total_input_tokens),
+      total_output_tokens: finiteNonnegativeIntegerOr(videoAnalysis?.billableUsage.total_output_tokens),
+      total_thought_tokens: finiteNonnegativeIntegerOr(videoAnalysis?.billableUsage.total_thought_tokens),
+      total_tokens: finiteNonnegativeIntegerOr(videoAnalysis?.billableUsage.total_tokens)
     };
     let response: InteractionResponse | undefined;
 
@@ -592,10 +593,10 @@ export class GeminiProvider implements LLMProvider {
           tools,
           requestSignal
         );
-        totalUsage.total_input_tokens += response.usage?.total_input_tokens ?? 0;
-        totalUsage.total_output_tokens += response.usage?.total_output_tokens ?? 0;
-        totalUsage.total_thought_tokens += response.usage?.total_thought_tokens ?? 0;
-        totalUsage.total_tokens += response.usage?.total_tokens ?? 0;
+        totalUsage.total_input_tokens += finiteNonnegativeIntegerOr(response.usage?.total_input_tokens);
+        totalUsage.total_output_tokens += finiteNonnegativeIntegerOr(response.usage?.total_output_tokens);
+        totalUsage.total_thought_tokens += finiteNonnegativeIntegerOr(response.usage?.total_thought_tokens);
+        totalUsage.total_tokens += finiteNonnegativeIntegerOr(response.usage?.total_tokens);
         const failure = interactionFailure(response);
         if (failure) throw failure;
         const calls = response.steps.filter((step) => step.type === "function_call");
@@ -822,9 +823,9 @@ export class GeminiProvider implements LLMProvider {
       if (!analysisText) throw new Error("Gemini returned an empty video analysis.");
       const value: PublicMediaAnalysis = {
         analysisText,
-        inputTokens: response.usage?.total_input_tokens ?? 0,
-        outputTokens: response.usage?.total_output_tokens ?? 0,
-        reasoningTokens: response.usage?.total_thought_tokens ?? 0
+        inputTokens: finiteNonnegativeIntegerOr(response.usage?.total_input_tokens),
+        outputTokens: finiteNonnegativeIntegerOr(response.usage?.total_output_tokens),
+        reasoningTokens: finiteNonnegativeIntegerOr(response.usage?.total_thought_tokens)
       };
       await cache.set(key, value);
       logger.info("Gemini public video analysis completed", {
@@ -842,7 +843,10 @@ export class GeminiProvider implements LLMProvider {
           total_input_tokens: value.inputTokens,
           total_output_tokens: value.outputTokens,
           total_thought_tokens: value.reasoningTokens,
-          total_tokens: response.usage?.total_tokens ?? value.inputTokens + value.outputTokens
+          total_tokens: finiteNonnegativeIntegerOr(
+            response.usage?.total_tokens,
+            value.inputTokens + value.outputTokens
+          )
         }
       };
     } catch (error) {

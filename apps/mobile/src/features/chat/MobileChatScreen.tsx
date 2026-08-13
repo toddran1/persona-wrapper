@@ -32,7 +32,7 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import { MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type CurrentPoliciesResponse, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
+import { clampFiniteNumber, finiteNonnegativeIntegerOr, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type CurrentPoliciesResponse, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -3824,7 +3824,7 @@ export function MobileChatScreen() {
                     <View style={styles.settingsUsageHeading}>
                       <Text style={[styles.settingsTotalUsageLabel, { color: theme.text }]}>Total usage</Text>
                       <Text style={[styles.settingsTotalUsageRemaining, { color: theme.muted }]}>
-                        {planUsage.totalUsage.percentRemaining}% left
+                        {Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}% left
                       </Text>
                     </View>
                     <View
@@ -3834,8 +3834,8 @@ export function MobileChatScreen() {
                       accessibilityValue={{
                         min: 0,
                         max: 100,
-                        now: planUsage.totalUsage.percentRemaining,
-                        text: `${planUsage.totalUsage.percentRemaining}% left`
+                        now: Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100)),
+                        text: `${Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}% left`
                       }}
                       style={styles.settingsTotalUsageTrack}
                     >
@@ -3844,7 +3844,7 @@ export function MobileChatScreen() {
                           styles.settingsTotalUsageFill,
                           {
                             backgroundColor: theme.text,
-                            width: `${planUsage.totalUsage.percentRemaining}%`
+                            width: `${Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}%`
                           }
                         ]}
                       />
@@ -3859,20 +3859,26 @@ export function MobileChatScreen() {
                     </Text>
                   </View>
                   {planUsage.meters.map((meter) => {
-                    const used = meter.used + meter.reserved;
-                    const percent = meter.limit ? Math.min(100, Math.round((used / meter.limit) * 100)) : 0;
-                    const formatAmount = (value: number) => meter.unit === "seconds"
-                      ? value === 0 ? "0 min" : value < 60 ? "<1 min" : `${Math.ceil(value / 60)} min`
-                      : value.toLocaleString();
+                    const used = finiteNonnegativeIntegerOr(meter.used) + finiteNonnegativeIntegerOr(meter.reserved);
+                    const limit = meter.limit === null ? null : finiteNonnegativeIntegerOr(meter.limit);
+                    const percent = limit && limit > 0
+                      ? Math.round(clampFiniteNumber((used / limit) * 100, 0, 100))
+                      : 0;
+                    const formatAmount = (value: number) => {
+                      const safeValue = finiteNonnegativeIntegerOr(value);
+                      return meter.unit === "seconds"
+                        ? safeValue === 0 ? "0 min" : safeValue < 60 ? "<1 min" : `${Math.ceil(safeValue / 60)} min`
+                        : safeValue.toLocaleString();
+                    };
                     return (
                       <View key={meter.key} style={[styles.settingsUsageCard, { backgroundColor: "rgba(255,255,255,0.07)", borderColor: theme.border }]}>
                         <View style={styles.settingsUsageHeading}>
                           <Text style={[styles.settingsRowText, { color: theme.text }]}>{meter.label}</Text>
                           <Text style={[styles.settingsRowHint, { color: theme.muted }]}>
-                            {formatAmount(used)} of {meter.limit === null ? "unlimited" : formatAmount(meter.limit)}
+                            {formatAmount(used)} of {limit === null ? "unlimited" : formatAmount(limit)}
                           </Text>
                         </View>
-                        {meter.limit !== null ? (
+                        {limit !== null ? (
                           <View style={styles.settingsUsageTrack}>
                             <View style={[styles.settingsUsageFill, { backgroundColor: theme.accent2, width: `${percent}%` }]} />
                           </View>

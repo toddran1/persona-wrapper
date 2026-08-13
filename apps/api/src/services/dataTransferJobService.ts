@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { PassThrough, type Readable, Transform } from "node:stream";
 import archiver from "archiver";
 import unzipper from "unzipper";
-import type { DataExportJobRequest, DataImportPresignRequest, DataImportResult, DataTransferJob } from "@persona/shared";
+import { clampFiniteNumber, finiteNonnegativeIntegerOr, type DataExportJobRequest, type DataImportPresignRequest, type DataImportResult, type DataTransferJob } from "@persona/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDatabase } from "../db/client.js";
 import { backgroundJobs, generatedAudio, generatedMedia, openAIArtifacts, uploads } from "../db/schema.js";
@@ -733,9 +733,13 @@ export class DataTransferJobService {
   }
 
   private publicJob(job: LocalJob): DataTransferJob {
-    const { ownerId: _owner, request: _request, abortController: _abort, resultStorageKey: _key, ...value } = job;
+    const { ownerId: _owner, request: _request, abortController: _abort, resultStorageKey: _key, sizeBytes, ...value } = job;
     return {
       ...value,
+      progress: Math.round(clampFiniteNumber(value.progress, 0, 100)),
+      processedItems: finiteNonnegativeIntegerOr(value.processedItems),
+      totalItems: finiteNonnegativeIntegerOr(value.totalItems),
+      ...(typeof sizeBytes === "number" && Number.isSafeInteger(sizeBytes) && sizeBytes >= 0 ? { sizeBytes } : {}),
       ...(value.error ? { error: publicDataTransferError(value.error) } : {}),
       ...(job.kind === "export" && job.status === "completed" ? { downloadUrl: `/api/data/jobs/${job.id}/download` } : {})
     };
@@ -749,14 +753,16 @@ export class DataTransferJobService {
       kind,
       status: (["awaiting_upload", "queued", "running", "completed", "failed", "cancelled"] as const).includes(row.status as never) ? row.status as DataTransferJob["status"] : "failed",
       phase: typeof metadata.phase === "string" ? metadata.phase : row.status,
-      progress: typeof metadata.progress === "number" ? metadata.progress : 0,
-      processedItems: typeof metadata.processedItems === "number" ? metadata.processedItems : 0,
-      totalItems: typeof metadata.totalItems === "number" ? metadata.totalItems : 0,
+      progress: Math.round(clampFiniteNumber(metadata.progress, 0, 100)),
+      processedItems: finiteNonnegativeIntegerOr(metadata.processedItems),
+      totalItems: finiteNonnegativeIntegerOr(metadata.totalItems),
       ...(metadata.source === "for-the-baddiez" || metadata.source === "chatgpt" || metadata.source === "claude" ? { source: metadata.source } : {}),
       ...(row.response ? { result: row.response as DataImportResult } : {}),
       ...(kind === "export" && row.status === "completed" ? { downloadUrl: `/api/data/jobs/${row.id}/download` } : {}),
       ...(typeof metadata.fileName === "string" ? { fileName: metadata.fileName } : {}),
-      ...(typeof metadata.sizeBytes === "number" ? { sizeBytes: metadata.sizeBytes } : {}),
+      ...(typeof metadata.sizeBytes === "number" && Number.isSafeInteger(metadata.sizeBytes) && metadata.sizeBytes >= 0
+        ? { sizeBytes: metadata.sizeBytes }
+        : {}),
       ...(row.error ? { error: publicDataTransferError(row.error) } : {}),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

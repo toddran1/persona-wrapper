@@ -1558,7 +1558,7 @@ const usageSchema = z.object({
   totalTokens: z.number().int().nonnegative().optional(),
   cachedInputTokens: z.number().int().nonnegative().optional(),
   reasoningTokens: z.number().int().nonnegative().optional(),
-  estimatedCostUsd: z.number().nonnegative().optional()
+  estimatedCostUsd: z.number().finite().nonnegative().optional()
 });
 
 function sanitizeMessageMetadata(metadata: unknown): ConversationMessageMetadata | undefined {

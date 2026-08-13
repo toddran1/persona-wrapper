@@ -8,6 +8,29 @@ export const MAX_CHART_CATEGORIES = 250;
 export const MAX_CHART_DATASETS = 8;
 export const MAX_DONUT_CATEGORIES = 20;
 
+/**
+ * Numeric values can become non-finite at provider, database, cache, or
+ * arithmetic boundaries. Keep UI layout/style calculations and persisted
+ * counters on ordinary JSON-safe numbers even when an upstream value is bad.
+ */
+export function finiteNumberOr(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+export function finiteNonnegativeIntegerOr(value: unknown, fallback = 0): number {
+  const safeFallback = Math.max(0, Math.trunc(finiteNumberOr(fallback, 0)));
+  const normalized = finiteNumberOr(value, safeFallback);
+  if (normalized < 0) return safeFallback;
+  return Math.min(Number.MAX_SAFE_INTEGER, Math.trunc(normalized));
+}
+
+export function clampFiniteNumber(value: unknown, minimum: number, maximum: number, fallback = minimum): number {
+  const safeMinimum = finiteNumberOr(minimum, 0);
+  const safeMaximum = Math.max(safeMinimum, finiteNumberOr(maximum, safeMinimum));
+  const safeFallback = Math.min(safeMaximum, Math.max(safeMinimum, finiteNumberOr(fallback, safeMinimum)));
+  return Math.min(safeMaximum, Math.max(safeMinimum, finiteNumberOr(value, safeFallback)));
+}
+
 const currentProviderSchema = z.enum(["openai", "gemini", "claude", "local"]);
 
 /**
@@ -355,7 +378,7 @@ export const tableOutputSchema = z.object({
   type: z.literal("table"),
   title: z.string().optional(),
   columns: z.array(z.string()),
-  rows: z.array(z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])))
+  rows: z.array(z.array(z.union([z.string(), z.number().finite(), z.boolean(), z.null()])))
 });
 
 export const codeOutputSchema = z.object({
@@ -369,7 +392,7 @@ export const statusOutputSchema = z.object({
   type: z.literal("status"),
   status: z.enum(["queued", "in_progress", "completed", "failed", "cancelled"]),
   message: z.string(),
-  progress: z.number().min(0).max(100).optional()
+  progress: z.number().finite().min(0).max(100).optional()
 });
 
 export const actionOutputSchema = z.object({
@@ -433,12 +456,12 @@ export const clientContextSchema = z.object({
   locale: z.string().optional(),
   timeZone: z.string().optional(),
   currentDateTime: z.string().optional(),
-  utcOffsetMinutes: z.number().optional(),
+  utcOffsetMinutes: z.number().finite().int().min(-14 * 60).max(14 * 60).optional(),
   location: z
     .object({
-      latitude: z.number(),
-      longitude: z.number(),
-      accuracyMeters: z.number().optional()
+      latitude: z.number().finite().min(-90).max(90),
+      longitude: z.number().finite().min(-180).max(180),
+      accuracyMeters: z.number().finite().nonnegative().optional()
     })
     .optional()
 });
@@ -971,7 +994,7 @@ export const llmOutputSchema = z.object({
     totalTokens: z.number().int().nonnegative().optional(),
     cachedInputTokens: z.number().int().nonnegative().optional(),
     reasoningTokens: z.number().int().nonnegative().optional(),
-    estimatedCostUsd: z.number().nonnegative().optional()
+    estimatedCostUsd: z.number().finite().nonnegative().optional()
   }).optional(),
   metadata: z.record(z.string(), z.unknown()).optional()
 });
@@ -1012,7 +1035,7 @@ export const ttsOutputSchema = z.object({
   provider: z.enum(["openai_tts", "elevenlabs_tts", "fish_audio_tts", "local_tts"]),
   url: z.string(),
   mimeType: z.string(),
-  durationMs: z.number().int().nonnegative().optional()
+  durationMs: z.number().finite().int().nonnegative().optional()
 });
 export type TTSOutput = z.infer<typeof ttsOutputSchema>;
 
@@ -1057,7 +1080,7 @@ export const chatResponseSchema = z.object({
     totalTokens: z.number().int().nonnegative().optional(),
     cachedInputTokens: z.number().int().nonnegative().optional(),
     reasoningTokens: z.number().int().nonnegative().optional(),
-    estimatedCostUsd: z.number().nonnegative().optional()
+    estimatedCostUsd: z.number().finite().nonnegative().optional()
   }).optional()
 });
 export type ChatResponse = z.infer<typeof chatResponseSchema>;

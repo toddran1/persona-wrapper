@@ -6,7 +6,9 @@ export function TableBlock(props: { title?: string | undefined; columns: string[
         <thead><tr>{props.columns.map((column) => <th key={column} scope="col">{column}</th>)}</tr></thead>
         <tbody>
           {props.rows.map((row, rowIndex) => (
-            <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{String(cell ?? "")}</td>)}</tr>
+            <tr key={rowIndex}>{row.map((cell, cellIndex) => (
+              <td key={cellIndex}>{typeof cell === "number" ? Number.isFinite(cell) ? String(cell) : "—" : String(cell ?? "")}</td>
+            ))}</tr>
           ))}
         </tbody>
       </table>

@@ -1,4 +1,4 @@
-import type { LLMInput, LLMOutput } from "@persona/shared";
+import { finiteNonnegativeIntegerOr, type LLMInput, type LLMOutput } from "@persona/shared";
 import { env } from "../../config/env.js";
 import { HttpError } from "../../utils/httpError.js";
 import type { LLMProvider } from "./LLMProvider.js";
@@ -96,8 +96,8 @@ export class LocalModelProvider implements LLMProvider {
         }
       ],
       usage: {
-        inputTokens: typeof payload.prompt_eval_count === "number" ? payload.prompt_eval_count : 0,
-        outputTokens: typeof payload.eval_count === "number" ? payload.eval_count : 0
+        inputTokens: finiteNonnegativeIntegerOr(payload.prompt_eval_count),
+        outputTokens: finiteNonnegativeIntegerOr(payload.eval_count)
       },
       metadata: {
         providerModel: env.LOCAL_LLM_MODEL,
