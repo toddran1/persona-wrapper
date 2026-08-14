@@ -46,7 +46,9 @@ const socialProviders = {
   } : {}),
   ...(env.APPLE_OAUTH_CLIENT_ID && env.APPLE_OAUTH_TEAM_ID && env.APPLE_OAUTH_KEY_ID && appleSigningKey ? {
     apple: async () => ({
-      clientId: env.APPLE_OAUTH_CLIENT_ID!,
+      // The first value drives the web authorization-code flow; both values
+      // are accepted as ID-token audiences for web and native iOS sign-in.
+      clientId: [env.APPLE_OAUTH_CLIENT_ID!, env.APPLE_APP_BUNDLE_IDENTIFIER],
       clientSecret: await generateAppleClientSecret({
         clientId: env.APPLE_OAUTH_CLIENT_ID!,
         teamId: env.APPLE_OAUTH_TEAM_ID!,

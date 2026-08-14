@@ -1,4 +1,6 @@
 import Constants from "expo-constants";
+import * as AppleAuthentication from "expo-apple-authentication";
+import * as Crypto from "expo-crypto";
 import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
 import { apiContract, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES } from "@persona/shared";
@@ -379,6 +381,69 @@ function mobileOAuthErrorCallbackURL(provider: OAuthProvider, action: "link" | "
   return `${MOBILE_AUTH_CALLBACK_URL}?${params.toString()}`;
 }
 
+type NativeAppleIdToken = {
+  token: string;
+  nonce: string;
+  user?: {
+    name?: { firstName?: string; lastName?: string };
+    email?: string;
+  };
+};
+
+function appleAuthenticationWasCancelled(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && error.code === "ERR_REQUEST_CANCELED";
+}
+
+async function requestNativeAppleIdToken(action: "link" | "sign-in"): Promise<NativeAppleIdToken | undefined> {
+  if (Platform.OS !== "ios") return undefined;
+  try {
+    if (!(await AppleAuthentication.isAvailableAsync())) return undefined;
+  } catch {
+    // A non-native runtime such as an unsupported development client can still
+    // complete Apple authentication through the existing Services ID flow.
+    return undefined;
+  }
+
+  try {
+    const nonce = Crypto.randomUUID();
+    const credential = await AppleAuthentication.signInAsync({
+      nonce,
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL
+      ]
+    });
+    if (!credential.identityToken) {
+      throw new Error("Apple did not return an identity token. Please try again.");
+    }
+
+    const firstName = credential.fullName?.givenName?.trim() || undefined;
+    const lastName = credential.fullName?.familyName?.trim() || undefined;
+    const email = credential.email?.trim() || undefined;
+    const name = firstName || lastName
+      ? { ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}) }
+      : undefined;
+    const user = name || email
+      ? { ...(name ? { name } : {}), ...(email ? { email } : {}) }
+      : undefined;
+
+    return {
+      token: credential.identityToken,
+      nonce,
+      ...(user ? { user } : {})
+    };
+  } catch (error) {
+    if (appleAuthenticationWasCancelled(error)) {
+      throw new Error(`Apple ${action === "link" ? "connection" : "sign-in"} was cancelled.`);
+    }
+    if (error instanceof Error && error.message.startsWith("Apple did not return")) throw error;
+    throw new Error(`Apple ${action === "link" ? "could not be connected" : "sign-in could not be completed"}. Please try again.`);
+  }
+}
+
 function toAuthUser(user: Record<string, unknown>): AuthUser {
   const email = typeof user.email === "string" && !user.email.endsWith("@users.invalid") ? user.email : null;
   return {
@@ -744,12 +809,16 @@ export const api = {
   },
   oauthLogin: async (provider: OAuthProvider): Promise<{ user: AuthUser }> => {
     const installationId = await getOwnerId();
-    const result = await authClient.signIn.social({
-      provider,
-      callbackURL: MOBILE_AUTH_CALLBACK_URL,
-      errorCallbackURL: mobileOAuthErrorCallbackURL(provider, "sign-in"),
-      fetchOptions: { headers: { "x-device-id": installationId, "x-owner-id": installationId } }
-    });
+    const fetchOptions = { headers: { "x-device-id": installationId, "x-owner-id": installationId } };
+    const nativeAppleToken = provider === "apple" ? await requestNativeAppleIdToken("sign-in") : undefined;
+    const result = nativeAppleToken
+      ? await authClient.signIn.social({ provider: "apple", idToken: nativeAppleToken, fetchOptions })
+      : await authClient.signIn.social({
+        provider,
+        callbackURL: MOBILE_AUTH_CALLBACK_URL,
+        errorCallbackURL: mobileOAuthErrorCallbackURL(provider, "sign-in"),
+        fetchOptions
+      });
     if (result.error) throw authError(result.error);
     const session = await authClient.getSession();
     if (session.error) throw authError(session.error);
@@ -793,12 +862,20 @@ export const api = {
   },
   linkConnectedAccount: async (provider: OAuthProvider): Promise<void> => {
     const installationId = await getOwnerId();
-    const result = await authClient.linkSocial({
-      provider,
-      callbackURL: MOBILE_AUTH_CALLBACK_URL,
-      errorCallbackURL: mobileOAuthErrorCallbackURL(provider, "link"),
-      fetchOptions: { headers: { "x-device-id": installationId, "x-owner-id": installationId } }
-    });
+    const fetchOptions = { headers: { "x-device-id": installationId, "x-owner-id": installationId } };
+    const nativeAppleToken = provider === "apple" ? await requestNativeAppleIdToken("link") : undefined;
+    const result = nativeAppleToken
+      ? await authClient.linkSocial({
+        provider: "apple",
+        idToken: { token: nativeAppleToken.token, nonce: nativeAppleToken.nonce },
+        fetchOptions
+      })
+      : await authClient.linkSocial({
+        provider,
+        callbackURL: MOBILE_AUTH_CALLBACK_URL,
+        errorCallbackURL: mobileOAuthErrorCallbackURL(provider, "link"),
+        fetchOptions
+      });
     if (result.error) throw authError(result.error);
     const accounts = await authClient.listAccounts();
     if (accounts.error) throw authError(accounts.error);

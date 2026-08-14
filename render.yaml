@@ -211,6 +211,8 @@ services:
         sync: false
       - key: APPLE_OAUTH_CLIENT_ID
         sync: false
+      - key: APPLE_APP_BUNDLE_IDENTIFIER
+        value: com.forthebaddiez.mobile
       - key: APPLE_OAUTH_TEAM_ID
         sync: false
       - key: APPLE_OAUTH_KEY_ID
@@ -480,6 +482,8 @@ services:
         sync: false
       - key: APPLE_OAUTH_CLIENT_ID
         sync: false
+      - key: APPLE_APP_BUNDLE_IDENTIFIER
+        value: com.forthebaddiez.mobile
       - key: APPLE_OAUTH_TEAM_ID
         sync: false
       - key: APPLE_OAUTH_KEY_ID

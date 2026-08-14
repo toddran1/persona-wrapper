@@ -13,6 +13,7 @@ import {
   View
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CurrentPoliciesResponse, OAuthProvider, OAuthProviderStatus } from "@persona/shared";
@@ -159,6 +160,24 @@ export function MobileAuthScreen({
               {enabledProviders.length > 0 && mode !== "forgot" ? (
                 <View style={styles.oauthStack}>
                   {enabledProviders.map((providerStatus) => (
+                    providerStatus.provider === "apple" && Platform.OS === "ios" ? (
+                      <View
+                        key={providerStatus.provider}
+                        pointerEvents={busy || !isOnline ? "none" : "auto"}
+                        style={busy || !isOnline ? styles.disabled : undefined}
+                      >
+                        <AppleAuthentication.AppleAuthenticationButton
+                          accessibilityLabel="Continue with Apple"
+                          accessibilityState={{ disabled: busy || !isOnline }}
+                          buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE_OUTLINE}
+                          buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                          cornerRadius={14}
+                          onPress={() => onOAuth("apple")}
+                          style={styles.nativeAppleButton}
+                          testID="mobile-auth-oauth-apple"
+                        />
+                      </View>
+                    ) : (
                     <Pressable
                       key={providerStatus.provider}
                       accessibilityRole="button"
@@ -174,6 +193,7 @@ export function MobileAuthScreen({
                       <Ionicons name={providerStatus.provider === "google" ? "logo-google" : providerStatus.provider === "facebook" ? "logo-facebook" : "logo-apple"} size={20} color={theme.text} />
                       <Text style={[styles.oauthText, { color: theme.text }]}>{t("auth.continueWith", { provider: providerStatus.provider === "google" ? "Google" : providerStatus.provider === "facebook" ? "Facebook" : "Apple" })}</Text>
                     </Pressable>
+                    )
                   ))}
                   <View style={styles.dividerRow}>
                     <View style={[styles.divider, { backgroundColor: theme.border }]} />
@@ -549,6 +569,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 50,
     paddingHorizontal: 16
+  },
+  nativeAppleButton: {
+    height: 50,
+    width: "100%"
   },
   oauthStack: {
     gap: 10

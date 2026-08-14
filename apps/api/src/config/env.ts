@@ -188,6 +188,7 @@ const envSchema = z.object({
   FACEBOOK_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   FACEBOOK_OAUTH_CLIENT_SECRET: z.preprocess(optionalTrimmedString, z.string().optional()),
   APPLE_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
+  APPLE_APP_BUNDLE_IDENTIFIER: z.preprocess(optionalTrimmedString, z.string().min(1).default("com.forthebaddiez.mobile")),
   APPLE_OAUTH_TEAM_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   APPLE_OAUTH_KEY_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   APPLE_OAUTH_PRIVATE_KEY: z.preprocess(optionalTrimmedString, z.string().optional()),

@@ -46,12 +46,14 @@ Set at minimum:
 
 ### Sign in with Apple
 
-The Apple provider is enabled only when all four values below are set on the
-API. The private key is used only to mint Apple's required short-lived client
-secret JWT at sign-in time; do not commit the downloaded `.p8` file.
+The Apple provider is enabled only when its four credentials below are set on
+the API. Keep the bundle identifier aligned with the Expo iOS configuration.
+The private key is used only to mint Apple's required short-lived client-secret
+JWT at sign-in time; do not commit the downloaded `.p8` file.
 
 ```text
 APPLE_OAUTH_CLIENT_ID=com.example.for-the-baddiez.web
+APPLE_APP_BUNDLE_IDENTIFIER=com.forthebaddiez.mobile
 APPLE_OAUTH_TEAM_ID=YOUR_APPLE_TEAM_ID
 APPLE_OAUTH_KEY_ID=YOUR_SIGN_IN_WITH_APPLE_KEY_ID
 APPLE_OAUTH_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
@@ -70,6 +72,9 @@ TLS development domain when testing the full flow. The Services ID is
 `APPLE_OAUTH_CLIENT_ID`; create a Sign in with Apple key for the same team and
 store its complete `.p8` contents in `APPLE_OAUTH_PRIVATE_KEY` (literal `\n`
 escapes are supported for hosts that do not preserve multiline secrets).
+The bundle identifier is accepted as a second token audience so the iOS app
+can use Apple's native Authentication Services flow while web and Android keep
+using the Services ID redirect flow.
 
 Before release, configure **Sign in with Apple for Email Communication** in the
 Apple Developer portal. Register the exact address used by `GMAIL_SMTP_USER` or

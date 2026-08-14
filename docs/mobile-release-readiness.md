@@ -78,8 +78,12 @@ The generated native configuration must also be reviewed before upload:
   access for saving generated images. It does not declare unused camera, Face ID,
   or photo-library read access.
 - iOS enables the Sign in with Apple entitlement and uses Apple's native
-  authentication button. Test Continue and cancellation on a physical device,
+  Authentication Services button and nonce-protected ID-token flow. Test Continue,
+  Face ID or Touch ID confirmation, and cancellation on a physical device,
   including both Share My Email and Hide My Email on a fresh Apple authorization.
+- Android uses Apple's Services ID browser flow and returns through the API's
+  registered HTTPS `/api/auth/callback/apple` endpoint. Test both successful
+  return and cancellation from a Chrome Custom Tab.
 - `ITSAppUsesNonExemptEncryption` is `false` because the app uses standard
   operating-system/provider HTTPS and TLS rather than shipping custom or
   non-exempt cryptography.
