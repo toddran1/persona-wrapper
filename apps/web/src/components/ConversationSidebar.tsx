@@ -20,6 +20,7 @@ import { PasswordInput } from "./PasswordInput.js";
 
 const REGISTER_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
+const APPLE_LOGO_URL = "https://appleid.cdn-apple.com/appleid/button/logo?color=black&border=false&size=30&scale=3";
 type SettingsSection = "account" | "influence" | "provider" | "plan" | "audio" | "security" | "memory" | "data" | "about" | "delete";
 
 function SettingsGlyph({ section }: { section: SettingsSection }) {
@@ -70,6 +71,7 @@ export function ConversationSidebar({
   authLoading = false,
   authError,
   oauthReturnAction,
+  oauthReturnNotice,
   oauthProviders = [],
   currentPolicies,
   conversations,
@@ -117,6 +119,7 @@ export function ConversationSidebar({
   authLoading?: boolean;
   authError?: string | undefined;
   oauthReturnAction?: "link" | "sign-in" | undefined;
+  oauthReturnNotice?: string | undefined;
   oauthProviders?: OAuthProviderStatus[];
   currentPolicies?: CurrentPoliciesResponse | undefined;
   conversations: ConversationSummary[];
@@ -153,7 +156,7 @@ export function ConversationSidebar({
   dataTransferJob?: DataTransferJob | undefined;
   onCancelDataTransfer?: (() => Promise<void>) | undefined;
   onLogout: () => Promise<void>;
-  onOAuthLogin: (provider: OAuthProvider) => void;
+  onOAuthLogin: (provider: OAuthProvider) => Promise<void>;
   onNewConversation: () => void;
   onSelectConversation: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => void;
@@ -217,15 +220,30 @@ export function ConversationSidebar({
   }
 
   useEffect(() => {
-    if (!authError || !oauthReturnAction) return;
+    if (!oauthReturnAction) return;
     if (oauthReturnAction === "link" && authUser) {
       setLocalAuthError(authError);
+      setSecurityNotice(oauthReturnNotice);
       setSettingsSection("security");
       setSettingsOpen(true);
       return;
     }
-    setAuthPanelOpen(true);
-  }, [authError, authUser, oauthReturnAction]);
+    if (authError) setAuthPanelOpen(true);
+  }, [authError, authUser, oauthReturnAction, oauthReturnNotice]);
+
+  async function startOAuth(provider: OAuthProvider): Promise<void> {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    try {
+      await onOAuthLogin(provider);
+      // A successful start navigates away. Keep the controls locked so a slow
+      // browser cannot launch a second state/nonce transaction.
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not start social sign-in.");
+      setAuthBusy(false);
+    }
+  }
   const filteredConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return conversations;
@@ -1064,14 +1082,16 @@ export function ConversationSidebar({
                     <button
                       key={provider.provider}
                       type="button"
-                      className="conversation-oauth-button"
+                      className={`conversation-oauth-button${provider.provider === "apple" ? " conversation-oauth-button-apple" : ""}`}
                       data-testid={`oauth-${provider.provider}`}
-                      onClick={() => onOAuthLogin(provider.provider)}
+                      onClick={() => void startOAuth(provider.provider)}
                       disabled={authBusy}
                     >
-                      <span aria-hidden="true">
-                        {provider.provider === "google" ? "G" : provider.provider === "facebook" ? "f" : ""}
-                      </span>
+                      {provider.provider === "apple" ? (
+                        <img alt="" aria-hidden="true" className="apple-oauth-logo" src={APPLE_LOGO_URL} />
+                      ) : (
+                        <span aria-hidden="true">{provider.provider === "google" ? "G" : "f"}</span>
+                      )}
                       Continue with{" "}
                       {oauthProviderLabel(provider.provider)}
                     </button>
@@ -1726,8 +1746,9 @@ export function ConversationSidebar({
                           </div>
                           <div className="settings-action-row">
                             {enabledOAuthProviders.filter((provider) => !connectedAccounts.some((account) => account.providerId === provider.provider)).map((provider) => (
-                              <button key={provider.provider} type="button" className="settings-action" disabled={authBusy} onClick={() => void linkAccount(provider.provider)}>
-                                Connect {oauthProviderLabel(provider.provider)}
+                              <button key={provider.provider} type="button" className={`settings-action${provider.provider === "apple" ? " settings-action-apple" : ""}`} disabled={authBusy} onClick={() => void linkAccount(provider.provider)}>
+                                {provider.provider === "apple" ? <img alt="" aria-hidden="true" className="apple-oauth-logo" src={APPLE_LOGO_URL} /> : null}
+                                {provider.provider === "apple" ? "Continue with Apple" : `Connect ${oauthProviderLabel(provider.provider)}`}
                               </button>
                             ))}
                           </div>

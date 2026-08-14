@@ -668,12 +668,16 @@ export const api = {
     }));
   },
   linkConnectedAccount: async (provider: OAuthProvider): Promise<void> => {
+    const callbackURL = new URL("/", window.location.origin);
+    callbackURL.searchParams.set("oauthProvider", provider);
+    callbackURL.searchParams.set("oauthAction", "link");
+    callbackURL.searchParams.set("oauthSuccess", "1");
     const errorCallbackURL = new URL("/", window.location.origin);
     errorCallbackURL.searchParams.set("oauthProvider", provider);
     errorCallbackURL.searchParams.set("oauthAction", "link");
     const result = await authClient.linkSocial({
       provider,
-      callbackURL: new URL("/", window.location.origin).toString(),
+      callbackURL: callbackURL.toString(),
       errorCallbackURL: errorCallbackURL.toString()
     });
     if (result.error) throw authError(result.error);

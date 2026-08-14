@@ -3,7 +3,7 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
-import { apiContract, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES } from "@persona/shared";
+import { APPLE_NATIVE_AUTHORIZATION_CODE_PREFIX, apiContract, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES } from "@persona/shared";
 import { initClient } from "@ts-rest/core";
 import type {
   ActiveSession,
@@ -384,6 +384,7 @@ function mobileOAuthErrorCallbackURL(provider: OAuthProvider, action: "link" | "
 type NativeAppleIdToken = {
   token: string;
   nonce: string;
+  authorizationCode: string;
   user?: {
     name?: { firstName?: string; lastName?: string };
     email?: string;
@@ -416,8 +417,8 @@ async function requestNativeAppleIdToken(action: "link" | "sign-in"): Promise<Na
         AppleAuthentication.AppleAuthenticationScope.EMAIL
       ]
     });
-    if (!credential.identityToken) {
-      throw new Error("Apple did not return an identity token. Please try again.");
+    if (!credential.identityToken || !credential.authorizationCode) {
+      throw new Error("Apple did not return complete authorization credentials. Please try again.");
     }
 
     const firstName = credential.fullName?.givenName?.trim() || undefined;
@@ -433,6 +434,7 @@ async function requestNativeAppleIdToken(action: "link" | "sign-in"): Promise<Na
     return {
       token: credential.identityToken,
       nonce,
+      authorizationCode: credential.authorizationCode,
       ...(user ? { user } : {})
     };
   } catch (error) {
@@ -812,7 +814,16 @@ export const api = {
     const fetchOptions = { headers: { "x-device-id": installationId, "x-owner-id": installationId } };
     const nativeAppleToken = provider === "apple" ? await requestNativeAppleIdToken("sign-in") : undefined;
     const result = nativeAppleToken
-      ? await authClient.signIn.social({ provider: "apple", idToken: nativeAppleToken, fetchOptions })
+      ? await authClient.signIn.social({
+        provider: "apple",
+        idToken: {
+          token: nativeAppleToken.token,
+          nonce: nativeAppleToken.nonce,
+          accessToken: `${APPLE_NATIVE_AUTHORIZATION_CODE_PREFIX}${nativeAppleToken.authorizationCode}`,
+          ...(nativeAppleToken.user ? { user: nativeAppleToken.user } : {})
+        },
+        fetchOptions
+      })
       : await authClient.signIn.social({
         provider,
         callbackURL: MOBILE_AUTH_CALLBACK_URL,
@@ -867,7 +878,11 @@ export const api = {
     const result = nativeAppleToken
       ? await authClient.linkSocial({
         provider: "apple",
-        idToken: { token: nativeAppleToken.token, nonce: nativeAppleToken.nonce },
+        idToken: {
+          token: nativeAppleToken.token,
+          nonce: nativeAppleToken.nonce,
+          accessToken: `${APPLE_NATIVE_AUTHORIZATION_CODE_PREFIX}${nativeAppleToken.authorizationCode}`
+        },
         fetchOptions
       })
       : await authClient.linkSocial({

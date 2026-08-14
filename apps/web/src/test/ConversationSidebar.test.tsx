@@ -79,6 +79,8 @@ function renderSidebar(options: {
   showPersona?: boolean;
   onSelectPersona?: (id: string) => void;
   planUsageOverride?: typeof planUsage;
+  oauthReturnAction?: "link" | "sign-in";
+  oauthReturnNotice?: string;
 } = {}) {
   const onUpdateProfile = vi.fn().mockResolvedValue(undefined);
   const onGetMemorySettings = vi.fn().mockResolvedValue(true);
@@ -105,6 +107,8 @@ function renderSidebar(options: {
         { provider: "facebook", enabled: true },
         { provider: "apple", enabled: true },
       ]}
+      oauthReturnAction={options.oauthReturnAction}
+      oauthReturnNotice={options.oauthReturnNotice}
       conversations={[]}
       onLogin={vi.fn()}
       onRegister={vi.fn()}
@@ -352,7 +356,7 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(dialog).getByRole("button", { name: "Security & sign-in" }));
     expect(await within(dialog).findByRole("heading", { name: "Connected accounts" })).toBeInTheDocument();
     expect(within(dialog).getByText("Email & password")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Connect Apple" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Continue with Apple" })).toBeInTheDocument();
     expect(within(dialog).getByRole("heading", { name: "Signed-in devices" })).toBeInTheDocument();
     expect(within(dialog).getByText(/This device/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Chrome on macOS/)).toBeInTheDocument();
@@ -383,5 +387,12 @@ describe("ConversationSidebar settings", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
     expect(within(dialog).getByRole("button", { name: "Continue to deletion" })).toBeInTheDocument();
+  });
+
+  it("reopens Security and confirms a successful provider link", async () => {
+    renderSidebar({ oauthReturnAction: "link", oauthReturnNotice: "Apple connected." });
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    expect(within(dialog).getByRole("heading", { name: "Security & sign-in" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("status")).toHaveTextContent("Apple connected.");
   });
 });

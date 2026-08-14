@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import {
   backgroundJobs,
+  betterAuthAccounts,
   conversations,
   generatedAudio,
   generatedMedia,
@@ -17,6 +18,8 @@ import { logger } from "../utils/logger.js";
 import { storageService } from "./storageService.js";
 import { backgroundChatJobService } from "./backgroundChatJobService.js";
 import { dataTransferJobService } from "./dataTransferJobService.js";
+import { appleClientIdForScope, revokeAppleToken } from "./appleOAuthService.js";
+import { appleSigningKey } from "./appleOAuthRuntime.js";
 
 const REMOTE_DELETION_BATCH_SIZE = 20;
 
@@ -70,6 +73,28 @@ async function deleteOpenAIResources(
   }
 }
 
+async function revokeAppleAccounts(accounts: Array<typeof betterAuthAccounts.$inferSelect>): Promise<void> {
+  const revocable = accounts.filter((account) => account.providerId === "apple" && (account.refreshToken || account.accessToken));
+  if (revocable.length === 0) return;
+  const signingKey = appleSigningKey;
+  if (!env.APPLE_OAUTH_CLIENT_ID || !env.APPLE_OAUTH_TEAM_ID || !env.APPLE_OAUTH_KEY_ID || !signingKey) {
+    throw new Error("Could not revoke Apple authorization because Apple OAuth is not configured.");
+  }
+  const results = await settleInBatches(revocable, (account) => {
+    const refreshToken = account.refreshToken;
+    return revokeAppleToken({
+      token: refreshToken ?? account.accessToken!,
+      tokenTypeHint: refreshToken ? "refresh_token" : "access_token",
+      clientId: appleClientIdForScope(account.scope, env.APPLE_OAUTH_CLIENT_ID!, env.APPLE_APP_BUNDLE_IDENTIFIER),
+      teamId: env.APPLE_OAUTH_TEAM_ID!,
+      keyId: env.APPLE_OAUTH_KEY_ID!,
+      signingKey
+    });
+  });
+  const failed = results.filter((result) => result.status === "rejected").length;
+  if (failed > 0) throw new Error(`Could not revoke ${failed} Apple account authorization(s).`);
+}
+
 export class AccountDeletionService {
   async purgeUser(userId: string): Promise<boolean> {
     const db = requireDatabase();
@@ -79,15 +104,17 @@ export class AccountDeletionService {
     await backgroundChatJobService.cancelForOwner(userId);
     await dataTransferJobService.cancelForOwner(userId);
 
-    const [ownedUploads, ownedMedia, ownedAudio, ownedArtifacts, ownedVectorStores, ownedJobs] = await Promise.all([
+    const [ownedUploads, ownedMedia, ownedAudio, ownedArtifacts, ownedVectorStores, ownedJobs, connectedAccounts] = await Promise.all([
       db.select().from(uploads).where(eq(uploads.ownerId, userId)),
       db.select().from(generatedMedia).where(eq(generatedMedia.ownerId, userId)),
       db.select().from(generatedAudio).where(eq(generatedAudio.ownerId, userId)),
       db.select().from(openAIArtifacts).where(eq(openAIArtifacts.ownerId, userId)),
       db.select().from(vectorStores).where(eq(vectorStores.ownerId, userId)),
-      db.select().from(backgroundJobs).where(eq(backgroundJobs.ownerId, userId))
+      db.select().from(backgroundJobs).where(eq(backgroundJobs.ownerId, userId)),
+      db.select().from(betterAuthAccounts).where(eq(betterAuthAccounts.userId, userId))
     ]);
 
+    await revokeAppleAccounts(connectedAccounts);
     await deleteStoredObjects([
       ...ownedUploads.map((item) => item.storageKey),
       ...ownedMedia.map((item) => item.storageKey),

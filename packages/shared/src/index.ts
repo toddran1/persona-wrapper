@@ -472,6 +472,10 @@ export type AuthClientType = z.infer<typeof authClientTypeSchema>;
 
 export const oauthProviderSchema = z.enum(["google", "facebook", "apple"]);
 export type OAuthProvider = z.infer<typeof oauthProviderSchema>;
+// A short-lived transport marker understood only by the API's Better Auth
+// account hooks. The authorization code remains protected by HTTPS and is
+// exchanged server-side before it is persisted.
+export const APPLE_NATIVE_AUTHORIZATION_CODE_PREFIX = "apple-native-code:";
 
 export const userGenderSchema = z.enum(["male", "female", "nonbinary", "other"]);
 export type UserGender = z.infer<typeof userGenderSchema>;

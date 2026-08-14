@@ -21,6 +21,7 @@ import { conversationStore } from "./chat.controller.js";
 import { customerUsageService } from "../services/customerUsageService.js";
 import { planAllowsModelProvider } from "../services/planCatalog.js";
 import { sendAccountDeletionScheduledEmail, sendAccountRestoredEmail } from "../services/authEmailService.js";
+import { appleOAuthAvailable } from "../services/appleOAuthRuntime.js";
 
 function requireDatabase() {
   const db = getDatabase();
@@ -259,7 +260,7 @@ export function getOAuthProviders(_request: Request, response: Response): void {
     providers: [
       { provider: "google", enabled: Boolean(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET) },
       { provider: "facebook", enabled: Boolean(env.FACEBOOK_OAUTH_CLIENT_ID && env.FACEBOOK_OAUTH_CLIENT_SECRET) },
-      { provider: "apple", enabled: Boolean(env.APPLE_OAUTH_CLIENT_ID && env.APPLE_OAUTH_TEAM_ID && env.APPLE_OAUTH_KEY_ID && env.APPLE_OAUTH_PRIVATE_KEY) }
+      { provider: "apple", enabled: appleOAuthAvailable }
     ]
   });
 }

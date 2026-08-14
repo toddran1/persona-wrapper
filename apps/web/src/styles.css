@@ -650,6 +650,28 @@ textarea {
   font-weight: 950;
 }
 
+.apple-oauth-logo {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  object-fit: contain;
+}
+
+.conversation-oauth-button-apple {
+  border-color: #ffffff;
+  color: #ffffff;
+  background: #000000;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600;
+}
+
+.conversation-oauth-button-apple:hover,
+.conversation-oauth-button-apple:focus-visible {
+  border-color: #ffffff;
+  background: #111111;
+}
+
 .conversation-auth-switch {
   border: 0;
   padding: 0;
@@ -1689,6 +1711,24 @@ textarea {
   color: #180f1b;
   background: linear-gradient(135deg, #e4c66b, #cda84b);
   box-shadow: 0 8px 22px rgba(214, 181, 94, 0.13);
+}
+
+.settings-action-apple {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-color: #ffffff;
+  color: #ffffff;
+  background: #000000;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600;
+}
+
+.settings-action-apple:hover,
+.settings-action-apple:focus-visible {
+  border-color: #ffffff;
+  background: #111111;
 }
 
 .settings-list-row-action {

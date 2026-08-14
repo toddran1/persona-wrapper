@@ -50,6 +50,7 @@ import { clearUserQueryCache, restoreUserQueryCache, subscribeUserQueryCache } f
 import { IconButton } from "../../components/IconButton";
 import { NetworkStatusBanner } from "../../components/NetworkStatusBanner";
 import { PasswordStrengthMeter } from "../../components/PasswordStrengthMeter";
+import { AppleOAuthButton } from "../auth/AppleOAuthButton";
 import { useLocalization } from "../../localization/LocalizationProvider";
 import { useNetwork } from "../../network/NetworkProvider";
 import {
@@ -4151,10 +4152,19 @@ export function MobileChatScreen() {
                 </View>
               ))}
               {oauthProviders.filter((provider) => provider.enabled && !connectedAccounts.some((account) => account.providerId === provider.provider)).map((provider) => (
-                <Pressable key={provider.provider} accessibilityRole="button" disabled={securityLoading} onPress={() => void linkConnectedAccount(provider.provider)} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
-                  <Ionicons name={provider.provider === "google" ? "logo-google" : provider.provider === "facebook" ? "logo-facebook" : "logo-apple"} size={22} color={theme.text} />
-                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Connect {provider.provider === "google" ? "Google" : provider.provider === "facebook" ? "Facebook" : "Apple"}</Text>
-                </Pressable>
+                provider.provider === "apple" ? (
+                  <AppleOAuthButton
+                    key={provider.provider}
+                    disabled={securityLoading}
+                    onPress={() => void linkConnectedAccount("apple")}
+                    testID="mobile-settings-connect-apple"
+                  />
+                ) : (
+                  <Pressable key={provider.provider} accessibilityRole="button" disabled={securityLoading} onPress={() => void linkConnectedAccount(provider.provider)} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                    <Ionicons name={provider.provider === "google" ? "logo-google" : "logo-facebook"} size={22} color={theme.text} />
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Connect {provider.provider === "google" ? "Google" : "Facebook"}</Text>
+                  </Pressable>
+                )
               ))}
               {connectedAccounts.some((account) => account.providerId === "credential") ? (
                 <View style={styles.settingsSection}>

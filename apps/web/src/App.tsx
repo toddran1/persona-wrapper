@@ -28,16 +28,21 @@ function oauthProviderLabel(provider: string | null): string {
   return "Social";
 }
 
-function oauthReturnFromLocation(): { action: "link" | "sign-in"; message: string } | undefined {
+function oauthReturnFromLocation(): { action: "link" | "sign-in"; message: string; status: "error" | "success" } | undefined {
   const params = new URLSearchParams(window.location.search);
   const error = params.get("error");
   const provider = params.get("oauthProvider");
-  if (!error || !provider) return undefined;
+  const succeeded = params.get("oauthSuccess") === "1";
+  if ((!error && !succeeded) || !provider) return undefined;
   const label = oauthProviderLabel(provider);
   const action = params.get("oauthAction") === "link" ? "link" : "sign-in";
+  if (succeeded) {
+    return { action, status: "success", message: `${label} connected.` };
+  }
   const cancelled = error === "access_denied" || error === "user_cancelled_authorize";
   return {
     action,
+    status: "error",
     message: cancelled
       ? `${label} ${action === "link" ? "connection" : "sign-in"} was cancelled.`
       : `${label} ${action === "link" ? "could not be connected" : "sign-in could not be completed"}. Please try again.`
@@ -328,7 +333,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [authUser, setAuthUser] = useState<AuthUser | undefined>();
   const [authLoading, setAuthLoading] = useState(true);
   const [oauthReturn] = useState(oauthReturnFromLocation);
-  const [authError, setAuthError] = useState<string | undefined>(oauthReturn?.message);
+  const [authError, setAuthError] = useState<string | undefined>(oauthReturn?.status === "error" ? oauthReturn.message : undefined);
   const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
   // Landing state after the better-auth verify-email link redirects home.
@@ -354,6 +359,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     url.searchParams.delete("error_description");
     url.searchParams.delete("oauthProvider");
     url.searchParams.delete("oauthAction");
+    url.searchParams.delete("oauthSuccess");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, [oauthReturn]);
 
@@ -688,7 +694,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         if (!cancelled) {
           setAuthUser(me.user);
           setCurrentPolicies(policies);
-          setAuthError(oauthReturn?.message);
+          setAuthError(oauthReturn?.status === "error" ? oauthReturn.message : undefined);
         }
         if (!hasCurrentPolicyConsent(me.user, policies)) authenticated = false;
       } catch {
@@ -1802,10 +1808,9 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
   }
 
-  function handleOAuthLogin(providerName: OAuthProvider): void {
-    void api.oauthLogin(providerName).catch((oauthError) => {
-      setAuthError(oauthError instanceof Error ? oauthError.message : "Could not start OAuth sign in.");
-    });
+  async function handleOAuthLogin(providerName: OAuthProvider): Promise<void> {
+    setAuthError(undefined);
+    await api.oauthLogin(providerName);
   }
 
   async function saveEvalCapture(idealStyledText: string, notes: string, tags: string[]): Promise<void> {
@@ -1971,6 +1976,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           authLoading={authLoading}
           authError={authError}
           oauthReturnAction={oauthReturn?.action}
+          oauthReturnNotice={oauthReturn?.status === "success" ? oauthReturn.message : undefined}
           oauthProviders={oauthProviders}
           currentPolicies={currentPolicies}
           conversations={conversationList}
