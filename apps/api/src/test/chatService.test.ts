@@ -9,11 +9,13 @@ import { generatedAudioService } from "../services/generatedAudioService.js";
 const originalAppTestMode = env.APP_TEST_MODE;
 const originalTtsProvider = env.TTS_PROVIDER;
 const originalFishAudioApiKey = env.FISH_AUDIO_API_KEY;
+const originalAudioResponseCharacterLimit = env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS;
 
 afterEach(() => {
   env.APP_TEST_MODE = originalAppTestMode;
   env.TTS_PROVIDER = originalTtsProvider;
   env.FISH_AUDIO_API_KEY = originalFishAudioApiKey;
+  env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS = originalAudioResponseCharacterLimit;
   vi.restoreAllMocks();
 });
 
@@ -289,6 +291,32 @@ describe("ChatService", () => {
     expect(textOutput?.type).toBe("text");
     expect(textOutput?.type === "text" ? textOutput.text : "").not.toContain("Audio could not be generated");
     expect(response.diagnostics.tts?.status).toBe("not_requested");
+  });
+
+  it("keeps the complete visible response when concise audio is enabled", async () => {
+    env.CHAT_AUDIO_MAX_RESPONSE_CHARACTERS = 400;
+    env.APP_TEST_MODE = true;
+    const fullReply = `${"A complete visible answer. ".repeat(30)}The final sentence must remain visible.`;
+    vi.spyOn(OpenAIProvider.prototype, "generateResponse").mockResolvedValue({
+      provider: "openai",
+      rawText: fullReply,
+      content: [{ type: "text", text: fullReply }]
+    });
+
+    const response = await new ChatService().handleChat({
+      personaId: "larae",
+      provider: "openai",
+      message: "Give me a detailed spoken answer.",
+      audio: true,
+      conciseAudioResponse: true,
+      testMode: false,
+      history: []
+    });
+
+    const text = response.outputs.find((output) => output.type === "text");
+    expect(text?.type === "text" ? text.text : "").toBe(fullReply);
+    expect(text?.type === "text" ? text.text : "").toContain("The final sentence must remain visible.");
+    expect(text?.type === "text" ? text.text : "").not.toMatch(/…$/);
   });
 
   it("returns and persists a public-safe status when requested audio generation fails", async () => {

@@ -669,13 +669,10 @@ export class ChatService {
       ? sanitizeProfessionalLanguage(phraseReplacementResult.text)
       : { text: phraseReplacementResult.text, replacements: 0 };
     const fullResponseText = professionalLanguageResult.text.trim();
-    const responseText = request.audio
-      ? limitAudioResponseText(fullResponseText, request.conciseAudioResponse)
-      : fullResponseText;
-    // A hard concise-audio limit can cut the visible answer at a safe boundary.
-    // In that case the model-provided narration script may still describe the
-    // omitted remainder. Do not let audio reveal content the user cannot read.
-    const visibleResponseWasTruncated = responseText !== fullResponseText;
+    // Never cut a user-visible answer after generation. The concise-audio
+    // instruction guides the model toward an affordable length; the separate
+    // speech script cap below is the cost-control backstop for narration.
+    const responseText = fullResponseText;
     let styledPrimaryText = false;
     let professionalContentBlockReplacements = 0;
     const styledLlmOutput = llmOutputSchema.parse({
@@ -753,7 +750,7 @@ export class ChatService {
       const textBlock = responseLlmOutput.content.find((block) => block.type === "text");
       const speechText = textBlock?.type === "text" ? textBlock.text.trim() : "";
       if (speechText) {
-        const rawInlineTtsScript = !visibleResponseWasTruncated && typeof llmOutput.metadata?.ttsScript === "string"
+        const rawInlineTtsScript = typeof llmOutput.metadata?.ttsScript === "string"
           ? stripPersonaAttributionMarkers(llmOutput.metadata.ttsScript.trim())
           : "";
         const inlineTtsScript = rawInlineTtsScript
@@ -768,15 +765,6 @@ export class ChatService {
         let ttsScript = "";
         let ttsScriptMode: "mechanical" | "openai_inline" = inlineTtsScript ? "openai_inline" : "mechanical";
         try {
-          if (visibleResponseWasTruncated) {
-            logger.info("Using visible response as the TTS source after concise-audio truncation", {
-              provider: request.provider,
-              personaId: persona.id,
-              conversationId: conversation.id,
-              visibleTextCharacters: responseText.length,
-              originalTextCharacters: fullResponseText.length
-            });
-          }
           const ttsScriptResult = inlineTtsScript
             ? { script: inlineTtsScript, mode: "openai_inline" as const }
             : await buildTtsScriptForSpeech(speechText, persona, request.personaInfluenceLevel);
