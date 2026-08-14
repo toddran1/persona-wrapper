@@ -4,36 +4,20 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { expo } from "@better-auth/expo";
 import { username } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
-import { importPKCS8, SignJWT } from "jose";
 import { env } from "./config/env.js";
 import { getDatabase } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { hashPassword, verifyPassword } from "./services/passwordService.js";
 import { authEmailEnabled, sendAccountRestoredEmail, sendPasswordChangedEmail, sendPasswordResetEmail, sendVerificationEmail } from "./services/authEmailService.js";
+import { generateAppleClientSecret, importAppleSigningKey } from "./services/appleOAuthService.js";
 import { authCookieAttributes } from "./utils/authCookieConfig.js";
 import { logger } from "./utils/logger.js";
 
 const database = getDatabase();
 const apiOrigin = env.BETTER_AUTH_URL ?? `http://localhost:${env.PORT}`;
-
-async function generateAppleClientSecret(): Promise<string> {
-  const clientId = env.APPLE_OAUTH_CLIENT_ID;
-  const teamId = env.APPLE_OAUTH_TEAM_ID;
-  const keyId = env.APPLE_OAUTH_KEY_ID;
-  const privateKey = env.APPLE_OAUTH_PRIVATE_KEY;
-  if (!clientId || !teamId || !keyId || !privateKey) throw new Error("Apple OAuth is not configured.");
-
-  const signingKey = await importPKCS8(privateKey.replaceAll("\\\\n", "\\n"), "ES256");
-  const now = Math.floor(Date.now() / 1000);
-  return new SignJWT()
-    .setProtectedHeader({ alg: "ES256", kid: keyId })
-    .setIssuer(teamId)
-    .setSubject(clientId)
-    .setAudience("https://appleid.apple.com")
-    .setIssuedAt(now)
-    .setExpirationTime(now + (180 * 24 * 60 * 60))
-    .sign(signingKey);
-}
+const appleSigningKey = env.APPLE_OAUTH_PRIVATE_KEY
+  ? await importAppleSigningKey(env.APPLE_OAUTH_PRIVATE_KEY)
+  : undefined;
 
 if (database && !authEmailEnabled) {
   logger.warn(
@@ -60,10 +44,18 @@ const socialProviders = {
       clientSecret: env.FACEBOOK_OAUTH_CLIENT_SECRET
     }
   } : {}),
-  ...(env.APPLE_OAUTH_CLIENT_ID && env.APPLE_OAUTH_TEAM_ID && env.APPLE_OAUTH_KEY_ID && env.APPLE_OAUTH_PRIVATE_KEY ? {
+  ...(env.APPLE_OAUTH_CLIENT_ID && env.APPLE_OAUTH_TEAM_ID && env.APPLE_OAUTH_KEY_ID && appleSigningKey ? {
     apple: async () => ({
       clientId: env.APPLE_OAUTH_CLIENT_ID!,
-      clientSecret: await generateAppleClientSecret()
+      clientSecret: await generateAppleClientSecret({
+        clientId: env.APPLE_OAUTH_CLIENT_ID!,
+        teamId: env.APPLE_OAUTH_TEAM_ID!,
+        keyId: env.APPLE_OAUTH_KEY_ID!,
+        signingKey: appleSigningKey
+      }),
+      mapProfileToUser: (profile: { sub: string; email?: string }) => ({
+        email: profile.email ?? `apple-${profile.sub}@users.invalid`
+      })
     })
   } : {})
 };

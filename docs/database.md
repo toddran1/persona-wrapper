@@ -96,13 +96,17 @@ GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
 FACEBOOK_OAUTH_CLIENT_ID=
 FACEBOOK_OAUTH_CLIENT_SECRET=
+APPLE_OAUTH_CLIENT_ID=
+APPLE_OAUTH_TEAM_ID=
+APPLE_OAUTH_KEY_ID=
+APPLE_OAUTH_PRIVATE_KEY=
 ```
 
 Better Auth owns password identities, social accounts, verification records, and database sessions. Existing scrypt password hashes are migrated without forcing password resets. Web uses secure HTTP-only cookies; the Expo client stores its cookie in SecureStore and attaches it to API requests.
 
 Password reset is enabled only when both `GMAIL_SMTP_USER` and `GMAIL_SMTP_APP_PASSWORD` are configured. Set `GMAIL_SMTP_USER` to the Gmail address that should send reset mail and use a Google App Password—not the normal Gmail password—for `GMAIL_SMTP_APP_PASSWORD`. Spaces in Google’s displayed App Password are accepted and removed automatically. Reset links expire after one hour and a successful reset revokes the user's other sessions. Mobile reset requests deliberately open the shared web reset page from the email so the flow works consistently across native email clients. Email verification and MFA are not enabled yet.
 
-Google and Facebook callbacks are handled by Better Auth at `/api/auth/callback/google` and `/api/auth/callback/facebook`. Register those exact URLs in each provider dashboard. Mobile social sign-in uses the Better Auth Expo authorization proxy and the `personawrapper://` app scheme; no app-maintained polling or one-time exchange-code endpoint is required.
+Google, Facebook, and Apple callbacks are handled by Better Auth at `/api/auth/callback/google`, `/api/auth/callback/facebook`, and `/api/auth/callback/apple`. Register those exact URLs in each provider dashboard. Apple requires a public HTTPS callback and uses the web Services ID as `APPLE_OAUTH_CLIENT_ID`; localhost is not accepted. Mobile social sign-in uses the Better Auth Expo authorization proxy and the `personawrapper://` app scheme; no app-maintained polling or one-time exchange-code endpoint is required.
 
 For production:
 

@@ -56,9 +56,17 @@ Required names:
 - `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`
 
 The preview API/web URLs are pinned in `eas.json`; production URLs are supplied
-by the EAS production environment. Confirm the Google and Facebook provider
-dashboards contain Better Auth's exact API callbacks for each backend:
-`/api/auth/callback/google` and `/api/auth/callback/facebook`.
+by the EAS production environment. Confirm the Google, Facebook, and Apple
+provider dashboards contain Better Auth's exact API callbacks for each backend:
+`/api/auth/callback/google`, `/api/auth/callback/facebook`, and
+`/api/auth/callback/apple`. Apple's callback must be public HTTPS and registered
+on the Services ID associated with the app's primary App ID.
+
+For users who choose Apple's Hide My Email option, configure Sign in with Apple
+for Email Communication in the Apple Developer portal. Register the exact
+transactional sender used by `GMAIL_SMTP_USER` (or its sending domain), and make
+sure the domain passes SPF and DKIM before release so verification, reset, and
+account notices reach Apple private relay addresses.
 
 The generated native configuration must also be reviewed before upload:
 
@@ -69,6 +77,9 @@ The generated native configuration must also be reviewed before upload:
 - iOS declares microphone and speech-recognition usage, plus add-only photo
   access for saving generated images. It does not declare unused camera, Face ID,
   or photo-library read access.
+- iOS enables the Sign in with Apple entitlement and uses Apple's native
+  authentication button. Test Continue and cancellation on a physical device,
+  including both Share My Email and Hide My Email on a fresh Apple authorization.
 - `ITSAppUsesNonExemptEncryption` is `false` because the app uses standard
   operating-system/provider HTTPS and TLS rather than shipping custom or
   non-exempt cryptography.

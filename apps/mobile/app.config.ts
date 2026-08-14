@@ -36,6 +36,7 @@ const config: ExpoConfig = {
   userInterfaceStyle: "dark",
   ios: {
     supportsTablet: true,
+    usesAppleSignIn: true,
     bundleIdentifier: "com.forthebaddiez.mobile",
     icon: "./assets/branding/FTB_logo_ios_letters_only_icon.png",
     config: {
@@ -77,6 +78,7 @@ const config: ExpoConfig = {
     "expo-sharing",
     "expo-status-bar",
     "expo-web-browser",
+    "expo-apple-authentication",
     [
       "expo-audio",
       {

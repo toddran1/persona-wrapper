@@ -69,6 +69,7 @@ export function ConversationSidebar({
   authUser,
   authLoading = false,
   authError,
+  oauthReturnAction,
   oauthProviders = [],
   currentPolicies,
   conversations,
@@ -115,6 +116,7 @@ export function ConversationSidebar({
   authUser?: AuthUser | undefined;
   authLoading?: boolean;
   authError?: string | undefined;
+  oauthReturnAction?: "link" | "sign-in" | undefined;
   oauthProviders?: OAuthProviderStatus[];
   currentPolicies?: CurrentPoliciesResponse | undefined;
   conversations: ConversationSummary[];
@@ -206,6 +208,24 @@ export function ConversationSidebar({
   const settingsDialogRef = useRef<HTMLDivElement>(null);
   const accountIdRef = useRef(authUser?.id);
   const dataTransferActive = Boolean(dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status));
+
+  function oauthProviderLabel(provider: string): string {
+    if (provider === "google") return "Google";
+    if (provider === "facebook") return "Facebook";
+    if (provider === "apple") return "Apple";
+    return provider;
+  }
+
+  useEffect(() => {
+    if (!authError || !oauthReturnAction) return;
+    if (oauthReturnAction === "link" && authUser) {
+      setLocalAuthError(authError);
+      setSettingsSection("security");
+      setSettingsOpen(true);
+      return;
+    }
+    setAuthPanelOpen(true);
+  }, [authError, authUser, oauthReturnAction]);
   const filteredConversations = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return conversations;
@@ -760,7 +780,7 @@ export function ConversationSidebar({
   }
 
   async function unlinkAccount(account: ConnectedAccount): Promise<void> {
-    const providerLabel = account.providerId === "google" ? "Google" : "Facebook";
+    const providerLabel = oauthProviderLabel(account.providerId);
     if (!window.confirm(`Disconnect ${providerLabel}? You will no longer be able to sign in with it.`)) return;
     setAuthBusy(true);
     setLocalAuthError(undefined);
@@ -1053,7 +1073,7 @@ export function ConversationSidebar({
                         {provider.provider === "google" ? "G" : provider.provider === "facebook" ? "f" : ""}
                       </span>
                       Continue with{" "}
-                      {provider.provider === "google" ? "Google" : provider.provider === "facebook" ? "Facebook" : "Apple"}
+                      {oauthProviderLabel(provider.provider)}
                     </button>
                   ))}
                 </div>
@@ -1707,7 +1727,7 @@ export function ConversationSidebar({
                           <div className="settings-action-row">
                             {enabledOAuthProviders.filter((provider) => !connectedAccounts.some((account) => account.providerId === provider.provider)).map((provider) => (
                               <button key={provider.provider} type="button" className="settings-action" disabled={authBusy} onClick={() => void linkAccount(provider.provider)}>
-                                Connect {provider.provider === "google" ? "Google" : provider.provider === "facebook" ? "Facebook" : "Apple"}
+                                Connect {oauthProviderLabel(provider.provider)}
                               </button>
                             ))}
                           </div>

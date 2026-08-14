@@ -71,6 +71,11 @@ TLS development domain when testing the full flow. The Services ID is
 store its complete `.p8` contents in `APPLE_OAUTH_PRIVATE_KEY` (literal `\n`
 escapes are supported for hosts that do not preserve multiline secrets).
 
+Before release, configure **Sign in with Apple for Email Communication** in the
+Apple Developer portal. Register the exact address used by `GMAIL_SMTP_USER` or
+its sending domain and verify SPF/DKIM. Without that step, verification, reset,
+and account emails may not reach users who choose Hide My Email.
+
 ### 3. Run the apps
 
 Single command:

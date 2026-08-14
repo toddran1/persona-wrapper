@@ -170,7 +170,7 @@ const envSchema = z.object({
   AUTH_REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
   AUTH_PASSWORD_MIN_LENGTH: z.coerce.number().int().min(8).max(128).default(10),
   TERMS_POLICY_VERSION: z.preprocess(optionalTrimmedString, z.string().min(1).max(80).default("2026-08-14.2")),
-  PRIVACY_POLICY_VERSION: z.preprocess(optionalTrimmedString, z.string().min(1).max(80).default("2026-08-14.2")),
+  PRIVACY_POLICY_VERSION: z.preprocess(optionalTrimmedString, z.string().min(1).max(80).default("2026-08-14.3")),
   BETTER_AUTH_SECRET: z.preprocess(optionalTrimmedString, z.string().min(32).optional()),
   GMAIL_SMTP_USER: z.preprocess(optionalTrimmedString, z.string().email().optional()),
   GMAIL_SMTP_APP_PASSWORD: z.preprocess(optionalWhitespaceFreeSecret, z.string().min(16).optional()),

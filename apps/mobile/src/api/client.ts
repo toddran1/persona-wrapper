@@ -368,6 +368,17 @@ function authError(error: { message?: string | undefined } | null): Error {
   return new Error(error?.message || "Authentication failed. Please try again.");
 }
 
+function oauthProviderLabel(provider: OAuthProvider): string {
+  if (provider === "google") return "Google";
+  if (provider === "facebook") return "Facebook";
+  return "Apple";
+}
+
+function mobileOAuthErrorCallbackURL(provider: OAuthProvider, action: "link" | "sign-in"): string {
+  const params = new URLSearchParams({ oauthProvider: provider, oauthAction: action });
+  return `${MOBILE_AUTH_CALLBACK_URL}?${params.toString()}`;
+}
+
 function toAuthUser(user: Record<string, unknown>): AuthUser {
   const email = typeof user.email === "string" && !user.email.endsWith("@users.invalid") ? user.email : null;
   return {
@@ -736,11 +747,13 @@ export const api = {
     const result = await authClient.signIn.social({
       provider,
       callbackURL: MOBILE_AUTH_CALLBACK_URL,
+      errorCallbackURL: mobileOAuthErrorCallbackURL(provider, "sign-in"),
       fetchOptions: { headers: { "x-device-id": installationId, "x-owner-id": installationId } }
     });
     if (result.error) throw authError(result.error);
     const session = await authClient.getSession();
-    if (session.error || !session.data?.user) throw authError(session.error ?? { message: "OAuth sign in did not complete." });
+    if (session.error) throw authError(session.error);
+    if (!session.data?.user) throw new Error(`${oauthProviderLabel(provider)} sign-in was cancelled or did not complete.`);
     return { user: toAuthUser(session.data.user as unknown as Record<string, unknown>) };
   },
   requestPasswordReset: async (email: string): Promise<void> => {
@@ -783,9 +796,15 @@ export const api = {
     const result = await authClient.linkSocial({
       provider,
       callbackURL: MOBILE_AUTH_CALLBACK_URL,
+      errorCallbackURL: mobileOAuthErrorCallbackURL(provider, "link"),
       fetchOptions: { headers: { "x-device-id": installationId, "x-owner-id": installationId } }
     });
     if (result.error) throw authError(result.error);
+    const accounts = await authClient.listAccounts();
+    if (accounts.error) throw authError(accounts.error);
+    if (!(accounts.data ?? []).some((account) => account.providerId === provider)) {
+      throw new Error(`${oauthProviderLabel(provider)} connection was cancelled or did not complete.`);
+    }
   },
   unlinkConnectedAccount: async (providerId: string, accountId?: string): Promise<void> => {
     const result = await authClient.unlinkAccount({ providerId, ...(accountId ? { accountId } : {}) });

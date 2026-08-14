@@ -21,6 +21,29 @@ import { PersonaVisualStage, type PersonaVisualState } from "./components/Person
 
 const NON_AUDIO_SPEAKING_MS = 8000;
 
+function oauthProviderLabel(provider: string | null): string {
+  if (provider === "google") return "Google";
+  if (provider === "facebook") return "Facebook";
+  if (provider === "apple") return "Apple";
+  return "Social";
+}
+
+function oauthReturnFromLocation(): { action: "link" | "sign-in"; message: string } | undefined {
+  const params = new URLSearchParams(window.location.search);
+  const error = params.get("error");
+  const provider = params.get("oauthProvider");
+  if (!error || !provider) return undefined;
+  const label = oauthProviderLabel(provider);
+  const action = params.get("oauthAction") === "link" ? "link" : "sign-in";
+  const cancelled = error === "access_denied" || error === "user_cancelled_authorize";
+  return {
+    action,
+    message: cancelled
+      ? `${label} ${action === "link" ? "connection" : "sign-in"} was cancelled.`
+      : `${label} ${action === "link" ? "could not be connected" : "sign-in could not be completed"}. Please try again.`
+  };
+}
+
 function hasCurrentPolicyConsent(user: AuthUser | undefined, policies: CurrentPoliciesResponse | undefined): boolean {
   return Boolean(
     user
@@ -304,7 +327,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [conversationListLoading, setConversationListLoading] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | undefined>();
   const [authLoading, setAuthLoading] = useState(true);
-  const [authError, setAuthError] = useState<string | undefined>();
+  const [oauthReturn] = useState(oauthReturnFromLocation);
+  const [authError, setAuthError] = useState<string | undefined>(oauthReturn?.message);
   const [dataTransferJob, setDataTransferJob] = useState<DataTransferJob | undefined>();
   const [oauthProviders, setOAuthProviders] = useState<OAuthProviderStatus[]>([]);
   // Landing state after the better-auth verify-email link redirects home.
@@ -322,6 +346,16 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     url.searchParams.delete("error");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, [emailVerificationNotice]);
+
+  useEffect(() => {
+    if (!oauthReturn) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("error");
+    url.searchParams.delete("error_description");
+    url.searchParams.delete("oauthProvider");
+    url.searchParams.delete("oauthAction");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [oauthReturn]);
 
   useEffect(() => {
     if (authUser?.modelProvider) setProvider(authUser.modelProvider);
@@ -654,7 +688,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         if (!cancelled) {
           setAuthUser(me.user);
           setCurrentPolicies(policies);
-          setAuthError(undefined);
+          setAuthError(oauthReturn?.message);
         }
         if (!hasCurrentPolicyConsent(me.user, policies)) authenticated = false;
       } catch {
@@ -1936,6 +1970,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           authUser={authUser}
           authLoading={authLoading}
           authError={authError}
+          oauthReturnAction={oauthReturn?.action}
           oauthProviders={oauthProviders}
           currentPolicies={currentPolicies}
           conversations={conversationList}

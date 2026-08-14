@@ -98,7 +98,7 @@ describe("PublicLegalPage", () => {
     render(<PublicLegalPage path="/privacy" />);
     expect(screen.getByRole("heading", { name: "4. Cookies, device storage, and telemetry" })).toBeInTheDocument();
     expect(screen.getByText("The current Service does not request or collect precise GPS location.", { exact: false })).toBeInTheDocument();
-    for (const provider of ["OpenAI:", "Google Gemini:", "Fish Audio:", "ElevenLabs:", "Cloudflare R2:", "Render:", "Google and Facebook OAuth:", "Google Gmail SMTP:", "RevenueCat, Apple, and Google Play:", "Configured OpenTelemetry providers:"]) {
+    for (const provider of ["OpenAI:", "Google Gemini:", "Fish Audio:", "ElevenLabs:", "Cloudflare R2:", "Render:", "Google, Facebook, and Apple OAuth:", "Google Gmail SMTP:", "RevenueCat, Apple, and Google Play:", "Configured OpenTelemetry providers:"]) {
       expect(screen.getByText(provider, { exact: false })).toBeInTheDocument();
     }
   });

@@ -620,9 +620,13 @@ export const api = {
     return response.body.providers;
   },
   oauthLogin: async (provider: OAuthProvider): Promise<void> => {
+    const errorCallbackURL = new URL("/", window.location.origin);
+    errorCallbackURL.searchParams.set("oauthProvider", provider);
+    errorCallbackURL.searchParams.set("oauthAction", "sign-in");
     const result = await authClient.signIn.social({
       provider,
-      callbackURL: new URL("/", window.location.origin).toString()
+      callbackURL: new URL("/", window.location.origin).toString(),
+      errorCallbackURL: errorCallbackURL.toString()
     });
     if (result.error) throw authError(result.error);
   },
@@ -664,9 +668,13 @@ export const api = {
     }));
   },
   linkConnectedAccount: async (provider: OAuthProvider): Promise<void> => {
+    const errorCallbackURL = new URL("/", window.location.origin);
+    errorCallbackURL.searchParams.set("oauthProvider", provider);
+    errorCallbackURL.searchParams.set("oauthAction", "link");
     const result = await authClient.linkSocial({
       provider,
-      callbackURL: new URL("/", window.location.origin).toString()
+      callbackURL: new URL("/", window.location.origin).toString(),
+      errorCallbackURL: errorCallbackURL.toString()
     });
     if (result.error) throw authError(result.error);
   },
