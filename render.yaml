@@ -162,9 +162,9 @@ services:
       - key: UPLOAD_MAX_BYTES
         value: "49999999"
       - key: CHAT_AUDIO_MAX_RESPONSE_CHARACTERS
-        value: "675"
+        value: "800"
       - key: OPENAI_AUDIO_MAX_OUTPUT_TOKENS
-        value: "690"
+        value: "830"
 
       - key: TTS_PROVIDER
         value: fish_audio
@@ -425,9 +425,9 @@ services:
       - key: UPLOAD_MAX_BYTES
         value: "49999999"
       - key: CHAT_AUDIO_MAX_RESPONSE_CHARACTERS
-        value: "675"
+        value: "800"
       - key: OPENAI_AUDIO_MAX_OUTPUT_TOKENS
-        value: "690"
+        value: "830"
       - key: TTS_PROVIDER
         value: fish_audio
       - key: FISH_AUDIO_API_KEY
