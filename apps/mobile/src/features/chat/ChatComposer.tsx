@@ -82,6 +82,29 @@ export function ChatComposer({
     onDraftChange?.(nextDraft);
   }
 
+  const quickMenuButton = (
+    <Pressable
+      accessibilityRole="button"
+      testID="mobile-quick-menu"
+      accessibilityLabel={t("composer.quickMenu")}
+      disabled={Boolean(disabled || uploadingAttachments)}
+      hitSlop={6}
+      onPress={onQuickMenu}
+      style={[
+        styles.quickMenuButton,
+        compact ? styles.quickMenuButtonCompact : null,
+        {
+          backgroundColor: theme.accent2,
+          borderColor: theme.accent,
+          opacity: disabled || uploadingAttachments ? 0.45 : 1,
+          shadowColor: theme.accent2
+        }
+      ]}
+    >
+      <Ionicons name="options-outline" size={20} color={theme.background} />
+    </Pressable>
+  );
+
   return (
     <View
       style={styles.shell}
@@ -146,20 +169,23 @@ export function ChatComposer({
               <Ionicons name="stop" size={18} color={theme.background} />
             </Pressable>
           ) : canSend ? (
-            <Pressable
-              accessibilityRole="button"
-              testID="mobile-send-message"
-              accessibilityLabel={t("composer.send")}
-              hitSlop={6}
-              onPress={submit}
-              style={[
-                styles.sendButton,
-                compact ? styles.sendButtonCompact : null,
-                { backgroundColor: theme.text }
-              ]}
-            >
-              <Ionicons name="arrow-up" size={20} color={theme.background} />
-            </Pressable>
+            <View style={styles.sendControlStack}>
+              {quickMenuButton}
+              <Pressable
+                accessibilityRole="button"
+                testID="mobile-send-message"
+                accessibilityLabel={t("composer.send")}
+                hitSlop={6}
+                onPress={submit}
+                style={[
+                  styles.sendButton,
+                  compact ? styles.sendButtonCompact : null,
+                  { backgroundColor: theme.text }
+                ]}
+              >
+                <Ionicons name="arrow-up" size={20} color={theme.background} />
+              </Pressable>
+            </View>
           ) : (
             <>
               <Pressable
@@ -179,26 +205,7 @@ export function ChatComposer({
               >
                 <Ionicons name={voiceInputActive ? "stop" : "mic-outline"} size={20} color={theme.text} />
               </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                testID="mobile-quick-menu"
-                accessibilityLabel={t("composer.quickMenu")}
-                disabled={Boolean(disabled || uploadingAttachments)}
-                hitSlop={6}
-                onPress={onQuickMenu}
-                style={[
-                  styles.quickMenuButton,
-                  compact ? styles.quickMenuButtonCompact : null,
-                  {
-                    backgroundColor: theme.accent2,
-                    borderColor: theme.accent,
-                    opacity: disabled || uploadingAttachments ? 0.45 : 1,
-                    shadowColor: theme.accent2
-                  }
-                ]}
-              >
-                <Ionicons name="options-outline" size={20} color={theme.background} />
-              </Pressable>
+              {quickMenuButton}
             </>
           )}
         </View>
@@ -292,6 +299,10 @@ const styles = StyleSheet.create({
   sendButtonCompact: {
     height: 34,
     width: 34
+  },
+  sendControlStack: {
+    alignItems: "center",
+    gap: 6
   },
   stopButton: {
     borderWidth: 1,

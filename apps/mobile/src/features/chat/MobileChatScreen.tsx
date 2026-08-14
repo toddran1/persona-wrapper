@@ -4397,7 +4397,27 @@ export function MobileChatScreen() {
           <View style={[styles.attachmentSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <View style={[styles.attachmentSheetHandle, { backgroundColor: theme.border }]} />
             <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Quick options</Text>
-            <Text style={[styles.attachmentSheetCopy, { color: theme.muted }]}>Switch the persona or model for your next message.</Text>
+            <Text style={[styles.attachmentSheetCopy, { color: theme.muted }]}>Add to your message or choose who answers it.</Text>
+            <Text style={[styles.actionSheetTitle, { color: theme.muted, fontSize: 13 }]}>Message</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={voiceInputActive ? "Stop voice input" : "Start voice input"}
+              accessibilityState={{ selected: voiceInputActive }}
+              style={styles.attachmentSheetRow}
+              onPress={() => {
+                setQuickMenuVisible(false);
+                void toggleSpeechToText();
+              }}
+            >
+              <View style={[styles.attachmentSheetIcon, { backgroundColor: voiceInputActive ? theme.accent : "rgba(255,255,255,0.09)" }]}>
+                <Ionicons name={voiceInputActive ? "stop" : "mic-outline"} size={22} color={theme.text} />
+              </View>
+              <View style={styles.attachmentSheetRowCopy}>
+                <Text style={[styles.actionSheetText, { color: theme.text }]}>{voiceInputActive ? "Stop voice input" : "Voice input"}</Text>
+                <Text style={[styles.attachmentSheetHint, { color: theme.muted }]}>{voiceInputActive ? "Stop listening and keep the current transcript" : "Speak to add more text to this message"}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={theme.muted} />
+            </Pressable>
             <Text style={[styles.actionSheetTitle, { color: theme.muted, fontSize: 13 }]}>Persona</Text>
             {quickMenuPersonas.map((personaOption) => {
               const selected = personaOption.id === activePersona?.id;
