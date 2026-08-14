@@ -58,6 +58,53 @@ Test this matrix on both platforms:
 - Confirm the offline banner is announced, retry is reachable, cached content remains readable, and reconnect does not duplicate a message or upload.
 - Confirm an expired or revoked session is handled after connectivity returns rather than being mistaken for an offline failure.
 
+## Store privacy disclosures
+
+Before each App Store or Google Play submission, reconcile the live production
+configuration with Apple App Privacy and Google Play Data Safety. The legal
+policy is the user-facing explanation; the store forms are separate disclosures
+and must match the actual SDKs, providers, permissions, and data flows in the
+submitted binary.
+
+The current production disclosure review should include:
+
+- Contact and account identifiers: email address, optional username, OAuth
+  identifiers, and account authentication records.
+- User content: prompts, chats, conversation memory, feedback, uploaded files,
+  images, audio, public or authorized URLs, imported archives, and generated
+  media.
+- Purchases: product, transaction, entitlement, renewal, expiration, refund,
+  cancellation, and storefront information when RevenueCat billing is enabled.
+- Usage data: product interaction, persona and provider selections, feature
+  usage, token and tool counts, quota reservations and settlements, image
+  credits, and generated-audio duration.
+- Diagnostics: crash data, performance data, request status, route and trace
+  identifiers, and redacted operational logs when telemetry is enabled.
+- Device and network data: pseudonymous installation identifiers, IP-derived
+  approximate location, abuse-prevention signals, and device or operating-system
+  details needed for security, compatibility, and support.
+
+For the present configuration, document these purposes where applicable: app
+functionality, personalization, account management, analytics and reliability,
+security and fraud prevention, customer support, and purchase administration.
+Account records, chats, uploads, usage records, and purchases are generally
+linked to the signed-in account. The Service currently states that it does not
+sell personal information, use private chats for third-party advertising, or
+perform cross-context behavioral advertising. Do not mark data as "not linked"
+or "not collected" merely because a processor such as OpenAI, Google Gemini,
+Fish Audio, Cloudflare R2, Render, RevenueCat, Apple, or Google receives it on
+the application's behalf.
+
+Re-run this review whenever advertising is enabled; a provider, analytics SDK,
+permission, billing flow, or retention period changes; or a new data category is
+introduced. Keep screenshots or exports of the submitted store answers with the
+release record so later policy changes can be compared against the disclosures.
+
+Official references:
+
+- [Apple App Privacy details](https://developer.apple.com/app-store/app-privacy-details/)
+- [Google Play Data Safety guidance](https://support.google.com/googleplay/android-developer/answer/10787469)
+
 ## Native build note
 
 `expo-localization` and NetInfo include native modules. Install pods/dependencies through a fresh native build before physical-device verification:

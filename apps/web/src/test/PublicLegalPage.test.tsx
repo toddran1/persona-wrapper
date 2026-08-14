@@ -72,6 +72,19 @@ describe("PublicLegalPage", () => {
     expect(screen.getByText("Deleting an account does not itself cancel a third-party subscription.", { exact: false })).toBeInTheDocument();
   });
 
+  it("explains service shutdown, billing, credits, exports, and account-data handling", () => {
+    render(<PublicLegalPage path="/terms" />);
+    expect(screen.getByRole("heading", { name: "11. Availability, changes, and permanent service discontinuation" })).toBeInTheDocument();
+    expect(screen.getByText("stop new purchases and future subscription renewals", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("through the original billing provider", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("promotional, bonus, tester, support-granted", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("a period during which you can access the Service and export supported account data", { exact: false })).toBeInTheDocument();
+
+    render(<PublicLegalPage path="/privacy" />);
+    expect(screen.getByText("Service closure:", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("provide instructions for exporting available account data", { exact: false })).toBeInTheDocument();
+  });
+
   it("provides a retention schedule and regional privacy supplements", () => {
     render(<PublicLegalPage path="/privacy" />);
     expect(screen.getByRole("heading", { name: "8. Retention schedule" })).toBeInTheDocument();
@@ -85,7 +98,7 @@ describe("PublicLegalPage", () => {
     render(<PublicLegalPage path="/privacy" />);
     expect(screen.getByRole("heading", { name: "4. Cookies, device storage, and telemetry" })).toBeInTheDocument();
     expect(screen.getByText("The current Service does not request or collect precise GPS location.", { exact: false })).toBeInTheDocument();
-    for (const provider of ["OpenAI:", "Fish Audio:", "ElevenLabs:", "Amazon Web Services and Amazon S3:", "Render:", "Google and Facebook OAuth:", "Google Gmail SMTP:", "Configured OpenTelemetry providers:"]) {
+    for (const provider of ["OpenAI:", "Google Gemini:", "Fish Audio:", "ElevenLabs:", "Cloudflare R2:", "Render:", "Google and Facebook OAuth:", "Google Gmail SMTP:", "RevenueCat, Apple, and Google Play:", "Configured OpenTelemetry providers:"]) {
       expect(screen.getByText(provider, { exact: false })).toBeInTheDocument();
     }
   });
@@ -96,6 +109,7 @@ describe("PublicLegalPage", () => {
     expect(screen.getByText("deployment-keyed cryptographic function", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("Measure plan usage; reserve, settle, release, and reconcile usage", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("currently retained for up to 400 days", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText("If paid plans are introduced", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("when billing is enabled", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("remove or clear conversation memories", { exact: false })).toBeInTheDocument();
   });
 });
