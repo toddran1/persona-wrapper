@@ -4,6 +4,7 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { expo } from "@better-auth/expo";
 import { username } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
+import { importPKCS8, SignJWT } from "jose";
 import { env } from "./config/env.js";
 import { getDatabase } from "./db/client.js";
 import * as schema from "./db/schema.js";
@@ -14,6 +15,25 @@ import { logger } from "./utils/logger.js";
 
 const database = getDatabase();
 const apiOrigin = env.BETTER_AUTH_URL ?? `http://localhost:${env.PORT}`;
+
+async function generateAppleClientSecret(): Promise<string> {
+  const clientId = env.APPLE_OAUTH_CLIENT_ID;
+  const teamId = env.APPLE_OAUTH_TEAM_ID;
+  const keyId = env.APPLE_OAUTH_KEY_ID;
+  const privateKey = env.APPLE_OAUTH_PRIVATE_KEY;
+  if (!clientId || !teamId || !keyId || !privateKey) throw new Error("Apple OAuth is not configured.");
+
+  const signingKey = await importPKCS8(privateKey.replaceAll("\\\\n", "\\n"), "ES256");
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT()
+    .setProtectedHeader({ alg: "ES256", kid: keyId })
+    .setIssuer(teamId)
+    .setSubject(clientId)
+    .setAudience("https://appleid.apple.com")
+    .setIssuedAt(now)
+    .setExpirationTime(now + (180 * 24 * 60 * 60))
+    .sign(signingKey);
+}
 
 if (database && !authEmailEnabled) {
   logger.warn(
@@ -39,6 +59,12 @@ const socialProviders = {
       clientId: env.FACEBOOK_OAUTH_CLIENT_ID,
       clientSecret: env.FACEBOOK_OAUTH_CLIENT_SECRET
     }
+  } : {}),
+  ...(env.APPLE_OAUTH_CLIENT_ID && env.APPLE_OAUTH_TEAM_ID && env.APPLE_OAUTH_KEY_ID && env.APPLE_OAUTH_PRIVATE_KEY ? {
+    apple: async () => ({
+      clientId: env.APPLE_OAUTH_CLIENT_ID!,
+      clientSecret: await generateAppleClientSecret()
+    })
   } : {})
 };
 
@@ -183,7 +209,7 @@ export const auth = database ? betterAuth({
     modelName: "betterAuthAccounts",
     accountLinking: {
       enabled: true,
-      trustedProviders: ["google", "facebook"]
+      trustedProviders: ["google", "facebook", "apple"]
     }
   },
   verification: {
@@ -252,6 +278,7 @@ export const auth = database ? betterAuth({
   trustedOrigins: [
     env.WEB_APP_URL,
     "personawrapper://",
+    "https://appleid.apple.com",
     ...(env.NODE_ENV === "production" ? [] : ["exp://**", "http://localhost:**"])
   ],
   advanced: {

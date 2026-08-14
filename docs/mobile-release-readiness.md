@@ -17,9 +17,67 @@ npm run verify:release -w @persona/mobile
 
 The gate runs TypeScript and the mobile accessibility audit. The audit rejects unlabeled interactive controls, inputs without accessible names, images without descriptions or decorative treatment, and modals that do not identify themselves as modal content.
 
+## Store-candidate profiles
+
+Use store-distribution builds for release testing. Expo Go, development clients,
+and the internal-distribution `preview` profile do not exercise the same signing,
+permission, and store packaging paths.
+
+```bash
+# Google Play internal testing: AAB signed for Play, using the development backend
+npx eas-cli build --platform android --profile play-internal
+
+# TestFlight candidate using the development backend
+npx eas-cli build --platform ios --profile testflight
+
+# Final store candidates using production services
+npx eas-cli build --platform all --profile production
+```
+
+The `play-internal` and `testflight` profiles deliberately require both
+RevenueCat public SDK keys. Add them to the EAS `preview` environment before
+building. The production environment must contain the production API and web
+URLs plus both RevenueCat keys. The config rejects missing store-build values
+instead of silently producing a candidate with incomplete billing.
+
+Before each candidate build, verify variable presence without printing sensitive
+values:
+
+```bash
+npx eas-cli env:list preview --format short
+npx eas-cli env:list production --format short
+```
+
+Required names:
+
+- `EXPO_PUBLIC_API_URL`
+- `EXPO_PUBLIC_WEB_APP_URL`
+- `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`
+- `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`
+
+The preview API/web URLs are pinned in `eas.json`; production URLs are supplied
+by the EAS production environment. Confirm the Google and Facebook provider
+dashboards contain Better Auth's exact API callbacks for each backend:
+`/api/auth/callback/google` and `/api/auth/callback/facebook`.
+
+The generated native configuration must also be reviewed before upload:
+
+- Android `targetSdkVersion` and `compileSdkVersion` resolve to API 36.
+- Android does not request `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`,
+  `READ_MEDIA_AUDIO`, or `READ_EXTERNAL_STORAGE`; occasional attachments use the
+  system picker.
+- iOS declares microphone and speech-recognition usage, plus add-only photo
+  access for saving generated images. It does not declare unused camera, Face ID,
+  or photo-library read access.
+- `ITSAppUsesNonExemptEncryption` is `false` because the app uses standard
+  operating-system/provider HTTPS and TLS rather than shipping custom or
+  non-exempt cryptography.
+
 ## Accessibility acceptance
 
-Test the release build on a physical iPhone and Android phone.
+Test the `testflight` build on a physical iPhone and the `play-internal` AAB from
+Google Play's internal track on a physical Android phone. Record device model,
+OS version, build ID, date, and pass/fail evidence for every run.
 
 - Complete sign in, open the drawer, search chats, send a message, attach a file, open response actions, and use Settings with VoiceOver and TalkBack.
 - Confirm focus enters each modal, remains inside it, and returns to the invoking control after dismissal.

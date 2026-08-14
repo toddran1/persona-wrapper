@@ -44,6 +44,33 @@ Set at minimum:
 - `OPENAI_API_KEY` when you are ready to replace the stub provider with real SDK calls
 - `GOOGLE_GEMINI_API_KEY` to enable Gemini responses
 
+### Sign in with Apple
+
+The Apple provider is enabled only when all four values below are set on the
+API. The private key is used only to mint Apple's required short-lived client
+secret JWT at sign-in time; do not commit the downloaded `.p8` file.
+
+```text
+APPLE_OAUTH_CLIENT_ID=com.example.for-the-baddiez.web
+APPLE_OAUTH_TEAM_ID=YOUR_APPLE_TEAM_ID
+APPLE_OAUTH_KEY_ID=YOUR_SIGN_IN_WITH_APPLE_KEY_ID
+APPLE_OAUTH_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+```
+
+In Apple Developer, enable Sign in with Apple for the app's App ID, create a
+Services ID for the web client, associate it with that primary App ID, and add
+the production callback exactly as:
+
+```text
+https://YOUR_API_DOMAIN/api/auth/callback/apple
+```
+
+Apple requires HTTPS and will not accept a localhost callback. Use a public
+TLS development domain when testing the full flow. The Services ID is
+`APPLE_OAUTH_CLIENT_ID`; create a Sign in with Apple key for the same team and
+store its complete `.p8` contents in `APPLE_OAUTH_PRIVATE_KEY` (literal `\n`
+escapes are supported for hosts that do not preserve multiline secrets).
+
 ### 3. Run the apps
 
 Single command:

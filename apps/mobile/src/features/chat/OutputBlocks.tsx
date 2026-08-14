@@ -640,7 +640,7 @@ function ImageOutputBlock({
     }
     let temporaryUri: string | undefined;
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync(false);
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
       if (!permission.granted) {
         Alert.alert("Photos unavailable", "Allow photo access to save generated images.");
         return;

@@ -103,6 +103,7 @@ function renderSidebar(options: {
       oauthProviders={[
         { provider: "google", enabled: true },
         { provider: "facebook", enabled: true },
+        { provider: "apple", enabled: true },
       ]}
       conversations={[]}
       onLogin={vi.fn()}
@@ -351,6 +352,7 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(dialog).getByRole("button", { name: "Security & sign-in" }));
     expect(await within(dialog).findByRole("heading", { name: "Connected accounts" })).toBeInTheDocument();
     expect(within(dialog).getByText("Email & password")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Connect Apple" })).toBeInTheDocument();
     expect(within(dialog).getByRole("heading", { name: "Signed-in devices" })).toBeInTheDocument();
     expect(within(dialog).getByText(/This device/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Chrome on macOS/)).toBeInTheDocument();

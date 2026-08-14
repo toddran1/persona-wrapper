@@ -470,7 +470,7 @@ export type ClientContext = z.infer<typeof clientContextSchema>;
 export const authClientTypeSchema = z.enum(["web", "desktop", "ios", "android", "unknown"]);
 export type AuthClientType = z.infer<typeof authClientTypeSchema>;
 
-export const oauthProviderSchema = z.enum(["google", "facebook"]);
+export const oauthProviderSchema = z.enum(["google", "facebook", "apple"]);
 export type OAuthProvider = z.infer<typeof oauthProviderSchema>;
 
 export const userGenderSchema = z.enum(["male", "female", "nonbinary", "other"]);

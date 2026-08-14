@@ -171,8 +171,8 @@ export function MobileAuthScreen({
                         busy ? styles.disabled : null
                       ]}
                     >
-                      <Ionicons name={providerStatus.provider === "google" ? "logo-google" : "logo-facebook"} size={20} color={theme.text} />
-                      <Text style={[styles.oauthText, { color: theme.text }]}>{t("auth.continueWith", { provider: providerStatus.provider === "google" ? "Google" : "Facebook" })}</Text>
+                      <Ionicons name={providerStatus.provider === "google" ? "logo-google" : providerStatus.provider === "facebook" ? "logo-facebook" : "logo-apple"} size={20} color={theme.text} />
+                      <Text style={[styles.oauthText, { color: theme.text }]}>{t("auth.continueWith", { provider: providerStatus.provider === "google" ? "Google" : providerStatus.provider === "facebook" ? "Facebook" : "Apple" })}</Text>
                     </Pressable>
                   ))}
                   <View style={styles.dividerRow}>

@@ -209,6 +209,14 @@ services:
         sync: false
       - key: FACEBOOK_OAUTH_CLIENT_SECRET
         sync: false
+      - key: APPLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: APPLE_OAUTH_TEAM_ID
+        sync: false
+      - key: APPLE_OAUTH_KEY_ID
+        sync: false
+      - key: APPLE_OAUTH_PRIVATE_KEY
+        sync: false
 
       - key: STORAGE_DRIVER
         value: s3
@@ -469,6 +477,14 @@ services:
       - key: FACEBOOK_OAUTH_CLIENT_ID
         sync: false
       - key: FACEBOOK_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: APPLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: APPLE_OAUTH_TEAM_ID
+        sync: false
+      - key: APPLE_OAUTH_KEY_ID
+        sync: false
+      - key: APPLE_OAUTH_PRIVATE_KEY
         sync: false
       - key: STORAGE_DRIVER
         value: s3

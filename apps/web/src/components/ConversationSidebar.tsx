@@ -1050,10 +1050,10 @@ export function ConversationSidebar({
                       disabled={authBusy}
                     >
                       <span aria-hidden="true">
-                        {provider.provider === "google" ? "G" : "f"}
+                        {provider.provider === "google" ? "G" : provider.provider === "facebook" ? "f" : ""}
                       </span>
                       Continue with{" "}
-                      {provider.provider === "google" ? "Google" : "Facebook"}
+                      {provider.provider === "google" ? "Google" : provider.provider === "facebook" ? "Facebook" : "Apple"}
                     </button>
                   ))}
                 </div>
@@ -1697,7 +1697,7 @@ export function ConversationSidebar({
                           <div className="settings-list">
                             {connectedAccounts.map((account) => (
                               <div className="settings-list-row settings-list-row-action" key={account.id}>
-                                <span>{account.providerId === "credential" ? "Email & password" : account.providerId === "google" ? "Google" : account.providerId === "facebook" ? "Facebook" : account.providerId}</span>
+                                <span>{account.providerId === "credential" ? "Email & password" : account.providerId === "google" ? "Google" : account.providerId === "facebook" ? "Facebook" : account.providerId === "apple" ? "Apple" : account.providerId}</span>
                                 {account.providerId !== "credential" ? (
                                   <button type="button" className="settings-inline-action" onClick={() => void unlinkAccount(account)} disabled={authBusy || connectedAccounts.length <= 1}>Disconnect</button>
                                 ) : <strong>Connected</strong>}
@@ -1707,7 +1707,7 @@ export function ConversationSidebar({
                           <div className="settings-action-row">
                             {enabledOAuthProviders.filter((provider) => !connectedAccounts.some((account) => account.providerId === provider.provider)).map((provider) => (
                               <button key={provider.provider} type="button" className="settings-action" disabled={authBusy} onClick={() => void linkAccount(provider.provider)}>
-                                Connect {provider.provider === "google" ? "Google" : "Facebook"}
+                                Connect {provider.provider === "google" ? "Google" : provider.provider === "facebook" ? "Facebook" : "Apple"}
                               </button>
                             ))}
                           </div>

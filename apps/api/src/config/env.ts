@@ -187,6 +187,10 @@ const envSchema = z.object({
   PLACES_SEARCH_MAX_RESULTS: z.coerce.number().int().min(1).max(20).default(8),
   FACEBOOK_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   FACEBOOK_OAUTH_CLIENT_SECRET: z.preprocess(optionalTrimmedString, z.string().optional()),
+  APPLE_OAUTH_CLIENT_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
+  APPLE_OAUTH_TEAM_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
+  APPLE_OAUTH_KEY_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
+  APPLE_OAUTH_PRIVATE_KEY: z.preprocess(optionalTrimmedString, z.string().optional()),
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_ROOT: z.preprocess(emptyStringToUndefined, z.string().optional()),
   STORAGE_S3_BUCKET: z.preprocess(optionalTrimmedString, z.string().optional()),
@@ -380,6 +384,19 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["FACEBOOK_OAUTH_CLIENT_ID"],
       message: "FACEBOOK_OAUTH_CLIENT_ID and FACEBOOK_OAUTH_CLIENT_SECRET must be configured together."
+    });
+  }
+  const appleCredentials = [
+    value.APPLE_OAUTH_CLIENT_ID,
+    value.APPLE_OAUTH_TEAM_ID,
+    value.APPLE_OAUTH_KEY_ID,
+    value.APPLE_OAUTH_PRIVATE_KEY
+  ];
+  if (appleCredentials.some(Boolean) && !appleCredentials.every(Boolean)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["APPLE_OAUTH_CLIENT_ID"],
+      message: "APPLE_OAUTH_CLIENT_ID, APPLE_OAUTH_TEAM_ID, APPLE_OAUTH_KEY_ID, and APPLE_OAUTH_PRIVATE_KEY must be configured together."
     });
   }
   if (Boolean(value.GMAIL_SMTP_USER) !== Boolean(value.GMAIL_SMTP_APP_PASSWORD)) {

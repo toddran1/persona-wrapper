@@ -3,16 +3,22 @@ import type { ExpoConfig } from "expo/config";
 const appEnvironment = process.env.EXPO_PUBLIC_APP_ENV?.trim() || "development";
 const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() || "http://localhost:4000";
 const webAppUrl = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "http://localhost:5173";
+const requiresRevenueCatConfiguration =
+  appEnvironment === "production" || process.env.EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION === "true";
 
-if (appEnvironment === "production") {
+if (appEnvironment === "production" || requiresRevenueCatConfiguration) {
   const required = [
     ["EXPO_PUBLIC_API_URL", apiUrl],
     ["EXPO_PUBLIC_WEB_APP_URL", webAppUrl],
-    ["EXPO_PUBLIC_REVENUECAT_IOS_API_KEY", process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim()],
-    ["EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY", process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY?.trim()]
+    ...(requiresRevenueCatConfiguration
+      ? ([
+          ["EXPO_PUBLIC_REVENUECAT_IOS_API_KEY", process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim()],
+          ["EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY", process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY?.trim()]
+        ] as const)
+      : [])
   ] as const;
   const missing = required.filter(([, value]) => !value).map(([name]) => name);
-  if (missing.length > 0) throw new Error(`Production mobile configuration is missing: ${missing.join(", ")}`);
+  if (missing.length > 0) throw new Error(`Store mobile configuration is missing: ${missing.join(", ")}`);
   if ([apiUrl, webAppUrl].some((value) => /(?:localhost|127\.0\.0\.1)/i.test(value))) {
     throw new Error("Production mobile builds cannot use localhost API or web URLs.");
   }
@@ -31,12 +37,24 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: "com.forthebaddiez.mobile",
-    icon: "./assets/branding/FTB_logo_ios_letters_only_icon.png"
+    icon: "./assets/branding/FTB_logo_ios_letters_only_icon.png",
+    config: {
+      usesNonExemptEncryption: false
+    },
+    infoPlist: {
+      NSMicrophoneUsageDescription: "Allow For the Baddiez to use the microphone for voice input."
+    }
   },
   android: {
     package: "com.forthebaddiez.mobile",
     icon: "./assets/branding/FTB_Logo_120x120.png",
     softwareKeyboardLayoutMode: "resize",
+    blockedPermissions: [
+      "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.READ_MEDIA_AUDIO",
+      "android.permission.READ_MEDIA_IMAGES",
+      "android.permission.READ_MEDIA_VIDEO"
+    ],
     adaptiveIcon: {
       foregroundImage: "./assets/branding/FTB_Logo_120x120_adaptive.png",
       backgroundColor: "#09060f"
@@ -55,14 +73,14 @@ const config: ExpoConfig = {
         backgroundColor: "#09060f"
       }
     ],
-    "expo-secure-store",
+    ["expo-secure-store", { faceIDPermission: false }],
     "expo-sharing",
     "expo-status-bar",
     "expo-web-browser",
     [
       "expo-audio",
       {
-        microphonePermission: false,
+        microphonePermission: "Allow For the Baddiez to use the microphone for voice input.",
         enableBackgroundPlayback: false,
         enableBackgroundRecording: false
       }
@@ -77,8 +95,16 @@ const config: ExpoConfig = {
     [
       "expo-media-library",
       {
-        photosPermission: "Allow For the Baddiez to access photos for generated image downloads.",
-        savePhotosPermission: "Allow For the Baddiez to save generated images to your photo library."
+        photosPermission: false,
+        savePhotosPermission: "Allow For the Baddiez to save generated images to your photo library.",
+        granularPermissions: []
+      }
+    ],
+    [
+      "expo-image-picker",
+      {
+        photosPermission: false,
+        cameraPermission: false
       }
     ],
     [

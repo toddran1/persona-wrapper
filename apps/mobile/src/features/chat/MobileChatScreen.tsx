@@ -1202,7 +1202,7 @@ export function MobileChatScreen() {
   }
 
   function confirmUnlinkConnectedAccount(account: ConnectedAccount): void {
-    const label = account.providerId === "google" ? "Google" : "Facebook";
+    const label = account.providerId === "google" ? "Google" : account.providerId === "facebook" ? "Facebook" : "Apple";
     Alert.alert(`Disconnect ${label}?`, `You will no longer be able to sign in with ${label}.`, [
       { text: "Cancel", style: "cancel" },
       { text: "Disconnect", style: "destructive", onPress: () => void (async () => {
@@ -1692,11 +1692,6 @@ export function MobileChatScreen() {
 
   async function pickImage(): Promise<void> {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Photos unavailable", "Allow photo access to attach images.");
-        return;
-      }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         quality: 0.9,
@@ -4143,9 +4138,9 @@ export function MobileChatScreen() {
               {securityError ? <Text accessibilityRole="alert" style={[styles.sessionErrorText, { color: theme.danger }]}>{securityError}</Text> : null}
               {connectedAccounts.map((account) => (
                 <View key={account.id} style={[styles.sessionRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
-                  <Ionicons name={account.providerId === "google" ? "logo-google" : account.providerId === "facebook" ? "logo-facebook" : "mail-outline"} size={22} color={theme.text} />
+                  <Ionicons name={account.providerId === "google" ? "logo-google" : account.providerId === "facebook" ? "logo-facebook" : account.providerId === "apple" ? "logo-apple" : "mail-outline"} size={22} color={theme.text} />
                   <View style={styles.sessionDetails}>
-                    <Text style={[styles.sessionTitle, { color: theme.text }]}>{account.providerId === "credential" ? "Email & password" : account.providerId === "google" ? "Google" : account.providerId === "facebook" ? "Facebook" : account.providerId}</Text>
+                    <Text style={[styles.sessionTitle, { color: theme.text }]}>{account.providerId === "credential" ? "Email & password" : account.providerId === "google" ? "Google" : account.providerId === "facebook" ? "Facebook" : account.providerId === "apple" ? "Apple" : account.providerId}</Text>
                     <Text style={[styles.sessionActivity, { color: theme.muted }]}>Connected</Text>
                   </View>
                   {account.providerId !== "credential" ? (
@@ -4157,8 +4152,8 @@ export function MobileChatScreen() {
               ))}
               {oauthProviders.filter((provider) => provider.enabled && !connectedAccounts.some((account) => account.providerId === provider.provider)).map((provider) => (
                 <Pressable key={provider.provider} accessibilityRole="button" disabled={securityLoading} onPress={() => void linkConnectedAccount(provider.provider)} style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
-                  <Ionicons name={provider.provider === "google" ? "logo-google" : "logo-facebook"} size={22} color={theme.text} />
-                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Connect {provider.provider === "google" ? "Google" : "Facebook"}</Text>
+                  <Ionicons name={provider.provider === "google" ? "logo-google" : provider.provider === "facebook" ? "logo-facebook" : "logo-apple"} size={22} color={theme.text} />
+                  <Text style={[styles.settingsRowText, { color: theme.text }]}>Connect {provider.provider === "google" ? "Google" : provider.provider === "facebook" ? "Facebook" : "Apple"}</Text>
                 </Pressable>
               ))}
               {connectedAccounts.some((account) => account.providerId === "credential") ? (

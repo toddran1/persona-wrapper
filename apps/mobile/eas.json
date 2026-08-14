@@ -23,12 +23,29 @@
         "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web-dev.onrender.com"
       }
     },
+    "play-internal": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "environment": "preview",
+      "channel": "play-internal",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "preview",
+        "EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION": "true",
+        "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api-dev.onrender.com",
+        "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web-dev.onrender.com",
+        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web-dev.onrender.com"
+      }
+    },
     "testflight": {
       "autoIncrement": true,
       "environment": "preview",
       "channel": "testflight",
       "env": {
         "EXPO_PUBLIC_APP_ENV": "preview",
+        "EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION": "true",
         "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api-dev.onrender.com",
         "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web-dev.onrender.com",
         "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web-dev.onrender.com"

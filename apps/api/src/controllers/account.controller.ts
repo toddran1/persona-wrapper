@@ -258,7 +258,8 @@ export function getOAuthProviders(_request: Request, response: Response): void {
   response.status(200).json({
     providers: [
       { provider: "google", enabled: Boolean(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET) },
-      { provider: "facebook", enabled: Boolean(env.FACEBOOK_OAUTH_CLIENT_ID && env.FACEBOOK_OAUTH_CLIENT_SECRET) }
+      { provider: "facebook", enabled: Boolean(env.FACEBOOK_OAUTH_CLIENT_ID && env.FACEBOOK_OAUTH_CLIENT_SECRET) },
+      { provider: "apple", enabled: Boolean(env.APPLE_OAUTH_CLIENT_ID && env.APPLE_OAUTH_TEAM_ID && env.APPLE_OAUTH_KEY_ID && env.APPLE_OAUTH_PRIVATE_KEY) }
     ]
   });
 }
