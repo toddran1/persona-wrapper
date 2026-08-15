@@ -55,6 +55,25 @@ describe("fluxImageDimensions", () => {
     expect(fluxImageDimensions(inputFor("a wide shot of the rooftop"))).toEqual({ width: 1536, height: 1024 });
   });
 
+  it("defaults person and persona subjects to portrait on auto", () => {
+    env.OPENAI_IMAGE_SIZE = "auto";
+    expect(fluxImageDimensions(inputFor("Give me a picture of you wearing this swimsuit.")))
+      .toEqual({ width: 1024, height: 1536 });
+    expect(fluxImageDimensions(inputFor("generate a full-body photo of a woman in a red dress")))
+      .toEqual({ width: 1024, height: 1536 });
+    expect(fluxImageDimensions(inputFor("generate an image of a sunset over the ocean")))
+      .toEqual({ width: env.BFL_IMAGE_WIDTH, height: env.BFL_IMAGE_HEIGHT });
+  });
+
+  it("uses the router-stamped orientation when the message has no hint", () => {
+    env.OPENAI_IMAGE_SIZE = "auto";
+    const routed = { ...inputFor("a picture of the Miami skyline"), imageOrientation: "landscape" as const };
+    expect(fluxImageDimensions(routed)).toEqual({ width: 1536, height: 1024 });
+    // An explicit hint in the message still wins over the router stamp.
+    const explicit = { ...inputFor("make it 9:16"), imageOrientation: "landscape" as const };
+    expect(fluxImageDimensions(explicit)).toEqual({ width: 864, height: 1536 });
+  });
+
   it("falls back to the FLUX defaults on auto", () => {
     env.OPENAI_IMAGE_SIZE = "auto";
     expect(fluxImageDimensions(inputFor("generate an image of a rooftop party")))

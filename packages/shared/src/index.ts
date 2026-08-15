@@ -50,6 +50,9 @@ export type ModelProviderPreference = z.infer<typeof modelProviderPreferenceSche
 export const imageProviderSchema = z.enum(["openai", "flux"]);
 export type ImageProviderId = z.infer<typeof imageProviderSchema>;
 
+export const imageOrientationSchema = z.enum(["portrait", "landscape", "square"]);
+export type ImageOrientation = z.infer<typeof imageOrientationSchema>;
+
 export const personaInfluenceLevelSchema = z.enum(["uncensored", "professional"]);
 export type PersonaInfluenceLevel = z.infer<typeof personaInfluenceLevelSchema>;
 
@@ -793,7 +796,10 @@ export const chatRequestSchema = z.object({
   // Server-stamped from the account preference (never trusted from clients):
   // keeps image-generation pricing and execution on the provider reserved for
   // the request, including background jobs.
-  imageProvider: imageProviderSchema.optional()
+  imageProvider: imageProviderSchema.optional(),
+  // Server-stamped by the tool router: chosen output orientation for image
+  // generation. Deterministic hints win; the LLM router fills "auto" misses.
+  imageOrientation: imageOrientationSchema.optional()
 }).superRefine((request, context) => {
   if (!request.message.trim() && (request.attachments?.length ?? 0) === 0) {
     context.addIssue({
@@ -1018,6 +1024,7 @@ export const llmInputSchema = z.object({
   persona: personaDefinitionSchema,
   personaInfluenceLevel: personaInfluenceLevelSchema.default("uncensored"),
   imageProvider: imageProviderSchema.optional(),
+  imageOrientation: imageOrientationSchema.optional(),
   systemPrompt: z.string(),
   baseSystemPrompt: z.string().optional(),
   messages: z.array(chatMessageSchema),

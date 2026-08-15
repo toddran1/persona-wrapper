@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { env } from "../config/env.js";
 import { containsHttpUrl, extractYouTubeVideoUrls } from "./urlInputService.js";
 import { inferVisualIntent, shouldUseConversationMediaContext } from "./conversationMediaContext.js";
+import { inferImageOrientationFromMessage } from "../providers/image/fluxImageDimensions.js";
 
 const WEB_SEARCH_PATTERNS = [
   /\b(search|look up|lookup|browse|google|find online|check online|on the web|from the web|internet|web search)\b/i,
@@ -83,6 +84,7 @@ type RouterDecision = {
   videoAnalysisMode?: "auto" | "explicit";
   background?: boolean;
   mediaReference?: "none" | "inspect" | "transform";
+  imageOrientation?: "portrait" | "landscape" | "square" | "auto";
 };
 
 type MediaReferenceHint = NonNullable<RouterDecision["mediaReference"]>;
@@ -91,6 +93,15 @@ type MediaReferenceHint = NonNullable<RouterDecision["mediaReference"]>;
 // ("ok now remove the sunglasses"); it never overrides a deterministic match.
 export function mergeMediaReference(deterministic: MediaReferenceHint, routed?: MediaReferenceHint): MediaReferenceHint {
   return deterministic !== "none" ? deterministic : routed ?? "none";
+}
+
+// Same backstop rule for orientation: an explicit hint wins; the router only
+// fills in when the deterministic layer has no opinion.
+export function mergeImageOrientation(
+  deterministic: "portrait" | "landscape" | "square" | "auto",
+  routed?: "portrait" | "landscape" | "square" | "auto"
+): "portrait" | "landscape" | "square" | "auto" {
+  return deterministic !== "auto" ? deterministic : routed ?? "auto";
 }
 
 function mergeTools(explicit: ToolOptions, decision: RouterDecision): ToolOptions {
@@ -129,7 +140,8 @@ function deterministicDecision(request: ChatRequest): RouterDecision {
     background: /\b(in the background|background task|take your time|long[- ]running|large dataset|big dataset)\b/i.test(request.message),
     mediaReference: shouldUseConversationMediaContext(request.message)
       ? inferVisualIntent(request.message)
-      : "none"
+      : "none",
+    imageOrientation: inferImageOrientationFromMessage(request.message)
   };
 }
 
@@ -159,7 +171,7 @@ async function routeWithOpenAI(request: ChatRequest): Promise<RouterDecision> {
       {
         role: "system",
         content:
-          "You are a strict tool router for a ChatGPT-like app. Decide every provider-native tool needed for the user's complete request; multiple tools may be true. Return only compact JSON with booleans: webSearch, fileSearch, codeInterpreter, imageGeneration, videoAnalysis, background — plus mediaReference as one of \"none\", \"inspect\", or \"transform\". Set mediaReference to \"transform\" when the user wants to change, edit, restyle, add something to, or remove something from an image generated or attached earlier in the conversation, however phrased (\"remove the sunglasses\", \"take those off\", \"make it brighter\", \"same but different outfit\"); \"inspect\" when they only ask a question about an earlier image's content; and \"none\" when the message stands alone. Enable webSearch whenever the user supplies a public URL or asks about linked content, and for current, recent, changing, external, location-specific, recommendation, product, legal, political, financial, sports, entertainment, weather, citation, verification, or public-web facts. Enable videoAnalysis only when a YouTube URL is present and the user explicitly needs the actual audiovisual content, such as scenes, visuals, timestamps, on-screen details, or audio; metadata, title, captions, or an ordinary summary do not require native video analysis. Enable codeInterpreter for calculations, quantitative reasoning, charts, dashboards, tables, datasets, spreadsheets, data transformations, or any task requiring code execution. Downloadable files are built by a separate application tool, so a simple file-writing request alone does not require codeInterpreter. Enable imageGeneration for creating, rendering, designing, or editing visual media, including edits to attached images. Enable fileSearch only when attached or uploaded documents must be searched, read, compared, quoted, summarized, or used as evidence. Enable background for explicitly long-running work or large analysis/generation tasks. Keep tools false for ordinary conversation, writing, rewriting, brainstorming, or style-only requests that need no external data or artifacts."
+          "You are a strict tool router for a ChatGPT-like app. Decide every provider-native tool needed for the user's complete request; multiple tools may be true. Return only compact JSON with booleans: webSearch, fileSearch, codeInterpreter, imageGeneration, videoAnalysis, background — plus mediaReference as one of \"none\", \"inspect\", or \"transform\". Set mediaReference to \"transform\" when the user wants to change, edit, restyle, add something to, or remove something from an image generated or attached earlier in the conversation, however phrased (\"remove the sunglasses\", \"take those off\", \"make it brighter\", \"same but different outfit\"); \"inspect\" when they only ask a question about an earlier image's content; and \"none\" when the message stands alone. Also return imageOrientation as one of \"portrait\", \"landscape\", \"square\", or \"auto\": when imageGeneration is true, pick \"portrait\" for people, full-body shots, outfits, and phone wallpapers, \"landscape\" for scenes, places, wide shots, and banners, \"square\" for icons, logos, avatars, and stickers, and \"auto\" when orientation is unclear or no image is being made. Enable webSearch whenever the user supplies a public URL or asks about linked content, and for current, recent, changing, external, location-specific, recommendation, product, legal, political, financial, sports, entertainment, weather, citation, verification, or public-web facts. Enable videoAnalysis only when a YouTube URL is present and the user explicitly needs the actual audiovisual content, such as scenes, visuals, timestamps, on-screen details, or audio; metadata, title, captions, or an ordinary summary do not require native video analysis. Enable codeInterpreter for calculations, quantitative reasoning, charts, dashboards, tables, datasets, spreadsheets, data transformations, or any task requiring code execution. Downloadable files are built by a separate application tool, so a simple file-writing request alone does not require codeInterpreter. Enable imageGeneration for creating, rendering, designing, or editing visual media, including edits to attached images. Enable fileSearch only when attached or uploaded documents must be searched, read, compared, quoted, summarized, or used as evidence. Enable background for explicitly long-running work or large analysis/generation tasks. Keep tools false for ordinary conversation, writing, rewriting, brainstorming, or style-only requests that need no external data or artifacts."
       },
       {
         role: "user",
@@ -182,29 +194,41 @@ async function routeWithOpenAI(request: ChatRequest): Promise<RouterDecision> {
     background: parsed.background === true,
     mediaReference: parsed.mediaReference === "inspect" || parsed.mediaReference === "transform"
       ? parsed.mediaReference
-      : "none"
+      : "none",
+    imageOrientation: parsed.imageOrientation === "portrait"
+      || parsed.imageOrientation === "landscape"
+      || parsed.imageOrientation === "square"
+      ? parsed.imageOrientation
+      : "auto"
   };
 }
 
 export async function selectTools(request: ChatRequest): Promise<ChatRequest> {
   if (request.provider !== "openai" && request.provider !== "gemini") {
-    // Never trust a client-supplied hint; it is server-stamped only.
-    return { ...request, mediaReferenceHint: undefined };
+    // Never trust client-supplied routing hints; they are server-stamped only.
+    return { ...request, mediaReferenceHint: undefined, imageOrientation: undefined };
   }
   const explicit = request.toolOptions ?? defaults;
   const deterministic = deterministicDecision(request);
   let toolOptions = mergeTools(explicit, deterministic);
   let mediaReferenceHint = mergeMediaReference(deterministic.mediaReference ?? "none");
+  let imageOrientation = mergeImageOrientation(deterministic.imageOrientation ?? "auto");
 
   if (shouldUseModelRouter(request)) {
     try {
       const routed = await routeWithOpenAI(request);
       toolOptions = mergeTools(toolOptions, routed);
       mediaReferenceHint = mergeMediaReference(deterministic.mediaReference ?? "none", routed.mediaReference);
+      imageOrientation = mergeImageOrientation(deterministic.imageOrientation ?? "auto", routed.imageOrientation);
     } catch {
       // Deterministic routing is the fallback; router failure should not block chat.
     }
   }
 
-  return { ...request, toolOptions, mediaReferenceHint };
+  return {
+    ...request,
+    toolOptions,
+    mediaReferenceHint,
+    ...(imageOrientation !== "auto" ? { imageOrientation } : {})
+  };
 }

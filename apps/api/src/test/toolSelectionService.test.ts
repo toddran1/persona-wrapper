@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeMediaReference, selectTools, shouldEnableWebSearchForMessage } from "../services/toolSelectionService.js";
+import { mergeImageOrientation, mergeMediaReference, selectTools, shouldEnableWebSearchForMessage } from "../services/toolSelectionService.js";
 
 function request(message: string, attachments: Array<{ id: string; kind: "file" | "image"; fileName: string; mimeType: string; sizeBytes: number }> = []) {
   return {
@@ -130,5 +130,22 @@ describe("tool selection", () => {
     expect(mergeMediaReference("transform", "none")).toBe("transform");
     expect(mergeMediaReference("none", "none")).toBe("none");
     expect(mergeMediaReference("none", undefined)).toBe("none");
+  });
+
+  it("stamps image orientation from deterministic hints and merges router verdicts", async () => {
+    await expect(selectTools(request("make it 16:9"))).resolves.toMatchObject({
+      imageOrientation: "landscape"
+    });
+    await expect(selectTools(request("a phone wallpaper of her"))).resolves.toMatchObject({
+      imageOrientation: "portrait"
+    });
+    // No hint and (in tests) no router: the field is omitted.
+    const plain = await selectTools(request("a picture of a sunset over the ocean"));
+    expect(plain.imageOrientation).toBeUndefined();
+
+    expect(mergeImageOrientation("auto", "portrait")).toBe("portrait");
+    expect(mergeImageOrientation("landscape", "portrait")).toBe("landscape");
+    expect(mergeImageOrientation("auto", "auto")).toBe("auto");
+    expect(mergeImageOrientation("auto", undefined)).toBe("auto");
   });
 });

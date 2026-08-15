@@ -491,6 +491,7 @@ export class ChatService {
     // stable for background jobs); fall back to the live account value only
     // when no stamp is present.
     llmInput.imageProvider = request.imageProvider ?? options.imageProvider ?? userContext.imageProvider;
+    llmInput.imageOrientation = request.imageOrientation;
     if (
       conversationMediaAttachments.promptContext &&
       conversationMediaAttachments.source !== "none"
