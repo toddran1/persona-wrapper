@@ -229,6 +229,8 @@ export async function selectTools(request: ChatRequest): Promise<ChatRequest> {
     ...request,
     toolOptions,
     mediaReferenceHint,
+    // Never let a client-supplied stamp survive; only the merged verdict below.
+    imageOrientation: undefined,
     ...(imageOrientation !== "auto" ? { imageOrientation } : {})
   };
 }

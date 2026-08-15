@@ -79,4 +79,20 @@ describe("fluxImageDimensions", () => {
     expect(fluxImageDimensions(inputFor("generate an image of a rooftop party")))
       .toEqual({ width: env.BFL_IMAGE_WIDTH, height: env.BFL_IMAGE_HEIGHT });
   });
+
+  it("maps square, lock-screen, and cover-photo hints", () => {
+    env.OPENAI_IMAGE_SIZE = "auto";
+    expect(fluxImageDimensions(inputFor("make it square"))).toEqual({ width: 1024, height: 1024 });
+    expect(fluxImageDimensions(inputFor("an avatar of a robot"))).toEqual({ width: 1024, height: 1024 });
+    expect(fluxImageDimensions(inputFor("a new profile pic for me"))).toEqual({ width: 1024, height: 1024 });
+    expect(fluxImageDimensions(inputFor("a lock screen wallpaper of her"))).toEqual({ width: 1024, height: 1536 });
+    expect(fluxImageDimensions(inputFor("a cover photo of the city"))).toEqual({ width: 1536, height: 1024 });
+  });
+
+  it("does not treat a clock time as an aspect ratio", () => {
+    env.OPENAI_IMAGE_SIZE = "auto";
+    expect(fluxImageDimensions(inputFor("generate an image of the café I visited at 9:16 pm")))
+      .toEqual({ width: env.BFL_IMAGE_WIDTH, height: env.BFL_IMAGE_HEIGHT });
+    expect(fluxImageDimensions(inputFor("make it 9:16 for my phone"))).toEqual({ width: 864, height: 1536 });
+  });
 });

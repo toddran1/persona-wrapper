@@ -16,12 +16,14 @@ const PHOTO_PORTRAIT: FluxImageDimensions = { width: 960, height: 1280 };
 // Ratios must not be arithmetic ("4 x 3 = 12").
 const EXPLICIT_DIMENSION_PATTERNS: Array<[RegExp, FluxImageDimensions]> = [
   [/\b16\s*[:x×]\s*9(?!\s*[=+\-*/\d])/i, WIDESCREEN],
-  [/\b9\s*[:x×]\s*16(?!\s*[=+\-*/\d])/i, VERTICAL],
+  // "9:16" must not match a clock time ("meet me at 9:16 pm").
+  [/\b9\s*[:x×]\s*16(?!\s*[=+\-*/\d])(?!\s*(?:a\.?m\.?|p\.?m\.?)\b)/i, VERTICAL],
   [/\b4\s*[:x×]\s*3(?!\s*[=+\-*/\d])/i, PHOTO_LANDSCAPE],
   [/\b3\s*[:x×]\s*4(?!\s*[=+\-*/\d])/i, PHOTO_PORTRAIT],
   [/\b1\s*[:x×]\s*1(?!\s*[=+\-*/\d])/i, SQUARE],
-  [/\b(?:landscape|widescreen|banner|wide\s+(?:shot|format|angle)|desktop\s+wallpaper)\b/i, LANDSCAPE],
-  [/\b(?:portrait|vertical|phone\s+wallpaper|story\s+format)\b/i, PORTRAIT]
+  [/\b(?:landscape|widescreen|banner|wide\s+(?:shot|format|angle)|desktop\s+wallpaper|cover\s+(?:photo|image))\b/i, LANDSCAPE],
+  [/\b(?:portrait|vertical|phone\s+wallpaper|lock\s*screen(?:\s+wallpaper)?|story\s+format)\b/i, PORTRAIT],
+  [/\b(?:square|avatar|profile\s+pic(?:ture)?)\b/i, SQUARE]
 ];
 
 const DIMENSIONS_BY_ORIENTATION: Record<ImageOrientation, FluxImageDimensions> = {

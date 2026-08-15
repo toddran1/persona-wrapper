@@ -148,4 +148,19 @@ describe("tool selection", () => {
     expect(mergeImageOrientation("auto", "auto")).toBe("auto");
     expect(mergeImageOrientation("auto", undefined)).toBe("auto");
   });
+
+  it("never trusts a client-supplied imageOrientation stamp", async () => {
+    // With no hint of our own, a spoofed stamp is dropped entirely.
+    const spoofed = await selectTools({
+      ...request("a picture of a sunset over the ocean"),
+      imageOrientation: "landscape" as const
+    });
+    expect(spoofed.imageOrientation).toBeUndefined();
+    // With a real hint, the server's verdict replaces the spoofed one.
+    const overridden = await selectTools({
+      ...request("make it 9:16"),
+      imageOrientation: "landscape" as const
+    });
+    expect(overridden.imageOrientation).toBe("portrait");
+  });
 });
