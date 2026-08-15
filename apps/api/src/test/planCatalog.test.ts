@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPlanDefinition, planAllowsModelProvider } from "../services/planCatalog.js";
+import { getPlanDefinition, planAllowsImageProvider, planAllowsModelProvider } from "../services/planCatalog.js";
 
 describe("planCatalog model provider access", () => {
   it("restricts free (bronze) accounts to ChatGPT", () => {
@@ -18,5 +18,16 @@ describe("planCatalog model provider access", () => {
       expect(planAllowsModelProvider(plan, "openai")).toBe(true);
       expect(planAllowsModelProvider(plan, "gemini")).toBe(true);
     }
+  });
+});
+
+describe("planCatalog image provider access", () => {
+  it("restricts FLUX.2 Pro to the gold plan", () => {
+    expect(planAllowsImageProvider(getPlanDefinition("bronze"), "openai")).toBe(true);
+    expect(planAllowsImageProvider(getPlanDefinition("bronze"), "flux")).toBe(false);
+    expect(planAllowsImageProvider(getPlanDefinition("silver"), "openai")).toBe(true);
+    expect(planAllowsImageProvider(getPlanDefinition("silver"), "flux")).toBe(false);
+    expect(planAllowsImageProvider(getPlanDefinition("gold"), "openai")).toBe(true);
+    expect(planAllowsImageProvider(getPlanDefinition("gold"), "flux")).toBe(true);
   });
 });

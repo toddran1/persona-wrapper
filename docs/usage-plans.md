@@ -18,6 +18,8 @@ Bronze and Silver persona access is derived from each registered persona's `mini
 
 Model provider access is plan-gated: Bronze accounts are ChatGPT (OpenAI) only. The API enforces this in both directions — `updateProfile` rejects a non-OpenAI `modelProvider` for Bronze with 403, and chat requests clamp any stored or requested non-OpenAI provider to OpenAI (`planAllowsModelProvider` in `planCatalog.ts`). Silver and Gold may choose ChatGPT or Gemini.
 
+Image provider access is plan-gated the same way: FLUX.2 Pro is Gold only. `updateProfile` rejects a `flux` image provider for Bronze and Silver with 403, and chat requests clamp any stored `flux` preference to OpenAI Image 2 (`planAllowsImageProvider` in `planCatalog.ts`), so a stale preference after a downgrade can't route around the plan. All plans may use OpenAI Image 2.
+
 The catalog includes intended monthly prices as metadata only; payment providers and paid entitlement assignment are not connected yet. The provider-cost ceilings remain below the planned post-store revenue so paid tiers retain room for app-store/payment fees, storage and egress, Render/AWS infrastructure, retries, support, taxes where applicable, and profit.
 
 ## Metering model

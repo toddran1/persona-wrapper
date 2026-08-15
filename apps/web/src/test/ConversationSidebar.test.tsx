@@ -306,7 +306,11 @@ describe("ConversationSidebar settings", () => {
 
   it("switches the image provider from provider settings", async () => {
     const user = userEvent.setup();
-    const { onUpdateProfile } = renderSidebar();
+    const goldPlanUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "gold" as const, displayName: "Gold" }
+    };
+    const { onUpdateProfile } = renderSidebar({ planUsageOverride: goldPlanUsage });
 
     await user.click(screen.getByTestId("account-menu-toggle"));
     await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
@@ -317,6 +321,24 @@ describe("ConversationSidebar settings", () => {
     expect(within(dialog).getByRole("radio", { name: /OpenAI Image 2/ })).toHaveAttribute("aria-checked", "true");
     await user.click(fluxOption);
     await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ imageProvider: "flux" }));
+  });
+
+  it("hides FLUX.2 Pro for bronze and silver plans", async () => {
+    const user = userEvent.setup();
+    for (const planId of ["bronze", "silver"] as const) {
+      const { unmount } = renderSidebar({
+        planUsageOverride: { ...planUsage, plan: { ...planUsage.plan, id: planId, displayName: planId } }
+      });
+
+      await user.click(screen.getByTestId("account-menu-toggle"));
+      await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+      const dialog = screen.getByRole("dialog", { name: "Settings" });
+      await user.click(within(dialog).getByRole("button", { name: "Provider settings" }));
+
+      expect(await within(dialog).findByRole("radio", { name: /OpenAI Image 2/ })).toBeInTheDocument();
+      expect(within(dialog).queryByRole("radio", { name: /FLUX\.2 Pro/ })).not.toBeInTheDocument();
+      unmount();
+    }
   });
 
   it("switches the persona influence level from settings", async () => {

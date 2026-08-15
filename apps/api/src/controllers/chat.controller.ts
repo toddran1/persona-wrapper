@@ -16,7 +16,7 @@ import { requestOwnerId } from "../utils/requestIdentity.js";
 import { requestAbuseSignals } from "../utils/requestAbuseSignals.js";
 import { logger } from "../utils/logger.js";
 import { customerUsageService } from "../services/customerUsageService.js";
-import { planAllowsModelProvider, type PlanDefinition } from "../services/planCatalog.js";
+import { planAllowsImageProvider, planAllowsModelProvider, type PlanDefinition } from "../services/planCatalog.js";
 import {
   actualImageGenerationCredits,
   billableGeneratedImageCount,
@@ -128,7 +128,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
     // Stamp the resolved image provider onto the request so execution —
     // including background jobs — uses the same provider the reservation priced.
-    payload.imageProvider = await imageProviderForUser(identity);
+    payload.imageProvider = enforcePlanImageProvider(await imageProviderForUser(identity), plan);
     controller.signal.throwIfAborted();
     // Never derive the billing idempotency key from client input (requestId
     // can come from the x-request-id header) — a repeated client key would
@@ -248,7 +248,7 @@ export async function postChatStream(request: Request, response: Response): Prom
     payload = enforcePlanModelProvider(payload, plan);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
-    payload.imageProvider = await imageProviderForUser(identity);
+    payload.imageProvider = enforcePlanImageProvider(await imageProviderForUser(identity), plan);
     controller.signal.throwIfAborted();
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
@@ -442,6 +442,13 @@ function withoutNeutralPersonaAudio(payload: ChatRequest, persona: PersonaDefini
 // non-OpenAI provider so a stale preference can't route around the plan.
 function enforcePlanModelProvider(payload: ChatRequest, plan: PlanDefinition): ChatRequest {
   return planAllowsModelProvider(plan, payload.provider) ? payload : { ...payload, provider: "openai" };
+}
+
+// FLUX.2 Pro is Gold-only: clamp any stored image provider so a stale
+// preference (e.g. after a downgrade) can't route around the plan.
+function enforcePlanImageProvider(imageProvider: ImageProviderId | undefined, plan: PlanDefinition): ImageProviderId | undefined {
+  if (imageProvider === undefined || planAllowsImageProvider(plan, imageProvider)) return imageProvider;
+  return "openai";
 }
 
 async function releaseUsageReservation(identity: string, reservationId: string, requestId?: string): Promise<void> {

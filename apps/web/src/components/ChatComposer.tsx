@@ -1,9 +1,12 @@
 import type { ChangeEvent, FormEvent, KeyboardEvent } from "react";
-import { MAX_CHAT_ATTACHMENTS, MAX_CHAT_MESSAGE_CHARACTERS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ProviderId, type ToolOptions } from "@persona/shared";
+import { MAX_CHAT_ATTACHMENTS, MAX_CHAT_MESSAGE_CHARACTERS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ImageProviderId, type ModelProviderPreference, type ProviderId, type ToolOptions } from "@persona/shared";
 import { useEffect, useId, useRef, useState } from "react";
 
 type ChatComposerProps = {
   provider: ProviderId;
+  imageProvider: ImageProviderId;
+  /** Current plan id; gates which provider options are offered. */
+  planId?: string;
   audioEnabled: boolean;
   loading: boolean;
   disabled?: boolean;
@@ -14,7 +17,8 @@ type ChatComposerProps = {
   suggestedPrompts: string[];
   onResetConversation: () => void;
   onShowPersonaCard?: () => void;
-  onProviderChange: (provider: ProviderId) => void;
+  onModelProviderChange: (provider: ModelProviderPreference) => Promise<void>;
+  onImageProviderChange: (provider: ImageProviderId) => Promise<void>;
   onAudioChange: (audio: boolean) => void;
   onCancel: () => void;
   onSubmit: (
@@ -66,6 +70,8 @@ export function ChatComposer(props: ChatComposerProps) {
   });
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number | undefined>();
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [providerError, setProviderError] = useState<string | undefined>();
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -118,8 +124,30 @@ export function ChatComposer(props: ChatComposerProps) {
     event.target.value = "";
   }
 
-  function handleRemoveAttachment(attachmentIndex: number): void {
-    setAttachments((currentAttachments) =>
+  async function applyProviderChange(apply: () => Promise<void>): Promise<void> {
+    if (providerBusy) return;
+    setProviderBusy(true);
+    setProviderError(undefined);
+    try {
+      await apply();
+    } catch (error) {
+      setProviderError(error instanceof Error ? error.message : "Could not update the provider setting.");
+    } finally {
+      setProviderBusy(false);
+    }
+  }
+
+  // Gemini is paid-plan only; FLUX.2 Pro is Gold-only. Until the plan loads,
+  // show just the free options (the server enforces the same gates).
+  const modelOptions = ([["openai", "ChatGPT"], ["gemini", "Gemini"]] as const)
+    .filter(([value]) => value === "openai" || (props.planId !== undefined && props.planId !== "bronze"));
+  const imageOptions = ([["openai", "OpenAI Image 2"], ["flux", "FLUX.2 Pro"]] as const)
+    .filter(([value]) => value === "openai" || props.planId === "gold");
+  const selectedModel: ModelProviderPreference = props.provider === "gemini" ? "gemini" : "openai";
+  const shownModel = modelOptions.some(([value]) => value === selectedModel) ? selectedModel : "openai";
+  const shownImage = imageOptions.some(([value]) => value === props.imageProvider) ? props.imageProvider : "openai";
+
+  function handleRemoveAttachment(attachmentIndex: number): void {    setAttachments((currentAttachments) =>
       currentAttachments.filter((_, index) => index !== attachmentIndex),
     );
     setAttachmentError(undefined);
@@ -280,6 +308,43 @@ export function ChatComposer(props: ChatComposerProps) {
                     </fieldset>
                   ) : null}
                 </div>
+                <div className="composer-provider-row">
+                  <label>
+                    <span>Model</span>
+                    <select
+                      data-testid="model-provider-select"
+                      value={shownModel}
+                      disabled={props.disabled || providerBusy}
+                      onChange={(event) => {
+                        const next = event.target.value as ModelProviderPreference;
+                        if (next === shownModel) return;
+                        void applyProviderChange(() => props.onModelProviderChange(next));
+                      }}
+                    >
+                      {modelOptions.map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Image model</span>
+                    <select
+                      data-testid="image-provider-select"
+                      value={shownImage}
+                      disabled={props.disabled || providerBusy}
+                      onChange={(event) => {
+                        const next = event.target.value as ImageProviderId;
+                        if (next === shownImage) return;
+                        void applyProviderChange(() => props.onImageProviderChange(next));
+                      }}
+                    >
+                      {imageOptions.map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                {providerError ? <div className="composer-attachment-error" role="alert">{providerError}</div> : null}
               </div>
             </details>
             {props.suggestedPrompts.length > 0 ? (

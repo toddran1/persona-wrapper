@@ -6,6 +6,8 @@ import { ChatComposer } from "../components/ChatComposer";
 
 const defaultProps = {
   provider: "openai" as const,
+  imageProvider: "openai" as const,
+  planId: "gold",
   audioEnabled: false,
   loading: false,
   promptPlaceholder: "Talk to me nice...",
@@ -15,7 +17,8 @@ const defaultProps = {
     "Search the web for the most current tea."
   ],
   onResetConversation: vi.fn(),
-  onProviderChange: vi.fn(),
+  onModelProviderChange: vi.fn().mockResolvedValue(undefined),
+  onImageProviderChange: vi.fn().mockResolvedValue(undefined),
   onAudioChange: vi.fn(),
   onCancel: vi.fn()
 };
@@ -53,6 +56,61 @@ describe("ChatComposer", () => {
 
     expect(onSubmit).toHaveBeenCalledWith("Test the reunion energy.", [], expect.objectContaining({ appFunctions: true }));
     expect(textarea).toHaveValue("");
+  });
+
+  it("gates provider dropdown options by plan", () => {
+    const { unmount } = render(
+      <ChatComposer {...defaultProps} planId="bronze" onSubmit={vi.fn().mockResolvedValue(undefined)} />
+    );
+    expect(screen.getByTestId("model-provider-select").querySelectorAll("option")).toHaveLength(1);
+    expect(screen.getByTestId("image-provider-select").querySelectorAll("option")).toHaveLength(1);
+    unmount();
+
+    render(
+      <ChatComposer {...defaultProps} planId="silver" onSubmit={vi.fn().mockResolvedValue(undefined)} />
+    );
+    const modelValues = Array.from(screen.getByTestId("model-provider-select").querySelectorAll("option")).map((option) => option.value);
+    const imageValues = Array.from(screen.getByTestId("image-provider-select").querySelectorAll("option")).map((option) => option.value);
+    expect(modelValues).toEqual(["openai", "gemini"]);
+    expect(imageValues).toEqual(["openai"]);
+  });
+
+  it("changes the model and image providers from the settings dropdowns", async () => {
+    const user = userEvent.setup();
+    const onModelProviderChange = vi.fn().mockResolvedValue(undefined);
+    const onImageProviderChange = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ChatComposer
+        {...defaultProps}
+        onModelProviderChange={onModelProviderChange}
+        onImageProviderChange={onImageProviderChange}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await user.selectOptions(screen.getByTestId("model-provider-select"), "gemini");
+    expect(onModelProviderChange).toHaveBeenCalledWith("gemini");
+    await user.selectOptions(screen.getByTestId("image-provider-select"), "flux");
+    expect(onImageProviderChange).toHaveBeenCalledWith("flux");
+  });
+
+  it("shows an inline error and keeps the current provider when the update fails", async () => {
+    const user = userEvent.setup();
+    const onModelProviderChange = vi.fn().mockRejectedValue(new Error("Gemini is not available on your plan."));
+
+    render(
+      <ChatComposer
+        {...defaultProps}
+        onModelProviderChange={onModelProviderChange}
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await user.selectOptions(screen.getByTestId("model-provider-select"), "gemini");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gemini is not available on your plan.");
+    // The select is controlled by the prop, which only changes after a successful save.
+    expect(screen.getByTestId("model-provider-select")).toHaveValue("openai");
   });
 
   it("submits the current message when Enter is pressed", async () => {

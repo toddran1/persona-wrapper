@@ -366,6 +366,21 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   useEffect(() => {
     if (authUser?.modelProvider) setProvider(authUser.modelProvider);
   }, [authUser?.id, authUser?.modelProvider]);
+
+  // Current plan id gates the composer's provider dropdown options (the
+  // server enforces the same gates). Silently absent until/unless it loads.
+  const [composerPlanId, setComposerPlanId] = useState<string | undefined>();
+  useEffect(() => {
+    if (!authUser) {
+      setComposerPlanId(undefined);
+      return;
+    }
+    let cancelled = false;
+    api.getPlanUsage()
+      .then((usage) => { if (!cancelled) setComposerPlanId(usage.plan.id); })
+      .catch(() => { /* Option filtering fails closed; the server still enforces. */ });
+    return () => { cancelled = true; };
+  }, [authUser?.id]);
   const [currentPolicies, setCurrentPolicies] = useState<CurrentPoliciesResponse>();
   const [policyLoading, setPolicyLoading] = useState(true);
   const [policyError, setPolicyError] = useState<string>();
@@ -2122,7 +2137,14 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
               {...(composerDraftAttachments !== undefined ? { draftAttachments: composerDraftAttachments } : {})}
               onResetConversation={resetConversation}
               onShowPersonaCard={() => setPersonaCardVisible(true)}
-              onProviderChange={setProvider}
+              imageProvider={authUser?.imageProvider ?? "openai"}
+              {...(composerPlanId !== undefined ? { planId: composerPlanId } : {})}
+              onModelProviderChange={async (modelProvider) => {
+                setAuthUser(await api.updateProfile({ modelProvider }));
+              }}
+              onImageProviderChange={async (imageProvider) => {
+                setAuthUser(await api.updateProfile({ imageProvider }));
+              }}
               onAudioChange={setAudioEnabled}
               onCancel={cancelRequest}
               onSubmit={handleSubmit}

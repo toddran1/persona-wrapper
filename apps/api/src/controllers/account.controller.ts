@@ -19,7 +19,7 @@ import { verifyPassword } from "../services/passwordService.js";
 import { hasDatabaseErrorCode } from "../utils/databaseError.js";
 import { conversationStore } from "./chat.controller.js";
 import { customerUsageService } from "../services/customerUsageService.js";
-import { planAllowsModelProvider } from "../services/planCatalog.js";
+import { planAllowsImageProvider, planAllowsModelProvider } from "../services/planCatalog.js";
 import { sendAccountDeletionScheduledEmail, sendAccountRestoredEmail } from "../services/authEmailService.js";
 import { appleOAuthAvailable } from "../services/appleOAuthRuntime.js";
 
@@ -145,6 +145,14 @@ export async function updateProfile(request: Request, response: Response): Promi
     const plan = await customerUsageService.getPlan(request.auth.userId);
     if (!planAllowsModelProvider(plan, payload.modelProvider)) {
       throw new HttpError("Gemini is included with paid plans. Upgrade your plan to switch models.", 403);
+    }
+  }
+
+  if (payload.imageProvider !== undefined) {
+    // FLUX.2 Pro image generation is Gold-only.
+    const plan = await customerUsageService.getPlan(request.auth.userId);
+    if (!planAllowsImageProvider(plan, payload.imageProvider)) {
+      throw new HttpError("FLUX.2 Pro is included with the Gold plan. Upgrade your plan to switch image models.", 403);
     }
   }
 

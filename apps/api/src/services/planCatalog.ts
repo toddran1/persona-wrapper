@@ -128,6 +128,11 @@ export function planAllowsModelProvider(plan: PlanDefinition, provider: string):
   return plan.id !== "bronze" || provider === "openai";
 }
 
+/** FLUX.2 Pro image generation is a Gold-plan feature. */
+export function planAllowsImageProvider(plan: PlanDefinition, provider: string): boolean {
+  return provider === "openai" || plan.id === "gold";
+}
+
 export function personaIdsForPlan(plan: PlanDefinition, catalogPersonaIds: readonly string[]): string[] {
   return catalogPersonaIds.filter((personaId) => planIncludesPersona(plan, personaId));
 }

@@ -2788,6 +2788,25 @@ textarea {
   gap: 2px;
 }
 
+.composer-provider-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.composer-provider-row label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  min-width: 180px;
+}
+
+.composer-provider-row select {
+  min-width: 180px;
+}
+
 .composer-meta-row label {
   display: grid;
   gap: 8px;

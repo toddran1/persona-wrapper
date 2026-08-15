@@ -1873,10 +1873,13 @@ export function ConversationSidebar({
                           <h4>Image provider</h4>
                           <div className="settings-provider-options" role="radiogroup" aria-label="Image provider">
                             {([[
-                              "openai", "OpenAI Image 2", "The default persona image experience."
+                              "openai", "OpenAI Image 2", "The default persona image experience. More precise and consistent. Best for detailed instructions, edits, and predictable results."
                             ], [
-                              "flux", "FLUX.2 Pro", "Black Forest Labs FLUX.2 Pro image generation and editing."
-                            ]] as const).map(([value, label, description]) => {
+                              "flux", "FLUX.2 Pro", "More flexible with fewer content refusals. Great for creative freedom, but results may be less precise or more unpredictable."
+                            ]] as const)
+                              // FLUX.2 Pro is a Gold-plan feature; the server rejects the switch too.
+                              .filter(([value]) => value === "openai" || planUsage?.plan.id === "gold")
+                              .map(([value, label, description]) => {
                               const selected = (authUser.imageProvider ?? "openai") === value;
                               return (
                                 <button

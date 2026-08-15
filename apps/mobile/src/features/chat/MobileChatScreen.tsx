@@ -515,6 +515,8 @@ export function MobileChatScreen() {
     return planUsage.plan.personaIds.includes(candidate.id);
   });
   const quickMenuShowModels = planUsage ? planUsage.plan.id !== "bronze" : false;
+  // FLUX.2 Pro is Gold-only, so the image-model choice only exists there.
+  const quickMenuShowImageModels = planUsage ? planUsage.plan.id === "gold" : false;
   const personaCardIsDocked = Boolean(
     activePersona?.visualStage
     && !personaCardHidden
@@ -3696,7 +3698,6 @@ export function MobileChatScreen() {
                   <Ionicons name="git-compare-outline" size={22} color={theme.text} />
                   <View style={styles.settingsRowCopy}>
                     <Text style={[styles.settingsRowText, { color: theme.text }]}>Provider settings</Text>
-                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{(authUser?.modelProvider ?? "openai") === "gemini" ? "Gemini" : "ChatGPT"}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color={theme.accent2} />
                 </Pressable>
@@ -3944,10 +3945,13 @@ export function MobileChatScreen() {
               <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Image generation may use the app’s specialized image service even when Gemini is selected.</Text>
               <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Image provider</Text>
               {([[
-                "openai", "OpenAI Image 2", "The default persona image experience.", "image-outline"
+                "openai", "OpenAI Image 2", "The default persona image experience. More precise and consistent. Best for detailed instructions, edits, and predictable results.", "image-outline"
               ], [
-                "flux", "FLUX.2 Pro", "Black Forest Labs FLUX.2 Pro image generation and editing.", "color-wand-outline"
-              ]] as const).map(([value, label, description, icon]) => {
+                "flux", "FLUX.2 Pro", "More flexible with fewer content refusals. Great for creative freedom, but results may be less precise or more unpredictable.", "color-wand-outline"
+              ]] as const)
+                // FLUX.2 Pro is a Gold-plan feature; the server rejects the switch too.
+                .filter(([value]) => value === "openai" || planUsage?.plan.id === "gold")
+                .map(([value, label, description, icon]) => {
                 const selected = (authUser?.imageProvider ?? "openai") === value;
                 return (
                   <Pressable
@@ -4506,6 +4510,39 @@ export function MobileChatScreen() {
                       onPress={() => {
                         setQuickMenuVisible(false);
                         void updateModelProvider(value);
+                      }}
+                    >
+                      <View style={[styles.attachmentSheetIcon, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
+                        <Ionicons name={icon} size={22} color={selected ? theme.accent2 : theme.text} />
+                      </View>
+                      <View style={styles.attachmentSheetRowCopy}>
+                        <Text style={[styles.actionSheetText, { color: theme.text }]}>{label}</Text>
+                        <Text style={[styles.attachmentSheetHint, { color: theme.muted }]}>{description}</Text>
+                      </View>
+                      <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={22} color={selected ? theme.accent2 : theme.muted} />
+                    </Pressable>
+                  );
+                })}
+              </>
+            ) : null}
+            {quickMenuShowImageModels ? (
+              <>
+                <Text style={[styles.actionSheetTitle, { color: theme.muted, fontSize: 13 }]}>Image model</Text>
+                {([[
+                  "openai", "OpenAI Image 2", "Precise, consistent persona images and edits.", "image-outline"
+                ], [
+                  "flux", "FLUX.2 Pro", "More creative freedom, less predictable results.", "color-wand-outline"
+                ]] as const).map(([value, label, description, icon]) => {
+                  const selected = (authUser?.imageProvider ?? "openai") === value;
+                  return (
+                    <Pressable
+                      key={value}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      style={styles.attachmentSheetRow}
+                      onPress={() => {
+                        setQuickMenuVisible(false);
+                        void updateImageProvider(value);
                       }}
                     >
                       <View style={[styles.attachmentSheetIcon, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
