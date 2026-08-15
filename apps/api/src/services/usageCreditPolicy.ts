@@ -29,7 +29,11 @@ export function reservedImageGenerationCredits(quality?: ImageGenerationQuality)
 export function isBillableGeneratedImage(output: ContentBlock): boolean {
   if (output.type !== "image") return false;
   const generationSource = output.metadata?.generationSource;
-  if (generationSource === "openai_image_generation" || generationSource === "stub_image_generation") {
+  if (
+    generationSource === "openai_image_generation"
+    || generationSource === "stub_image_generation"
+    || generationSource === "flux_image_generation"
+  ) {
     return true;
   }
 
@@ -40,6 +44,10 @@ export function isBillableGeneratedImage(output: ContentBlock): boolean {
   return route === "images_api" || route === "images_api_edit";
 }
 
+function isFluxGeneratedImage(output: ContentBlock): boolean {
+  return output.type === "image" && output.metadata?.generationSource === "flux_image_generation";
+}
+
 export function billableGeneratedImageCount(response: ChatResponse): number {
   return response.outputs.filter(isBillableGeneratedImage).length;
 }
@@ -48,5 +56,10 @@ export function actualImageGenerationCredits(
   response: ChatResponse,
   quality?: ImageGenerationQuality
 ): number {
-  return imageGenerationCredits(billableGeneratedImageCount(response), quality);
+  const qualityCredits = IMAGE_CREDITS_BY_QUALITY[quality ?? env.OPENAI_IMAGE_QUALITY];
+  return response.outputs.reduce((total, output) => {
+    if (!isBillableGeneratedImage(output)) return total;
+    // FLUX.2 Pro has no quality tiers; it bills at the auto/medium tier.
+    return total + (isFluxGeneratedImage(output) ? IMAGE_CREDITS_BY_QUALITY.auto : qualityCredits);
+  }, 0);
 }

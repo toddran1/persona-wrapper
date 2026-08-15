@@ -36,8 +36,40 @@ describe("conversation media context", () => {
     expect(shouldUseConversationMediaContext("What breed of puppy did you just send me?")).toBe(true);
     expect(shouldUseConversationMediaContext("What car was in the image you just gave me?")).toBe(true);
     expect(shouldUseConversationMediaContext("Can you make the image brighter?")).toBe(true);
+    expect(shouldUseConversationMediaContext("ok now remove the sunglasses")).toBe(true);
+    expect(shouldUseConversationMediaContext("Remove the sunglasses.")).toBe(true);
+    expect(shouldUseConversationMediaContext("Add a necklace.")).toBe(true);
+    expect(shouldUseConversationMediaContext("take those off")).toBe(false);
     expect(shouldUseConversationMediaContext("Give me a pound cake recipe.")).toBe(false);
   }, 15_000);
+
+  it("resolves prior visuals when the tool-router hint flags a transform the patterns miss", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+
+    const conversation = {
+      id: "conv-router-hint",
+      turns: [{ userMessage: "Create a portrait with sunglasses.", outputs: [image("portrait")] }]
+    };
+    const patternMiss = await resolveConversationMediaContext(conversation, { message: "take those off" });
+    expect(patternMiss.referenced).toBe(false);
+
+    const hinted = await resolveConversationMediaContext(conversation, {
+      message: "take those off",
+      mediaReferenceHint: "transform"
+    });
+    expect(hinted).toMatchObject({
+      referenced: true,
+      intent: "transform",
+      source: "generated_outputs",
+      selectedPositions: [1]
+    });
+    expect(hinted.attachments).toHaveLength(1);
+  });
 
   it("detects broad natural follow-up references to prior visual output", async () => {
     const { inferConversationMediaMinimum, shouldUseConversationMediaContext } = await import("../services/conversationMediaContext.js");

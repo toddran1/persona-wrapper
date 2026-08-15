@@ -266,6 +266,7 @@ export const auth = database ? betterAuth({
       birthDay: { type: "number", required: false, input: false },
       conciseAudioResponses: { type: "boolean", required: true, defaultValue: true, input: false },
       modelProvider: { type: "string", required: true, defaultValue: "openai", input: false },
+      imageProvider: { type: "string", required: true, defaultValue: "openai", input: false },
       personaInfluenceLevel: { type: "string", required: true, defaultValue: "uncensored", input: false },
       termsVersionAccepted: { type: "string", required: false, input: true },
       termsAcceptedAt: { type: "date", required: false, input: false },

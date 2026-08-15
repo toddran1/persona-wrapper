@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { llmOutputSchema, MAX_CHAT_ATTACHMENTS, type ChatMessage, type ChatRequest, type ChatResponse, type ContentBlock, type UserPersonalizationProfile } from "@persona/shared";
+import { llmOutputSchema, MAX_CHAT_ATTACHMENTS, type ChatMessage, type ChatRequest, type ChatResponse, type ContentBlock, type ImageProviderId, type UserPersonalizationProfile } from "@persona/shared";
 import { eq } from "drizzle-orm";
 import type { TTSOutput } from "@persona/shared";
 import { getPersonaById } from "../personas/index.js";
@@ -41,6 +41,7 @@ export type ChatProgressCallbacks = {
 
 export type ChatServiceOptions = {
   ownerId?: string;
+  imageProvider?: ImageProviderId;
 };
 
 const PUBLIC_TTS_FAILURE_MESSAGE = "Audio could not be generated. You can retry this response or continue with the text reply.";
@@ -85,6 +86,7 @@ function hasErrorLikeContent(blocks: ContentBlock[], rawText?: string): boolean 
 async function loadUserChatContext(ownerId?: string): Promise<{
   profile?: UserPersonalizationProfile;
   memoryEnabled: boolean;
+  imageProvider?: ImageProviderId;
 }> {
   const db = getDatabase();
   if (!db || !ownerId) return { memoryEnabled: true };
@@ -93,11 +95,13 @@ async function loadUserChatContext(ownerId?: string): Promise<{
     gender: users.gender,
     birthMonth: users.birthMonth,
     birthDay: users.birthDay,
-    memoryEnabled: users.memoryEnabled
+    memoryEnabled: users.memoryEnabled,
+    imageProvider: users.imageProvider
   }).from(users).where(eq(users.id, ownerId)).limit(1);
   if (!user) return { memoryEnabled: true };
   return {
     memoryEnabled: user.memoryEnabled,
+    imageProvider: user.imageProvider === "flux" ? "flux" : "openai",
     profile: {
       preferredName: user.preferredName,
       gender: user.gender === "male" || user.gender === "female" || user.gender === "nonbinary" || user.gender === "other"
@@ -166,7 +170,8 @@ export class ChatService {
       maxImages: Math.max(MAX_CHAT_ATTACHMENTS - currentImageCount, 0),
       currentImageCount,
       minimumImages: imageReferenceRequirement.minimumImages,
-      expectsNewUploads: imageReferenceRequirement.expectsNewUploads
+      expectsNewUploads: imageReferenceRequirement.expectsNewUploads,
+      ...(request.mediaReferenceHint ? { mediaReferenceHint: request.mediaReferenceHint } : {})
     });
     const userAssets = (request.attachments ?? []).map((asset) => ({
       id: asset.id,
@@ -482,6 +487,10 @@ export class ChatService {
     // reserves usage. Keep that value stable for background jobs so generation
     // cannot exceed the reservation if the user changes the setting meanwhile.
     llmInput.conciseAudioResponse = request.conciseAudioResponse;
+    // The controller stamps the resolved preference onto the request (kept
+    // stable for background jobs); fall back to the live account value only
+    // when no stamp is present.
+    llmInput.imageProvider = request.imageProvider ?? options.imageProvider ?? userContext.imageProvider;
     if (
       conversationMediaAttachments.promptContext &&
       conversationMediaAttachments.source !== "none"

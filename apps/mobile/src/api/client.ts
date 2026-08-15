@@ -470,6 +470,7 @@ function toAuthUser(user: Record<string, unknown>): AuthUser {
     memoryEnabled: typeof user.memoryEnabled === "boolean" ? user.memoryEnabled : true,
     conciseAudioResponses: typeof user.conciseAudioResponses === "boolean" ? user.conciseAudioResponses : true,
     modelProvider: user.modelProvider === "gemini" ? "gemini" : "openai",
+    imageProvider: user.imageProvider === "flux" ? "flux" : "openai",
     personaInfluenceLevel: user.personaInfluenceLevel === undefined || user.personaInfluenceLevel === null
       ? "uncensored"
       : user.personaInfluenceLevel === "uncensored"

@@ -1,4 +1,4 @@
-import type { LLMInput, PersonaDefinition } from "@persona/shared";
+import type { ImageProviderId, LLMInput, PersonaDefinition } from "@persona/shared";
 
 const SAFETY_PROMPT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bthick\b/gi, "curvy"],
@@ -98,19 +98,33 @@ function isPersonaImageRequest(message: string, persona: PersonaDefinition): boo
   ].some((pattern) => pattern.test(normalizedMessage));
 }
 
-function personaVisualBrief(persona: PersonaDefinition): string {
+function personaVisualBrief(persona: PersonaDefinition, imageProvider?: ImageProviderId): string {
+  const visualStyle = sanitizeImageRequest(persona.visualStyle.join(", "), persona);
   const personaFacts = [
     `Fictional persona: ${persona.name}.`,
     persona.age ? `Age: ${persona.age}.` : "",
     persona.height ? `Height: ${persona.height}.` : "",
-    `Appearance and visual style: ${sanitizeImageRequest(persona.visualStyle.join(", "), persona)}.`
+    visualStyle ? `Appearance and visual style: ${visualStyle}.` : ""
   ].filter(Boolean);
+
+  // BFL's input moderation matches literal words like "nudity" and "explicit
+  // sexual content" even inside a negated safety instruction, so FLUX prompts
+  // state the intent positively. OpenAI Image 2 refuses readily and benefits
+  // from the explicit boundary language, so it keeps the strict sentence.
+  const safetyGuidance = imageProvider === "flux"
+    ? [
+      "Keep the persona polished and appropriate for the requested scene.",
+      "Keep the depiction modest and appropriate; the persona is an adult."
+    ]
+    : [
+      "Keep the persona clothed, non-explicit, polished, and appropriate for the requested scene.",
+      "Do not depict nudity, explicit sexual content, see-through clothing, or a minor."
+    ];
 
   return [
     ...personaFacts,
     "Use the persona profile only as visual identity guidance for this image.",
-    "Keep the persona clothed, non-explicit, polished, and appropriate for the requested scene.",
-    "Do not depict nudity, explicit sexual content, see-through clothing, or a minor."
+    ...safetyGuidance
   ].join(" ");
 }
 
@@ -186,7 +200,7 @@ export function buildImageGenerationPrompt(
   return [
     "Image generation prompt for a safe visual tool request.",
     includePersonaVisuals
-      ? [personaVisualBrief(input.persona), personaCharacterInfluenceVisualBrief(input.persona)].filter(Boolean).join(" ")
+      ? [personaVisualBrief(input.persona, input.imageProvider), personaCharacterInfluenceVisualBrief(input.persona)].filter(Boolean).join(" ")
       : "This image request is not about the current persona. Do not include persona appearance, biography, body details, voice, slang, or character styling unless the user explicitly asks for it.",
     includePersonaVisualReferences
       ? "The separate attached full-body and face images are the persona's visual references. Use them as the primary visual identity reference for the fictional persona, preserving her recognizable face and overall appearance while following the requested scene. Do not copy their pose, outfit, or background unless the user asks."

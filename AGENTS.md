@@ -123,11 +123,15 @@ deterministic stub output without a key). Mobile reads `EXPO_PUBLIC_API_URL`
 - `routes/` → `controllers/` → `services/` layering. Route and controller logic
   stays provider-agnostic; swappable behavior belongs behind provider
   interfaces.
-- `providers/llm`, `providers/tts`, `providers/styleTransfer` each define an
-  interface (`LLMProvider`, `TTSProvider`, `StyleTransferProvider`), concrete
-  implementations, and a `providerFactory.ts`. Register new providers in the
+- `providers/llm`, `providers/tts`, `providers/styleTransfer`, `providers/image`
+  each define an interface, concrete implementations, and a
+  `providerFactory.ts`. Register new providers in the
   factory, and add any new env vars to both `apps/api/.env.example` and
   `src/config/env.ts` (Zod-parsed env — access config only through `env.ts`).
+  `providers/image` hosts standalone image providers (currently FLUX.2 Pro via
+  `FluxImageProvider`); OpenAI image generation stays inside `OpenAIProvider`.
+  The per-user image provider preference is `users.image_provider`
+  (`openai` default, `flux`), resolved server-side like `modelProvider`.
 - `personas/` — persona definitions (`larae.persona.ts`, `bambam.persona.ts`, and
   `neutral.persona.ts` — the "No persona" option, kept last in the registry so it
   never becomes the clients' default) registered in

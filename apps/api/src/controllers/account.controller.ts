@@ -48,6 +48,7 @@ function toAuthUser(user: typeof users.$inferSelect): AuthUser {
     memoryEnabled: user.memoryEnabled,
     conciseAudioResponses: user.conciseAudioResponses,
     modelProvider: user.modelProvider === "gemini" ? "gemini" : "openai",
+    imageProvider: user.imageProvider === "flux" ? "flux" : "openai",
     personaInfluenceLevel: user.personaInfluenceLevel === "uncensored" ? "uncensored" : "professional",
     termsVersionAccepted: user.termsVersionAccepted,
     termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
@@ -161,6 +162,7 @@ export async function updateProfile(request: Request, response: Response): Promi
         ? { conciseAudioResponses: payload.conciseAudioResponses }
         : {}),
       ...(payload.modelProvider !== undefined ? { modelProvider: payload.modelProvider } : {}),
+      ...(payload.imageProvider !== undefined ? { imageProvider: payload.imageProvider } : {}),
       ...(payload.personaInfluenceLevel !== undefined
         ? { personaInfluenceLevel: payload.personaInfluenceLevel }
         : {}),

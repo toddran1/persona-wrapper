@@ -118,6 +118,21 @@ const envSchema = z.object({
   OPENAI_IMAGE_QUALITY: z.preprocess(emptyStringToUndefined, openAIImageQualitySchema.default("auto")),
   OPENAI_TTS_SCRIPT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
   TTS_AUDIT_LOG_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  BFL_API_KEY: z.preprocess(optionalWhitespaceFreeSecret, z.string().optional()),
+  BFL_API_BASE_URL: z.string().url().default("https://api.bfl.ai"),
+  BFL_IMAGE_MODEL: z.string().default("flux-2-pro"),
+  // 0–5 per the BFL API; 5 is the least restrictive value it accepts.
+  BFL_IMAGE_SAFETY_TOLERANCE: z.coerce.number().int().min(0).max(5).default(5),
+  BFL_IMAGE_OUTPUT_FORMAT: z.enum(["jpeg", "png", "webp"]).default("png"),
+  BFL_IMAGE_WIDTH: z.coerce.number().int().min(64).max(4096).default(1024),
+  BFL_IMAGE_HEIGHT: z.coerce.number().int().min(64).max(4096).default(1024),
+  BFL_IMAGE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(300000),
+  BFL_IMAGE_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(500),
+  // Optional fixed seed. When unset, each generation draws a random seed
+  // (recorded in the output metadata so edit follow-ups can reuse it).
+  BFL_IMAGE_SEED: z.coerce.number().int().nonnegative().optional(),
+  FLUX_IMAGE_OUTPUT_COST_USD: z.coerce.number().nonnegative().default(0.03),
+  FLUX_IMAGE_EDIT_COST_USD: z.coerce.number().nonnegative().default(0.045),
   OPENAI_INPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(1),
   OPENAI_OUTPUT_COST_PER_MILLION: z.coerce.number().nonnegative().default(6),
   GOOGLE_GEMINI_API_KEY: z.preprocess(optionalWhitespaceFreeSecret, z.string().optional()),

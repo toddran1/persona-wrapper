@@ -144,6 +144,31 @@ services:
         value: gpt-5.6-luna
       - key: OPENAI_IMAGE_MODEL
         value: gpt-image-2
+      # Black Forest Labs FLUX.2 Pro image provider (per-user selectable in
+      # settings; OpenAI Image 2 stays the default). BFL_API_KEY is secret.
+      - key: BFL_API_KEY
+        sync: false
+      - key: BFL_API_BASE_URL
+        value: https://api.bfl.ai
+      - key: BFL_IMAGE_MODEL
+        value: flux-2-pro
+      # 0-5 per the BFL API; 5 is the least restrictive value it accepts.
+      - key: BFL_IMAGE_SAFETY_TOLERANCE
+        value: "5"
+      - key: BFL_IMAGE_OUTPUT_FORMAT
+        value: png
+      - key: BFL_IMAGE_WIDTH
+        value: "1024"
+      - key: BFL_IMAGE_HEIGHT
+        value: "1024"
+      - key: BFL_IMAGE_REQUEST_TIMEOUT_MS
+        value: "300000"
+      - key: BFL_IMAGE_POLL_INTERVAL_MS
+        value: "500"
+      - key: FLUX_IMAGE_OUTPUT_COST_USD
+        value: "0.03"
+      - key: FLUX_IMAGE_EDIT_COST_USD
+        value: "0.045"
       - key: OPENAI_ENABLE_WEB_SEARCH
         value: "true"
       - key: OPENAI_ENABLE_FILE_SEARCH
@@ -420,6 +445,31 @@ services:
         value: gpt-5.6-luna
       - key: OPENAI_IMAGE_MODEL
         value: gpt-image-2
+      # Black Forest Labs FLUX.2 Pro image provider (per-user selectable in
+      # settings; OpenAI Image 2 stays the default). BFL_API_KEY is secret.
+      - key: BFL_API_KEY
+        sync: false
+      - key: BFL_API_BASE_URL
+        value: https://api.bfl.ai
+      - key: BFL_IMAGE_MODEL
+        value: flux-2-pro
+      # 0-5 per the BFL API; 5 is the least restrictive value it accepts.
+      - key: BFL_IMAGE_SAFETY_TOLERANCE
+        value: "5"
+      - key: BFL_IMAGE_OUTPUT_FORMAT
+        value: png
+      - key: BFL_IMAGE_WIDTH
+        value: "1024"
+      - key: BFL_IMAGE_HEIGHT
+        value: "1024"
+      - key: BFL_IMAGE_REQUEST_TIMEOUT_MS
+        value: "300000"
+      - key: BFL_IMAGE_POLL_INTERVAL_MS
+        value: "500"
+      - key: FLUX_IMAGE_OUTPUT_COST_USD
+        value: "0.03"
+      - key: FLUX_IMAGE_EDIT_COST_USD
+        value: "0.045"
       - key: OPENAI_ENABLE_WEB_SEARCH
         value: "true"
       - key: OPENAI_ENABLE_FILE_SEARCH

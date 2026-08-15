@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectTools, shouldEnableWebSearchForMessage } from "../services/toolSelectionService.js";
+import { mergeMediaReference, selectTools, shouldEnableWebSearchForMessage } from "../services/toolSelectionService.js";
 
 function request(message: string, attachments: Array<{ id: string; kind: "file" | "image"; fileName: string; mimeType: string; sizeBytes: number }> = []) {
   return {
@@ -109,5 +109,26 @@ describe("tool selection", () => {
     expect(shouldEnableWebSearchForMessage("How many points did Morez Johnson Jr. score in his last Dallas Mavericks game?")).toBe(true);
     expect(shouldEnableWebSearchForMessage("https://youtu.be/0Y4FoTy0Bf0?si=test")).toBe(true);
     expect(shouldEnableWebSearchForMessage("Tell me about https://example.com/article")).toBe(true);
+  });
+
+  it("stamps a deterministic media-reference hint from the visual patterns", async () => {
+    await expect(selectTools(request("ok now remove the sunglasses"))).resolves.toMatchObject({
+      mediaReferenceHint: "transform"
+    });
+    await expect(selectTools(request("Does it have sunglasses?"))).resolves.toMatchObject({
+      mediaReferenceHint: "inspect"
+    });
+    await expect(selectTools(request("Give me a pound cake recipe."))).resolves.toMatchObject({
+      mediaReferenceHint: "none"
+    });
+  });
+
+  it("uses the router verdict only as a backstop for pattern misses", () => {
+    expect(mergeMediaReference("none", "transform")).toBe("transform");
+    expect(mergeMediaReference("none", "inspect")).toBe("inspect");
+    expect(mergeMediaReference("inspect", "transform")).toBe("inspect");
+    expect(mergeMediaReference("transform", "none")).toBe("transform");
+    expect(mergeMediaReference("none", "none")).toBe("none");
+    expect(mergeMediaReference("none", undefined)).toBe("none");
   });
 });

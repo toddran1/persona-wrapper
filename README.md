@@ -350,6 +350,22 @@ the local provider uses the configured Ollama endpoint.
 Signed-in users choose ChatGPT or Gemini under **Settings → Provider settings**.
 The choice is stored on the account and applies to new requests on web and mobile.
 
+#### Image providers
+
+OpenAI Image 2 (`gpt-image-2`) is the default image provider and is unchanged.
+Signed-in users can switch to **Black Forest Labs FLUX.2 Pro** under
+**Settings → Provider settings → Image provider**. FLUX serves image-only
+requests (text-to-image and multi-reference editing with uploads or persona
+360° references) through `apps/api/src/providers/image/`; mixed-tool requests
+still use the OpenAI `image_generation` tool. FLUX requires `BFL_API_KEY`
+(see `apps/api/.env.example` for all `BFL_*`/`FLUX_*` settings), runs with
+`safety_tolerance` 5 (the least restrictive value the BFL API accepts), and is
+billed through the same generated-media, ownership, usage-meter, and credit
+pipeline as OpenAI images. Output dimensions follow explicit orientation hints
+in the request ("16:9", "phone wallpaper"), then `OPENAI_IMAGE_SIZE`, then the
+`BFL_IMAGE_WIDTH`/`BFL_IMAGE_HEIGHT` defaults; each generation draws a seed
+(recorded in metadata) so edit follow-ups reuse it for continuity.
+
 ### Tool Calling
 
 The system separates OpenAI-hosted tools from registered application-owned

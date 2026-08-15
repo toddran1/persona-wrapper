@@ -1,5 +1,6 @@
 import OpenAI, { toFile } from "openai";
 import { createReadStream } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -8,6 +9,7 @@ import {
   fileOutputSchema,
   type Citation,
   type ContentBlock,
+  type ImageProviderId,
   type LLMInput,
   type LLMOutput,
   type ProviderId,
@@ -27,6 +29,9 @@ import { HttpError } from "../../utils/httpError.js";
 import { maxOutputTokensForRequest } from "../../services/audioResponsePolicy.js";
 import type { LLMProgressCallbacks, LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
+import { createImageProvider } from "../image/providerFactory.js";
+import type { ImageReferenceInput } from "../image/ImageProvider.js";
+import { fluxImageDimensions } from "../image/fluxImageDimensions.js";
 
 type OpenAIResponse = any;
 type OpenAIItem = Record<string, any>;
@@ -237,6 +242,94 @@ export function shouldUseDirectImageApi(input: LLMInput): boolean {
     (!imageReferenceRequirement.required || imageAttachmentCount >= imageReferenceRequirement.minimumImages) &&
     !wantsGeneratedImageDescription(input.userMessage) &&
     (hasOnlyImageAttachments || (attachments.length === 0 && !IMAGE_EDIT_OR_CONTEXT_PATTERN.test(input.userMessage)))
+  );
+}
+
+// FLUX.2 Pro is the app's second image provider. It serves image generation
+// and editing requests; mixed-tool requests keep the OpenAI tool path
+// unchanged. Unlike the OpenAI branches this does not require an OpenAI key.
+// Note the tool flags are intentionally NOT excluded here: the deterministic
+// tool router enables web search on incidental travel/shopping keywords
+// ("trip", "resort"), and FLUX has no tool composition to conflict with —
+// choosing FLUX is an explicit request for FLUX image output. Image intent is
+// established by the attachment-shape and edit-context conditions instead.
+// The narrow structural input lets the usage reservation reuse the same gate.
+export function shouldUseFluxImageApi(input: {
+  imageProvider?: ImageProviderId | undefined;
+  toolOptions?: {
+    imageGeneration?: boolean | undefined;
+    webSearch?: boolean | undefined;
+    fileSearch?: boolean | undefined;
+    codeInterpreter?: boolean | undefined;
+  } | undefined;
+  attachments?: Array<{ kind: "image" | "file"; mimeType: string }> | undefined;
+  userMessage: string;
+}): boolean {
+  if (input.imageProvider !== "flux") return false;
+  const options = input.toolOptions;
+  const attachments = input.attachments ?? [];
+  const imageReferenceRequirement = analyzeImageReferenceRequirement(input.userMessage);
+  const imageAttachmentCount = attachments.filter((attachment) => attachment.kind === "image").length;
+  const hasOnlyImageAttachments = attachments.length > 0 && attachments.every((attachment) =>
+    attachment.kind === "image" && DIRECT_IMAGE_EDIT_MIME_TYPES.has(attachment.mimeType)
+  );
+  return Boolean(
+    options?.imageGeneration &&
+    (!imageReferenceRequirement.required || imageAttachmentCount >= imageReferenceRequirement.minimumImages) &&
+    !wantsGeneratedImageDescription(input.userMessage) &&
+    (hasOnlyImageAttachments || (attachments.length === 0 && !IMAGE_EDIT_OR_CONTEXT_PATTERN.test(input.userMessage)))
+  );
+}
+
+async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+// Mirrors directUserImageFiles but returns base64 payloads for the BFL API
+// instead of OpenAI file uploads.
+async function fluxUserReferenceImages(input: LLMInput): Promise<ImageReferenceInput[]> {
+  const images = (input.attachments ?? []).filter((attachment) => attachment.kind === "image") as InternalImageAttachment[];
+  return Promise.all(images.map(async (attachment) => {
+    if (attachment.sizeBytes > MAX_OPENAI_IMAGE_EDIT_BYTES) {
+      throw new HttpError("An attached image is too large for image editing. Images must be smaller than 50 MB.", 413);
+    }
+    if (attachment.storageKey) {
+      const downloaded = await storageService.getStream(attachment.storageKey);
+      if (downloaded.sizeBytes !== undefined && downloaded.sizeBytes > MAX_OPENAI_IMAGE_EDIT_BYTES) {
+        downloaded.stream.destroy();
+        throw new HttpError("An attached image is too large for image editing. Images must be smaller than 50 MB.", 413);
+      }
+      const buffer = await streamToBuffer(downloaded.stream);
+      return { dataBase64: buffer.toString("base64"), mimeType: attachment.mimeType };
+    }
+    if (attachment.localPath) {
+      const buffer = await readFile(attachment.localPath);
+      return { dataBase64: buffer.toString("base64"), mimeType: attachment.mimeType };
+    }
+    if (attachment.url) {
+      const match = /^data:([^;,]+);base64,([\s\S]+)$/i.exec(attachment.url);
+      if (match) {
+        const buffer = Buffer.from(match[2]!, "base64");
+        if (buffer.byteLength > MAX_OPENAI_IMAGE_EDIT_BYTES) {
+          throw new HttpError("An attached image is too large for image editing. Images must be smaller than 50 MB.", 413);
+        }
+        return { dataBase64: match[2]!, mimeType: match[1] || attachment.mimeType };
+      }
+    }
+    throw new HttpError("An attached image is no longer available. Please re-upload it and try again.", 409);
+  }));
+}
+
+async function fluxPersonaReferenceImages(input: LLMInput): Promise<ImageReferenceInput[]> {
+  return Promise.all(
+    directPersonaVisualReferencePaths(input).map(async (referencePath) => {
+      const buffer = await readFile(localPersonaVisualReferencePath(referencePath));
+      return { dataBase64: buffer.toString("base64"), mimeType: "image/png" };
+    })
   );
 }
 
@@ -1114,6 +1207,10 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async generateResponse(input: LLMInput, signal?: AbortSignal, progressCallbacks?: LLMProgressCallbacks): Promise<LLMOutput> {
+    // Tests and offline runs must stay on the deterministic stub — never call BFL.
+    if (shouldUseFluxImageApi(input) && !(env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS)) {
+      return this.generateFluxImageResponse(input, signal);
+    }
     if (!env.OPENAI_API_KEY || (env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS)) {
       return buildStubOutput(input, this.providerId, this.promptMode);
     }
@@ -1234,12 +1331,80 @@ export class OpenAIProvider implements LLMProvider {
     return llmOutputSchema.parse(output);
   }
 
+  // FLUX.2 Pro image path: same image-only request shape as the OpenAI direct
+  // Images API branch, same content-block output, billed via the
+  // "flux_image_generation" generationSource. Reference images are the same
+  // uploads and persona 360 references the OpenAI edit path uses.
+  private async generateFluxImageResponse(input: LLMInput, signal?: AbortSignal): Promise<LLMOutput> {
+    const hasPersonaVisualReferences = directPersonaVisualReferencePaths(input).length > 0;
+    const hasUserImageReferences = (input.attachments ?? []).some((attachment) => attachment.kind === "image");
+    const prompt = buildImageGenerationPrompt(input, {
+      includePersonaVisualReferences: hasPersonaVisualReferences,
+      includeUserImageReferences: hasUserImageReferences
+    });
+    const [userReferenceImages, personaReferenceImages] = await Promise.all([
+      fluxUserReferenceImages(input),
+      fluxPersonaReferenceImages(input)
+    ]);
+    // Persona identity refs come first so any truncation to the API's 8-image
+    // limit drops user uploads rather than the persona's identity.
+    const referenceImages = [...personaReferenceImages, ...userReferenceImages];
+    const usesImageReferences = referenceImages.length > 0;
+    // Edit follow-ups reuse the source image's recorded seed so the edit
+    // preserves composition and identity; otherwise pin via env or draw a
+    // fresh seed (recorded in the output for future follow-ups).
+    const sourceSeed = (input.attachments ?? []).find((attachment) =>
+      attachment.kind === "image" && typeof attachment.seed === "number"
+    )?.seed;
+    const seed = sourceSeed ?? env.BFL_IMAGE_SEED ?? Math.floor(Math.random() * 2 ** 31);
+    const dimensions = fluxImageDimensions(input);
+    const result = await createImageProvider("flux").generate({
+      prompt,
+      referenceImages,
+      width: dimensions.width,
+      height: dimensions.height,
+      seed
+    }, signal);
+
+    const content: ContentBlock[] = result.images.map((image, index) => ({
+      type: "image" as const,
+      url: `data:${image.mimeType};base64,${image.dataBase64}`,
+      alt: input.userMessage || `Generated image ${index + 1}`,
+      prompt: input.userMessage,
+      mimeType: image.mimeType,
+      metadata: {
+        route: usesImageReferences ? "flux_api_edit" : "flux_api",
+        generationSource: "flux_image_generation",
+        imagePrompt: prompt,
+        ...(personaReferenceImages.length > 0 ? { personaVisualReferencePaths: directPersonaVisualReferencePaths(input) } : {}),
+        ...(userReferenceImages.length > 0 ? { userImageReferenceCount: userReferenceImages.length } : {}),
+        ...result.metadata
+      }
+    }));
+
+    return llmOutputSchema.parse({
+      provider: this.providerId,
+      rawText: "",
+      content,
+      metadata: {
+        providerModel: env.BFL_IMAGE_MODEL,
+        status: "completed",
+        background: false,
+        route: usesImageReferences ? "flux_api_edit" : "flux_api",
+        imageProvider: "flux"
+      }
+    });
+  }
+
   async generateResponseStream(
     input: LLMInput,
     callbacks: LLMStreamCallbacks,
     signal?: AbortSignal,
     progressCallbacks?: LLMProgressCallbacks
   ): Promise<LLMOutput> {
+    if (shouldUseFluxImageApi(input) && !(env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS)) {
+      return this.generateFluxImageResponse(input, signal);
+    }
     if (!env.OPENAI_API_KEY || (env.NODE_ENV === "test" && !env.OPENAI_RUN_INTEGRATION_TESTS)) {
       const output = buildStubOutput(input, this.providerId, this.promptMode);
       callbacks.onTextDelta(output.rawText);

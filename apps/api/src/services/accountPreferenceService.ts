@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDatabase } from "../db/client.js";
 import { users } from "../db/schema.js";
-import type { ModelProviderPreference, PersonaInfluenceLevel } from "@persona/shared";
+import type { ImageProviderId, ModelProviderPreference, PersonaInfluenceLevel } from "@persona/shared";
 import { logger } from "../utils/logger.js";
 
 export async function conciseAudioResponsesForUser(userId?: string): Promise<boolean> {
@@ -22,6 +22,17 @@ export async function modelProviderForUser(userId?: string): Promise<ModelProvid
     .limit(1);
   if (!user) return undefined;
   return user.modelProvider === "gemini" ? "gemini" : "openai";
+}
+
+export async function imageProviderForUser(userId?: string): Promise<ImageProviderId | undefined> {
+  const db = getDatabase();
+  if (!db || !userId) return undefined;
+  const [user] = await db.select({ imageProvider: users.imageProvider })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!user) return undefined;
+  return user.imageProvider === "flux" ? "flux" : "openai";
 }
 
 export async function personaInfluenceLevelForUser(userId?: string): Promise<PersonaInfluenceLevel> {

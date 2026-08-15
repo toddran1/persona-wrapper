@@ -9,6 +9,7 @@ import {
   buildOpenAITools,
   shouldRetryForImageGeneration,
   shouldUseDirectImageApi,
+  shouldUseFluxImageApi,
   stripExternalCitationLinks
 } from "../providers/llm/OpenAIProvider.js";
 import { env } from "../config/env.js";
@@ -234,6 +235,35 @@ describe("OpenAIProvider instructions", () => {
       size: "auto",
       quality: "auto"
     });
+  });
+
+  it("routes image-only requests to FLUX only when the flux image provider is selected", () => {
+    const input = inputForLaRae();
+    input.userMessage = "Generate an image of a rooftop party.";
+    input.toolOptions = {
+      webSearch: false,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: true,
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+
+    input.imageProvider = "flux";
+    expect(shouldUseFluxImageApi(input)).toBe(true);
+
+    input.imageProvider = "openai";
+    expect(shouldUseFluxImageApi(input)).toBe(false);
+
+    // Incidental tool flags (the router enables web search on travel/shopping
+    // keywords) do not divert an explicit FLUX selection.
+    input.imageProvider = "flux";
+    input.toolOptions = { ...input.toolOptions, webSearch: true };
+    expect(shouldUseFluxImageApi(input)).toBe(true);
+
+    input.toolOptions = { ...input.toolOptions, webSearch: false, imageGeneration: false };
+    expect(shouldUseFluxImageApi(input)).toBe(false);
   });
 
   it("uses the server-selected image quality for hosted and direct image requests", () => {

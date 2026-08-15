@@ -27,7 +27,7 @@ The catalog includes intended monthly prices as metadata only; payment providers
 - Successful requests settle reservations to estimated provider cost, quality-aware image credits, and estimated generated-audio duration.
 - Failed and cancelled requests release reservations.
 - Background jobs retain reservations while retrying and settle or release at their terminal state.
-- Every provider-backed chat request consumes the total-usage allowance. The total includes model tokens, searches, file search, Code Interpreter/chart sessions, generated images, image inputs, generated audio, and non-stub style-transfer calls when their provider pricing is configured.
+- Every provider-backed chat request consumes the total-usage allowance. The total includes model tokens, searches, file search, Code Interpreter/chart sessions, generated images, image inputs, generated audio, and non-stub style-transfer calls when their provider pricing is configured. FLUX.2 Pro image generations are priced per image (`FLUX_IMAGE_OUTPUT_COST_USD`, or `FLUX_IMAGE_EDIT_COST_USD` when reference images are used) and settle at the auto image-credit tier.
 - Images consume both total usage and image credits. Audio consumes both total usage and audio time. A remaining category allowance cannot bypass an exhausted total-usage allowance.
 - Image quality is enforced by the API, not trusted from clients. OpenAI does not expose an auto-with-a-maximum-quality parameter, so Bronze and Silver send `medium` as their capped-auto provider value. Gold sends `auto`, which may select any provider-supported quality.
 - Total usage is stored in micro-USD for atomic integer accounting, but clients expose only the percentage remaining. Provider dollars are not shown to customers.

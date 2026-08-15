@@ -669,6 +669,21 @@ export function ConversationSidebar({
     }
   }
 
+  async function chooseImageProvider(imageProvider: "openai" | "flux"): Promise<void> {
+    if (imageProvider === (authUser?.imageProvider ?? "openai")) return;
+    setAuthBusy(true);
+    setLocalAuthError(undefined);
+    setProviderNotice(undefined);
+    try {
+      await onUpdateProfile({ imageProvider });
+      setProviderNotice(`${imageProvider === "flux" ? "FLUX.2 Pro" : "OpenAI Image 2"} will generate new images.`);
+    } catch (error) {
+      setLocalAuthError(error instanceof Error ? error.message : "Could not update the image provider.");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   async function choosePersonaInfluenceLevel(personaInfluenceLevel: "uncensored" | "professional"): Promise<void> {
     if (personaInfluenceLevel === (authUser?.personaInfluenceLevel ?? "uncensored")) return;
     setAuthBusy(true);
@@ -1854,6 +1869,32 @@ export function ConversationSidebar({
                           })}
                         </div>
                         <p className="settings-provider-note">Image generation may use the app’s specialized image service even when Gemini is selected.</p>
+                        <div className="settings-subsection">
+                          <h4>Image provider</h4>
+                          <div className="settings-provider-options" role="radiogroup" aria-label="Image provider">
+                            {([[
+                              "openai", "OpenAI Image 2", "The default persona image experience."
+                            ], [
+                              "flux", "FLUX.2 Pro", "Black Forest Labs FLUX.2 Pro image generation and editing."
+                            ]] as const).map(([value, label, description]) => {
+                              const selected = (authUser.imageProvider ?? "openai") === value;
+                              return (
+                                <button
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={selected}
+                                  className={`settings-provider-option${selected ? " settings-provider-option-selected" : ""}`}
+                                  disabled={authBusy}
+                                  onClick={() => void chooseImageProvider(value)}
+                                  key={value}
+                                >
+                                  <span><strong>{label}</strong><small>{description}</small></span>
+                                  <span className="settings-provider-radio" aria-hidden="true" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
                     ) : null}
 

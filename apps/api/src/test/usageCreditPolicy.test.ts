@@ -69,4 +69,16 @@ describe("usage credit policy", () => {
 
     expect(billableGeneratedImageCount(response)).toBe(1);
   });
+
+  it("bills FLUX generations at the auto credit tier", () => {
+    const response = responseWithOutputs([{
+      type: "image",
+      url: "data:image/png;base64,dGVzdA==",
+      alt: "Generated result",
+      metadata: { generationSource: "flux_image_generation", route: "flux_api_edit" }
+    }]);
+
+    expect(billableGeneratedImageCount(response)).toBe(1);
+    expect(actualImageGenerationCredits(response, "low")).toBe(imageGenerationCredits(1, "auto"));
+  });
 });

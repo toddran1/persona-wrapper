@@ -1,3 +1,5 @@
+import { env } from "../config/env.js";
+
 export type ProviderCostComponent =
   | "reported_model_usage"
   | "image_generation"
@@ -12,6 +14,8 @@ export type ProviderCostEstimateInput = {
   provider: string;
   reportedModelCostUsd?: number;
   generatedImageCount?: number;
+  imageProvider?: string;
+  imageEdit?: boolean;
   imageQuality?: "auto" | "low" | "medium" | "high";
   imageSize?: string;
   imageInputCount?: number;
@@ -63,6 +67,17 @@ function openAIImageOutputCost(
   return count * OPENAI_IMAGE_OUTPUT_COST_USD[normalizedQuality][shape];
 }
 
+function imageOutputCost(input: ProviderCostEstimateInput): number {
+  const count = Math.ceil(positive(input.generatedImageCount));
+  if (count <= 0) return 0;
+  // FLUX.2 Pro is megapixel-priced rather than quality-tier priced; editing
+  // (any reference image) costs more than text-to-image.
+  if (input.imageProvider === "flux") {
+    return count * (input.imageEdit ? env.FLUX_IMAGE_EDIT_COST_USD : env.FLUX_IMAGE_OUTPUT_COST_USD);
+  }
+  return openAIImageOutputCost(count, input.imageQuality, input.imageSize);
+}
+
 function addSharedProviderCosts(
   input: ProviderCostEstimateInput,
   components: ProviderCostEstimate["components"]
@@ -83,11 +98,7 @@ const openAIPricingAdapter: ProviderPricingAdapter = {
     const reportedModelCost = positive(input.reportedModelCostUsd);
     if (reportedModelCost > 0) components.reported_model_usage = reportedModelCost;
 
-    const imageCost = openAIImageOutputCost(
-      Math.ceil(positive(input.generatedImageCount)),
-      input.imageQuality,
-      input.imageSize
-    );
+    const imageCost = imageOutputCost(input);
     if (imageCost > 0) components.image_generation = imageCost;
 
     const webSearchCost = positive(input.webSearchCalls) * 0.01;
@@ -117,11 +128,7 @@ const geminiPricingAdapter: ProviderPricingAdapter = {
     const components: ProviderCostEstimate["components"] = {};
     const reportedModelCost = positive(input.reportedModelCostUsd);
     if (reportedModelCost > 0) components.reported_model_usage = reportedModelCost;
-    const imageCost = openAIImageOutputCost(
-      Math.ceil(positive(input.generatedImageCount)),
-      input.imageQuality,
-      input.imageSize
-    );
+    const imageCost = imageOutputCost(input);
     if (imageCost > 0) components.image_generation = imageCost;
     const webSearchCost = positive(input.webSearchCalls) * 0.014;
     if (webSearchCost > 0) components.web_search = webSearchCost;

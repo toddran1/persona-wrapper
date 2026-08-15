@@ -101,11 +101,18 @@ export function requireCurrentPolicyConsent(request: Request, _response: Respons
 
 // Session refresh, resend, and sign-out all live under /api/auth/* (handled by
 // Better Auth), so an unverified user can always complete or undo the gate.
+// Profile preference updates (model/image provider, audio, personalization)
+// stay reachable too — verification gates content and spend, not settings.
+const emailVerificationExemptPaths = new Set([
+  ...policyConsentExemptPaths,
+  "/api/account/profile"
+]);
+
 export function requireVerifiedEmail(request: Request, _response: Response, next: NextFunction): void {
   if (
     !request.path.startsWith("/api/")
     || !request.auth?.emailVerificationRequired
-    || policyConsentExemptPaths.has(request.path)
+    || emailVerificationExemptPaths.has(request.path)
     || request.path === "/api/personas"
     || request.path.startsWith("/api/personas/")
     || request.path.startsWith("/api/auth/")

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { chatRequestSchema, type ChatRequest, type ChatResponse, type PersonaDefinition } from "@persona/shared";
+import { chatRequestSchema, type ChatRequest, type ChatResponse, type ImageProviderId, type PersonaDefinition } from "@persona/shared";
 import { ChatService } from "../services/chatService.js";
 import { ConversationStore } from "../services/conversationStore.js";
 import { EvalCaptureService } from "../services/evalCaptureService.js";
@@ -24,7 +24,8 @@ import {
 } from "../services/usageCreditPolicy.js";
 import { estimateProviderCost } from "../services/providerCostEstimator.js";
 import { env } from "../config/env.js";
-import { shouldPlanHistoricalVisualTransformation } from "../services/conversationMediaContext.js";
+import { shouldPlanHistoricalVisualTransformation, shouldUseConversationMediaContext } from "../services/conversationMediaContext.js";
+import { shouldUseFluxImageApi } from "../providers/llm/OpenAIProvider.js";
 import { applyPlanImageQuality } from "../services/planImageQualityPolicy.js";
 import {
   audioUsageReservationCharacters,
@@ -32,7 +33,7 @@ import {
   estimatedAudioSecondsForCharacters,
   maxOutputTokensForRequest
 } from "../services/audioResponsePolicy.js";
-import { conciseAudioResponsesForUser, modelProviderForUser, personaInfluenceLevelForUser } from "../services/accountPreferenceService.js";
+import { conciseAudioResponsesForUser, imageProviderForUser, modelProviderForUser, personaInfluenceLevelForUser } from "../services/accountPreferenceService.js";
 import { remoteAttachmentImportService } from "../services/remoteAttachmentImportService.js";
 import {
   configuredAudioBillingInput,
@@ -125,6 +126,9 @@ export async function postChat(request: Request, response: Response): Promise<vo
     payload = enforcePlanModelProvider(payload, plan);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
+    // Stamp the resolved image provider onto the request so execution —
+    // including background jobs — uses the same provider the reservation priced.
+    payload.imageProvider = await imageProviderForUser(identity);
     controller.signal.throwIfAborted();
     // Never derive the billing idempotency key from client input (requestId
     // can come from the x-request-id header) — a repeated client key would
@@ -132,7 +136,8 @@ export async function postChat(request: Request, response: Response): Promise<vo
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
       payload,
-      `usage_op_${randomUUID()}`
+      `usage_op_${randomUUID()}`,
+      payload.imageProvider
     );
     if (shouldRunInBackground(payload)) {
       controller.signal.throwIfAborted();
@@ -243,11 +248,13 @@ export async function postChatStream(request: Request, response: Response): Prom
     payload = enforcePlanModelProvider(payload, plan);
     payload = applyPlanImageQuality(payload, plan);
     payload.conciseAudioResponse = await conciseAudioResponsesForUser(identity);
+    payload.imageProvider = await imageProviderForUser(identity);
     controller.signal.throwIfAborted();
     customerUsageOperationId = await reserveCustomerUsage(
       identity,
       payload,
-      `usage_op_${randomUUID()}`
+      `usage_op_${randomUUID()}`,
+      payload.imageProvider
     );
   } catch (error) {
     // Attachment ownership, request parsing, and tool routing all happen after
@@ -400,6 +407,7 @@ async function selectToolsForRequest(payload: ChatRequest, identity: string): Pr
       imageGeneration: true,
       videoAnalysis: selected.toolOptions?.videoAnalysis ?? false,
       ...(selected.toolOptions?.videoAnalysisMode ? { videoAnalysisMode: selected.toolOptions.videoAnalysisMode } : {}),
+      ...(selected.toolOptions?.imageQuality ? { imageQuality: selected.toolOptions.imageQuality } : {}),
       appFunctions: selected.toolOptions?.appFunctions ?? true,
       background: selected.toolOptions?.background ?? false,
       vectorStoreIds: selected.toolOptions?.vectorStoreIds ?? []
@@ -447,9 +455,15 @@ async function releaseUsageReservation(identity: string, reservationId: string, 
   });
 }
 
-async function reserveCustomerUsage(identity: string, payload: ChatRequest, idempotencyKey: string): Promise<string> {
+async function reserveCustomerUsage(identity: string, payload: ChatRequest, idempotencyKey: string, imageProvider?: ImageProviderId): Promise<string> {
   const persona = getPersonaById(payload.personaId);
   if (!persona) throw new HttpError(`Unknown persona: ${payload.personaId}`, 404);
+  const fluxPath = imageProvider === "flux" && shouldUseFluxImageApi({
+    imageProvider,
+    toolOptions: payload.toolOptions,
+    attachments: payload.attachments,
+    userMessage: payload.message
+  });
   const conciseAudioResponse = payload.conciseAudioResponse ?? true;
   const reservedAudioSeconds = payload.audio
     ? audioUsageReservationSeconds(conciseAudioResponse, payload.toolOptions?.codeInterpreter)
@@ -468,6 +482,17 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
   ));
   const providerCost = estimateProviderCost({
     provider: payload.provider,
+    // Reserve against the provider the execution gate will actually select:
+    // the FLUX branch only serves image-only requests, so a flux preference
+    // with mixed attachments/tools still executes (and prices) as OpenAI.
+    ...(fluxPath ? {
+      imageProvider: "flux" as const,
+      // Follow-up edits resolve prior images after reservation; treat a
+      // detected visual-transform follow-up as an edit for pricing.
+      imageEdit: Boolean(payload.attachments?.some((attachment) => attachment.kind === "image"))
+        || shouldUseConversationMediaContext(payload.message)
+        || payload.mediaReferenceHint === "transform"
+    } : {}),
     reportedModelCostUsd: (
       env.OPENAI_MAX_CONTEXT_TOKENS * (payload.provider === "gemini"
         ? env.GEMINI_INPUT_COST_PER_MILLION
@@ -479,7 +504,9 @@ async function reserveCustomerUsage(identity: string, payload: ChatRequest, idem
     generatedImageCount: payload.toolOptions?.imageGeneration ? 1 : 0,
     imageQuality: payload.toolOptions?.imageQuality ?? env.OPENAI_IMAGE_QUALITY,
     imageSize: env.OPENAI_IMAGE_SIZE,
-    imageInputCount: payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
+    // FLUX edit pricing already includes input megapixels — only OpenAI image
+    // requests pay the per-image input meter.
+    imageInputCount: fluxPath ? 0 : payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
     imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
     audioCost: reservedAudioBilling.estimatedCostUsd,
     styleTransferCalls: (payload.provider === "claude" || payload.provider === "local") && env.STYLE_TRANSFER_PROVIDER !== "stub" ? 1 : 0,
@@ -540,6 +567,10 @@ async function settleCustomerUsage(
     estimatedAudioSeconds: audioSeconds
   }));
   const generatedImageCount = billableGeneratedImageCount(result);
+  // FLUX blocks carry their provenance in block metadata; settle at FLUX
+  // prices (edit when reference images were used) instead of OpenAI's tiers.
+  const fluxImageGenerated = result.outputs.some((output) => output.type === "image" && output.metadata?.generationSource === "flux_image_generation");
+  const fluxImageEdit = result.outputs.some((output) => output.type === "image" && output.metadata?.route === "flux_api_edit");
   const providerCost = estimateProviderCost({
     provider: result.provider,
     ...(result.usage?.estimatedCostUsd !== undefined
@@ -550,9 +581,10 @@ async function settleCustomerUsage(
     // Settle from the actual output provenance so those requests cannot bypass
     // image credits, while Code Interpreter chart images remain excluded.
     generatedImageCount,
+    ...(fluxImageGenerated ? { imageProvider: "flux", imageEdit: fluxImageEdit } : {}),
     imageQuality: payload.toolOptions?.imageQuality ?? env.OPENAI_IMAGE_QUALITY,
     imageSize: env.OPENAI_IMAGE_SIZE,
-    imageInputCount: payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
+    imageInputCount: fluxImageGenerated ? 0 : payload.attachments?.filter((attachment) => attachment.kind === "image").length ?? 0,
     imageInputCostUsd: env.CUSTOMER_USAGE_IMAGE_INPUT_COST_USD,
     audioCost: audioBilling.estimatedCostUsd,
     styleTransferCalls: (payload.provider === "claude" || payload.provider === "local")

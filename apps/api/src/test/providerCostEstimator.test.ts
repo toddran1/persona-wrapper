@@ -25,6 +25,25 @@ describe("provider cost estimator", () => {
     expect(estimate.unpricedComponents).toEqual([]);
   });
 
+  it("prices FLUX image generation and editing separately from OpenAI tiers", () => {
+    const generation = estimateProviderCost({
+      provider: "openai",
+      generatedImageCount: 1,
+      imageProvider: "flux",
+      imageQuality: "high",
+      imageSize: "1024x1024"
+    });
+    expect(generation.components.image_generation).toBe(0.03);
+
+    const edit = estimateProviderCost({
+      provider: "openai",
+      generatedImageCount: 1,
+      imageProvider: "flux",
+      imageEdit: true
+    });
+    expect(edit.components.image_generation).toBe(0.045);
+  });
+
   it("keeps unknown providers usable while flagging unpriced components", () => {
     const estimate = estimateProviderCost({
       provider: "future_provider",

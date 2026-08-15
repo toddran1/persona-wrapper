@@ -27,6 +27,9 @@ type ConversationMediaContextOptions = {
   currentImageCount?: number;
   minimumImages?: number;
   expectsNewUploads?: boolean;
+  // Tool-router verdict used as a backstop when the deterministic patterns
+  // miss a visual reference ("ok now remove the sunglasses" style phrasing).
+  mediaReferenceHint?: "none" | "inspect" | "transform";
 };
 
 export type ConversationMediaAttachment = UploadedAsset & {
@@ -76,6 +79,8 @@ const TERSE_VISUAL_TRANSFORM_PATTERNS = [
   /^(?:a\s+)?(?:wider|closer|tighter|broader)\s+(?:shot|frame|crop|view|angle)[\s.!]*$/i,
   // "Close up on her face."
   /^close[-\s]?up\b[\s\S]*$/i,
+  // Direct single-object edit verbs: "Remove the sunglasses.", "Add a necklace."
+  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:please\s+)?(?:remove|take\s+out|get\s+rid\s+of|erase|delete|add|insert)\s+(?:the\s+|a\s+|an\s+|her\s+|his\s+|their\s+)?[\w\s'-]{1,40}[\s.!]*$/i,
   // "Portrait orientation.", "Landscape.", "Vertical."
   /^(?:portrait|landscape|square|widescreen|vertical|horizontal)(?:\s+(?:orientation|format|aspect\s+ratio|ratio|crop|version))?[\s.!]*$/i,
   // Bare aspect ratio: "16:9", "4x3".
@@ -700,7 +705,8 @@ async function resolveGeneratedOutput(
       fileName: media.fileName,
       mimeType: media.mimeType,
       sizeBytes: media.buffer.byteLength,
-      url: `data:${media.mimeType};base64,${media.buffer.toString("base64")}`
+      url: `data:${media.mimeType};base64,${media.buffer.toString("base64")}`,
+      ...(typeof image.metadata?.seed === "number" ? { seed: image.metadata.seed } : {})
     };
   }
 
@@ -712,7 +718,8 @@ async function resolveGeneratedOutput(
     fileName: `conversation-image-${attachmentIndex + 1}.${mimeType.split("/")[1] ?? "png"}`,
     mimeType,
     sizeBytes: dataUrlSizeBytes(image.url),
-    url: image.url
+    url: image.url,
+    ...(typeof image.metadata?.seed === "number" ? { seed: image.metadata.seed } : {})
   };
 }
 
@@ -729,8 +736,13 @@ export async function resolveConversationMediaContext(
 ): Promise<ConversationMediaContextResult> {
   const effectiveMessage = effectiveConversationMediaMessage(conversation, options.message);
   const effectiveRequirement = analyzeImageReferenceRequirement(effectiveMessage);
-  const referenced = shouldUseConversationMediaContext(effectiveMessage);
-  const intent = inferVisualIntent(effectiveMessage);
+  const patternReferenced = shouldUseConversationMediaContext(effectiveMessage);
+  const patternIntent = inferVisualIntent(effectiveMessage);
+  const hint = options.mediaReferenceHint;
+  // Patterns are the deterministic base; the router hint only upgrades a
+  // pattern miss, never overrides a pattern match.
+  const referenced = patternReferenced || hint === "inspect" || hint === "transform";
+  const intent = patternReferenced ? patternIntent : hint === "inspect" || hint === "transform" ? hint : patternIntent;
   const historicalMediaReset = resetsHistoricalMedia(effectiveMessage);
   const explicitHistoricalReference = hasExplicitHistoricalReference(effectiveMessage);
   const currentImageCount = options.currentImageCount ?? 0;

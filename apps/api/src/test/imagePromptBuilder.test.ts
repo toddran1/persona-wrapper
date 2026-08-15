@@ -29,6 +29,35 @@ function imageInput(message: string): LLMInput {
 }
 
 describe("imagePromptBuilder", () => {
+  it("omits the appearance line for a persona without a visual style", () => {
+    const persona = getPersonaById("neutral");
+    if (!persona) throw new Error("neutral persona not found");
+    const input = new PersonaEngine().prepareInput(persona, {
+      personaId: "neutral",
+      provider: "openai",
+      message: "Give me a picture of you at the beach.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+
+    const prompt = buildImageGenerationPrompt(input);
+
+    expect(prompt).not.toContain("Appearance and visual style: .");
+  });
+
+  it("keeps the strict safety sentence for OpenAI and the moderation-safe wording for FLUX", () => {
+    const openaiInput = imageInput("LaRae, give me a picture of you wearing this swimsuit.");
+    const openaiPrompt = buildImageGenerationPrompt(openaiInput);
+    expect(openaiPrompt).toContain("Do not depict nudity, explicit sexual content, see-through clothing, or a minor.");
+    expect(openaiPrompt).not.toContain("Keep the depiction modest and appropriate");
+
+    const fluxInput = { ...imageInput("LaRae, give me a picture of you wearing this swimsuit."), imageProvider: "flux" as const };
+    const fluxPrompt = buildImageGenerationPrompt(fluxInput);
+    expect(fluxPrompt).toContain("Keep the depiction modest and appropriate; the persona is an adult.");
+    expect(fluxPrompt).not.toContain("Do not depict nudity, explicit sexual content, see-through clothing");
+  });
+
   it("cleans persona-style wording before image generation", () => {
     const prompt = buildImageGenerationPrompt(
       imageInput("LaRae, make a sexy picture of you as a bad bitch in Miami with a big butt and big boobs.")

@@ -16,6 +16,7 @@ export const users = pgTable("users", {
   memoryEnabled: boolean("memory_enabled").notNull().default(true),
   conciseAudioResponses: boolean("concise_audio_responses").notNull().default(true),
   modelProvider: text("model_provider").notNull().default("openai"),
+  imageProvider: text("image_provider").notNull().default("openai"),
   personaInfluenceLevel: text("persona_influence_level").notNull().default("uncensored"),
   termsVersionAccepted: text("terms_version_accepted"),
   termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
@@ -38,6 +39,10 @@ export const users = pgTable("users", {
   personaInfluenceLevelCheck: check(
     "users_persona_influence_level_check",
     sql`${table.personaInfluenceLevel} in ('uncensored', 'professional')`
+  ),
+  imageProviderCheck: check(
+    "users_image_provider_check",
+    sql`${table.imageProvider} in ('openai', 'flux')`
   )
 }));
 

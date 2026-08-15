@@ -1052,6 +1052,21 @@ export function MobileChatScreen() {
     }
   }
 
+  async function updateImageProvider(imageProvider: "openai" | "flux"): Promise<void> {
+    if (imageProvider === (authUser?.imageProvider ?? "openai")) return;
+    setAudioSettingsBusy(true);
+    setAudioSettingsError(undefined);
+    try {
+      const updatedUser = await api.updateProfile({ imageProvider });
+      setAuthUser(updatedUser);
+      setAudioSettingsNotice(`${imageProvider === "flux" ? "FLUX.2 Pro" : "OpenAI Image 2"} will generate new images.`);
+    } catch (providerError) {
+      setAudioSettingsError(providerError instanceof Error ? providerError.message : "Could not update the image provider.");
+    } finally {
+      setAudioSettingsBusy(false);
+    }
+  }
+
   async function updatePersonaInfluenceLevel(personaInfluenceLevel: "uncensored" | "professional"): Promise<void> {
     if (personaInfluenceLevel === (authUser?.personaInfluenceLevel ?? "uncensored")) return;
     setAudioSettingsBusy(true);
@@ -3927,6 +3942,31 @@ export function MobileChatScreen() {
                 );
               })}
               <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Image generation may use the app’s specialized image service even when Gemini is selected.</Text>
+              <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Image provider</Text>
+              {([[
+                "openai", "OpenAI Image 2", "The default persona image experience.", "image-outline"
+              ], [
+                "flux", "FLUX.2 Pro", "Black Forest Labs FLUX.2 Pro image generation and editing.", "color-wand-outline"
+              ]] as const).map(([value, label, description, icon]) => {
+                const selected = (authUser?.imageProvider ?? "openai") === value;
+                return (
+                  <Pressable
+                    key={value}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected, disabled: audioSettingsBusy }}
+                    disabled={audioSettingsBusy}
+                    onPress={() => void updateImageProvider(value)}
+                    style={[styles.settingsRow, { backgroundColor: selected ? `${theme.accent}30` : "rgba(255,255,255,0.09)", borderColor: selected ? theme.accent2 : theme.border, borderWidth: 1 }]}
+                  >
+                    <Ionicons name={icon} size={22} color={selected ? theme.accent2 : theme.text} />
+                    <View style={styles.settingsRowCopy}>
+                      <Text style={[styles.settingsRowText, { color: theme.text }]}>{label}</Text>
+                      <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{description}</Text>
+                    </View>
+                    <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={22} color={selected ? theme.accent2 : theme.muted} />
+                  </Pressable>
+                );
+              })}
               {audioSettingsBusy ? <ActivityIndicator color={theme.accent2} /> : null}
             </View>
           ) : null}

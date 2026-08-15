@@ -47,6 +47,9 @@ export type ProviderId = z.infer<typeof providerSchema>;
 export const modelProviderPreferenceSchema = z.enum(["openai", "gemini"]);
 export type ModelProviderPreference = z.infer<typeof modelProviderPreferenceSchema>;
 
+export const imageProviderSchema = z.enum(["openai", "flux"]);
+export type ImageProviderId = z.infer<typeof imageProviderSchema>;
+
 export const personaInfluenceLevelSchema = z.enum(["uncensored", "professional"]);
 export type PersonaInfluenceLevel = z.infer<typeof personaInfluenceLevelSchema>;
 
@@ -431,7 +434,10 @@ export const uploadedAssetSchema = z.object({
   url: z.string().optional(),
   openaiFileId: z.string().optional(),
   vectorStoreId: z.string().optional(),
-  expiresAt: z.string().optional()
+  expiresAt: z.string().optional(),
+  // Generation seed carried from a prior FLUX output so edit follow-ups can
+  // reuse it for better composition and identity retention.
+  seed: z.number().int().nonnegative().optional()
 });
 export type UploadedAsset = z.infer<typeof uploadedAssetSchema>;
 
@@ -497,6 +503,7 @@ export const userPersonalizationProfileSchema = z.object({
   birthday: userBirthdaySchema.nullable().optional(),
   conciseAudioResponses: z.boolean().optional(),
   modelProvider: modelProviderPreferenceSchema.optional(),
+  imageProvider: imageProviderSchema.optional(),
   personaInfluenceLevel: personaInfluenceLevelSchema.optional()
 });
 export type UserPersonalizationProfile = z.infer<typeof userPersonalizationProfileSchema>;
@@ -504,7 +511,7 @@ export type UserPersonalizationProfile = z.infer<typeof userPersonalizationProfi
 export const updateUserProfileRequestSchema = userPersonalizationProfileSchema.extend({
   username: z.string().trim().min(3).max(64).regex(/^[a-zA-Z0-9_.]+$/, "Use letters, numbers, periods, or underscores only.").optional()
 }).refine(
-  (value) => value.preferredName !== undefined || value.gender !== undefined || value.birthday !== undefined || value.username !== undefined || value.conciseAudioResponses !== undefined || value.modelProvider !== undefined || value.personaInfluenceLevel !== undefined,
+  (value) => value.preferredName !== undefined || value.gender !== undefined || value.birthday !== undefined || value.username !== undefined || value.conciseAudioResponses !== undefined || value.modelProvider !== undefined || value.imageProvider !== undefined || value.personaInfluenceLevel !== undefined,
   { message: "At least one profile field must be provided." }
 );
 export type UpdateUserProfileRequest = z.infer<typeof updateUserProfileRequestSchema>;
@@ -635,6 +642,7 @@ export const authUserSchema = z.object({
   memoryEnabled: z.boolean().optional(),
   conciseAudioResponses: z.boolean().optional(),
   modelProvider: modelProviderPreferenceSchema.optional(),
+  imageProvider: imageProviderSchema.optional(),
   personaInfluenceLevel: personaInfluenceLevelSchema.optional(),
   termsVersionAccepted: z.string().nullable().optional(),
   termsAcceptedAt: z.string().nullable().optional(),
@@ -773,11 +781,19 @@ export const chatRequestSchema = z.object({
   testMode: z.boolean().default(false),
   conversationId: z.string().optional(),
   retryAssistantMessageId: z.string().min(1).max(256).optional(),
+  // Server-stamped by the tool router: whether the message refers to prior
+  // visual content. Patterns are the deterministic base; the LLM router fills
+  // this in when they miss. Clients do not send it.
+  mediaReferenceHint: z.enum(["none", "inspect", "transform"]).optional(),
   history: z.array(chatMessageSchema).default([]),
   requestedOutputs: z.array(outputTypeSchema).optional(),
   clientContext: clientContextSchema.optional(),
   attachments: z.array(uploadedAssetSchema).max(MAX_CHAT_ATTACHMENTS).optional(),
-  toolOptions: toolOptionsSchema.optional()
+  toolOptions: toolOptionsSchema.optional(),
+  // Server-stamped from the account preference (never trusted from clients):
+  // keeps image-generation pricing and execution on the provider reserved for
+  // the request, including background jobs.
+  imageProvider: imageProviderSchema.optional()
 }).superRefine((request, context) => {
   if (!request.message.trim() && (request.attachments?.length ?? 0) === 0) {
     context.addIssue({
@@ -1001,6 +1017,7 @@ export type PersonaDefinitionInput = z.input<typeof personaDefinitionSchema>;
 export const llmInputSchema = z.object({
   persona: personaDefinitionSchema,
   personaInfluenceLevel: personaInfluenceLevelSchema.default("uncensored"),
+  imageProvider: imageProviderSchema.optional(),
   systemPrompt: z.string(),
   baseSystemPrompt: z.string().optional(),
   messages: z.array(chatMessageSchema),

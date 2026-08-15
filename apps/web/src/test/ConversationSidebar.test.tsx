@@ -304,6 +304,21 @@ describe("ConversationSidebar settings", () => {
     await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ modelProvider: "gemini" }));
   });
 
+  it("switches the image provider from provider settings", async () => {
+    const user = userEvent.setup();
+    const { onUpdateProfile } = renderSidebar();
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Provider settings" }));
+
+    const fluxOption = await within(dialog).findByRole("radio", { name: /FLUX\.2 Pro/ });
+    expect(within(dialog).getByRole("radio", { name: /OpenAI Image 2/ })).toHaveAttribute("aria-checked", "true");
+    await user.click(fluxOption);
+    await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ imageProvider: "flux" }));
+  });
+
   it("switches the persona influence level from settings", async () => {
     const user = userEvent.setup();
     const { onUpdateProfile } = renderSidebar();
