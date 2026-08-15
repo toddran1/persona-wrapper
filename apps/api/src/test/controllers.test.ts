@@ -111,6 +111,14 @@ describe("controllers", () => {
     expect(next).toHaveBeenCalledWith();
 
     next.mockClear();
+    requireVerifiedEmail({ path: "/api/account/profile", auth } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith();
+
+    next.mockClear();
+    requireVerifiedEmail({ path: "/api/account", auth } as Request, {} as Response, next);
+    expect(next).toHaveBeenCalledWith();
+
+    next.mockClear();
     requireVerifiedEmail({ path: "/api/account/me", auth } as Request, {} as Response, next);
     expect(next).toHaveBeenCalledWith();
 
