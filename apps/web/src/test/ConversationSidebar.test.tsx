@@ -323,22 +323,30 @@ describe("ConversationSidebar settings", () => {
     await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ imageProvider: "flux" }));
   });
 
-  it("hides FLUX.2 Pro for bronze and silver plans", async () => {
+  it("hides FLUX.2 Pro for bronze and locks it for silver", async () => {
     const user = userEvent.setup();
-    for (const planId of ["bronze", "silver"] as const) {
-      const { unmount } = renderSidebar({
-        planUsageOverride: { ...planUsage, plan: { ...planUsage.plan, id: planId, displayName: planId } }
-      });
 
-      await user.click(screen.getByTestId("account-menu-toggle"));
-      await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
-      const dialog = screen.getByRole("dialog", { name: "Settings" });
-      await user.click(within(dialog).getByRole("button", { name: "Provider settings" }));
+    const bronze = renderSidebar({
+      planUsageOverride: { ...planUsage, plan: { ...planUsage.plan, id: "bronze" as const, displayName: "Bronze" } }
+    });
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const bronzeDialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(bronzeDialog).getByRole("button", { name: "Provider settings" }));
+    expect(await within(bronzeDialog).findByRole("radio", { name: /OpenAI Image 2/ })).toBeInTheDocument();
+    expect(within(bronzeDialog).queryByRole("radio", { name: /FLUX\.2 Pro/ })).not.toBeInTheDocument();
+    bronze.unmount();
 
-      expect(await within(dialog).findByRole("radio", { name: /OpenAI Image 2/ })).toBeInTheDocument();
-      expect(within(dialog).queryByRole("radio", { name: /FLUX\.2 Pro/ })).not.toBeInTheDocument();
-      unmount();
-    }
+    renderSidebar({
+      planUsageOverride: { ...planUsage, plan: { ...planUsage.plan, id: "silver" as const, displayName: "Silver" } }
+    });
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const silverDialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(silverDialog).getByRole("button", { name: "Provider settings" }));
+    const fluxOption = await within(silverDialog).findByRole("radio", { name: /FLUX\.2 Pro/ });
+    expect(fluxOption).toBeDisabled();
+    expect(fluxOption).toHaveTextContent("Included with the Gold plan.");
   });
 
   it("switches the persona influence level from settings", async () => {

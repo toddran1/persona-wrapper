@@ -1877,21 +1877,22 @@ export function ConversationSidebar({
                             ], [
                               "flux", "FLUX.2 Pro", "More flexible with fewer content refusals. Great for creative freedom, but results may be less precise or more unpredictable."
                             ]] as const)
-                              // FLUX.2 Pro is a Gold-plan feature; the server rejects the switch too.
-                              .filter(([value]) => value === "openai" || planUsage?.plan.id === "gold")
+                              // Bronze sees OpenAI only; Silver sees FLUX.2 Pro locked (Gold-only); the server rejects the switch too.
+                              .filter(([value]) => value === "openai" || planUsage?.plan.id !== "bronze")
                               .map(([value, label, description]) => {
                               const selected = (authUser.imageProvider ?? "openai") === value;
+                              const locked = value === "flux" && planUsage?.plan.id !== "gold";
                               return (
                                 <button
                                   type="button"
                                   role="radio"
                                   aria-checked={selected}
                                   className={`settings-provider-option${selected ? " settings-provider-option-selected" : ""}`}
-                                  disabled={authBusy}
+                                  disabled={authBusy || locked}
                                   onClick={() => void chooseImageProvider(value)}
                                   key={value}
                                 >
-                                  <span><strong>{label}</strong><small>{description}</small></span>
+                                  <span><strong>{label}</strong><small>{locked ? "Included with the Gold plan." : description}</small></span>
                                   <span className="settings-provider-radio" aria-hidden="true" />
                                 </button>
                               );

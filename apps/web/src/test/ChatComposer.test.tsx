@@ -70,9 +70,12 @@ describe("ChatComposer", () => {
       <ChatComposer {...defaultProps} planId="silver" onSubmit={vi.fn().mockResolvedValue(undefined)} />
     );
     const modelValues = Array.from(screen.getByTestId("model-provider-select").querySelectorAll("option")).map((option) => option.value);
-    const imageValues = Array.from(screen.getByTestId("image-provider-select").querySelectorAll("option")).map((option) => option.value);
     expect(modelValues).toEqual(["openai", "gemini"]);
-    expect(imageValues).toEqual(["openai"]);
+    // Silver sees FLUX.2 Pro listed but locked (Gold-only).
+    const fluxOption = screen.getByTestId("image-provider-select").querySelector('option[value="flux"]');
+    expect(fluxOption).not.toBeNull();
+    expect(fluxOption).toBeDisabled();
+    expect(fluxOption).toHaveTextContent("Gold plan");
   });
 
   it("changes the model and image providers from the settings dropdowns", async () => {

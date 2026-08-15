@@ -515,8 +515,9 @@ export function MobileChatScreen() {
     return planUsage.plan.personaIds.includes(candidate.id);
   });
   const quickMenuShowModels = planUsage ? planUsage.plan.id !== "bronze" : false;
-  // FLUX.2 Pro is Gold-only, so the image-model choice only exists there.
-  const quickMenuShowImageModels = planUsage ? planUsage.plan.id === "gold" : false;
+  // The image-model choice appears for paid plans; FLUX.2 Pro itself is Gold-only.
+  const quickMenuShowImageModels = quickMenuShowModels;
+  const quickMenuFluxEnabled = planUsage?.plan.id === "gold";
   const personaCardIsDocked = Boolean(
     activePersona?.visualStage
     && !personaCardHidden
@@ -3949,23 +3950,24 @@ export function MobileChatScreen() {
               ], [
                 "flux", "FLUX.2 Pro", "More flexible with fewer content refusals. Great for creative freedom, but results may be less precise or more unpredictable.", "color-wand-outline"
               ]] as const)
-                // FLUX.2 Pro is a Gold-plan feature; the server rejects the switch too.
-                .filter(([value]) => value === "openai" || planUsage?.plan.id === "gold")
+                // Bronze sees OpenAI only; Silver sees FLUX.2 Pro locked (Gold-only); the server rejects the switch too.
+                .filter(([value]) => value === "openai" || planUsage?.plan.id !== "bronze")
                 .map(([value, label, description, icon]) => {
                 const selected = (authUser?.imageProvider ?? "openai") === value;
+                const locked = value === "flux" && planUsage?.plan.id !== "gold";
                 return (
                   <Pressable
                     key={value}
                     accessibilityRole="radio"
-                    accessibilityState={{ checked: selected, disabled: audioSettingsBusy }}
-                    disabled={audioSettingsBusy}
+                    accessibilityState={{ checked: selected, disabled: audioSettingsBusy || locked }}
+                    disabled={audioSettingsBusy || locked}
                     onPress={() => void updateImageProvider(value)}
-                    style={[styles.settingsRow, { backgroundColor: selected ? `${theme.accent}30` : "rgba(255,255,255,0.09)", borderColor: selected ? theme.accent2 : theme.border, borderWidth: 1 }]}
+                    style={[styles.settingsRow, { backgroundColor: selected ? `${theme.accent}30` : "rgba(255,255,255,0.09)", borderColor: selected ? theme.accent2 : theme.border, borderWidth: 1 }, locked ? { opacity: 0.5 } : undefined]}
                   >
-                    <Ionicons name={icon} size={22} color={selected ? theme.accent2 : theme.text} />
+                    <Ionicons name={locked ? "lock-closed-outline" : icon} size={22} color={selected ? theme.accent2 : theme.text} />
                     <View style={styles.settingsRowCopy}>
                       <Text style={[styles.settingsRowText, { color: theme.text }]}>{label}</Text>
-                      <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{description}</Text>
+                      <Text style={[styles.settingsRowHint, { color: theme.muted }]}>{locked ? "Included with the Gold plan." : description}</Text>
                     </View>
                     <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={22} color={selected ? theme.accent2 : theme.muted} />
                   </Pressable>
@@ -4445,6 +4447,7 @@ export function MobileChatScreen() {
           <Pressable accessibilityRole="button" accessibilityLabel="Close quick options" style={StyleSheet.absoluteFill} onPress={() => setQuickMenuVisible(false)} />
           <View style={[styles.attachmentSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: theme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 14) }]}>
             <View style={[styles.attachmentSheetHandle, { backgroundColor: theme.border }]} />
+            <ScrollView style={{ flexGrow: 0 }} bounces={false} keyboardShouldPersistTaps="handled">
             <Text style={[styles.actionSheetTitle, { color: theme.text }]}>Quick options</Text>
             <Text style={[styles.attachmentSheetCopy, { color: theme.muted }]}>Add to your message or choose who answers it.</Text>
             <Text style={[styles.actionSheetTitle, { color: theme.muted, fontSize: 13 }]}>Message</Text>
@@ -4534,23 +4537,25 @@ export function MobileChatScreen() {
                   "flux", "FLUX.2 Pro", "More creative freedom, less predictable results.", "color-wand-outline"
                 ]] as const).map(([value, label, description, icon]) => {
                   const selected = (authUser?.imageProvider ?? "openai") === value;
+                  const locked = value === "flux" && !quickMenuFluxEnabled;
                   return (
                     <Pressable
                       key={value}
                       accessibilityRole="radio"
-                      accessibilityState={{ checked: selected }}
-                      style={styles.attachmentSheetRow}
+                      accessibilityState={{ checked: selected, disabled: locked }}
+                      disabled={locked}
+                      style={[styles.attachmentSheetRow, locked ? { opacity: 0.5 } : undefined]}
                       onPress={() => {
                         setQuickMenuVisible(false);
                         void updateImageProvider(value);
                       }}
                     >
                       <View style={[styles.attachmentSheetIcon, { backgroundColor: "rgba(255,255,255,0.09)" }]}>
-                        <Ionicons name={icon} size={22} color={selected ? theme.accent2 : theme.text} />
+                        <Ionicons name={locked ? "lock-closed-outline" : icon} size={22} color={selected ? theme.accent2 : theme.text} />
                       </View>
                       <View style={styles.attachmentSheetRowCopy}>
                         <Text style={[styles.actionSheetText, { color: theme.text }]}>{label}</Text>
-                        <Text style={[styles.attachmentSheetHint, { color: theme.muted }]}>{description}</Text>
+                        <Text style={[styles.attachmentSheetHint, { color: theme.muted }]}>{locked ? "Included with the Gold plan." : description}</Text>
                       </View>
                       <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={22} color={selected ? theme.accent2 : theme.muted} />
                     </Pressable>
@@ -4558,6 +4563,7 @@ export function MobileChatScreen() {
                 })}
               </>
             ) : null}
+            </ScrollView>
             <Pressable accessibilityRole="button" style={styles.actionSheetCancel} onPress={() => setQuickMenuVisible(false)}>
               <Text style={[styles.actionSheetText, { color: theme.muted }]}>Cancel</Text>
             </Pressable>

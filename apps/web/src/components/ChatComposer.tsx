@@ -137,12 +137,13 @@ export function ChatComposer(props: ChatComposerProps) {
     }
   }
 
-  // Gemini is paid-plan only; FLUX.2 Pro is Gold-only. Until the plan loads,
-  // show just the free options (the server enforces the same gates).
+  // Gemini is paid-plan only; FLUX.2 Pro is Gold-only (shown locked for Silver).
+  // Until the plan loads, show just the free options (the server enforces the same gates).
   const modelOptions = ([["openai", "ChatGPT"], ["gemini", "Gemini"]] as const)
     .filter(([value]) => value === "openai" || (props.planId !== undefined && props.planId !== "bronze"));
   const imageOptions = ([["openai", "OpenAI Image 2"], ["flux", "FLUX.2 Pro"]] as const)
-    .filter(([value]) => value === "openai" || props.planId === "gold");
+    .filter(([value]) => value === "openai" || (props.planId !== undefined && props.planId !== "bronze"));
+  const fluxLocked = props.planId !== "gold";
   const selectedModel: ModelProviderPreference = props.provider === "gemini" ? "gemini" : "openai";
   const shownModel = modelOptions.some(([value]) => value === selectedModel) ? selectedModel : "openai";
   const shownImage = imageOptions.some(([value]) => value === props.imageProvider) ? props.imageProvider : "openai";
@@ -339,7 +340,9 @@ export function ChatComposer(props: ChatComposerProps) {
                       }}
                     >
                       {imageOptions.map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
+                        <option key={value} value={value} disabled={value === "flux" && fluxLocked}>
+                          {value === "flux" && fluxLocked ? `${label} (Gold plan)` : label}
+                        </option>
                       ))}
                     </select>
                   </label>
