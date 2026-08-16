@@ -99,17 +99,21 @@ at the development Render services.
 ## EAS environment
 
 The SDK keys are RevenueCat public app-specific keys, not RevenueCat secret API
-keys. Add the following to both the EAS `preview` and `production`
-environments, using the appropriate API/web hosts for each environment:
+keys. Add the following to the EAS `production` environment (the store-testing
+profiles — `testflight` and `play-internal` — also use `production`), using the
+appropriate API/web hosts:
 
 ```bash
 eas env:create --environment production --name EXPO_PUBLIC_API_URL --value https://<production-api-host> --visibility plaintext
 eas env:create --environment production --name EXPO_PUBLIC_WEB_APP_URL --value https://<production-web-host> --visibility plaintext
+eas env:create --environment production --name EXPO_PUBLIC_ANDROID_APP_LINK_HOST --value <production-web-host> --visibility plaintext
 eas env:create --environment production --name EXPO_PUBLIC_REVENUECAT_IOS_API_KEY --value <revenuecat-ios-public-sdk-key> --visibility sensitive
 eas env:create --environment production --name EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY --value <revenuecat-android-public-sdk-key> --visibility sensitive
 ```
 
-Repeat with `--environment preview` for internal and TestFlight testing.
+The `preview` profile is the only one that still points at the hosted dev
+environment; repeat the host variables with `--environment preview` only if you
+change its hardcoded dev URLs.
 Production EAS builds deliberately fail configuration if either key is absent,
 if either endpoint is localhost, or if an endpoint is not HTTPS.
 

@@ -27,24 +27,24 @@ permission, and store packaging paths.
 # Google Play internal testing: AAB signed for Play, using the development backend
 npx eas-cli build --platform android --profile play-internal
 
-# TestFlight candidate using the development backend
+# TestFlight candidate using the production backend
 npx eas-cli build --platform ios --profile testflight
 
 # Final store candidates using production services
 npx eas-cli build --platform all --profile production
 ```
 
-The `play-internal` and `testflight` profiles deliberately require both
-RevenueCat public SDK keys. Add them to the EAS `preview` environment before
-building. The production environment must contain the production API and web
-URLs plus both RevenueCat keys. The config rejects missing store-build values
-instead of silently producing a candidate with incomplete billing.
+The `play-internal` and `testflight` profiles use the EAS `production`
+environment and deliberately require both RevenueCat public SDK keys. The
+production environment must contain the production API, web, and Android
+app-link host values plus both RevenueCat keys. The config rejects missing
+store-build values instead of silently producing a candidate with incomplete
+billing.
 
 Before each candidate build, verify variable presence without printing sensitive
 values:
 
 ```bash
-npx eas-cli env:list preview --format short
 npx eas-cli env:list production --format short
 ```
 
@@ -52,11 +52,12 @@ Required names:
 
 - `EXPO_PUBLIC_API_URL`
 - `EXPO_PUBLIC_WEB_APP_URL`
+- `EXPO_PUBLIC_ANDROID_APP_LINK_HOST`
 - `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`
 - `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`
 
-The preview API/web URLs are pinned in `eas.json`; production URLs are supplied
-by the EAS production environment. Confirm the Google, Facebook, and Apple
+The preview API/web URLs are pinned in `eas.json`; the store-testing and
+production profiles take their URLs from the EAS production environment. Confirm the Google, Facebook, and Apple
 provider dashboards contain Better Auth's exact API callbacks for each backend:
 `/api/auth/callback/google`, `/api/auth/callback/facebook`, and
 `/api/auth/callback/apple`. Apple's callback must be public HTTPS and registered
