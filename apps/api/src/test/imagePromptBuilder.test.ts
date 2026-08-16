@@ -46,6 +46,22 @@ describe("imagePromptBuilder", () => {
     expect(prompt).not.toContain("Appearance and visual style: .");
   });
 
+  it("prioritizes an uploaded garment over the persona's default outfit", () => {
+    const input = imageInput("Give me a picture of you wearing this swimsuit at the beach.");
+    input.attachments = [
+      { id: "upload-1", kind: "image", fileName: "swimsuit.png", mimeType: "image/png", sizeBytes: 1024 }
+    ];
+
+    const prompt = buildImageGenerationPrompt(input, {
+      includePersonaVisualReferences: true,
+      includeUserImageReferences: true
+    });
+
+    expect(prompt).toContain("The first attached image or images (full-body and face) are the persona's visual references");
+    expect(prompt).toContain("come after the persona's identity references");
+    expect(prompt).toContain("always replaces the persona's default outfit");
+  });
+
   it("keeps the strict safety sentence for OpenAI and the moderation-safe wording for FLUX", () => {
     const openaiInput = imageInput("LaRae, give me a picture of you wearing this swimsuit.");
     const openaiPrompt = buildImageGenerationPrompt(openaiInput);
@@ -144,7 +160,7 @@ describe("imagePromptBuilder", () => {
       { includePersonaVisualReferences: true }
     );
 
-    expect(prompt).toContain("separate attached full-body and face images are the persona's visual references");
+    expect(prompt).toContain("The first attached image or images (full-body and face) are the persona's visual references");
   });
 
   it("tells the direct image path how to use one or more user image references", () => {
