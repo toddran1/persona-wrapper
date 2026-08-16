@@ -62,6 +62,24 @@ describe("imagePromptBuilder", () => {
     expect(prompt).toContain("always replaces the persona's default outfit");
   });
 
+  it("adds a FLUX-only wardrobe override and drops styling inspiration for wear-this requests", () => {
+    const input = imageInput("Give me a picture of you wearing this swimsuit at the beach.");
+    input.attachments = [
+      { id: "upload-1", kind: "image", fileName: "swimsuit.png", mimeType: "image/png", sizeBytes: 1024 }
+    ];
+    const options = { includePersonaVisualReferences: true, includeUserImageReferences: true };
+
+    const fluxPrompt = buildImageGenerationPrompt({ ...input, imageProvider: "flux" as const }, options);
+    expect(fluxPrompt).toContain("Wardrobe override");
+    expect(fluxPrompt).toContain("no pants, skirts, shorts, or cover-ups");
+    expect(fluxPrompt).not.toContain("Persona character influences");
+
+    // OpenAI keeps the styling brief and gets no wardrobe-override block.
+    const openaiPrompt = buildImageGenerationPrompt(input, options);
+    expect(openaiPrompt).not.toContain("Wardrobe override");
+    expect(openaiPrompt).toContain("Persona character influences");
+  });
+
   it("keeps the strict safety sentence for OpenAI and the moderation-safe wording for FLUX", () => {
     const openaiInput = imageInput("LaRae, give me a picture of you wearing this swimsuit.");
     const openaiPrompt = buildImageGenerationPrompt(openaiInput);

@@ -196,11 +196,19 @@ export function buildImageGenerationPrompt(
   const includePersonaVisualReferences = includePersonaVisuals && options.includePersonaVisualReferences === true;
   const includeUserImageReferences = options.includeUserImageReferences === true &&
     (input.attachments ?? []).some((attachment) => attachment.kind === "image");
+  // FLUX multi-reference edits lean on every hint in the prompt: for "wear
+  // this" requests the character-influence brief reintroduces the persona's
+  // default wardrobe and favorite accessories, so drop it there and spell
+  // out that the uploaded garment replaces the whole outfit.
+  const fluxGarmentTransfer = input.imageProvider === "flux" && includePersonaVisualReferences && includeUserImageReferences;
 
   return [
     "Image generation prompt for a safe visual tool request.",
     includePersonaVisuals
-      ? [personaVisualBrief(input.persona, input.imageProvider), personaCharacterInfluenceVisualBrief(input.persona)].filter(Boolean).join(" ")
+      ? [
+          personaVisualBrief(input.persona, input.imageProvider),
+          ...(fluxGarmentTransfer ? [] : [personaCharacterInfluenceVisualBrief(input.persona)])
+        ].filter(Boolean).join(" ")
       : "This image request is not about the current persona. Do not include persona appearance, biography, body details, voice, slang, or character styling unless the user explicitly asks for it.",
     includePersonaVisualReferences
       ? "The first attached image or images (full-body and face) are the persona's visual references. Use them as the primary visual identity reference for the fictional persona, preserving her recognizable face and overall appearance while following the requested scene. Do not copy their pose, outfit, or background unless the user asks."
@@ -209,6 +217,9 @@ export function buildImageGenerationPrompt(
       ? includePersonaVisualReferences
         ? "The user's uploaded image or images come after the persona's identity references and are the subject of the request. When the user asks the persona to wear, hold, or use something from an upload, reproduce that item exactly — its design, color, fabric, and cut — on the persona. An uploaded garment or item the user asked for always replaces the persona's default outfit or accessories; never substitute the persona's signature look for it. Treat multiple uploads as complementary references; do not invent an extra subject or combine unrelated people unless the user asks."
         : "The user's attached image or images are source references for this edit. Use them to preserve or deliberately transform the relevant subjects and visual details according to the user's request. When multiple images are attached, treat them as complementary references; do not invent an extra subject or combine unrelated people unless the user asks."
+      : "",
+    fluxGarmentTransfer
+      ? "Wardrobe override: the persona wears only the uploaded garment plus whatever the scene minimally requires. Remove any clothing from her identity references that the upload replaces — for a swimsuit or dress that means no pants, skirts, shorts, or cover-ups carried over. Do not add bags, hats, jewelry, or other accessories unless they appear in the upload or the user explicitly asked for them."
       : "",
     imageFollowUpConversationContext(input),
     `User visual request, cleaned for image generation: ${request}`,
