@@ -79,8 +79,10 @@ const TERSE_VISUAL_TRANSFORM_PATTERNS = [
   /^(?:a\s+)?(?:wider|closer|tighter|broader)\s+(?:shot|frame|crop|view|angle)[\s.!]*$/i,
   // "Close up on her face."
   /^close[-\s]?up\b[\s\S]*$/i,
-  // Direct single-object edit verbs: "Remove the sunglasses.", "Add a necklace."
-  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:please\s+)?(?:remove|take\s+out|get\s+rid\s+of|erase|delete|add|insert)\s+(?:the\s+|a\s+|an\s+|her\s+|his\s+|their\s+)?[\w\s'-]{1,40}[\s.!]*$/i,
+  // Direct single-object edit verbs: "Remove the sunglasses.", "Add a necklace.",
+  // "Swap the earrings.", "Replace the heels." ("change" stays out so
+  // "change the subject"-style chat can't match).
+  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:please\s+)?(?:remove|take\s+out|get\s+rid\s+of|erase|delete|add|insert|replace|swap)\s+(?:the\s+|a\s+|an\s+|her\s+|his\s+|their\s+)?[\w\s'-]{1,40}[\s.!]*$/i,
   // "Portrait orientation.", "Landscape.", "Vertical."
   /^(?:portrait|landscape|square|widescreen|vertical|horizontal)(?:\s+(?:orientation|format|aspect\s+ratio|ratio|crop|version))?[\s.!]*$/i,
   // Bare aspect ratio: "16:9", "4x3".
@@ -123,7 +125,7 @@ const MEDIA_REFERENCE_PATTERNS = [
   // Edit requests against the prior asset.
   /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|remix|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth|animate)\b.*\b(it|that|this|these|those|image|images|picture|pictures|photo|photos|pic|pics|asset|assets|attachment|attachments|file|files|visual|visuals|render|renders|output|outputs|result|results|one|ones)\b/i,
   /\b(make|turn|change|convert|transform)\s+(it|that|this|one)\s+(into|to|more|less|look|feel|like)\b/i,
-  /\b(add|remove|take\s+out|get\s+rid\s+of|cut\s+out|replace|swap|change|fix)\s+(the|her|his|their|its|your|yo|that|this)\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|pose|lighting|color|colour|style|text|caption|watermark|sign|logo|object|person|animal|sky)\b/i,
+  /\b(add|remove|take\s+out|get\s+rid\s+of|cut\s+out|replace|swap|change|fix)\s+(the|her|his|their|its|your|yo|that|this)\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|pose|lighting|color|colour|style|text|caption|watermark|sign|logo|object|person|animal|sky|sunglasses|glasses|goggles|jewelry|jewellery|necklace|earrings|bracelet|watch|ring|shoes?|heels|sneakers|boots|bag|purse|handbag|jacket|coat|hat|cap|belt|scarf|makeup|lipstick|nails|tattoo|beard|mustache)\b/i,
 
   // Follow-up pronouns commonly used after an image response.
   /\b(use|reuse|keep|base|reference|match|copy|continue\s+with|go\s+with|work\s+from|start\s+from)\b.*\b(it|them|that|this|these|those|one|ones|image|picture|photo|pic|reference|asset|attachment|file|visual|render)\b/i,
@@ -176,8 +178,9 @@ const MEDIA_REFERENCE_PATTERNS = [
   // Terse transform follow-ups shared with transform-intent inference (see above).
   ...TERSE_VISUAL_TRANSFORM_PATTERNS,
 
-  // Swapping one depicted thing for another: "Swap the car for a motorcycle."
-  /\b(?:swap|replace|exchange|substitute)\s+(?:the\s+|a\s+|an\s+)?(?:car|vehicle|object|person|character|background|outfit|hat|text|logo|color|colour|dog|cat|tree|building|font|frame)\b[\w\s-]{0,40}\b(?:for|with)\b/i,
+  // Swapping one depicted thing for another: "Swap the car for a motorcycle.",
+  // "Replace the sunglasses with goggles."
+  /\b(?:swap|replace|exchange|substitute)\s+(?:the\s+|a\s+|an\s+)?(?:car|vehicle|object|person|character|background|outfit|hat|text|logo|color|colour|dog|cat|tree|building|font|frame|sunglasses|glasses|goggles|jewelry|jewellery|necklace|earrings|bracelet|watch|ring|shoes?|heels|sneakers|boots|bag|purse|handbag|jacket|coat|cap|belt|scarf)\b[\w\s-]{0,40}\b(?:for|with)\b/i,
   // Quality work on the current visual: "Enhance the details.", "Boost the contrast."
   /\b(?:enhance|improve|sharpen|boost|increase)\s+(?:the\s+)?(?:details?|sharpness|clarity|quality|resolution|contrast|colors?|colours?|lighting)\b/i,
   // Ordinal selection without a noun: "Use the third.", "Pick the second."

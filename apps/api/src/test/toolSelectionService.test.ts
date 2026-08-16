@@ -115,6 +115,9 @@ describe("tool selection", () => {
     await expect(selectTools(request("ok now remove the sunglasses"))).resolves.toMatchObject({
       mediaReferenceHint: "transform"
     });
+    await expect(selectTools(request("replace the sunglasses with googles."))).resolves.toMatchObject({
+      mediaReferenceHint: "transform"
+    });
     await expect(selectTools(request("Does it have sunglasses?"))).resolves.toMatchObject({
       mediaReferenceHint: "inspect"
     });

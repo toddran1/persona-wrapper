@@ -1416,6 +1416,13 @@ export class OpenAIProvider implements LLMProvider {
       timeout: this.requestTimeout(input),
       maxRetries: 0
     });
+    // Same direct Images API path as generateResponse: without this branch a
+    // streamed edit request falls through to the Responses API, which may
+    // legally answer an image edit with text only.
+    if (shouldUseDirectImageApi(input)) {
+      return this.generateDirectImageResponse(client, input, signal);
+    }
+
     const tools = buildOpenAITools(input);
     const responseInput = withStyleReference(input, this.promptMode, buildInput(input, this.promptMode));
     const applicationTrace: ContentBlock[] = [];
