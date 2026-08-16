@@ -80,6 +80,32 @@ describe("imagePromptBuilder", () => {
     expect(openaiPrompt).toContain("Persona character influences");
   });
 
+  it("applies the wardrobe override persona-agnostically", () => {
+    const bambam = getPersonaById("bambam");
+    if (!bambam) throw new Error("Bam Bam persona not found");
+    const input = new PersonaEngine().prepareInput(bambam, {
+      personaId: "bambam",
+      provider: "openai",
+      message: "Give me a picture of you wearing this jersey.",
+      audio: false,
+      testMode: false,
+      history: []
+    });
+    input.attachments = [
+      { id: "upload-1", kind: "image", fileName: "jersey.png", mimeType: "image/png", sizeBytes: 1024 }
+    ];
+
+    const prompt = buildImageGenerationPrompt({ ...input, imageProvider: "flux" as const }, {
+      includePersonaVisualReferences: true,
+      includeUserImageReferences: true
+    });
+
+    expect(prompt).toContain("Wardrobe override");
+    expect(prompt).toContain("the persona's identity references");
+    expect(prompt).not.toContain("LaRae");
+    expect(prompt).not.toMatch(/\bher\b/);
+  });
+
   it("keeps the strict safety sentence for OpenAI and the moderation-safe wording for FLUX", () => {
     const openaiInput = imageInput("LaRae, give me a picture of you wearing this swimsuit.");
     const openaiPrompt = buildImageGenerationPrompt(openaiInput);

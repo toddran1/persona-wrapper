@@ -211,7 +211,7 @@ export function buildImageGenerationPrompt(
         ].filter(Boolean).join(" ")
       : "This image request is not about the current persona. Do not include persona appearance, biography, body details, voice, slang, or character styling unless the user explicitly asks for it.",
     includePersonaVisualReferences
-      ? "The first attached image or images (full-body and face) are the persona's visual references. Use them as the primary visual identity reference for the fictional persona, preserving her recognizable face and overall appearance while following the requested scene. Do not copy their pose, outfit, or background unless the user asks."
+      ? "The first attached image or images (full-body and face) are the persona's visual references. Use them as the primary visual identity reference for the fictional persona, preserving their recognizable face and overall appearance while following the requested scene. Do not copy their pose, outfit, or background unless the user asks."
       : "",
     includeUserImageReferences
       ? includePersonaVisualReferences
@@ -219,7 +219,7 @@ export function buildImageGenerationPrompt(
         : "The user's attached image or images are source references for this edit. Use them to preserve or deliberately transform the relevant subjects and visual details according to the user's request. When multiple images are attached, treat them as complementary references; do not invent an extra subject or combine unrelated people unless the user asks."
       : "",
     fluxGarmentTransfer
-      ? "Wardrobe override: the persona wears only the uploaded garment plus whatever the scene minimally requires. Remove any clothing from her identity references that the upload replaces — for a swimsuit or dress that means no pants, skirts, shorts, or cover-ups carried over. Do not add bags, hats, jewelry, or other accessories unless they appear in the upload or the user explicitly asked for them."
+      ? "Wardrobe override: the persona wears only the uploaded garment plus whatever the scene minimally requires. Remove any clothing from the persona's identity references that the upload replaces — for a swimsuit or dress that means no pants, skirts, shorts, or cover-ups carried over; for a suit or jacket, no conflicting tops or bottoms. Do not add bags, hats, jewelry, or other accessories unless they appear in the upload or the user explicitly asked for them."
       : "",
     imageFollowUpConversationContext(input),
     `User visual request, cleaned for image generation: ${request}`,

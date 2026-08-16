@@ -54,6 +54,42 @@ export type ConversationMediaContextResult = {
 export const CONVERSATION_MEDIA_UNAVAILABLE_TEXT =
   "I still have the chat text, but that image file is no longer available. Please re-upload it or regenerate it.";
 
+// Wardrobe, accessory, grooming, and styling nouns shared by the edit-object
+// and swap patterns below, so any phrasing like "replace the sunglasses with
+// goggles" or "swap the heels for sneakers" matches consistently everywhere.
+// Kept as a string fragment so the patterns cannot drift apart.
+const ACCESSORY_NOUN_PATTERN = [
+  // Eyewear
+  "sunglasses", "shades", "eyewear", "glasses", "goggles", "monocle", "contacts?", "lenses",
+  // Jewelry / body adornment
+  "jewelry", "jewellery", "necklace", "chains?", "pendant", "choker", "earrings?", "bracelet", "bangle",
+  "anklet", "watch", "rings?", "brooch", "piercings?", "grillz?", "cufflinks?", "tiara", "crown",
+  "tattoos?", "nails",
+  // Headwear / face coverings
+  "hat", "caps?", "beanie", "visor", "helmet", "headband", "bandana", "durag", "bonnet", "veil", "mask",
+  // Bags / carried items
+  "bags?", "purse", "handbag", "backpack", "tote", "clutch", "wallet", "fanny\\s+pack", "crossbody",
+  "duffel", "suitcase", "umbrella", "cane", "staff", "microphone", "mic", "phone", "camera", "bouquet",
+  // Footwear
+  "shoes?", "heels", "stilettos", "sneakers", "boots", "sandals", "flats", "loafers", "wedges", "slippers",
+  // Clothing
+  "jacket", "coat", "blazer", "hoodie", "sweater", "sweatshirt", "cardigan", "vest", "cape", "robe",
+  "suit", "tuxedo", "tux", "uniform", "costume", "apron", "jersey", "raincoat", "parka", "scarf", "scarves",
+  "belt", "tie", "bowtie", "gloves?", "mittens?", "top", "blouse", "tank", "tee", "t[-\\s]?shirt",
+  "pants", "jeans", "trousers", "shorts", "skirt", "gown", "bikini", "swimsuit", "swimwear", "lingerie",
+  "bra", "stockings", "socks?", "leggings", "joggers", "overalls", "corset", "bodysuit", "jumpsuit", "romper",
+  // Hair / grooming / makeup
+  "wig", "weave", "extensions", "braids", "locs", "dreads", "ponytail", "bun", "bangs", "mohawk", "fade",
+  "haircut", "hairstyle", "beard", "mustache", "goatee", "stubble", "makeup", "lipstick", "lip\\s+gloss",
+  "eyeliner", "mascara", "eyeshadow", "blush", "foundation", "lashes", "eyelashes", "eyebrows", "brows",
+  // Costume extras
+  "wings", "halo", "horns", "tail", "collar"
+].join("|");
+
+function accessoryAwareRegExp(pattern: string): RegExp {
+  return new RegExp(pattern.replaceAll("__ACCESSORIES__", ACCESSORY_NOUN_PATTERN), "i");
+}
+
 // Terse single-intent follow-ups people send right after a visual turn
 // ("Ghibli version please.", "Different background.", "Sharper.").
 // All are anchored so ordinary prose cannot match, and they are shared by
@@ -65,8 +101,8 @@ const TERSE_VISUAL_TRANSFORM_PATTERNS = [
   /^(?!.*\b(?:your|my|his|her|our|their|love|like)\b)(?:(?:a|an)\s+)?(?:[\w-]+\s+){0,2}(?:style|aesthetic|look|vibe|theme|filter)(?:\s+please)?[\s.!]*$/i,
   // Style used as a verb: "Cyberpunk it.", "Anime this."
   /^(?:cyberpunk|vaporwave|anime|manga|cartoon|ghibli|pixar|lego|claymation|pixel|noir)(?:\s*ify)?\s+(?:it|this|that|them)[\s.!]*$/i,
-  // "Different background.", "New hairstyle.", "Another angle."
-  /^(?:a\s+)?(?:different|new|another)\s+(?:background|backdrop|outfit|hairstyle|hair|pose|expression|setting|scene|location|angle|filter|font|lighting|perspective|color\s+scheme|colour\s+scheme)[\s.!]*$/i,
+  // "Different background.", "New hairstyle.", "Another angle.", "New sunglasses."
+  accessoryAwareRegExp("^(?:a\\s+)?(?:different|new|another)\\s+(?:background|backdrop|outfit|hairstyle|hair|pose|expression|setting|scene|location|angle|filter|font|lighting|perspective|color\\s+scheme|colour\\s+scheme|__ACCESSORIES__)[\\s.!]*$"),
   // "Smiling instead.", "Red hair instead."
   /^(?:[\w'-]+\s+){0,3}instead[\s.!]*$/i,
   // "Same but different.", "Same but in oil painting style."
@@ -80,9 +116,9 @@ const TERSE_VISUAL_TRANSFORM_PATTERNS = [
   // "Close up on her face."
   /^close[-\s]?up\b[\s\S]*$/i,
   // Direct single-object edit verbs: "Remove the sunglasses.", "Add a necklace.",
-  // "Swap the earrings.", "Replace the heels." ("change" stays out so
-  // "change the subject"-style chat can't match).
-  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:please\s+)?(?:remove|take\s+out|get\s+rid\s+of|erase|delete|add|insert|replace|swap)\s+(?:the\s+|a\s+|an\s+|her\s+|his\s+|their\s+)?[\w\s'-]{1,40}[\s.!]*$/i,
+  // "Swap the earrings.", "Try on the red dress.", "Dye her hair blonde."
+  // ("change"/"give"/"make" stay out so ordinary chat can't match).
+  /^(?:(?:now|next|then|ok(?:ay)?)[\s,]+)?(?:please\s+)?(?:remove|take\s+out|get\s+rid\s+of|erase|delete|add|insert|replace|swap|switch|exchange|substitute|wear|put\s+on|try\s+on|dye|curl|straighten|braid|trim|shorten|lengthen|restyle|touch\s+up|repaint|recolor|redraw|fix|adjust|tweak|tighten|loosen)\s+(?:the\s+|a\s+|an\s+|her\s+|his\s+|their\s+|your\s+)?[\w\s'-]{1,40}[\s.!]*$/i,
   // "Portrait orientation.", "Landscape.", "Vertical."
   /^(?:portrait|landscape|square|widescreen|vertical|horizontal)(?:\s+(?:orientation|format|aspect\s+ratio|ratio|crop|version))?[\s.!]*$/i,
   // Bare aspect ratio: "16:9", "4x3".
@@ -125,7 +161,7 @@ const MEDIA_REFERENCE_PATTERNS = [
   // Edit requests against the prior asset.
   /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|remix|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth|animate)\b.*\b(it|that|this|these|those|image|images|picture|pictures|photo|photos|pic|pics|asset|assets|attachment|attachments|file|files|visual|visuals|render|renders|output|outputs|result|results|one|ones)\b/i,
   /\b(make|turn|change|convert|transform)\s+(it|that|this|one)\s+(into|to|more|less|look|feel|like)\b/i,
-  /\b(add|remove|take\s+out|get\s+rid\s+of|cut\s+out|replace|swap|change|fix)\s+(the|her|his|their|its|your|yo|that|this)\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|pose|lighting|color|colour|style|text|caption|watermark|sign|logo|object|person|animal|sky|sunglasses|glasses|goggles|jewelry|jewellery|necklace|earrings|bracelet|watch|ring|shoes?|heels|sneakers|boots|bag|purse|handbag|jacket|coat|hat|cap|belt|scarf|makeup|lipstick|nails|tattoo|beard|mustache)\b/i,
+  accessoryAwareRegExp("\\b(add|remove|take\\s+out|get\\s+rid\\s+of|cut\\s+out|replace|swap|switch|exchange|change|fix)\\s+(the|her|his|their|its|your|yo|that|this)\\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|nose|lips|smile|teeth|skin|body|pose|lighting|color|colour|style|text|caption|watermark|sign|logo|object|person|animal|sky|__ACCESSORIES__)\\b"),
 
   // Follow-up pronouns commonly used after an image response.
   /\b(use|reuse|keep|base|reference|match|copy|continue\s+with|go\s+with|work\s+from|start\s+from)\b.*\b(it|them|that|this|these|those|one|ones|image|picture|photo|pic|reference|asset|attachment|file|visual|render)\b/i,
@@ -156,7 +192,7 @@ const MEDIA_REFERENCE_PATTERNS = [
   // attribute changes are still caught by the edit-request patterns above.
   /\b(make|put|place|move|dress|show|turn|transform|style|restyle|give)\s+(her|him|them|it|yourself|the\s+(?:person|character|subject|woman|man|girl|boy|people|characters?))\b/i,
   /\b(make|change|turn|set)\s+(?:the|your|her|his|their|its|yo)\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|pose|lighting|color|colour|style|expression|camera|angle|setting|scene|sky)\b/i,
-  /\b(with|without)\s+(a|an|the|her|his|their|your)?\s*(red|blue|green|black|white|new|different|same|brighter|darker|realistic|cartoon|anime|smiling|serious)?\s*(background|outfit|clothes|clothing|shirt|dress|hair|eyes|pose|lighting|expression|hat|jacket|shoes?)\b/i,
+  accessoryAwareRegExp("\\b(with|without)\\s+(a|an|the|her|his|their|your)?\\s*(?:[\\w'-]+\\s+){0,2}(background|outfit|clothes|clothing|shirt|dress|hair|eyes|pose|lighting|expression|__ACCESSORIES__)\\b"),
   /^(more|less)\s+(realistic|cartoonish|stylized|detailed|detail|details|texture|dramatic|colorful|colourful|bright|dark|cinematic|natural|professional|polished|blurry|grainy|sharp|dull|flat|saturated|vivid|washed\s+out|badass|edgy)\b/i,
   /\b(same|keep\s+the)\s+(pose|person|character|face|subject|background|outfit|style|lighting|composition|camera|angle)\b.*\b(different|new|but|with|without|change)\b/i,
   /\b(go\s+back\s+to|return\s+to|use|reuse)\s+(the\s+)?(originals?|uploads?|sources?|first\s+attempt|earlier\s+version)\b/i,
@@ -179,8 +215,8 @@ const MEDIA_REFERENCE_PATTERNS = [
   ...TERSE_VISUAL_TRANSFORM_PATTERNS,
 
   // Swapping one depicted thing for another: "Swap the car for a motorcycle.",
-  // "Replace the sunglasses with goggles."
-  /\b(?:swap|replace|exchange|substitute)\s+(?:the\s+|a\s+|an\s+)?(?:car|vehicle|object|person|character|background|outfit|hat|text|logo|color|colour|dog|cat|tree|building|font|frame|sunglasses|glasses|goggles|jewelry|jewellery|necklace|earrings|bracelet|watch|ring|shoes?|heels|sneakers|boots|bag|purse|handbag|jacket|coat|cap|belt|scarf)\b[\w\s-]{0,40}\b(?:for|with)\b/i,
+  // "Replace the sunglasses with goggles." Noun list shared via __ACCESSORIES__.
+  accessoryAwareRegExp("\\b(?:swap|replace|exchange|substitute|switch)\\s+(?:the\\s+|a\\s+|an\\s+|her\\s+|his\\s+|their\\s+)?(?:car|vehicle|object|person|character|background|outfit|text|logo|color|colour|dog|cat|tree|building|font|frame|__ACCESSORIES__)\\b[\\w\\s-]{0,40}\\b(?:for|with)\\b"),
   // Quality work on the current visual: "Enhance the details.", "Boost the contrast."
   /\b(?:enhance|improve|sharpen|boost|increase)\s+(?:the\s+)?(?:details?|sharpness|clarity|quality|resolution|contrast|colors?|colours?|lighting)\b/i,
   // Ordinal selection without a noun: "Use the third.", "Pick the second."
