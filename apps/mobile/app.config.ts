@@ -105,7 +105,7 @@ const config: ExpoConfig = {
     [
       "expo-media-library",
       {
-        photosPermission: false,
+        photosPermission: "Allow For the Baddiez to access your photo library for sharing images in chat.",
         savePhotosPermission: "Allow For the Baddiez to save generated images to your photo library.",
         granularPermissions: []
       }
