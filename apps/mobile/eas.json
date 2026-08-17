@@ -33,7 +33,12 @@
       },
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
-        "EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION": "true"
+        "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api.onrender.com",
+        "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com",
+        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com",
+        "EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION": "true",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_ZSuXHWkVSrqXXWVMSKvdTzFMCpq",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY": "goog_pbCVFiGJoiXDZYSjDSvZtGKPINr"
       }
     },
     "testflight": {
@@ -42,7 +47,11 @@
       "channel": "testflight",
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
-        "EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION": "true"
+        "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api.onrender.com",
+        "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com",
+        "EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION": "true",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_ZSuXHWkVSrqXXWVMSKvdTzFMCpq",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY": "goog_pbCVFiGJoiXDZYSjDSvZtGKPINr"
       }
     },
     "production": {
@@ -50,7 +59,12 @@
       "environment": "production",
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_APP_ENV": "production"
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api.onrender.com",
+        "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com",
+        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_ZSuXHWkVSrqXXWVMSKvdTzFMCpq",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY": "goog_pbCVFiGJoiXDZYSjDSvZtGKPINr"
       }
     }
   },

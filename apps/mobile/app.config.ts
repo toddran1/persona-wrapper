@@ -34,6 +34,12 @@ const config: ExpoConfig = {
   version: "0.1.0",
   orientation: "default",
   userInterfaceStyle: "dark",
+  updates: {
+    url: "https://u.expo.dev/075598af-c09e-4a7f-81b6-0151a8549441"
+  },
+  runtimeVersion: {
+    policy: "appVersion"
+  },
   ios: {
     supportsTablet: true,
     usesAppleSignIn: true,
@@ -43,7 +49,9 @@ const config: ExpoConfig = {
       usesNonExemptEncryption: false
     },
     infoPlist: {
-      NSMicrophoneUsageDescription: "Allow For the Baddiez to use the microphone for voice input."
+      NSMicrophoneUsageDescription: "Allow For the Baddiez to use the microphone for voice input.",
+      NSPhotoLibraryUsageDescription: "Allow For the Baddiez to save generated images to your photo library.",
+      NSCameraUsageDescription: "Allow For the Baddiez to use the camera to take photos for chat messages."
     }
   },
   android: {
