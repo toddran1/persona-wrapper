@@ -303,6 +303,8 @@ export function createApp() {
   app.post("/api/data/jobs/export", dataTransferRateLimit);
   app.post("/api/data/jobs/import/presign", dataTransferRateLimit);
   app.post("/api/safety/reports", safetyReportRateLimit);
+  // Admin tooling is session-gated, but keep it behind the strict limiter too.
+  app.use("/api/admin", authRateLimit);
   app.post("/api/data/jobs/import", dataTransferRateLimit, multer({
     storage: multer.memoryStorage(),
     limits: { files: 1, fileSize: Math.min(env.DATA_TRANSFER_ARCHIVE_MAX_BYTES, 64 * 1024 * 1024) },

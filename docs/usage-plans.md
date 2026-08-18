@@ -20,6 +20,10 @@ Model provider access is plan-gated: Bronze accounts are ChatGPT (OpenAI) only. 
 
 Image provider access is plan-gated the same way: FLUX.2 Pro is Gold only. `updateProfile` rejects a `flux` image provider for Bronze and Silver with 403, and chat requests clamp any stored `flux` preference to OpenAI Image 2 (`planAllowsImageProvider` in `planCatalog.ts`), so a stale preference after a downgrade can't route around the plan. All plans may use OpenAI Image 2.
 
+## Plan overrides
+
+Promotional access, testers, customer-support grants, and grandfathered plans are handled by `user_plan_assignments` overrides (`accessControlService.grantPlanOverride` / `revokePlanOverride`, sources `promotion` / `tester` / `customer_support` / `grandfathered`). Overrides resolve alongside subscriptions — the highest plan wins, so an override never downgrades a paying user — and override users stay metered (unlike admins, who bypass enforcement). Management paths: the `npm run plans:override -w @persona/api` CLI, or the admin-only web UI at `/admin` backed by `/api/admin/plan-overrides` (session must be an `APP_ADMIN_EMAILS` or `role: "admin"` user; rate-limited like the auth endpoints).
+
 The catalog includes intended monthly prices as metadata only; payment providers and paid entitlement assignment are not connected yet. The provider-cost ceilings remain below the planned post-store revenue so paid tiers retain room for app-store/payment fees, storage and egress, Render/AWS infrastructure, retries, support, taxes where applicable, and profit.
 
 ## Metering model

@@ -4,6 +4,9 @@ import type {
   AuthSession,
   AccountDeletionResponse,
   ActiveSession,
+  AdminGrantPlanOverrideRequest,
+  AdminPlanOverrideLookup,
+  AdminRevokePlanOverrideRequest,
   ChatResponse,
   ChatJobResponse,
   ClientContext,
@@ -590,6 +593,21 @@ export const api = {
   getPlanUsage: async (): Promise<PlanUsageSummary> => {
     const response = await contractClient.account.usage({});
     if (response.status !== 200) throw contractError(response.body, "Could not load plan usage.");
+    return response.body;
+  },
+  adminLookupPlanOverrides: async (user: string): Promise<AdminPlanOverrideLookup> => {
+    const response = await contractClient.admin.planOverrides({ query: { user } });
+    if (response.status !== 200) throw contractError(response.body, "Could not load plan overrides.");
+    return response.body;
+  },
+  adminGrantPlanOverride: async (payload: AdminGrantPlanOverrideRequest): Promise<AdminPlanOverrideLookup> => {
+    const response = await contractClient.admin.grantPlanOverride({ body: payload });
+    if (response.status !== 200) throw contractError(response.body, "Could not grant the plan override.");
+    return response.body;
+  },
+  adminRevokePlanOverride: async (payload: AdminRevokePlanOverrideRequest): Promise<AdminPlanOverrideLookup> => {
+    const response = await contractClient.admin.revokePlanOverride({ body: payload });
+    if (response.status !== 200) throw contractError(response.body, "Could not revoke the plan override.");
     return response.body;
   },
   updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {

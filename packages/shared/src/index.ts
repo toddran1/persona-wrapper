@@ -1399,8 +1399,93 @@ const pageQuerySchema = z.object({
   query: z.string().max(120).optional()
 });
 
+/** Plan override sources an admin may grant (subscriptions arrive via RevenueCat). */
+export const planOverrideSourceSchema = z.enum(["promotion", "tester", "customer_support", "grandfathered"]);
+
+export const planOverrideAssignmentSchema = z.object({
+  id: z.string(),
+  planId: z.string(),
+  planVersion: z.number().int(),
+  source: z.string(),
+  status: z.string(),
+  effectiveAt: z.string(),
+  expiresAt: z.string().nullable(),
+  reason: z.string().optional()
+});
+export type PlanOverrideAssignment = z.infer<typeof planOverrideAssignmentSchema>;
+
+export const adminPlanOverrideLookupSchema = z.object({
+  user: z.object({
+    id: z.string(),
+    email: z.string().nullable(),
+    username: z.string().nullable()
+  }),
+  effectivePlanId: z.string(),
+  effectivePlanDisplayName: z.string(),
+  isAdmin: z.boolean(),
+  assignments: z.array(planOverrideAssignmentSchema)
+});
+export type AdminPlanOverrideLookup = z.infer<typeof adminPlanOverrideLookupSchema>;
+
+export const adminGrantPlanOverrideSchema = z.object({
+  user: z.string().trim().min(1).max(320),
+  planId: z.enum(["bronze", "silver", "gold"]),
+  source: planOverrideSourceSchema,
+  reason: z.string().trim().min(1).max(500),
+  expiresAt: z.string().trim().min(1).max(64).optional()
+});
+
+export const adminRevokePlanOverrideSchema = z.object({
+  user: z.string().trim().min(1).max(320),
+  assignmentId: z.string().trim().min(1).max(128),
+  reason: z.string().trim().min(1).max(500)
+});
+export type AdminGrantPlanOverrideRequest = z.infer<typeof adminGrantPlanOverrideSchema>;
+export type AdminRevokePlanOverrideRequest = z.infer<typeof adminRevokePlanOverrideSchema>;
+
 /** Shared runtime contract for the endpoints used by both first-party clients. */
 export const apiContract = contract.router({
+  admin: contract.router({
+    planOverrides: {
+      method: "GET",
+      path: "/api/admin/plan-overrides",
+      query: z.object({ user: z.string().min(1) }),
+      responses: {
+        200: adminPlanOverrideLookupSchema,
+        400: apiErrorSchema,
+        401: apiErrorSchema,
+        403: apiErrorSchema,
+        404: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    },
+    grantPlanOverride: {
+      method: "POST",
+      path: "/api/admin/plan-overrides",
+      body: adminGrantPlanOverrideSchema,
+      responses: {
+        200: adminPlanOverrideLookupSchema,
+        400: apiErrorSchema,
+        401: apiErrorSchema,
+        403: apiErrorSchema,
+        404: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    },
+    revokePlanOverride: {
+      method: "POST",
+      path: "/api/admin/plan-overrides/revoke",
+      body: adminRevokePlanOverrideSchema,
+      responses: {
+        200: adminPlanOverrideLookupSchema,
+        400: apiErrorSchema,
+        401: apiErrorSchema,
+        403: apiErrorSchema,
+        404: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    }
+  }),
   personas: contract.router({
     list: {
       method: "GET",

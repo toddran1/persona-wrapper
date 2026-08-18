@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PlanId } from "@persona/shared";
-import { and, desc, eq, gt, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { userPlanAssignments, users } from "../db/schema.js";
@@ -211,6 +211,72 @@ export class AccessControlService {
         ...(input.revokedByUserId ? { revokedByUserId: input.revokedByUserId } : {})
       }
     }).where(eq(userPlanAssignments.id, input.assignmentId));
+  }
+
+  /** Admin tooling: resolve a user by id/email/username and list their plan assignments. */
+  async adminPlanOverrideLookup(identifier: string): Promise<{
+    user: { id: string; email: string | null; username: string | null };
+    effectivePlanId: string;
+    effectivePlanDisplayName: string;
+    isAdmin: boolean;
+    assignments: Array<{
+      id: string;
+      planId: string;
+      planVersion: number;
+      source: string;
+      status: string;
+      effectiveAt: string;
+      expiresAt: string | null;
+      reason?: string;
+    }>;
+  }> {
+    const db = getDatabase();
+    if (!db) throw new HttpError("Plan overrides require database-backed storage.", 503);
+    const raw = identifier.trim();
+    if (!raw) throw new HttpError("A user id, email, or username is required.", 400);
+    const normalized = raw.toLowerCase();
+    const [user] = await db.select({
+      id: users.id,
+      email: users.email,
+      username: users.username
+    }).from(users).where(or(
+      eq(users.id, raw),
+      sql`lower(${users.email}) = ${normalized}`,
+      eq(users.username, normalized)
+    )).limit(1);
+    if (!user) throw new HttpError("User not found.", 404);
+
+    const access = await this.getEffectiveAccess(user.id);
+    const rows = await db.select({
+      id: userPlanAssignments.id,
+      planId: userPlanAssignments.planId,
+      planVersion: userPlanAssignments.planVersion,
+      source: userPlanAssignments.source,
+      status: userPlanAssignments.status,
+      effectiveAt: userPlanAssignments.effectiveAt,
+      expiresAt: userPlanAssignments.expiresAt,
+      metadata: userPlanAssignments.metadata
+    }).from(userPlanAssignments)
+      .where(eq(userPlanAssignments.userId, user.id))
+      .orderBy(desc(userPlanAssignments.effectiveAt))
+      .limit(100);
+
+    return {
+      user: { id: user.id, email: user.email ?? null, username: user.username ?? null },
+      effectivePlanId: access.plan.id,
+      effectivePlanDisplayName: access.plan.displayName,
+      isAdmin: access.isAdmin,
+      assignments: rows.map((row) => ({
+        id: row.id,
+        planId: row.planId,
+        planVersion: row.planVersion,
+        source: row.source,
+        status: row.status,
+        effectiveAt: row.effectiveAt.toISOString(),
+        expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+        ...(typeof row.metadata?.reason === "string" ? { reason: row.metadata.reason } : {})
+      }))
+    };
   }
 }
 

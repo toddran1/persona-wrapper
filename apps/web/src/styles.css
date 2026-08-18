@@ -6364,3 +6364,94 @@ button:disabled {
   border: 0.25rem solid #27162f;
   box-shadow: 0 0 0 2px #dab353;
 }
+
+/* Admin plan-override page (web-only internal tool) */
+.admin-page {
+  display: grid;
+  gap: 18px;
+  margin: 0 auto;
+  max-width: 720px;
+  padding: 32px 18px 64px;
+  color: var(--text);
+}
+
+.admin-page h1 {
+  margin: 0;
+}
+
+.admin-page-header p,
+.admin-page-note {
+  color: var(--muted);
+}
+
+.admin-lookup-form,
+.admin-grant-form {
+  display: grid;
+  gap: 12px;
+  align-items: end;
+}
+
+.admin-lookup-form {
+  grid-template-columns: 1fr auto;
+}
+
+.admin-grant-form {
+  border-top: 1px solid var(--theme-border);
+  padding-top: 16px;
+}
+
+.admin-lookup-form label,
+.admin-grant-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.admin-lookup-result {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-lookup-result h2 {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin: 0;
+}
+
+.admin-badge {
+  background: var(--theme-accent, #7c5cff);
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 2px 10px;
+  text-transform: uppercase;
+}
+
+.admin-assignment-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-assignment-row {
+  align-items: center;
+  border: 1px solid var(--theme-border);
+  border-radius: 12px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 14px;
+}
+
+.admin-assignment-row small {
+  color: var(--muted);
+  display: block;
+}
+
+.admin-revoke-form {
+  display: flex;
+  gap: 8px;
+}
