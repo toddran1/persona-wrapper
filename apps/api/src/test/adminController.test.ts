@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Request, Response } from "express";
-import { grantPlanOverride, listPlanOverrides, revokePlanOverride } from "../controllers/admin.controller.js";
+import { grantPlanOverride, listPlanOverrides, listReviewSubmissions, revokePlanOverride } from "../controllers/admin.controller.js";
 
 const response = {} as Response;
 
@@ -16,6 +16,8 @@ describe("admin plan override endpoints", () => {
       .rejects.toMatchObject({ statusCode: 401 });
     await expect(revokePlanOverride(requestWith(undefined, {}), response))
       .rejects.toMatchObject({ statusCode: 401 });
+    await expect(listReviewSubmissions(requestWith(undefined, undefined, { limit: "20" }), response))
+      .rejects.toMatchObject({ statusCode: 401 });
   });
 
   it("rejects authenticated non-admin users before touching storage", async () => {
@@ -28,6 +30,8 @@ describe("admin plan override endpoints", () => {
     await expect(revokePlanOverride(requestWith(auth, {
       user: "a@b.c", assignmentId: "plan_assignment_1", reason: "Done"
     }), response)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(listReviewSubmissions(requestWith(auth, undefined, { limit: "20" })))
+      .rejects.toMatchObject({ statusCode: 403, message: "Admin access required." });
   });
 
   it("rejects malformed grant bodies for admins before storage access", async () => {

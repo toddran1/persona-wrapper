@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { AdminPlanOverrideLookup } from "@persona/shared";
+import type { AdminPlanOverrideLookup, AdminReviewSubmission } from "@persona/shared";
 import { api } from "../lib/api.js";
 
 const PLAN_OPTIONS = [
@@ -35,6 +35,9 @@ export function AdminPage() {
   const [expiresAt, setExpiresAt] = useState("");
   const [revokingId, setRevokingId] = useState<string | undefined>();
   const [revokeReason, setRevokeReason] = useState("");
+  const [reviewSubmissions, setReviewSubmissions] = useState<AdminReviewSubmission[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | undefined>();
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +47,22 @@ export function AdminPage() {
       .finally(() => { if (!cancelled) setSessionChecked(true); });
     return () => { cancelled = true; };
   }, []);
+
+  async function refreshReviewSubmissions(): Promise<void> {
+    setReviewLoading(true);
+    setReviewError(undefined);
+    try {
+      setReviewSubmissions(await api.adminReviewSubmissions());
+    } catch (reviewFailure) {
+      setReviewError(reviewFailure instanceof Error ? reviewFailure.message : "Could not load review submissions.");
+    } finally {
+      setReviewLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (sessionChecked && signedIn) void refreshReviewSubmissions();
+  }, [sessionChecked, signedIn]);
 
   async function run(action: () => Promise<AdminPlanOverrideLookup>): Promise<void> {
     if (busy) return;
@@ -107,9 +126,42 @@ export function AdminPage() {
   return (
     <main className="admin-page">
       <header className="admin-page-header">
-        <h1>Plan overrides</h1>
-        <p>Grant promotional, tester, customer-support, or grandfathered plan access. Overrides never downgrade a paid subscription.</p>
+        <h1>Admin</h1>
+        <p>Review user submissions and manage promotional, tester, customer-support, or grandfathered plan access.</p>
       </header>
+
+      <section className="admin-review-queue" aria-labelledby="admin-review-heading">
+        <div className="admin-review-heading">
+          <div>
+            <p className="admin-review-eyebrow">USER SUBMISSIONS</p>
+            <h2 id="admin-review-heading">Safety reports &amp; feedback</h2>
+            <p className="admin-page-note">The newest 50 safety reports and general response-feedback submissions.</p>
+          </div>
+          <button type="button" disabled={reviewLoading} onClick={() => void refreshReviewSubmissions()}>{reviewLoading ? "Refreshing…" : "Refresh"}</button>
+        </div>
+        {reviewError ? <div className="composer-attachment-error" role="alert">{reviewError}</div> : null}
+        {!reviewLoading && !reviewError && reviewSubmissions.length === 0 ? <p className="admin-page-note">No submissions yet.</p> : null}
+        {reviewSubmissions.length > 0 ? (
+          <ul className="admin-review-list">
+            {reviewSubmissions.map((submission) => (
+              <li key={`${submission.kind}-${submission.id}`} className="admin-review-row">
+                <div className="admin-review-meta">
+                  <span className={`admin-review-kind admin-review-kind-${submission.kind}`}>{submission.kind === "unsafe_output" ? "Safety report" : "Feedback"}</span>
+                  <strong>{submission.category.replaceAll("_", " ")}</strong>
+                  <small>{formatDate(submission.createdAt)} · {submission.userEmail ?? submission.username ?? submission.userId ?? "Unknown user"}{submission.clientType ? ` · ${submission.clientType}` : ""}</small>
+                </div>
+                <blockquote>{submission.outputExcerpt}</blockquote>
+                {submission.details ? <p className="admin-review-details">{submission.details}</p> : null}
+                <small className="admin-review-conversation">Conversation: {submission.conversationId ?? "unavailable"}</small>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
+
+      <section className="admin-plan-section" aria-labelledby="admin-plan-heading">
+        <h2 id="admin-plan-heading">Plan overrides</h2>
+        <p className="admin-page-note">Overrides never downgrade a paid subscription.</p>
 
       <form className="admin-lookup-form" onSubmit={handleLookup}>
         <label>
@@ -205,6 +257,7 @@ export function AdminPage() {
           </form>
         </section>
       ) : null}
+      </section>
     </main>
   );
 }

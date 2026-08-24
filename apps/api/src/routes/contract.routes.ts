@@ -7,7 +7,7 @@ import {
 import { initServer } from "@ts-rest/express";
 import type { Request, Response } from "express";
 import { acceptPolicies, clearAccountMemory, deleteAccount, getAccountUsage, getCurrentPolicies, getMemorySettings, getOAuthProviders, restoreAccount, updateMemorySettings, updateProfile } from "../controllers/account.controller.js";
-import { grantPlanOverride, listPlanOverrides, revokePlanOverride } from "../controllers/admin.controller.js";
+import { grantPlanOverride, listPlanOverrides, listReviewSubmissions, revokePlanOverride } from "../controllers/admin.controller.js";
 import { getAccountBillingCatalog } from "../controllers/billing.controller.js";
 import {
   cancelChatJob,
@@ -37,7 +37,7 @@ import {
   postVectorStore
 } from "../controllers/upload.controller.js";
 import { getPersonaById, listPersonas } from "../personas/index.js";
-import { postUnsafeOutputReport } from "../controllers/safety.controller.js";
+import { postResponseFeedback, postUnsafeOutputReport } from "../controllers/safety.controller.js";
 import { uploadService } from "../services/uploadService.js";
 import { requestOwnerId } from "../utils/requestIdentity.js";
 import { customerUsageService } from "../services/customerUsageService.js";
@@ -122,7 +122,8 @@ export const apiContractRouter = server.router(apiContract, {
   admin: {
     planOverrides: captured(listPlanOverrides),
     grantPlanOverride: captured(grantPlanOverride),
-    revokePlanOverride: captured(revokePlanOverride)
+    revokePlanOverride: captured(revokePlanOverride),
+    reviewSubmissions: captured(listReviewSubmissions)
   },
   personas: {
     list: async ({ req }) => {
@@ -157,7 +158,8 @@ export const apiContractRouter = server.router(apiContract, {
     clearMemory: captured(clearConversationMemory)
   },
   safety: {
-    reportOutput: captured(postUnsafeOutputReport)
+    reportOutput: captured(postUnsafeOutputReport),
+    submitResponseFeedback: captured(postResponseFeedback)
   },
   account: {
     billingCatalog: captured(getAccountBillingCatalog),

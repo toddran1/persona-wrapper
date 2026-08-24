@@ -1070,6 +1070,16 @@ export const api = {
     if (response.status !== 201) throw contractError(response.body, "Could not submit this report.");
     return response.body.report;
   },
+  submitResponseFeedback: async (payload: {
+    conversationId: string;
+    category: import("@persona/shared").ResponseFeedbackCategory;
+    outputExcerpt: string;
+    details?: string;
+  }): Promise<import("@persona/shared").UnsafeOutputReportReceipt> => {
+    const response = await contractClient.safety.submitResponseFeedback({ body: payload });
+    if (response.status !== 201) throw contractError(response.body, "Could not submit this feedback.");
+    return response.body.feedback;
+  },
   getChatJob: async (jobId: string, signal?: AbortSignal): Promise<ChatJobResponse> => {
     const response = await contractClient.chat.getJob({ params: { jobId }, ...(signal ? { fetchOptions: { signal } } : {}) });
     if (response.status !== 200) throw contractError(response.body, "Chat job not found.");

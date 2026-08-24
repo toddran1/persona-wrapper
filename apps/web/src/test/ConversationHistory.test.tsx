@@ -320,6 +320,32 @@ describe("ConversationHistory pending state", () => {
     expect(await screen.findByText("Report received")).toBeInTheDocument();
   });
 
+  it("submits general feedback separately from an unsafe-output report", async () => {
+    const user = userEvent.setup();
+    const onFeedbackAssistantTurn = vi.fn().mockResolvedValue(undefined);
+    const turn = {
+      userMessage: "Answer this.",
+      assistantText: "Useful response text.",
+      outputs: [{ type: "text" as const, text: "Useful response text." }]
+    };
+
+    render(<ConversationHistory turns={[turn]} onFeedbackAssistantTurn={onFeedbackAssistantTurn} />);
+    await user.click(screen.getByRole("button", { name: "More response actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Send feedback" }));
+    expect(screen.getByRole("dialog", { name: "Feedback on this response" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "Helpful" }));
+    await user.type(screen.getByLabelText(/Anything else/), "The answer was clear.");
+    await user.click(screen.getByRole("button", { name: "Send feedback" }));
+
+    await waitFor(() => expect(onFeedbackAssistantTurn).toHaveBeenCalledWith(
+      turn,
+      "helpful",
+      "The answer was clear."
+    ));
+    expect(await screen.findByText("Feedback received")).toBeInTheDocument();
+  });
+
   it("closes an unfinished report when the user switches conversations", async () => {
     const user = userEvent.setup();
     const turn = {

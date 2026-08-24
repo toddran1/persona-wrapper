@@ -142,6 +142,22 @@ export const unsafeOutputReports = pgTable("unsafe_output_reports", {
   createdAtIdx: index("unsafe_output_reports_created_at_idx").on(table.createdAt)
 }));
 
+export const responseFeedback = pgTable("response_feedback", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  category: text("category").notNull(),
+  outputExcerpt: text("output_excerpt").notNull(),
+  details: text("details"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  userIdIdx: index("response_feedback_user_id_idx").on(table.userId),
+  conversationIdIdx: index("response_feedback_conversation_id_idx").on(table.conversationId),
+  categoryIdx: index("response_feedback_category_idx").on(table.category),
+  createdAtIdx: index("response_feedback_created_at_idx").on(table.createdAt)
+}));
+
 export const uploads = pgTable("uploads", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id").notNull(),

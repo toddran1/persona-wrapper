@@ -90,6 +90,7 @@ import {
 } from "./mobileChatUtils";
 import { getClientContextForMessage } from "./mobileClientContext";
 import { NEUTRAL_PERSONA_ID, PASSWORD_MIN_LENGTH, stripGeneratedFileDownloadPrompt } from "@persona/shared";
+import type { ResponseFeedbackCategory } from "@persona/shared";
 import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
@@ -111,6 +112,14 @@ const REPORT_CATEGORIES: Array<{ value: UnsafeOutputReportCategory; label: strin
   { value: "privacy_or_impersonation", label: "Privacy or impersonation" },
   { value: "dangerous_or_illegal", label: "Dangerous or illegal advice" },
   { value: "misinformation", label: "False or misleading information" },
+  { value: "other", label: "Something else" }
+];
+
+const FEEDBACK_CATEGORIES: Array<{ value: ResponseFeedbackCategory; label: string }> = [
+  { value: "helpful", label: "Helpful" },
+  { value: "not_helpful", label: "Not helpful" },
+  { value: "inaccurate", label: "Incorrect or misleading" },
+  { value: "style_or_tone", label: "Style or tone" },
   { value: "other", label: "Something else" }
 ];
 
@@ -290,6 +299,11 @@ export function MobileChatScreen() {
   const [reportDetails, setReportDetails] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState<string | undefined>();
+  const [feedbackTarget, setFeedbackTarget] = useState<RenderedTurn | undefined>();
+  const [feedbackCategory, setFeedbackCategory] = useState<ResponseFeedbackCategory | undefined>();
+  const [feedbackDetails, setFeedbackDetails] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | undefined>();
   const [referenceSources, setReferenceSources] = useState<Citation[]>([]);
   const [renameTitle, setRenameTitle] = useState("");
   const [composerDraft, setComposerDraft] = useState<string | undefined>();
@@ -1838,6 +1852,14 @@ export function MobileChatScreen() {
     setReportError(undefined);
   }
 
+  function showResponseFeedback(turn: RenderedTurn): void {
+    setAssistantActionTurn(undefined);
+    setFeedbackTarget(turn);
+    setFeedbackCategory(undefined);
+    setFeedbackDetails("");
+    setFeedbackError(undefined);
+  }
+
   async function submitUnsafeOutputReport(): Promise<void> {
     if (!reportTarget || !reportCategory || !conversationId || reportBusy) return;
     setReportBusy(true);
@@ -1856,6 +1878,27 @@ export function MobileChatScreen() {
       setReportError(reportFailure instanceof Error ? reportFailure.message : "Could not submit this report.");
     } finally {
       setReportBusy(false);
+    }
+  }
+
+  async function submitResponseFeedback(): Promise<void> {
+    if (!feedbackTarget || !feedbackCategory || !conversationId || feedbackBusy) return;
+    setFeedbackBusy(true);
+    setFeedbackError(undefined);
+    try {
+      const excerpt = assistantTextForDisplay(feedbackTarget).trim() || JSON.stringify(feedbackTarget.outputs);
+      await api.submitResponseFeedback({
+        conversationId,
+        category: feedbackCategory,
+        outputExcerpt: excerpt.slice(0, 4000),
+        ...(feedbackDetails.trim() ? { details: feedbackDetails.trim() } : {})
+      });
+      setFeedbackTarget(undefined);
+      Alert.alert("Feedback received", "Thank you. Your feedback was saved for review.");
+    } catch (feedbackFailure) {
+      setFeedbackError(feedbackFailure instanceof Error ? feedbackFailure.message : "Could not submit this feedback.");
+    } finally {
+      setFeedbackBusy(false);
     }
   }
 
@@ -4843,6 +4886,14 @@ export function MobileChatScreen() {
               ) : null}
               {assistantActionTurn ? (
                 <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
+                  if (assistantActionTurn) showResponseFeedback(assistantActionTurn);
+                }}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={20} color={theme.text} />
+                  <Text style={[styles.actionSheetText, { color: theme.text }]}>Send feedback</Text>
+                </Pressable>
+              ) : null}
+              {assistantActionTurn ? (
+                <Pressable accessibilityRole="button" style={styles.actionSheetRow} onPress={() => {
                   if (assistantActionTurn) showUnsafeOutputReport(assistantActionTurn);
                 }}>
                   <Ionicons name="flag-outline" size={20} color={theme.danger} />
@@ -4865,6 +4916,73 @@ export function MobileChatScreen() {
             </Pressable>
           </View>
         </View>
+      </Modal>
+      <Modal
+        accessibilityViewIsModal
+        visible={Boolean(feedbackTarget)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { if (!feedbackBusy) setFeedbackTarget(undefined); }}
+      >
+        <KeyboardAvoidingView style={styles.actionSheetScrim} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close feedback" style={StyleSheet.absoluteFill} onPress={() => { if (!feedbackBusy) setFeedbackTarget(undefined); }} />
+          <View style={[styles.reportSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 18) }]}>
+            <ScrollView
+              contentContainerStyle={styles.reportSheetContent}
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.referenceHeader}>
+                <View style={styles.reportHeadingCopy}>
+                  <Text style={[styles.reportEyebrow, { color: theme.accent2 }]}>PRODUCT FEEDBACK</Text>
+                  <Text style={[styles.loginTitle, { color: theme.text }]}>Feedback on this response</Text>
+                </View>
+                <Pressable accessibilityRole="button" accessibilityLabel="Close feedback" disabled={feedbackBusy} onPress={() => setFeedbackTarget(undefined)}>
+                  <Ionicons name="close" size={24} color={theme.text} />
+                </Pressable>
+              </View>
+              <Text style={[styles.reportCopy, { color: theme.muted }]}>Tell us how this response worked for you. General feedback is reviewed separately from safety reports.</Text>
+              <ScrollView style={styles.reportCategoryScroll} contentContainerStyle={styles.reportCategories} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                {FEEDBACK_CATEGORIES.map((option) => {
+                  const selected = feedbackCategory === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      onPress={() => setFeedbackCategory(option.value)}
+                      style={[styles.reportCategory, { borderColor: selected ? theme.accent2 : theme.border, backgroundColor: selected ? "rgba(226,184,75,0.10)" : "rgba(255,255,255,0.025)" }]}
+                    >
+                      <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={18} color={selected ? theme.accent2 : theme.muted} />
+                      <Text style={[styles.reportCategoryText, { color: theme.text }]}>{option.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <TextInput
+                accessibilityLabel="Additional feedback details"
+                value={feedbackDetails}
+                onChangeText={setFeedbackDetails}
+                placeholder="Anything else? (optional)"
+                placeholderTextColor={theme.muted}
+                maxLength={1000}
+                multiline
+                style={[styles.reportDetails, { borderColor: theme.border, color: theme.text }]}
+              />
+              {feedbackError ? <Text accessibilityRole="alert" style={[styles.reportError, { color: theme.danger }]}>{feedbackError}</Text> : null}
+              <View style={styles.renameActions}>
+                <Pressable accessibilityRole="button" disabled={feedbackBusy} onPress={() => setFeedbackTarget(undefined)} style={[styles.renameSecondaryButton, { borderColor: theme.border }]}>
+                  <Text style={[styles.renameSecondaryText, { color: theme.text }]}>Cancel</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityState={{ disabled: !feedbackCategory || feedbackBusy }} disabled={!feedbackCategory || feedbackBusy} onPress={() => void submitResponseFeedback()} style={[styles.renamePrimaryButton, { backgroundColor: theme.accent2, opacity: feedbackCategory && !feedbackBusy ? 1 : 0.45 }]}>
+                  {feedbackBusy ? <ActivityIndicator color={theme.background} /> : <Text style={[styles.renamePrimaryText, { color: theme.background }]}>Send feedback</Text>}
+                </Pressable>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
       <Modal
         accessibilityViewIsModal

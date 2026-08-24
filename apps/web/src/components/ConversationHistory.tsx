@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { NEUTRAL_PERSONA_ID, stripGeneratedFileDownloadPrompt, type ChatResponse, type ContentBlock, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
+import { NEUTRAL_PERSONA_ID, stripGeneratedFileDownloadPrompt, type ChatResponse, type ContentBlock, type ResponseFeedbackCategory, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
@@ -326,7 +326,8 @@ function AssistantActions({
   onAudioPlaybackChange,
   onRetry,
   onRetryWithoutPersona,
-  onReport
+  onReport,
+  onFeedback
 }: {
   text: string;
   sources: Extract<ContentBlock, { type: "source_list" }>[];
@@ -338,6 +339,7 @@ function AssistantActions({
   onRetry?: (() => void) | undefined;
   onRetryWithoutPersona?: (() => void) | undefined;
   onReport?: (() => void) | undefined;
+  onFeedback?: (() => void) | undefined;
 }) {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -504,6 +506,15 @@ function AssistantActions({
                 <span>Report unsafe output</span>
               </button>
             ) : null}
+            {onFeedback ? (
+              <button type="button" role="menuitem" onClick={() => {
+                setMenuOpen(false);
+                onFeedback();
+              }}>
+                <Icon name="sources" />
+                <span>Send feedback</span>
+              </button>
+            ) : null}
           </div>
         ) : null}
         {sourcesOpen ? (
@@ -577,6 +588,7 @@ export function ConversationHistory({
   onRetryAssistantTurn,
   onRetryAssistantTurnWithoutPersona,
   onReportAssistantTurn,
+  onFeedbackAssistantTurn,
   hasEarlierTurns = false,
   loadingEarlierTurns = false,
   onLoadEarlierTurns
@@ -601,6 +613,7 @@ export function ConversationHistory({
   onRetryAssistantTurn?: ((turn: RenderedTurn) => void) | undefined;
   onRetryAssistantTurnWithoutPersona?: ((turn: RenderedTurn) => void) | undefined;
   onReportAssistantTurn?: ((turn: RenderedTurn, category: UnsafeOutputReportCategory, details?: string) => Promise<void>) | undefined;
+  onFeedbackAssistantTurn?: ((turn: RenderedTurn, category: ResponseFeedbackCategory, details?: string) => Promise<void>) | undefined;
   hasEarlierTurns?: boolean;
   loadingEarlierTurns?: boolean;
   onLoadEarlierTurns?: (() => void) | undefined;
@@ -612,6 +625,12 @@ export function ConversationHistory({
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportError, setReportError] = useState<string | undefined>();
   const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [feedbackTarget, setFeedbackTarget] = useState<RenderedTurn | undefined>();
+  const [feedbackCategory, setFeedbackCategory] = useState<ResponseFeedbackCategory | "">("");
+  const [feedbackDetails, setFeedbackDetails] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | undefined>();
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const hasPendingTurn = pendingPrompt !== undefined && (pendingPrompt.trim().length > 0 || pendingAssets.length > 0);
   const messageCount = turns.length * 2 + (hasPendingTurn ? 1 : 0) + (thinking ? 1 : 0);
   const historyRef = useRef<HTMLElement>(null);
@@ -648,6 +667,13 @@ export function ConversationHistory({
       setReportDetails("");
       setReportError(undefined);
       setReportSubmitted(false);
+    }
+    if (feedbackTarget && reportConversationId !== conversationId) {
+      setFeedbackTarget(undefined);
+      setFeedbackCategory("");
+      setFeedbackDetails("");
+      setFeedbackError(undefined);
+      setFeedbackSubmitted(false);
     }
   }, [conversationId, reportConversationId, reportTarget]);
 
@@ -793,6 +819,14 @@ export function ConversationHistory({
                       setReportError(undefined);
                       setReportSubmitted(false);
                     } : undefined}
+                    onFeedback={onFeedbackAssistantTurn ? () => {
+                      setFeedbackTarget(turn);
+                      setReportConversationId(conversationId);
+                      setFeedbackCategory("");
+                      setFeedbackDetails("");
+                      setFeedbackError(undefined);
+                      setFeedbackSubmitted(false);
+                    } : undefined}
                   />
                 </article>
               </div>
@@ -876,6 +910,55 @@ export function ConversationHistory({
                       .catch((error: unknown) => setReportError(error instanceof Error ? error.message : "Could not submit this report."))
                       .finally(() => setReportSubmitting(false));
                   }}>{reportSubmitting ? "Sending…" : "Send report"}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+      {feedbackTarget ? (
+        <div className="response-report-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !feedbackSubmitting) setFeedbackTarget(undefined);
+        }}>
+          <div className="response-report-dialog" role="dialog" aria-modal="true" aria-labelledby="response-feedback-title">
+            {feedbackSubmitted ? (
+              <div className="response-report-success" role="status">
+                <span className="response-report-mark"><Icon name="check" /></span>
+                <h2 id="response-feedback-title">Feedback received</h2>
+                <p>Thank you. Your feedback was saved for review.</p>
+                <button type="button" className="response-report-primary" onClick={() => setFeedbackTarget(undefined)}>Done</button>
+              </div>
+            ) : (
+              <>
+                <div className="response-report-heading">
+                  <div><span className="eyebrow">PRODUCT FEEDBACK</span><h2 id="response-feedback-title">Feedback on this response</h2></div>
+                  <button type="button" className="response-report-close" aria-label="Close feedback" onClick={() => setFeedbackTarget(undefined)} disabled={feedbackSubmitting}>×</button>
+                </div>
+                <p className="response-report-copy">Tell us how this response worked for you. This feedback is reviewed separately from safety reports.</p>
+                <fieldset className="response-report-categories">
+                  <legend>What would you like to share?</legend>
+                  {([
+                    ["helpful", "Helpful"], ["not_helpful", "Not helpful"], ["inaccurate", "Incorrect or misleading"], ["style_or_tone", "Style or tone"], ["other", "Other"]
+                  ] as const).map(([value, label]) => (
+                    <label key={value} className={feedbackCategory === value ? "selected" : ""}>
+                      <input type="radio" name="feedback-category" value={value} checked={feedbackCategory === value} onChange={() => setFeedbackCategory(value)} />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </fieldset>
+                <label className="response-report-details"><span>Anything else? <small>Optional</small></span><textarea value={feedbackDetails} maxLength={1000} rows={3} onChange={(event) => setFeedbackDetails(event.target.value)} placeholder="Tell us what you liked or what we can improve." /></label>
+                {feedbackError ? <p className="response-report-error" role="alert">{feedbackError}</p> : null}
+                <div className="response-report-actions">
+                  <button type="button" className="response-report-secondary" onClick={() => setFeedbackTarget(undefined)} disabled={feedbackSubmitting}>Cancel</button>
+                  <button type="button" className="response-report-primary" disabled={!feedbackCategory || feedbackSubmitting} onClick={() => {
+                    if (!feedbackCategory || !onFeedbackAssistantTurn) return;
+                    setFeedbackSubmitting(true);
+                    setFeedbackError(undefined);
+                    void onFeedbackAssistantTurn(feedbackTarget, feedbackCategory, feedbackDetails.trim() || undefined)
+                      .then(() => setFeedbackSubmitted(true))
+                      .catch((error) => setFeedbackError(error instanceof Error ? error.message : "Could not submit this feedback."))
+                      .finally(() => setFeedbackSubmitting(false));
+                  }}>{feedbackSubmitting ? "Sending…" : "Send feedback"}</button>
                 </div>
               </>
             )}

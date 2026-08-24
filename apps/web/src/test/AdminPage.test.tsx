@@ -3,15 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminPage } from "../components/AdminPage.js";
 
-const { getCurrentUser, adminLookupPlanOverrides, adminGrantPlanOverride, adminRevokePlanOverride } = vi.hoisted(() => ({
+const { getCurrentUser, adminLookupPlanOverrides, adminGrantPlanOverride, adminRevokePlanOverride, adminReviewSubmissions } = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   adminLookupPlanOverrides: vi.fn(),
   adminGrantPlanOverride: vi.fn(),
-  adminRevokePlanOverride: vi.fn()
+  adminRevokePlanOverride: vi.fn(),
+  adminReviewSubmissions: vi.fn()
 }));
 
 vi.mock("../lib/api.js", () => ({
-  api: { getCurrentUser, adminLookupPlanOverrides, adminGrantPlanOverride, adminRevokePlanOverride }
+  api: { getCurrentUser, adminLookupPlanOverrides, adminGrantPlanOverride, adminRevokePlanOverride, adminReviewSubmissions }
 }));
 
 const lookupResult = {
@@ -35,6 +36,7 @@ describe("AdminPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getCurrentUser.mockResolvedValue({ user: { id: "admin_1", email: "admin@example.com" } });
+    adminReviewSubmissions.mockResolvedValue([]);
   });
 
   it("asks non-signed-in visitors to sign in", async () => {
@@ -110,5 +112,42 @@ describe("AdminPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Look up" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Admin access required.");
+  });
+
+  it("shows both safety reports and general feedback in the review queue", async () => {
+    adminReviewSubmissions.mockResolvedValue([
+      {
+        id: "report_1",
+        kind: "unsafe_output",
+        category: "hate_or_harassment",
+        outputExcerpt: "Unsafe response excerpt",
+        details: "This was harmful.",
+        conversationId: "conv_1",
+        userId: "user_1",
+        userEmail: "tester@example.com",
+        username: "tester",
+        clientType: "web",
+        createdAt: "2026-08-24T12:00:00.000Z"
+      },
+      {
+        id: "feedback_1",
+        kind: "general_feedback",
+        category: "helpful",
+        outputExcerpt: "Helpful response excerpt",
+        details: null,
+        conversationId: "conv_2",
+        userId: "user_2",
+        userEmail: "another@example.com",
+        username: "another",
+        clientType: "mobile",
+        createdAt: "2026-08-24T11:00:00.000Z"
+      }
+    ]);
+    render(<AdminPage />);
+
+    expect(await screen.findByText("Safety report")).toBeInTheDocument();
+    expect(screen.getByText("Feedback")).toBeInTheDocument();
+    expect(screen.getByText("Unsafe response excerpt")).toBeInTheDocument();
+    expect(screen.getByText("Helpful response excerpt")).toBeInTheDocument();
   });
 });

@@ -2224,6 +2224,16 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
                   ...(details ? { details } : {})
                 });
               }}
+              onFeedbackAssistantTurn={async (turn, category, details) => {
+                if (!conversationId) throw new Error("Open a saved conversation before sending feedback.");
+                const excerpt = turn.assistantText.trim() || JSON.stringify(turn.outputs);
+                await api.submitResponseFeedback({
+                  conversationId,
+                  category,
+                  outputExcerpt: excerpt.slice(0, 4000),
+                  ...(details ? { details } : {})
+                });
+              }}
               onOutputAction={async (action) => {
                 if (action.action !== "resume_background_job") return;
                 const jobId = typeof action.arguments?.jobId === "string" ? action.arguments.jobId : undefined;

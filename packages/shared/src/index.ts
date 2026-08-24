@@ -1423,6 +1423,38 @@ export const unsafeOutputReportReceiptSchema = z.object({
 });
 export type UnsafeOutputReportReceipt = z.infer<typeof unsafeOutputReportReceiptSchema>;
 
+export const responseFeedbackCategorySchema = z.enum([
+  "helpful",
+  "not_helpful",
+  "inaccurate",
+  "style_or_tone",
+  "other"
+]);
+export type ResponseFeedbackCategory = z.infer<typeof responseFeedbackCategorySchema>;
+
+export const responseFeedbackRequestSchema = z.object({
+  conversationId: z.string().min(1),
+  category: responseFeedbackCategorySchema,
+  outputExcerpt: z.string().trim().min(1).max(4000),
+  details: z.string().trim().max(1000).optional()
+});
+export type ResponseFeedbackRequest = z.infer<typeof responseFeedbackRequestSchema>;
+
+export const adminReviewSubmissionSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["unsafe_output", "general_feedback"]),
+  category: z.string(),
+  outputExcerpt: z.string(),
+  details: z.string().nullable(),
+  conversationId: z.string().nullable(),
+  userId: z.string().nullable(),
+  userEmail: z.string().nullable(),
+  username: z.string().nullable(),
+  clientType: z.string().nullable(),
+  createdAt: z.string()
+});
+export type AdminReviewSubmission = z.infer<typeof adminReviewSubmissionSchema>;
+
 const contract = initContract();
 export const apiErrorSchema = z.object({
   error: z.string(),
@@ -1520,6 +1552,17 @@ export const apiContract = contract.router({
         404: apiErrorSchema,
         503: apiErrorSchema
       }
+    },
+    reviewSubmissions: {
+      method: "GET",
+      path: "/api/admin/review-submissions",
+      query: z.object({ limit: z.coerce.number().int().min(1).max(100).optional() }),
+      responses: {
+        200: z.object({ submissions: z.array(adminReviewSubmissionSchema) }),
+        401: apiErrorSchema,
+        403: apiErrorSchema,
+        503: apiErrorSchema
+      }
     }
   }),
   personas: contract.router({
@@ -1609,6 +1652,18 @@ export const apiContract = contract.router({
       body: unsafeOutputReportRequestSchema,
       responses: {
         201: z.object({ report: unsafeOutputReportReceiptSchema }),
+        401: apiErrorSchema,
+        404: apiErrorSchema,
+        429: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    },
+    submitResponseFeedback: {
+      method: "POST",
+      path: "/api/safety/feedback",
+      body: responseFeedbackRequestSchema,
+      responses: {
+        201: z.object({ feedback: unsafeOutputReportReceiptSchema }),
         401: apiErrorSchema,
         404: apiErrorSchema,
         429: apiErrorSchema,

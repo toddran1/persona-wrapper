@@ -753,6 +753,11 @@ export const api = {
     if (response.status !== 200) throw contractError(response.body, "Could not revoke the plan override.");
     return response.body;
   },
+  adminReviewSubmissions: async (limit = 50): Promise<import("@persona/shared").AdminReviewSubmission[]> => {
+    const response = await contractClient.admin.reviewSubmissions({ query: { limit } });
+    if (response.status !== 200) throw contractError(response.body, "Could not load review submissions.");
+    return response.body.submissions;
+  },
   updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {
     const response = await contractClient.account.updateProfile({ body: payload });
     if (response.status !== 200) throw contractError(response.body, "Could not update your profile.");
@@ -903,6 +908,16 @@ export const api = {
     const response = await contractClient.safety.reportOutput({ body: payload });
     if (response.status !== 201) throw contractError(response.body, "Could not submit this report.");
     return response.body.report;
+  },
+  submitResponseFeedback: async (payload: {
+    conversationId: string;
+    category: import("@persona/shared").ResponseFeedbackCategory;
+    outputExcerpt: string;
+    details?: string;
+  }): Promise<import("@persona/shared").UnsafeOutputReportReceipt> => {
+    const response = await contractClient.safety.submitResponseFeedback({ body: payload });
+    if (response.status !== 201) throw contractError(response.body, "Could not submit this feedback.");
+    return response.body.feedback;
   },
   getChatJob: async (jobId: string, signal?: AbortSignal): Promise<ChatJobResponse> => {
     const response = await contractClient.chat.getJob({ params: { jobId }, ...(signal ? { fetchOptions: { signal } } : {}) });
