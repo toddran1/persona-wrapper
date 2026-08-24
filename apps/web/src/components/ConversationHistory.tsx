@@ -562,6 +562,7 @@ export function ConversationHistory({
   personaNamesById = {},
   turns,
   pendingPrompt,
+  pendingResponseText,
   pendingAssets = [],
   pendingFiles = [],
   thinking,
@@ -584,6 +585,7 @@ export function ConversationHistory({
   personaNamesById?: Readonly<Record<string, string>>;
   turns: RenderedTurn[];
   pendingPrompt?: string | undefined;
+  pendingResponseText?: string | undefined;
   pendingAssets?: UserPromptAsset[] | undefined;
   pendingFiles?: File[] | undefined;
   thinking?: boolean | undefined;
@@ -611,9 +613,11 @@ export function ConversationHistory({
   const historyRef = useRef<HTMLElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const newestAssistantRef = useRef<HTMLElement>(null);
+  const pendingAssistantRef = useRef<HTMLElement>(null);
   const shouldFollowRef = useRef(true);
   const previousThinkingRef = useRef(thinking);
   const focusResponseUntilRef = useRef(0);
+  const streamedResponseRef = useRef(false);
 
   useEffect(() => {
     const updateFollowState = () => {
@@ -649,6 +653,7 @@ export function ConversationHistory({
     // choose the bottom for history or the response start for a fresh reply.
     shouldFollowRef.current = true;
     focusResponseUntilRef.current = 0;
+    streamedResponseRef.current = false;
   }, [conversationId]);
 
   useEffect(() => {
@@ -658,10 +663,20 @@ export function ConversationHistory({
   }, [hasPendingTurn]);
 
   useEffect(() => {
+    if (!pendingResponseText || streamedResponseRef.current || !pendingAssistantRef.current) return;
+    streamedResponseRef.current = true;
+    focusResponseUntilRef.current = Date.now() + 1000;
+    pendingAssistantRef.current.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [pendingResponseText]);
+
+  useEffect(() => {
     const responseJustCompleted = previousThinkingRef.current && !thinking;
+    const completedFromStream = responseJustCompleted && streamedResponseRef.current;
     previousThinkingRef.current = thinking;
+    if (responseJustCompleted) streamedResponseRef.current = false;
     if (!shouldFollowRef.current || messageCount === 0) return;
     const frame = requestAnimationFrame(() => {
+      if (completedFromStream) return;
       if (responseJustCompleted && newestAssistantRef.current) {
         // Keep the start of a fresh response readable, especially when it is
         // longer than the viewport. The brief resize window also prevents an
@@ -681,6 +696,7 @@ export function ConversationHistory({
 
     const observer = new ResizeObserver(() => {
       if (!shouldFollowRef.current || messageCount === 0) return;
+      if (streamedResponseRef.current && thinking) return;
       if (focusResponseUntilRef.current > Date.now() && newestAssistantRef.current) {
         newestAssistantRef.current.scrollIntoView({ block: "start", behavior: "auto" });
         return;
@@ -789,15 +805,19 @@ export function ConversationHistory({
             </article>
           ) : null}
           {thinking ? (
-            <article className="chat-row chat-row-assistant">
+            <article ref={pendingAssistantRef} className="chat-row chat-row-assistant">
               <div className="chat-avatar chat-avatar-assistant">{pendingPersonaShortName ?? personaShortName}</div>
               <div className="chat-bubble chat-bubble-assistant">
-                <span className="history-role">Thinking</span>
-                <div className="thinking-indicator" aria-live="polite" aria-label={`${pendingPersonaShortName ?? personaShortName} is thinking`}>
-                  <span />
-                  <span />
-                  <span />
-                </div>
+                <span className="history-role">{pendingResponseText ? "Reply" : "Thinking"}</span>
+                {pendingResponseText ? (
+                  <MarkdownText text={pendingResponseText} className="message-text markdown-text" />
+                ) : (
+                  <div className="thinking-indicator" aria-live="polite" aria-label={`${pendingPersonaShortName ?? personaShortName} is thinking`}>
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                )}
               </div>
             </article>
           ) : null}

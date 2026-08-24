@@ -2,8 +2,9 @@ import Constants from "expo-constants";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import * as FileSystem from "expo-file-system/legacy";
+import { fetch as expoFetch } from "expo/fetch";
 import { Platform } from "react-native";
-import { APPLE_NATIVE_AUTHORIZATION_CODE_PREFIX, apiContract, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES } from "@persona/shared";
+import { APPLE_NATIVE_AUTHORIZATION_CODE_PREFIX, apiContract, chatResponseSchema, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES } from "@persona/shared";
 import { initClient } from "@ts-rest/core";
 import type {
   ActiveSession,
@@ -56,6 +57,10 @@ export type MobileChatPayload = {
   clientContext?: ClientContext;
   attachments?: UploadedAsset[];
   toolOptions?: ToolOptions;
+};
+
+export type MobileChatStreamCallbacks = {
+  onTextDelta?: (delta: string) => void;
 };
 
 export type MobileUploadFile = {
@@ -183,6 +188,114 @@ async function parseApiError(response: Response): Promise<ApiResponseError> {
     return new ApiResponseError(response.status, safeApiErrorMessage(payload.error || payload.message, fallback));
   } catch {
     return new ApiResponseError(response.status, `Request failed with status ${response.status}.`);
+  }
+}
+
+type ParsedSseEvent = {
+  event: string;
+  data: string;
+};
+
+function parseSseEvent(block: string): ParsedSseEvent | undefined {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of block.split("\n")) {
+    if (!line || line.startsWith(":")) continue;
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+  }
+  return data.length > 0 ? { event, data: data.join("\n") } : undefined;
+}
+
+async function consumeChatEventStream(
+  response: Response,
+  callbacks: MobileChatStreamCallbacks
+): Promise<ChatResponse> {
+  let finalResponse: ChatResponse | undefined;
+  const handleBlock = (block: string) => {
+    const parsed = parseSseEvent(block);
+    if (!parsed) return;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(parsed.data) as unknown;
+    } catch {
+      throw new Error("The app server returned an invalid response stream. Please try again.");
+    }
+    if (parsed.event === "delta") {
+      if (typeof payload === "object" && payload !== null && "delta" in payload && typeof payload.delta === "string") {
+        callbacks.onTextDelta?.(payload.delta);
+      }
+      return;
+    }
+    if (parsed.event === "response") {
+      finalResponse = chatResponseSchema.parse(payload);
+      return;
+    }
+    if (parsed.event === "error") {
+      const message = typeof payload === "object" && payload !== null && "message" in payload && typeof payload.message === "string"
+        ? payload.message
+        : "The response could not be completed. Please try again.";
+      throw new Error(message);
+    }
+  };
+
+  const body = response.body;
+  if (!body) {
+    for (const block of (await response.text()).replace(/\r\n/g, "\n").split("\n\n")) handleBlock(block);
+  } else {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        buffer = buffer.replace(/\r\n/g, "\n");
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+          handleBlock(buffer.slice(0, boundary));
+          buffer = buffer.slice(boundary + 2);
+          boundary = buffer.indexOf("\n\n");
+        }
+        if (done) break;
+      }
+      if (buffer.trim()) handleBlock(buffer);
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  if (!finalResponse) throw new Error("The response stream ended before completion. Please try again.");
+  return finalResponse;
+}
+
+async function sendChatStream(
+  payload: MobileChatPayload,
+  callbacks: MobileChatStreamCallbacks,
+  signal?: AbortSignal,
+  authRefreshUsed = false
+): Promise<ChatResponse> {
+  const timeout = createRequestTimeout(signal, CHAT_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await expoFetch(`${API_BASE_URL}/api/chat/stream`, {
+      method: "POST",
+      headers: await requestHeaders(true),
+      body: JSON.stringify(payload),
+      signal: timeout.signal
+    });
+    if (response.status === 401 && !authRefreshUsed && await refreshStoredAuth()) {
+      return sendChatStream(payload, callbacks, signal, true);
+    }
+    if (!response.ok) throw await parseApiError(response);
+    if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
+      throw new Error("The app server returned an invalid response stream. Please try again.");
+    }
+    return await consumeChatEventStream(response, callbacks);
+  } catch (error) {
+    if (timeout.didTimeout()) throw new Error("The app server took too long to respond. Please try again.");
+    throw error;
+  } finally {
+    timeout.dispose();
   }
 }
 
@@ -920,6 +1033,7 @@ export const api = {
     if (response.status !== 200 && response.status !== 202) throw contractError(response.body, "Chat request failed.");
     return response.body;
   },
+  sendChatStream,
   reportUnsafeOutput: async (payload: {
     conversationId: string;
     category: import("@persona/shared").UnsafeOutputReportCategory;

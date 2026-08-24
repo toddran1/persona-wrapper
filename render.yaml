@@ -308,7 +308,7 @@ services:
         value: strict-origin-when-cross-origin
       - path: /*
         name: Permissions-Policy
-        value: camera=(), geolocation=(), payment=()
+        value: camera=(), geolocation=(self), payment=()
     routes:
       - type: rewrite
         source: /*
@@ -608,7 +608,7 @@ services:
         value: strict-origin-when-cross-origin
       - path: /*
         name: Permissions-Policy
-        value: camera=(), geolocation=(), payment=()
+        value: camera=(), geolocation=(self), payment=()
     routes:
       - type: rewrite
         source: /*

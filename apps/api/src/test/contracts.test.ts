@@ -20,11 +20,65 @@ describe("shared schemas", () => {
   });
 
   it("detects location-dependent requests without matching unrelated weather words", () => {
-    expect(requestMayNeedLocation("How is the weather today?")).toBe(true);
-    expect(requestMayNeedLocation("Will it rain tonight?")).toBe(true);
-    expect(requestMayNeedLocation("Find the closest pharmacy to me")).toBe(true);
-    expect(requestMayNeedLocation("Make an image of a storm over the closest planet to Earth")).toBe(false);
-    expect(requestMayNeedLocation("Write a song about rain")).toBe(false);
+    const locationDependentRequests = [
+      "How is the weather today?",
+      "Will it rain tonight?",
+      "What does it feel like outside?",
+      "Do I need an umbrella today?",
+      "What is the pollen count?",
+      "When is sunset?",
+      "Are there any severe weather alerts?",
+      "Find the closest pharmacy to me",
+      "Where is the nearest airport?",
+      "Recommend the best urgent care center",
+      "What coffee shops are nearby?",
+      "Where can we eat around here?",
+      "Show me restaurants open now",
+      "Find parking near the stadium",
+      "What are some things to do in my area?",
+      "What local events are happening tonight?",
+      "How is traffic now?",
+      "Are there road closures?",
+      "When is the next bus?",
+      "Does this restaurant deliver here?",
+      "Where is my polling place?",
+      "Is there a boil water advisory?",
+      "How far is Cancun Mexico from me?",
+      "How far away is Cancun?",
+      "How long is the drive from the airport to me?",
+      "What is the walking time to Central Park?",
+      "What is the drive time to the stadium?",
+      "How long will it take me to get to the airport?",
+      "Can I walk to the convention center?",
+      "Give me directions to the airport",
+      "Navigate me to the nearest hospital",
+      "Plan my route to work",
+      "What city am I in?",
+      "What's my ZIP code?",
+      "Am I near downtown?",
+      "Where are we right now?",
+      "Use my current location",
+      "What are my coordinates?",
+      "What time zone am I in?"
+    ];
+    for (const request of locationDependentRequests) {
+      expect(requestMayNeedLocation(request), request).toBe(true);
+    }
+
+    const locationIndependentRequests = [
+      "Make an image of a storm over the closest planet to Earth",
+      "Write a song about rain",
+      "I feel like writing code today",
+      "Explain the nearest-neighbor algorithm",
+      "What is the distance between Earth and Mars?",
+      "Show me how to use a local variable",
+      "Run the server locally",
+      "Write a delivery API",
+      "Plan a fictional road trip for my novel"
+    ];
+    for (const request of locationIndependentRequests) {
+      expect(requestMayNeedLocation(request), request).toBe(false);
+    }
   });
 
   it("defaults omitted persona videos to image-only stages", () => {

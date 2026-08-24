@@ -478,17 +478,38 @@ export const clientContextSchema = z.object({
 });
 export type ClientContext = z.infer<typeof clientContextSchema>;
 
-const EXPLICIT_DEVICE_LOCATION_PATTERN = /\b(?:near me|nearby|closest(?:\s+[^.!?]{0,40})?\s+to me|local to me|in my area|around me|my location|where am i|where i am)\b/i;
-const WEATHER_REQUEST_PATTERN = /\b(?:weather|forecast|temperature|air quality|humidity|sunrise|sunset|uv index|heat index|wind chill)\b/i;
-const WEATHER_CONDITION_REQUEST_PATTERN = /\b(?:(?:is it|will it|is there (?:a )?(?:chance of)?|chance of|expect(?:ing)?|going to)\s+(?:rain(?:ing)?|snow(?:ing)?|storm(?:ing)?)|(?:rain|snow|storm)\s+(?:today|tonight|tomorrow|this (?:morning|afternoon|evening|week|weekend)))\b/i;
-const LOCAL_REQUEST_PATTERN = /\b(?:things to do|places to (?:eat|go)|restaurant(?:s)? near|store(?:s)? near|event(?:s)? near|traffic (?:near|around|today|tonight|now)|how(?:'s| is) (?:the )?traffic)\b/i;
+const EXPLICIT_DEVICE_LOCATION_PATTERN = /\b(?:near (?:me|us)|nearby|close by|around (?:me|here|us)|in (?:my|our|this) area|in the vicinity|local to (?:me|us)|my current location|current location|my location|use (?:my|the device(?:'s)?) location|based on (?:my|the device(?:'s)?) location|from (?:my|the device(?:'s)?) location|where (?:am i|are we|i am|i'm at|we are|we're at)|what (?:city|town|county|state|province|country|zip code|postal code|neighbou?rhood|district) am i in|where i live|my neighbou?rhood)\b/i;
+const CLOSEST_TO_DEVICE_PATTERN = /\b(?:closest|nearest|best|top-rated|cheapest|most affordable)\b[^.!?]{0,100}\b(?:to (?:me|us|here|my location)|near (?:me|us)|around here|nearby)\b/i;
+const RELATIVE_TRAVEL_LOCATION_PATTERN = /\b(?:how far|how close|how long|distance|travel time|drive|driving|flight|fly|walk|walking|bike|biking|cycle|cycling|commute|eta|directions|route|trip)\b[^.!?]{0,160}\b(?:from|to)\s+(?:me|us|here|my location|our location)\b/i;
+const IMPLICIT_DISTANCE_LOCATION_PATTERN = /\b(?:how far (?:away )?(?:is|are)|how close (?:is|are)|what(?:'s| is) the (?:drive|driving|walk|walking|bike|biking|cycle|cycling|flight|travel )?(?:distance|time) to|distance to|travel time to|drive time to|driving time to|walk time to|walking time to|bike time to|biking time to|flight time to|eta to|how long (?:will|would|does) it take(?: me| us)? to (?:get|drive|walk|bike|cycle|fly|travel))\b/i;
+const NAVIGATION_LOCATION_PATTERN = /\b(?:directions to|navigate (?:me |us )?to|route (?:me |us )?to|take (?:me|us) to|get (?:me|us) to|show (?:me|us) (?:the )?(?:way|route) to|how (?:do|can|would) (?:i|we) get to|can (?:i|we) (?:walk|drive|bike|cycle|fly|take transit) to|is .{1,80} within (?:walking|driving|biking) distance|plan (?:my|our|a) route|start navigation)\b/i;
+const WEATHER_REQUEST_PATTERN = /\b(?:weather|forecast|temperature|what(?:'s| is) it (?:feel )?like outside|what does it feel like outside|how does it feel outside|feels like outside|feels-like temperature|air quality|aqi|humidity|dew point|barometric pressure|atmospheric pressure|visibility|precipitation|pollen(?: count)?|allergen(?: level| count)?|sunrise|sunset|moonrise|moonset|uv(?: index)?|heat index|wind chill|tide(?:s| chart| times)?|marine forecast|weather alert|severe weather)\b/i;
+const WEATHER_CONDITION_REQUEST_PATTERN = /\b(?:(?:is it|will it|is there (?:a )?(?:chance of)?|chance of|expect(?:ing)?|going to)\s+(?:rain(?:ing)?|snow(?:ing)?|storm(?:ing)?|hail(?:ing)?|windy|foggy|hot|cold|freezing)|(?:rain|snow|storm|hail|wind|fog|heat wave|cold front)\s+(?:today|tonight|tomorrow|this (?:morning|afternoon|evening|week|weekend))|do i need (?:an umbrella|a coat|a jacket|sunscreen|rain boots)|what should i wear (?:outside )?(?:today|tonight|tomorrow))\b/i;
+const LOCAL_PLACE_CATEGORY = "(?:restaurants?|cafes?|coffee shops?|bars?|clubs?|grocery stores?|supermarkets?|pharmac(?:y|ies)|drugstores?|hospitals?|emergency rooms?|urgent care(?: centers?)?|doctors?|dentists?|gas stations?|charging stations?|atms?|banks?|hotels?|motels?|gyms?|parks?|beaches|trails?|movie theaters?|cinemas?|museums?|libraries|malls?|stores?|venues?|airports?|train stations?|bus stops?|transit stations?|churches|schools?|daycares?|salons?|barbers?|mechanics?|car washes|laundromats?|post offices?|police stations?|fire stations?)";
+const LOCAL_DISCOVERY_PATTERN = new RegExp(
+  `\\b(?:things to do|what to do|places to (?:eat|drink|shop|stay|visit|go)|where (?:can|should) (?:i|we) (?:eat|drink|shop|stay|go|visit|park)|what(?:'s| is) open (?:now|late|today|tonight)|open now|${LOCAL_PLACE_CATEGORY})\\b[^.!?]{0,100}\\b(?:near|nearest|closest|nearby|around|in my area|open now)\\b`,
+  "i",
+);
+const LOCAL_PLACE_RANKING_PATTERN = new RegExp(
+  `\\b(?:find|locate|show me|recommend|what(?:'s| is)|where(?:'s| is))?\\s*(?:the |a |an |some )?(?:nearest|closest|best|top-rated|highest-rated|cheapest|most affordable)\\s+${LOCAL_PLACE_CATEGORY}\\b`,
+  "i",
+);
+const LOCAL_CONTEXT_PATTERN = /\b(?:local (?:news|events|activities|attractions|restaurants|businesses|services|laws|rules|elections|alerts|emergencies|time)|events? (?:near|around|today|tonight|this weekend)|traffic (?:near|around|today|tonight|now)|how(?:'s| is) (?:the )?traffic|road (?:conditions|closures)|public transit|next (?:bus|train)|commute time|gas prices|delivery (?:near me|to me|to my location)|deliver(?:s|y)? (?:here|to me|to my area)|rideshare|uber|lyft|taxi|parking (?:near|nearby|around|closest)|polling place|where (?:do|can) i vote|who (?:is|are) my (?:representative|representatives|senator|mayor)|school district|evacuation (?:order|zone|route)|emergency alert|amber alert|burn ban|boil water (?:notice|advisory)|power outage|internet outage)\b/i;
+const DEVICE_POSITION_FACT_PATTERN = /\b(?:my coordinates|what are my coordinates|latitude and longitude|my elevation|elevation here|altitude here|which way am i facing|am i (?:in|near|close to|inside|within)|what(?:'s| is) my (?:city|town|county|state|province|country|zip code|postal code|neighbou?rhood|district|time zone)|what time zone am i in|share my location|locate me)\b/i;
 
 /** Shared just-in-time geolocation trigger used by both clients and the API. */
 export function requestMayNeedLocation(message: string): boolean {
   return EXPLICIT_DEVICE_LOCATION_PATTERN.test(message)
+    || CLOSEST_TO_DEVICE_PATTERN.test(message)
+    || RELATIVE_TRAVEL_LOCATION_PATTERN.test(message)
+    || IMPLICIT_DISTANCE_LOCATION_PATTERN.test(message)
+    || NAVIGATION_LOCATION_PATTERN.test(message)
     || WEATHER_REQUEST_PATTERN.test(message)
     || WEATHER_CONDITION_REQUEST_PATTERN.test(message)
-    || LOCAL_REQUEST_PATTERN.test(message);
+    || LOCAL_DISCOVERY_PATTERN.test(message)
+    || LOCAL_PLACE_RANKING_PATTERN.test(message)
+    || LOCAL_CONTEXT_PATTERN.test(message)
+    || DEVICE_POSITION_FACT_PATTERN.test(message);
 }
 
 export const authClientTypeSchema = z.enum(["web", "desktop", "ios", "android", "unknown"]);

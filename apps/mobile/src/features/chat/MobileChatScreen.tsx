@@ -2448,7 +2448,7 @@ export function MobileChatScreen() {
       clearTimeout(timer);
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [personaCardIsDocked, responseFocusLayoutVersion, responseFocusTurnId, responseFocusViewOffset, turns]);
+  }, [personaCardIsDocked, responseFocusLayoutVersion, responseFocusTurnId, responseFocusViewOffset, turns.length]);
 
   useEffect(() => {
     if (lastFocusedResponseTurnIdRef.current === turns[turns.length - 1]?.id) return;
@@ -2671,6 +2671,25 @@ export function MobileChatScreen() {
     let uploadedAttachments: UploadedAsset[] = [];
     let createdVectorStoreId: string | undefined;
     let chatRequestStarted = false;
+    let streamedText = "";
+    let streamStarted = false;
+    let streamFrame: number | undefined;
+    const flushStreamedText = () => {
+      streamFrame = undefined;
+      if (!optimistic || !streamedText) return;
+      const nextText = streamedText;
+      setTurns((current) => {
+        const next = current.map((turn) => turn.id === optimistic?.id
+          ? { ...turn, assistantText: nextText, outputs: [{ type: "text" as const, text: nextText }] }
+          : turn);
+        turnsRef.current = next;
+        return next;
+      });
+      if (!streamStarted) {
+        streamStarted = true;
+        focusCompletedResponse(optimistic.id);
+      }
+    };
     try {
       setUploadingAttachments(submittedFiles.length > 0);
       uploadedAttachments = submittedFiles.length > 0
@@ -2700,7 +2719,7 @@ export function MobileChatScreen() {
         imageGeneration,
         videoAnalysis: false,
         appFunctions: true,
-        background: true,
+        background: imageGeneration,
         vectorStoreIds: vectorStore ? [vectorStore.id] : []
       };
       setUploadingAttachments(false);
@@ -2725,7 +2744,7 @@ export function MobileChatScreen() {
         return next;
       });
       chatRequestStarted = true;
-      const response = await api.sendChat({
+      const payload = {
         personaId: submittedPersonaId,
         message,
         provider: submittedProvider,
@@ -2735,7 +2754,19 @@ export function MobileChatScreen() {
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(options?.retryAssistantMessageId ? { retryAssistantMessageId: options.retryAssistantMessageId } : {}),
         ...(submittedConversationId ? { conversationId: submittedConversationId } : {})
-      }, controller.signal);
+      };
+      const response = resolvedToolOptions.background
+        ? await api.sendChat(payload, controller.signal)
+        : await api.sendChatStream(payload, {
+          onTextDelta: (delta) => {
+            streamedText += delta;
+            if (streamFrame === undefined) streamFrame = requestAnimationFrame(flushStreamedText);
+          }
+        }, controller.signal);
+      if (streamFrame !== undefined) {
+        cancelAnimationFrame(streamFrame);
+        flushStreamedText();
+      }
       const backgroundJob = response.diagnostics.backgroundJob;
       if (backgroundJob) {
         backgroundJobId = backgroundJob.id;
@@ -2753,6 +2784,7 @@ export function MobileChatScreen() {
       await setSelectedConversationId(finalResponse.conversationId).catch(() => undefined);
       const completedTurn: RenderedTurn = {
         ...turnFromChatResponse(message, finalResponse),
+        id: optimistic.id,
         userAssets: mapUploadedAssetsToUserAssets(attachments)
       };
       setError(undefined);
@@ -2763,7 +2795,8 @@ export function MobileChatScreen() {
       setTurns((current) => current.map((turn) => (
         turn.id === optimistic?.id ? completedTurn : turn
       )));
-      focusCompletedResponse(completedTurn.id);
+      turnsRef.current = turnsRef.current.map((turn) => turn.id === optimistic?.id ? completedTurn : turn);
+      if (!streamStarted) focusCompletedResponse(completedTurn.id);
       await refreshConversations();
     } catch (sendError) {
       if (!chatRequestStarted) {
@@ -2820,6 +2853,7 @@ export function MobileChatScreen() {
         setSelectedFiles(submittedFiles);
       }
     } finally {
+      if (streamFrame !== undefined) cancelAnimationFrame(streamFrame);
       if (activeChatAbortControllerRef.current === controller) {
         activeChatAbortControllerRef.current = undefined;
         activeChatTurnIdRef.current = undefined;
@@ -3440,7 +3474,9 @@ export function MobileChatScreen() {
             onLayout={handleConversationLayout}
             onScroll={handleConversationScroll}
             onContentSizeChange={handleConversationContentSizeChange}
-            maintainVisibleContentPosition={{ autoscrollToBottomThreshold: 0.15 }}
+            maintainVisibleContentPosition={sending
+              ? { disabled: true }
+              : { autoscrollToBottomThreshold: 0.15 }}
             ListHeaderComponent={turnsCursor ? (
               <Pressable accessibilityRole="button" accessibilityLabel={t("chat.loadEarlier")} disabled={!isOnline || loadingEarlierTurns} onPress={() => void loadEarlierTurns()} style={[styles.loadEarlierButton, { borderColor: theme.border, opacity: isOnline ? 1 : 0.45 }]}>
                 {loadingEarlierTurns ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.loadEarlierText, { color: theme.text }]}>{t("chat.loadEarlier")}</Text>}
