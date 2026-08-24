@@ -119,5 +119,23 @@ describe("LiveAudioStreamService", () => {
 
     await expect(service.write(stream.token, Buffer.from("ID3audio"))).resolves.toBeUndefined();
     expect(response.destroyed).toBe(true);
+    // Once playback disconnects, the provider may keep producing data for the
+    // persisted artifact without the abandoned delivery path throwing.
+    await expect(service.write(stream.token, Buffer.from("more-audio"))).resolves.toBeUndefined();
+    expect(() => service.complete(stream.token)).not.toThrow();
+  });
+
+  it("allows synthesis to finish after an active listener intentionally disconnects", async () => {
+    const service = createService();
+    const stream = service.create("audio/mpeg");
+    const response = new FakeResponse();
+    await service.subscribe(stream.token, response as unknown as Response);
+
+    response.destroy();
+
+    await expect(service.write(stream.token, Buffer.from("audio-after-disconnect"))).resolves.toBeUndefined();
+    expect(() => service.complete(stream.token)).not.toThrow();
+    await expect(service.subscribe(stream.token, new FakeResponse() as unknown as Response))
+      .rejects.toMatchObject({ statusCode: 404 });
   });
 });

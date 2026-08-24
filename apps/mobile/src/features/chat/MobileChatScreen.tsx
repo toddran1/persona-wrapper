@@ -358,6 +358,7 @@ export function MobileChatScreen() {
     releaseCurrentAudioPlayback,
     replayAudioOutput,
     playLivePersonaAudioStream,
+    stopLivePersonaAudioStream,
     playGeneratedPersonaAudio
   } = usePersonaAudio();
   const {
@@ -2676,7 +2677,7 @@ export function MobileChatScreen() {
     let streamStarted = false;
     let streamFrame: number | undefined;
     let liveAudioStreamId: string | undefined;
-    let liveAudioPlayback: Promise<boolean> | undefined;
+    let liveAudioPlayback: ReturnType<typeof playLivePersonaAudioStream> | undefined;
     const flushStreamedText = () => {
       streamFrame = undefined;
       if (!optimistic || !streamedText) return;
@@ -2768,12 +2769,14 @@ export function MobileChatScreen() {
           onAudioStart: (event) => {
             if (!submittedAudioEnabled) return;
             liveAudioStreamId = event.id;
-            liveAudioPlayback = playLivePersonaAudioStream(event.url);
+            liveAudioPlayback = playLivePersonaAudioStream(event.url, event.id);
           },
           onAudioError: (event) => {
             if (event.id !== liveAudioStreamId) return;
-            liveAudioPlayback = Promise.resolve(false);
-            void releaseCurrentAudioPlayback();
+            // Stop only the failed live stream. A user may already have
+            // started replaying a saved response, which must keep ownership
+            // of the device audio session.
+            void stopLivePersonaAudioStream(event.id);
           }
         }, controller.signal);
       if (streamFrame !== undefined) {
@@ -2804,8 +2807,10 @@ export function MobileChatScreen() {
       if (activePersonaIdRef.current === submittedPersona.id) {
         markPersonaSpeaking(finalResponse.outputs);
       }
-      const liveAudioPlayed = await (liveAudioPlayback ?? Promise.resolve(false));
-      if (!liveAudioPlayed) playGeneratedPersonaAudio(finalResponse.outputs);
+      const liveAudioResult = await (liveAudioPlayback ?? Promise.resolve("failed" as const));
+      // A manual replay deliberately supersedes live playback. Do not let the
+      // completed request steal audio focus back from that replay.
+      if (liveAudioResult === "failed") playGeneratedPersonaAudio(finalResponse.outputs);
       setTurns((current) => current.map((turn) => (
         turn.id === optimistic?.id ? completedTurn : turn
       )));

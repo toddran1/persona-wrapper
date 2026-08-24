@@ -10,6 +10,7 @@ type LiveAudioSession = {
   completed: boolean;
   failed: boolean;
   claimed: boolean;
+  deliveryAbandoned: boolean;
   subscribers: Set<Response>;
   expiresAt: number;
   cleanupTimer: ReturnType<typeof setTimeout>;
@@ -63,6 +64,7 @@ export class LiveAudioStreamService {
       completed: false,
       failed: false,
       claimed: false,
+      deliveryAbandoned: false,
       subscribers: new Set(),
       expiresAt: Date.now() + this.limits.sessionTtlMs,
       cleanupTimer: this.createCleanupTimer(token, this.limits.sessionTtlMs)
@@ -80,6 +82,10 @@ export class LiveAudioStreamService {
       this.fail(token);
       throw new HttpError("Live audio exceeded the configured size limit.", 502);
     }
+    // Closing the player only abandons progressive delivery. TTS generation
+    // and persistence continue independently in chatService, so discard live
+    // chunks instead of retaining a now-unread stream in memory.
+    if (session.deliveryAbandoned) return;
     if (session.subscribers.size === 0) {
       if (this.totalBufferedBytes + buffer.byteLength > this.limits.maxTotalBufferedBytes) {
         this.fail(token);
@@ -102,6 +108,10 @@ export class LiveAudioStreamService {
     const session = this.sessions.get(token);
     if (!session || session.failed) return;
     session.completed = true;
+    if (session.deliveryAbandoned) {
+      this.deleteSession(token);
+      return;
+    }
     session.expiresAt = Date.now() + this.limits.completedSessionTtlMs;
     clearTimeout(session.cleanupTimer);
     session.cleanupTimer = this.createCleanupTimer(token, this.limits.completedSessionTtlMs);
@@ -137,7 +147,10 @@ export class LiveAudioStreamService {
     response.once("close", () => {
       closed = true;
       session.subscribers.delete(response);
-      if (!session.completed) this.deleteSession(token);
+      if (!session.completed) {
+        session.deliveryAbandoned = true;
+        this.clearBufferedChunks(session);
+      }
     });
     while (session.chunks.length > 0 && !closed && !response.destroyed && !response.writableEnded) {
       const chunk = session.chunks.shift();
@@ -181,10 +194,14 @@ export class LiveAudioStreamService {
     const session = this.sessions.get(token);
     if (!session) return;
     clearTimeout(session.cleanupTimer);
+    this.clearBufferedChunks(session);
+    this.sessions.delete(token);
+  }
+
+  private clearBufferedChunks(session: LiveAudioSession): void {
     this.totalBufferedBytes = Math.max(0, this.totalBufferedBytes - session.bufferedBytes);
     session.bufferedBytes = 0;
     session.chunks = [];
-    this.sessions.delete(token);
   }
 
   private setResponseHeaders(response: Response, session: LiveAudioSession): void {

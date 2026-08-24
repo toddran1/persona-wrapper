@@ -7,6 +7,12 @@ import type { RenderedTurn } from "./types";
 
 type AudioOutput = Extract<RenderedTurn["outputs"][number], { type: "audio" }>;
 type AudioPlaybackSubscription = { remove: () => void };
+type PlaybackOwner = { id: string; kind: "live" | "saved" };
+export type LiveAudioPlaybackResult = "started" | "failed" | "superseded";
+type PendingLivePlayback = {
+  ownerId: string;
+  settle: (result: LiveAudioPlaybackResult) => void;
+};
 
 function audioFileExtension(mimeType: string): string {
   if (mimeType.includes("wav")) return "wav";
@@ -38,9 +44,33 @@ export function usePersonaAudio() {
   const uriRef = useRef<string | undefined>(undefined);
   const subscriptionRef = useRef<AudioPlaybackSubscription | undefined>(undefined);
   const generationRef = useRef(0);
+  const savedPlaybackSequenceRef = useRef(0);
+  const ownerRef = useRef<PlaybackOwner | undefined>(undefined);
+  const pendingLivePlaybackRef = useRef<PendingLivePlayback | undefined>(undefined);
+  const cancelledLiveStreamsRef = useRef<Set<string>>(new Set());
 
-  const release = useCallback(async (): Promise<void> => {
-    generationRef.current += 1;
+  const releaseOwned = useCallback(async (
+    result: LiveAudioPlaybackResult,
+    expectedOwnerId?: string
+  ): Promise<number | undefined> => {
+    const owner = ownerRef.current;
+    const pending = pendingLivePlaybackRef.current;
+    if (
+      expectedOwnerId
+      && owner?.id !== expectedOwnerId
+      && pending?.ownerId !== expectedOwnerId
+    ) {
+      return undefined;
+    }
+
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
+    if (!expectedOwnerId || pending?.ownerId === expectedOwnerId) {
+      pendingLivePlaybackRef.current = undefined;
+      pending?.settle(result);
+    }
+    if (!expectedOwnerId || owner?.id === expectedOwnerId) ownerRef.current = undefined;
+
     const player = playerRef.current;
     const uri = uriRef.current;
     const subscription = subscriptionRef.current;
@@ -60,7 +90,19 @@ export function usePersonaAudio() {
     // Audio activation can succeed before player construction does. Always
     // deactivate the native session, even when there is no player to release.
     await setIsAudioActiveAsync(false).catch(() => undefined);
+    return generation;
   }, []);
+
+  const release = useCallback(async (): Promise<void> => {
+    await releaseOwned("superseded");
+  }, [releaseOwned]);
+
+  const beginPlayback = useCallback(async (owner: PlaybackOwner): Promise<number | undefined> => {
+    const generation = await releaseOwned("superseded");
+    if (generation === undefined || generation !== generationRef.current) return undefined;
+    ownerRef.current = owner;
+    return generation;
+  }, [releaseOwned]);
 
   const prepareAudioUri = useCallback(async (output: AudioOutput): Promise<string> => {
     const audioUrl = api.resolveUrl(output.url);
@@ -82,12 +124,18 @@ export function usePersonaAudio() {
   }, []);
 
   const replay = useCallback(async (output: AudioOutput): Promise<void> => {
+    const ownerId = `saved:${savedPlaybackSequenceRef.current + 1}`;
+    savedPlaybackSequenceRef.current += 1;
     let pendingAudioUri: string | undefined;
     try {
-      await release();
-      const playbackGeneration = generationRef.current;
+      const playbackGeneration = await beginPlayback({ id: ownerId, kind: "saved" });
+      if (playbackGeneration === undefined) return;
       pendingAudioUri = await prepareAudioUri(output);
-      if (playbackGeneration !== generationRef.current || AppState.currentState !== "active") {
+      if (
+        playbackGeneration !== generationRef.current
+        || ownerRef.current?.id !== ownerId
+        || AppState.currentState !== "active"
+      ) {
         if (isManagedAudioCacheUri(pendingAudioUri)) {
           await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
         }
@@ -101,7 +149,11 @@ export function usePersonaAudio() {
         shouldRouteThroughEarpiece: false
       });
       await setIsAudioActiveAsync(true);
-      if (playbackGeneration !== generationRef.current || AppState.currentState !== "active") {
+      if (
+        playbackGeneration !== generationRef.current
+        || ownerRef.current?.id !== ownerId
+        || AppState.currentState !== "active"
+      ) {
         await setIsAudioActiveAsync(false).catch(() => undefined);
         if (isManagedAudioCacheUri(pendingAudioUri)) {
           await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
@@ -116,25 +168,42 @@ export function usePersonaAudio() {
       playerRef.current = player;
       uriRef.current = audioUri;
       subscriptionRef.current = player.addListener("playbackStatusUpdate", (status) => {
-        if (status.didJustFinish && playerRef.current === player) void release();
+        if (status.didJustFinish && playerRef.current === player) {
+          void releaseOwned("started", ownerId);
+        }
       });
       pendingAudioUri = undefined;
       player.play();
     } catch (playbackError) {
-      await release();
+      const stillOwned = ownerRef.current?.id === ownerId;
+      await releaseOwned("failed", ownerId);
       if (isManagedAudioCacheUri(pendingAudioUri)) {
         await FileSystem.deleteAsync(pendingAudioUri, { idempotent: true }).catch(() => undefined);
       }
-      Alert.alert("Audio playback failed", playbackErrorMessage(playbackError));
+      // A stale replay must not report an error after a newer playback has
+      // intentionally superseded it.
+      if (stillOwned) Alert.alert("Audio playback failed", playbackErrorMessage(playbackError));
     }
-  }, [prepareAudioUri, release]);
+  }, [beginPlayback, prepareAudioUri, releaseOwned]);
 
-  const playLiveStream = useCallback(async (url: string): Promise<boolean> => {
+  const playLiveStream = useCallback(async (
+    url: string,
+    streamId: string
+  ): Promise<LiveAudioPlaybackResult> => {
+    const ownerId = `live:${streamId}`;
     try {
-      await release();
-      if (!audioEnabledRef.current || AppState.currentState !== "active") return false;
+      if (cancelledLiveStreamsRef.current.delete(streamId)) return "failed";
+      const playbackGeneration = await beginPlayback({ id: ownerId, kind: "live" });
+      if (playbackGeneration === undefined) return "superseded";
+      if (cancelledLiveStreamsRef.current.delete(streamId)) {
+        await releaseOwned("failed", ownerId);
+        return "failed";
+      }
+      if (!audioEnabledRef.current || AppState.currentState !== "active") {
+        await releaseOwned("failed", ownerId);
+        return "failed";
+      }
 
-      const playbackGeneration = generationRef.current;
       await setAudioModeAsync({
         allowsRecording: false,
         playsInSilentMode: true,
@@ -145,11 +214,12 @@ export function usePersonaAudio() {
       await setIsAudioActiveAsync(true);
       if (
         playbackGeneration !== generationRef.current
+        || ownerRef.current?.id !== ownerId
         || !audioEnabledRef.current
         || AppState.currentState !== "active"
       ) {
-        await setIsAudioActiveAsync(false).catch(() => undefined);
-        return false;
+        await releaseOwned("superseded", ownerId);
+        return "superseded";
       }
 
       const player = createAudioPlayer({ uri: api.resolveUrl(url) }, {
@@ -157,54 +227,64 @@ export function usePersonaAudio() {
         updateInterval: 250
       });
       playerRef.current = player;
-      let cancelPendingStart: (() => void) | undefined;
-      const playbackStarted = new Promise<boolean>((resolve) => {
+      const playbackStarted = new Promise<LiveAudioPlaybackResult>((resolve) => {
         let settled = false;
-        const settle = (result: boolean) => {
+        let startTimeout: ReturnType<typeof setTimeout> | undefined;
+        const settle = (result: LiveAudioPlaybackResult) => {
           if (settled) return;
           settled = true;
-          clearTimeout(startTimeout);
+          if (startTimeout) clearTimeout(startTimeout);
+          if (pendingLivePlaybackRef.current?.ownerId === ownerId) {
+            pendingLivePlaybackRef.current = undefined;
+          }
           resolve(result);
         };
+        pendingLivePlaybackRef.current = { ownerId, settle };
         const fail = () => {
           if (settled) return;
-          if (playerRef.current !== player) {
-            settle(false);
+          if (ownerRef.current?.id !== ownerId || playerRef.current !== player) {
+            settle("superseded");
             return;
           }
-          settled = true;
-          clearTimeout(startTimeout);
-          void release().finally(() => resolve(false));
+          void releaseOwned("failed", ownerId);
         };
-        const startTimeout = setTimeout(fail, 8_000);
-        cancelPendingStart = fail;
+        startTimeout = setTimeout(fail, 8_000);
         subscriptionRef.current = player.addListener("playbackStatusUpdate", (status) => {
-          if (playerRef.current !== player) return;
+          if (ownerRef.current?.id !== ownerId || playerRef.current !== player) return;
           if (status.error || status.playbackState === "failed") {
             fail();
             return;
           }
-          if (status.playing || status.currentTime > 0) settle(true);
+          if (status.playing || status.currentTime > 0) settle("started");
           if (status.didJustFinish) {
-            settle(true);
-            void release();
+            settle("started");
+            void releaseOwned("started", ownerId);
           }
         });
       });
       try {
         player.play();
-      } catch (error) {
-        cancelPendingStart?.();
-        throw error;
+      } catch {
+        await releaseOwned("failed", ownerId);
       }
       return await playbackStarted;
     } catch {
       // The final persisted audio output remains the fallback when a device or
-      // network cannot progressively play the live HTTP response.
-      await release();
-      return false;
+      // network cannot progressively play the live HTTP response. Ownership
+      // prevents this cleanup from stopping a saved replay started afterward.
+      const released = await releaseOwned("failed", ownerId);
+      return released === undefined ? "superseded" : "failed";
     }
-  }, [release]);
+  }, [beginPlayback, releaseOwned]);
+
+  const stopLiveStream = useCallback(async (streamId: string): Promise<void> => {
+    const ownerId = `live:${streamId}`;
+    const liveStreamOwnsPlayback = ownerRef.current?.id === ownerId
+      || pendingLivePlaybackRef.current?.ownerId === ownerId;
+    if (!liveStreamOwnsPlayback) cancelledLiveStreamsRef.current.add(streamId);
+    const released = await releaseOwned("failed", ownerId);
+    if (released !== undefined) cancelledLiveStreamsRef.current.delete(streamId);
+  }, [releaseOwned]);
 
   const playGenerated = useCallback((outputs: RenderedTurn["outputs"]): void => {
     if (!audioEnabledRef.current) return;
@@ -229,6 +309,7 @@ export function usePersonaAudio() {
     releaseCurrentAudioPlayback: release,
     replayAudioOutput: replay,
     playLivePersonaAudioStream: playLiveStream,
+    stopLivePersonaAudioStream: stopLiveStream,
     playGeneratedPersonaAudio: playGenerated
   };
 }
