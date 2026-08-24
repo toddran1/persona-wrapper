@@ -141,6 +141,30 @@ describe("FishAudioTTSProvider", () => {
     });
   });
 
+  it("emits validated audio chunks while retaining the complete persisted artifact", async () => {
+    env.FISH_AUDIO_API_KEY = "test-fish-key";
+    env.FISH_AUDIO_MAX_RETRIES = 0;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(audioResponse(validMp3)));
+    const register = vi.spyOn(generatedAudioService, "register").mockResolvedValue("/api/generated-audio/test-token");
+    const events: string[] = [];
+    const streamedChunks: Buffer[] = [];
+
+    await new FishAudioTTSProvider().synthesize({ text: "Hey baby!", persona: larae }, undefined, {
+      onStart: ({ mimeType }) => {
+        events.push(`start:${mimeType}`);
+      },
+      onChunk: (chunk) => {
+        events.push("chunk");
+        streamedChunks.push(Buffer.from(chunk));
+      }
+    });
+
+    expect(events[0]).toBe("start:audio/mpeg");
+    expect(events.slice(1)).toContain("chunk");
+    expect(Buffer.concat(streamedChunks)).toEqual(validMp3);
+    expect(register).toHaveBeenCalledWith(validMp3, expect.any(Object));
+  });
+
   it("fails safely when the API key is missing", async () => {
     env.FISH_AUDIO_API_KEY = undefined;
 

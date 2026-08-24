@@ -286,6 +286,7 @@ const envSchema = z.object({
   ELEVENLABS_USE_SPEAKER_BOOST: z.preprocess(stringToBoolean, z.boolean().default(true)),
   ELEVENLABS_MAX_RETRIES: z.coerce.number().int().min(0).max(5).default(2),
   ELEVENLABS_RETRY_BASE_MS: z.coerce.number().int().positive().default(400),
+  ELEVENLABS_MAX_RESPONSE_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
   STYLE_TRANSFER_PROVIDER: z.enum(["stub", "local", "runpod", "huggingface"]).default("stub"),
   STYLE_TRANSFER_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   STYLE_TRANSFER_MODEL_ID: z.preprocess(emptyStringToUndefined, z.string().optional())

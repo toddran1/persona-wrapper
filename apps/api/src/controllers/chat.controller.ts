@@ -285,6 +285,24 @@ export async function postChatStream(request: Request, response: Response): Prom
           response.write(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`);
           flush();
         }
+      },
+      onAudioStart: (event) => {
+        if (!response.writableEnded && !response.destroyed) {
+          response.write(`event: audio_start\ndata: ${JSON.stringify(event)}\n\n`);
+          flush();
+        }
+      },
+      onAudioComplete: (event) => {
+        if (!response.writableEnded && !response.destroyed) {
+          response.write(`event: audio_complete\ndata: ${JSON.stringify(event)}\n\n`);
+          flush();
+        }
+      },
+      onAudioError: (event) => {
+        if (!response.writableEnded && !response.destroyed) {
+          response.write(`event: audio_error\ndata: ${JSON.stringify(event)}\n\n`);
+          flush();
+        }
       }
     }, controller.signal, undefined, { ownerId: identity });
     await usageControlService.recordUsage(identity, result.usage?.totalTokens, result.usage?.estimatedCostUsd, reservationId);

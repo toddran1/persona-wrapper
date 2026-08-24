@@ -1844,9 +1844,9 @@ export function ConversationSidebar({
                         {providerNotice ? <div className="settings-notice" role="status">{providerNotice}</div> : null}
                         <div className="settings-provider-options" role="radiogroup" aria-label="Model provider">
                           {([[
-                            "openai", "ChatGPT", "Uses the OpenAI model and the complete persona experience."
+                            "openai", "ChatGPT", "More complete and consistent experience."
                           ], [
-                            "gemini", "Gemini", "Uses Gemini for responses, search, analysis, and supported files."
+                            "gemini", "Gemini", "May provide more persona depth and reasoning. Experience may vary."
                           ]] as const)
                             // Free (bronze) accounts are ChatGPT-only; the server rejects the switch too.
                             .filter(([value]) => value === "openai" || planUsage?.plan.id !== "bronze")

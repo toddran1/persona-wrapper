@@ -3,7 +3,7 @@ import { env } from "../../config/env.js";
 import { generatedAudioService } from "../../services/generatedAudioService.js";
 import { HttpError } from "../../utils/httpError.js";
 import { logger } from "../../utils/logger.js";
-import type { TTSProvider } from "./TTSProvider.js";
+import type { TTSProvider, TTSStreamCallbacks } from "./TTSProvider.js";
 
 type ElevenLabsVoiceConfig = {
   voiceId?: string;
@@ -26,6 +26,17 @@ function inferExtension(mimeType: string): string {
   if (mimeType === "audio/wav") return "wav";
   if (mimeType === "audio/basic") return "ulaw";
   return "mp3";
+}
+
+function isExpectedAudioContentType(mimeType: string): boolean {
+  return mimeType.startsWith("audio/") || mimeType === "application/octet-stream";
+}
+
+function hasMp3Signature(buffer: Buffer): boolean {
+  return buffer.length >= 3 && (
+    buffer.subarray(0, 3).toString("ascii") === "ID3"
+    || (buffer[0] === 0xff && ((buffer[1] ?? 0) & 0xe0) === 0xe0)
+  );
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -102,7 +113,7 @@ function buildVoiceSettings(config: ElevenLabsVoiceConfig): Record<string, numbe
 }
 
 export class ElevenLabsTTSProvider implements TTSProvider {
-  async synthesize(input: TTSInput, signal?: AbortSignal): Promise<TTSOutput> {
+  async synthesize(input: TTSInput, signal?: AbortSignal, streamCallbacks?: TTSStreamCallbacks): Promise<TTSOutput> {
     signal?.throwIfAborted();
     const voiceConfig = getVoiceConfig(input);
     const voiceId = input.voiceId ?? voiceConfig.voiceId ?? env.ELEVENLABS_VOICE_ID;
@@ -111,7 +122,7 @@ export class ElevenLabsTTSProvider implements TTSProvider {
     const text = input.text.trim();
     if (!text) throw new HttpError("No text content available for ElevenLabs TTS.", 400);
 
-    const endpoint = new URL(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`);
+    const endpoint = new URL(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}${streamCallbacks ? "/stream" : ""}`);
     endpoint.searchParams.set("output_format", voiceConfig.outputFormat);
 
     const requestInit: RequestInit = {
@@ -160,9 +171,62 @@ export class ElevenLabsTTSProvider implements TTSProvider {
       throw new HttpError(`ElevenLabs TTS failed: ${lastError instanceof Error ? lastError.message : "Unknown error"}`, 502);
     }
 
-    const mimeType = response.headers.get("content-type")?.split(";")[0] ?? inferMimeType(voiceConfig.outputFormat);
+    const responseMimeType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+    if (responseMimeType && !isExpectedAudioContentType(responseMimeType)) {
+      throw new HttpError(`ElevenLabs returned an unexpected content type: ${responseMimeType}`, 502);
+    }
+    const mimeType = responseMimeType && responseMimeType !== "application/octet-stream"
+      ? responseMimeType
+      : inferMimeType(voiceConfig.outputFormat);
     const extension = inferExtension(mimeType);
-    const buffer = Buffer.from(await response.arrayBuffer());
+    const chunks: Buffer[] = [];
+    let receivedBytes = 0;
+    let streamStarted = false;
+    const pendingStreamChunks: Buffer[] = [];
+    if (response.body) {
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          receivedBytes += chunk.value.byteLength;
+          if (receivedBytes > env.ELEVENLABS_MAX_RESPONSE_BYTES) {
+            await reader.cancel("ElevenLabs response exceeded the configured size limit.");
+            throw new HttpError("ElevenLabs response exceeded the configured size limit.", 502);
+          }
+          const buffer = Buffer.from(chunk.value);
+          chunks.push(buffer);
+          if (streamCallbacks) {
+            if (!streamStarted && mimeType === "audio/mpeg") {
+              pendingStreamChunks.push(buffer);
+              if (hasMp3Signature(Buffer.concat(pendingStreamChunks))) {
+                await streamCallbacks.onStart({ mimeType });
+                streamStarted = true;
+                for (const pendingChunk of pendingStreamChunks) await streamCallbacks.onChunk(pendingChunk);
+                pendingStreamChunks.length = 0;
+              }
+            } else {
+              if (!streamStarted) {
+                await streamCallbacks.onStart({ mimeType });
+                streamStarted = true;
+              }
+              await streamCallbacks.onChunk(buffer);
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+    const buffer = Buffer.concat(chunks, receivedBytes);
+    if (buffer.byteLength === 0) throw new HttpError("ElevenLabs returned empty audio data.", 502);
+    if (mimeType === "audio/mpeg" && !hasMp3Signature(buffer)) {
+      throw new HttpError("ElevenLabs returned invalid audio data.", 502);
+    }
+    if (streamCallbacks && !streamStarted) {
+      await streamCallbacks.onStart({ mimeType });
+      for (const pendingChunk of pendingStreamChunks) await streamCallbacks.onChunk(pendingChunk);
+    }
     const url = await generatedAudioService.register(buffer, {
       fileName: `${input.persona.id}-voice.${extension}`,
       mimeType,

@@ -312,6 +312,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [autoPlayAudioTurnIndex, setAutoPlayAudioTurnIndex] = useState<number | undefined>();
   const [loading, setLoading] = useState(false);
   const [personaAudioPlaying, setPersonaAudioPlaying] = useState(false);
+  const liveAudioElementRef = useRef<HTMLAudioElement | undefined>(undefined);
   const [nonAudioVisualState, setNonAudioVisualState] = useState<PersonaVisualState>("idle");
   const [error, setError] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>(() => storedConversationId());
@@ -770,11 +771,28 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
   }
 
+  const stopLiveAudio = useCallback(() => {
+    const audio = liveAudioElementRef.current;
+    liveAudioElementRef.current = undefined;
+    if (!audio) return;
+    audio.onplay = null;
+    audio.onpause = null;
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    setPersonaAudioPlaying(false);
+  }, []);
+
   useEffect(() => {
     if (!audioEnabled) {
+      stopLiveAudio();
       setPersonaAudioPlaying(false);
     }
-  }, [audioEnabled]);
+  }, [audioEnabled, stopLiveAudio]);
+
+  useEffect(() => () => stopLiveAudio(), [stopLiveAudio]);
 
   useEffect(() => () => clearNonAudioVisualTimer(), []);
 
@@ -851,6 +869,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
 
     const submittedPersonaId = personaIdOverride ?? personaDetail.id;
+    stopLiveAudio();
     setLoading(true);
     setPersonaAudioPlaying(false);
     suppressAudioVisualForCurrentTurnRef.current = false;
@@ -878,6 +897,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     let uploadedAttachments: UploadedAsset[] = [];
     let createdVectorStoreId: string | undefined;
     let chatRequestStarted = false;
+    let liveAudioStreamId: string | undefined;
+    let liveAudioPlayback: Promise<boolean> | undefined;
 
     try {
       uploadedAttachments = files.length > 0 ? await api.uploadFiles(files, requestController.signal) : [];
@@ -913,6 +934,39 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         ? await api.sendChatStream(payload, {
           onTextDelta: (delta) => {
             setPendingResponseText((current) => `${current ?? ""}${delta}`);
+          },
+          onAudioStart: (event) => {
+            if (!submittedAudioEnabled) return;
+            stopLiveAudio();
+            liveAudioStreamId = event.id;
+            const audio = new Audio(api.resolveUrl(event.url));
+            audio.preload = "auto";
+            liveAudioElementRef.current = audio;
+            audio.onplay = () => {
+              if (liveAudioElementRef.current === audio && selectedPersonaIdRef.current === submittedPersonaId) {
+                setPersonaAudioPlaying(true);
+              }
+            };
+            const handleStopped = () => {
+              if (liveAudioElementRef.current === audio) {
+                liveAudioElementRef.current = undefined;
+                setPersonaAudioPlaying(false);
+              }
+            };
+            audio.onpause = handleStopped;
+            audio.onended = handleStopped;
+            audio.onerror = handleStopped;
+            liveAudioPlayback = audio.play()
+              .then(() => true)
+              .catch(() => {
+                if (liveAudioElementRef.current === audio) stopLiveAudio();
+                return false;
+              });
+          },
+          onAudioError: (event) => {
+            if (event.id !== liveAudioStreamId) return;
+            stopLiveAudio();
+            liveAudioPlayback = Promise.resolve(false);
           }
         }, requestController.signal)
         : await api.sendChat(payload, requestController.signal);
@@ -950,7 +1004,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         replaceBackgroundTurnWithResult(backgroundJob.id, finalResult);
         clearStoredBackgroundJob(backgroundJob.id);
       } else {
-        appendChatResult(message, finalResult, attachments, files, retryAssistantMessageId);
+        const liveAudioPlayed = await (liveAudioPlayback ?? Promise.resolve(false));
+        appendChatResult(message, finalResult, attachments, files, retryAssistantMessageId, liveAudioPlayed);
       }
       void refreshConversationList(finalResult.conversationId);
       activeBackgroundJobIdRef.current = undefined;
@@ -1063,7 +1118,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     result: ChatResponse,
     attachments: UploadedAsset[] = [],
     userFiles: File[] = [],
-    retryAssistantMessageId?: string
+    retryAssistantMessageId?: string,
+    suppressAudioAutoPlay = false
   ): void {
     const assistantTextBlock = result.outputs.find((output) => output.type === "text");
     const assistantText = assistantTextBlock?.type === "text" ? assistantTextBlock.text : "";
@@ -1077,7 +1133,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     const autoPlayIndex = retryAssistantMessageId
       ? renderedTurnsRef.current.findIndex((turn) => turn.assistantMessageId === retryAssistantMessageId)
       : renderedTurnsRef.current.length;
-    setAutoPlayAudioTurnIndex(autoPlayIndex >= 0 ? autoPlayIndex : undefined);
+    setAutoPlayAudioTurnIndex(!suppressAudioAutoPlay && autoPlayIndex >= 0 ? autoPlayIndex : undefined);
     setRenderedTurns((current) => {
       const completedTurn: RenderedTurn = {
           ...(result.userMessageId ? { userMessageId: result.userMessageId } : {}),

@@ -357,6 +357,7 @@ export function MobileChatScreen() {
     setAudioEnabled,
     releaseCurrentAudioPlayback,
     replayAudioOutput,
+    playLivePersonaAudioStream,
     playGeneratedPersonaAudio
   } = usePersonaAudio();
   const {
@@ -2674,6 +2675,8 @@ export function MobileChatScreen() {
     let streamedText = "";
     let streamStarted = false;
     let streamFrame: number | undefined;
+    let liveAudioStreamId: string | undefined;
+    let liveAudioPlayback: Promise<boolean> | undefined;
     const flushStreamedText = () => {
       streamFrame = undefined;
       if (!optimistic || !streamedText) return;
@@ -2761,6 +2764,16 @@ export function MobileChatScreen() {
           onTextDelta: (delta) => {
             streamedText += delta;
             if (streamFrame === undefined) streamFrame = requestAnimationFrame(flushStreamedText);
+          },
+          onAudioStart: (event) => {
+            if (!submittedAudioEnabled) return;
+            liveAudioStreamId = event.id;
+            liveAudioPlayback = playLivePersonaAudioStream(event.url);
+          },
+          onAudioError: (event) => {
+            if (event.id !== liveAudioStreamId) return;
+            liveAudioPlayback = Promise.resolve(false);
+            void releaseCurrentAudioPlayback();
           }
         }, controller.signal);
       if (streamFrame !== undefined) {
@@ -2791,7 +2804,8 @@ export function MobileChatScreen() {
       if (activePersonaIdRef.current === submittedPersona.id) {
         markPersonaSpeaking(finalResponse.outputs);
       }
-      playGeneratedPersonaAudio(finalResponse.outputs);
+      const liveAudioPlayed = await (liveAudioPlayback ?? Promise.resolve(false));
+      if (!liveAudioPlayed) playGeneratedPersonaAudio(finalResponse.outputs);
       setTurns((current) => current.map((turn) => (
         turn.id === optimistic?.id ? completedTurn : turn
       )));
@@ -3953,9 +3967,9 @@ export function MobileChatScreen() {
               {audioSettingsError ? <Text style={[styles.settingsPanelDescription, { color: theme.danger }]} accessibilityRole="alert">{audioSettingsError}</Text> : null}
               {audioSettingsNotice ? <Text style={[styles.settingsPanelDescription, { color: theme.accent2 }]} accessibilityLiveRegion="polite">{audioSettingsNotice}</Text> : null}
               {([[
-                "openai", "ChatGPT", "OpenAI model with the complete persona experience."
+                "openai", "ChatGPT", "More complete and consistent experience."
               ], [
-                "gemini", "Gemini", "Gemini responses, search, analysis, and supported files."
+                "gemini", "Gemini", "May provide more persona depth and reasoning. Experience may vary."
               ]] as const)
                 // Free (bronze) accounts are ChatGPT-only; the server rejects the switch too.
                 .filter(([value]) => value === "openai" || planUsage?.plan.id !== "bronze")
@@ -4535,9 +4549,9 @@ export function MobileChatScreen() {
               <>
                 <Text style={[styles.actionSheetTitle, { color: theme.muted, fontSize: 13 }]}>Model</Text>
                 {([[
-                  "openai", "ChatGPT", "OpenAI model with the complete persona experience.", "chatbubble-ellipses-outline"
+                  "openai", "ChatGPT", "More complete and consistent experience.", "chatbubble-ellipses-outline"
                 ], [
-                  "gemini", "Gemini", "Gemini responses, search, analysis, and supported files.", "sparkles-outline"
+                  "gemini", "Gemini", "May provide more persona depth and reasoning. Experience may vary.", "sparkles-outline"
                 ]] as const).map(([value, label, description, icon]) => {
                   const selected = (authUser?.modelProvider ?? "openai") === value;
                   return (

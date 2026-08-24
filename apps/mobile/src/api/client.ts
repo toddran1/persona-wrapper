@@ -61,6 +61,15 @@ export type MobileChatPayload = {
 
 export type MobileChatStreamCallbacks = {
   onTextDelta?: (delta: string) => void;
+  onAudioStart?: (event: LiveAudioStreamEvent) => void;
+  onAudioComplete?: (event: { id: string }) => void;
+  onAudioError?: (event: { id: string }) => void;
+};
+
+export type LiveAudioStreamEvent = {
+  id: string;
+  url: string;
+  mimeType: string;
 };
 
 export type MobileUploadFile = {
@@ -224,6 +233,23 @@ async function consumeChatEventStream(
     if (parsed.event === "delta") {
       if (typeof payload === "object" && payload !== null && "delta" in payload && typeof payload.delta === "string") {
         callbacks.onTextDelta?.(payload.delta);
+      }
+      return;
+    }
+    if (parsed.event === "audio_start") {
+      if (typeof payload === "object" && payload !== null
+        && "id" in payload && typeof payload.id === "string"
+        && "url" in payload && typeof payload.url === "string"
+        && "mimeType" in payload && typeof payload.mimeType === "string") {
+        callbacks.onAudioStart?.({ id: payload.id, url: payload.url, mimeType: payload.mimeType });
+      }
+      return;
+    }
+    if (parsed.event === "audio_complete" || parsed.event === "audio_error") {
+      if (typeof payload === "object" && payload !== null && "id" in payload && typeof payload.id === "string") {
+        const event = { id: payload.id };
+        if (parsed.event === "audio_complete") callbacks.onAudioComplete?.(event);
+        else callbacks.onAudioError?.(event);
       }
       return;
     }

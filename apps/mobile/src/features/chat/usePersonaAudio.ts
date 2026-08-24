@@ -129,6 +129,83 @@ export function usePersonaAudio() {
     }
   }, [prepareAudioUri, release]);
 
+  const playLiveStream = useCallback(async (url: string): Promise<boolean> => {
+    try {
+      await release();
+      if (!audioEnabledRef.current || AppState.currentState !== "active") return false;
+
+      const playbackGeneration = generationRef.current;
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+        interruptionMode: "duckOthers",
+        shouldPlayInBackground: false,
+        shouldRouteThroughEarpiece: false
+      });
+      await setIsAudioActiveAsync(true);
+      if (
+        playbackGeneration !== generationRef.current
+        || !audioEnabledRef.current
+        || AppState.currentState !== "active"
+      ) {
+        await setIsAudioActiveAsync(false).catch(() => undefined);
+        return false;
+      }
+
+      const player = createAudioPlayer({ uri: api.resolveUrl(url) }, {
+        keepAudioSessionActive: false,
+        updateInterval: 250
+      });
+      playerRef.current = player;
+      let cancelPendingStart: (() => void) | undefined;
+      const playbackStarted = new Promise<boolean>((resolve) => {
+        let settled = false;
+        const settle = (result: boolean) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(startTimeout);
+          resolve(result);
+        };
+        const fail = () => {
+          if (settled) return;
+          if (playerRef.current !== player) {
+            settle(false);
+            return;
+          }
+          settled = true;
+          clearTimeout(startTimeout);
+          void release().finally(() => resolve(false));
+        };
+        const startTimeout = setTimeout(fail, 8_000);
+        cancelPendingStart = fail;
+        subscriptionRef.current = player.addListener("playbackStatusUpdate", (status) => {
+          if (playerRef.current !== player) return;
+          if (status.error || status.playbackState === "failed") {
+            fail();
+            return;
+          }
+          if (status.playing || status.currentTime > 0) settle(true);
+          if (status.didJustFinish) {
+            settle(true);
+            void release();
+          }
+        });
+      });
+      try {
+        player.play();
+      } catch (error) {
+        cancelPendingStart?.();
+        throw error;
+      }
+      return await playbackStarted;
+    } catch {
+      // The final persisted audio output remains the fallback when a device or
+      // network cannot progressively play the live HTTP response.
+      await release();
+      return false;
+    }
+  }, [release]);
+
   const playGenerated = useCallback((outputs: RenderedTurn["outputs"]): void => {
     if (!audioEnabledRef.current) return;
     const audio = outputs.find((output): output is AudioOutput => output.type === "audio");
@@ -151,6 +228,7 @@ export function usePersonaAudio() {
     setAudioEnabled: setEnabled,
     releaseCurrentAudioPlayback: release,
     replayAudioOutput: replay,
+    playLivePersonaAudioStream: playLiveStream,
     playGeneratedPersonaAudio: playGenerated
   };
 }

@@ -15,6 +15,7 @@ import { logger } from "../utils/logger.js";
 import { measureOperation } from "../utils/observability.js";
 import { generatedMediaService } from "./generatedMediaService.js";
 import { generatedAudioService } from "./generatedAudioService.js";
+import { liveAudioStreamService } from "./liveAudioStreamService.js";
 import { stripPersonaAttributionMarkers } from "./personaAttribution.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
 import { buildTtsScript, buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
@@ -33,6 +34,9 @@ import {
 
 export type ChatStreamCallbacks = {
   onTextDelta: (delta: string) => void;
+  onAudioStart?: (event: { id: string; url: string; mimeType: string }) => void;
+  onAudioComplete?: (event: { id: string }) => void;
+  onAudioError?: (event: { id: string }) => void;
 };
 
 export type ChatProgressCallbacks = {
@@ -809,17 +813,77 @@ export class ChatService {
               scriptMode: ttsScriptMode
             };
             const ttsProvider = createTTSProvider(request.provider);
-            ttsOutput = await measureOperation("provider.tts", { provider: request.provider }, () => ttsProvider.synthesize({
-              text: ttsScript,
-              persona,
-              ...(options.ownerId ? { ownerId: options.ownerId } : {}),
-              conversationId: conversation.id,
-              audit: {
-                scriptMode: ttsScriptMode,
-                sourceProvider: request.provider,
-                visibleTextCharacters: speechText.length
+            let liveAudioToken: string | undefined;
+            const disableLiveAudio = (error: unknown) => {
+              const token = liveAudioToken;
+              liveAudioToken = undefined;
+              if (token) liveAudioStreamService.fail(token);
+              if (token) {
+                try {
+                  streamCallbacks?.onAudioError?.({ id: token });
+                } catch {
+                  // A disconnected SSE consumer must not prevent persisted TTS.
+                }
               }
-            }, signal));
+              logger.warn("Live audio delivery failed; continuing with persisted audio", {
+                provider: request.provider,
+                personaId: persona.id,
+                conversationId: conversation.id,
+                error: error instanceof Error ? error.message : String(error)
+              });
+            };
+            try {
+              ttsOutput = await measureOperation("provider.tts", { provider: request.provider }, () => ttsProvider.synthesize({
+                text: ttsScript,
+                persona,
+                ...(options.ownerId ? { ownerId: options.ownerId } : {}),
+                conversationId: conversation.id,
+                messageId: assistantMessageId,
+                audit: {
+                  scriptMode: ttsScriptMode,
+                  sourceProvider: request.provider,
+                  visibleTextCharacters: speechText.length
+                }
+              }, signal, streamCallbacks ? {
+                onStart: ({ mimeType }) => {
+                  try {
+                    const stream = liveAudioStreamService.create(mimeType);
+                    liveAudioToken = stream.token;
+                    streamCallbacks.onAudioStart?.({ id: stream.token, url: stream.url, mimeType });
+                  } catch (error) {
+                    disableLiveAudio(error);
+                  }
+                },
+                onChunk: async (chunk) => {
+                  if (!liveAudioToken) return;
+                  try {
+                    await liveAudioStreamService.write(liveAudioToken, chunk);
+                  } catch (error) {
+                    disableLiveAudio(error);
+                  }
+                }
+              } : undefined));
+              if (liveAudioToken) {
+                const completedLiveAudioToken = liveAudioToken;
+                liveAudioStreamService.complete(completedLiveAudioToken);
+                liveAudioToken = undefined;
+                try {
+                  streamCallbacks?.onAudioComplete?.({ id: completedLiveAudioToken });
+                } catch {
+                  // The saved audio is complete even if the SSE consumer left.
+                }
+              }
+            } catch (error) {
+              if (liveAudioToken) {
+                liveAudioStreamService.fail(liveAudioToken);
+                try {
+                  streamCallbacks?.onAudioError?.({ id: liveAudioToken });
+                } catch {
+                  // Preserve the provider error and persisted fallback behavior.
+                }
+              }
+              throw error;
+            }
             ttsDiagnostic = {
               status: "generated",
               provider: ttsOutput.provider,

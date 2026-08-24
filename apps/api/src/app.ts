@@ -18,6 +18,7 @@ import { apiContractRouter } from "./routes/contract.routes.js";
 import { uploadRouter } from "./routes/upload.routes.js";
 import { observabilityRouter } from "./routes/observability.routes.js";
 import { getGeneratedAudio } from "./controllers/generatedAudio.controller.js";
+import { getLiveAudio, headLiveAudio } from "./controllers/liveAudio.controller.js";
 import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
 import { downloadDataExport, postDataImportUpload } from "./controllers/dataTransfer.controller.js";
@@ -230,6 +231,14 @@ export function createApp() {
   });
   app.use(cors(corsOptions));
   app.options("*", cors(corsOptions));
+  // Native media players cannot reliably attach the app session cookie or
+  // Authorization headers. This route uses a high-entropy, short-lived token
+  // and intentionally sits outside account middleware; saved audio remains
+  // owner-scoped behind /api/generated-audio.
+  app.head("/api/live-audio/:token", headLiveAudio);
+  app.get("/api/live-audio/:token", (request, response, next) => {
+    void getLiveAudio(request, response).catch(next);
+  });
   if (auth) {
     // Better Auth owns these routes, so protect credential-bearing endpoints
     // before handing the request to its catch-all handler.

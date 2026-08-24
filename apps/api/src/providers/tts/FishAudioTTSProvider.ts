@@ -3,7 +3,7 @@ import { env } from "../../config/env.js";
 import { generatedAudioService } from "../../services/generatedAudioService.js";
 import { HttpError } from "../../utils/httpError.js";
 import { logger } from "../../utils/logger.js";
-import type { TTSProvider } from "./TTSProvider.js";
+import type { TTSProvider, TTSStreamCallbacks } from "./TTSProvider.js";
 
 type FishAudioFormat = "mp3" | "wav" | "opus";
 
@@ -176,13 +176,26 @@ function isExpectedMimeType(mimeType: string, format: FishAudioFormat): boolean 
   return mimeType === "audio/mpeg" || mimeType === "audio/mp3";
 }
 
-async function readValidatedAudio(response: Response, format: FishAudioFormat): Promise<{ buffer: Buffer; mimeType: string }> {
+async function readValidatedAudio(
+  response: Response,
+  format: FishAudioFormat,
+  streamCallbacks?: TTSStreamCallbacks
+): Promise<{ buffer: Buffer; mimeType: string }> {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > env.FISH_AUDIO_MAX_RESPONSE_BYTES) {
     throw new HttpError("Fish Audio response exceeded the configured size limit.", 502);
   }
 
+  const responseMimeType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+  if (responseMimeType && responseMimeType !== "application/octet-stream" && !isExpectedMimeType(responseMimeType, format)) {
+    throw new HttpError("Fish Audio returned an unexpected content type.", 502);
+  }
+  const mimeType = responseMimeType && responseMimeType !== "application/octet-stream"
+    ? responseMimeType
+    : inferMimeType(format);
   const chunks: Buffer[] = [];
+  const pendingStreamChunks: Buffer[] = [];
+  let streamStarted = false;
   let receivedBytes = 0;
   if (response.body) {
     const reader = response.body.getReader();
@@ -195,7 +208,22 @@ async function readValidatedAudio(response: Response, format: FishAudioFormat): 
           await reader.cancel("Fish Audio response exceeded the configured size limit.");
           throw new HttpError("Fish Audio response exceeded the configured size limit.", 502);
         }
-        chunks.push(Buffer.from(chunk.value));
+        const buffer = Buffer.from(chunk.value);
+        chunks.push(buffer);
+        if (streamCallbacks) {
+          if (!streamStarted) {
+            pendingStreamChunks.push(buffer);
+            const probe = Buffer.concat(pendingStreamChunks);
+            if (hasExpectedAudioSignature(probe, format)) {
+              await streamCallbacks.onStart({ mimeType });
+              streamStarted = true;
+              for (const pendingChunk of pendingStreamChunks) await streamCallbacks.onChunk(pendingChunk);
+              pendingStreamChunks.length = 0;
+            }
+          } else {
+            await streamCallbacks.onChunk(buffer);
+          }
+        }
       }
     } finally {
       reader.releaseLock();
@@ -206,16 +234,11 @@ async function readValidatedAudio(response: Response, format: FishAudioFormat): 
     throw new HttpError("Fish Audio returned invalid audio data.", 502);
   }
 
-  const responseMimeType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
-  if (responseMimeType && responseMimeType !== "application/octet-stream" && !isExpectedMimeType(responseMimeType, format)) {
-    throw new HttpError("Fish Audio returned an unexpected content type.", 502);
+  if (streamCallbacks && !streamStarted) {
+    await streamCallbacks.onStart({ mimeType });
+    for (const pendingChunk of pendingStreamChunks) await streamCallbacks.onChunk(pendingChunk);
   }
-  return {
-    buffer,
-    mimeType: responseMimeType && responseMimeType !== "application/octet-stream"
-      ? responseMimeType
-      : inferMimeType(format)
-  };
+  return { buffer, mimeType };
 }
 
 function getVoiceConfig(input: TTSInput): FishAudioVoiceConfig {
@@ -254,7 +277,7 @@ function getVoiceConfig(input: TTSInput): FishAudioVoiceConfig {
 }
 
 export class FishAudioTTSProvider implements TTSProvider {
-  async synthesize(input: TTSInput, signal?: AbortSignal): Promise<TTSOutput> {
+  async synthesize(input: TTSInput, signal?: AbortSignal, streamCallbacks?: TTSStreamCallbacks): Promise<TTSOutput> {
     signal?.throwIfAborted();
     if (!env.FISH_AUDIO_API_KEY) throw new HttpError("Fish Audio API key is not configured.", 503);
     const text = input.text.trim();
@@ -333,7 +356,7 @@ export class FishAudioTTSProvider implements TTSProvider {
       throw new HttpError(`Fish Audio TTS failed: ${lastError instanceof Error ? lastError.message : "Unknown error"}`, 502);
     }
 
-    const { buffer, mimeType } = await readValidatedAudio(response, voiceConfig.format);
+    const { buffer, mimeType } = await readValidatedAudio(response, voiceConfig.format, streamCallbacks);
     const auditMetadata = ttsAuditMetadata(input, text, voiceConfig);
     const url = await generatedAudioService.register(buffer, {
       fileName: `${input.persona.id}-voice.${inferExtension(voiceConfig.format)}`,
