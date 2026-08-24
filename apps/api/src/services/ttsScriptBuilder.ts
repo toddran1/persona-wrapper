@@ -106,6 +106,22 @@ const UNIT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\b(\d+(?:\.\d+)?)\s?TB\b/g, "$1 terabytes"]
 ];
 
+const WEEKDAY_NAMES: Record<string, string> = {
+  Mon: "Monday",
+  Tue: "Tuesday",
+  Tues: "Tuesday",
+  Wed: "Wednesday",
+  Weds: "Wednesday",
+  Thu: "Thursday",
+  Thur: "Thursday",
+  Thurs: "Thursday",
+  Fri: "Friday",
+  Sat: "Saturday",
+  Sun: "Sunday"
+};
+
+const WEEKDAY_ABBREVIATION_PATTERN = /\b(Mon|Tues?|Weds?|Thu(?:r(?:s)?)?|Fri|Sat|Sun)\b/g;
+
 function activeTtsModelId(persona: PersonaDefinition): string {
   if (env.TTS_PROVIDER === "fish_audio") {
     return persona.voiceProfile.fishAudio?.model ?? env.FISH_AUDIO_MODEL;
@@ -182,6 +198,28 @@ function expandStateAbbreviations(text: string): string {
   return text.replace(/\b([A-Z]{2})\b/g, (match) => STATE_NAMES[match] ?? match);
 }
 
+function expandWeekdayAbbreviations(text: string): string {
+  return text.replace(
+    WEEKDAY_ABBREVIATION_PATTERN,
+    (match: string, abbreviation: string, offset: number) => {
+      const precedingText = text.slice(0, offset);
+      const followingText = text.slice(offset + match.length);
+      const hasLeadingDayContext = /\b(?:(?:on|this|next|last|every|each|by|until|through|thru|from|starting|before|after)|(?:Mon|Tues?|Weds?|Thu(?:r(?:s)?)?|Fri|Sat|Sun))\s+$/i.test(
+        precedingText
+      );
+      const hasTrailingDayContext = /^\s*(?:$|[.,;/&:)\]]|[-–—]|\d{1,2}\b|(?:Mon|Tues?|Weds?|Thu(?:r(?:s)?)?|Fri|Sat|Sun|at|morning|afternoon|evening|night|through|thru|to|and|or|schedule|hours|shift|appointment)\b)/i.test(
+        followingText
+      );
+
+      if (!hasLeadingDayContext && !hasTrailingDayContext) {
+        return match;
+      }
+
+      return WEEKDAY_NAMES[abbreviation] ?? match;
+    }
+  );
+}
+
 function applyCommonSpeechReplacements(text: string): string {
   const withCommonWords = COMMON_SPEECH_REPLACEMENTS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text);
   return UNIT_REPLACEMENTS.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), withCommonWords);
@@ -221,7 +259,9 @@ export function buildTtsScript(
     : text;
   const cleanText = stripEmojiForSpeech(stripMarkdownForSpeech(sourceText));
   const normalizedText = normalizeSymbols(normalizeOrdinals(normalizeTimes(normalizePercentages(normalizeMoney(cleanText)))));
-  const expandedText = applyCommonSpeechReplacements(expandStateAbbreviations(normalizedText));
+  const expandedText = applyCommonSpeechReplacements(
+    expandStateAbbreviations(expandWeekdayAbbreviations(normalizedText))
+  );
   return addPersonaPerformanceCues(addPacing(expandedText), persona);
 }
 

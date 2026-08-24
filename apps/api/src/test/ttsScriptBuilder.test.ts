@@ -39,6 +39,20 @@ describe("buildTtsScript", () => {
     expect(script).not.toContain("https://example.com/test");
   });
 
+  it("expands abbreviated weekdays in schedules without rewriting unrelated words", () => {
+    const script = buildTtsScript(
+      "Open Mon, Tues, Wed, Thurs, Fri, Sat, and Sun. Meet on Sun at 8:00 PM. Sun Microsystems and the sentence 'Sat by the door' stay unchanged.",
+      larae
+    );
+
+    expect(script).toContain(
+      "Open Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, and Sunday."
+    );
+    expect(script).toContain("Meet on Sunday at 8 o'clock P.M.");
+    expect(script).toContain("Sun Microsystems");
+    expect(script).toContain("Sat by the door");
+  });
+
   it("removes emoji only from the hidden speech script while preserving Fish S2 cues", () => {
     const script = buildTtsScript("[confident] I run the itinerary. 💅🏾✨ [chuckling] Period.", larae);
 

@@ -202,6 +202,7 @@ describe("OpenAIProvider instructions", () => {
     expect(directInstructions).toContain("it should NOT simply copy visible_text");
     expect(directInstructions).toContain("performance-ready narration script");
     expect(directInstructions).toContain("normalize text for speech");
+    expect(directInstructions).toContain("always expand abbreviated weekdays");
     expect(directInstructions).toContain("add natural speech pacing");
     expect(directInstructions).toContain("carry the configured persona emotion and delivery");
     expect(directInstructions).toContain("For Fish Audio S2 and S2.1 models");

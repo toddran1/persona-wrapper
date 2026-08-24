@@ -461,6 +461,7 @@ export function buildOpenAIResponseInstructions(input: LLMInput, promptMode: Ope
         `Write tts_script as a performance-ready narration script for the current voice. Configured speaking style: ${input.persona.voiceProfile.speakingStyle}.`,
         "For tts_script, remove markdown syntax, raw source citations, code fences, tables, image/file markup, and raw links unless the link itself must be spoken.",
         "For tts_script, normalize text for speech: expand abbreviations and units, spell out awkward symbols, rewrite URLs as source names or omit them, and make numbers, dates, money, percentages, times, and acronyms easier to pronounce while preserving their exact factual value.",
+        "For tts_script, always expand abbreviated weekdays—including Mon, Tue or Tues, Wed or Weds, Thu, Thur, or Thurs, Fri, Sat, and Sun—to their full spoken names. Keep those abbreviations unchanged in visible_text unless normal editing calls for otherwise.",
         "For tts_script, add natural speech pacing using sentence breaks, paragraph breaks, commas, dashes, ellipses, and occasional short pauses. Keep pauses tasteful and do not overdo them.",
         "For tts_script, carry the configured persona emotion and delivery through word choice and punctuation.",
         "For tts_script, omit emoji and pictographs. Keep emoji only in visible_text; use words, punctuation, pauses, or supported provider performance cues to convey their intended emotion in speech.",
