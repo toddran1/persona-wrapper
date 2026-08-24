@@ -260,7 +260,8 @@ const USER_UPLOAD_PREFERENCE_PATTERN =
 const GENERATED_OUTPUT_PREFERENCE_PATTERN =
   /\b(generated|results?|outputs?|renders?|versions?|attempts?|you\s+(?:made|generated|created))\b/i;
 const VISUAL_TRANSFORM_PATTERN = [
-  /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|take\s+out|get\s+rid\s+of|cut\s+out|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth|zoom|mix|combine|blend|merge|fuse|morph|composite|remix|mash|cross|hybridize|dress|place|move|give|animate|smile|frown|grin|wink|pout)\b/i,
+  /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|take\s+out|get\s+rid\s+of|cut\s+out|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth|zoom|mix|combine|blend|merge|fuse|morph|composite|remix|mash|cross|hybridize|dress|place|move|animate|smile|frown|grin|wink|pout)\b/i,
+  /\bgive\s+(?:her|him|them|it|yourself|the\s+(?:person|character|subject|woman|man|girl|boy|people|characters?))\b/i,
   /\b(?:make|try|render|show)\s+(?:it|them|that|this)\s+(?:in|as|with)\s+(?:a\s+)?(?:watercolor|oil\s+painting|sketch|anime|cartoon|photorealistic|realistic|cinematic|comic|illustration|different|new)\b/i,
   /^(more|less)\s+(realistic|cartoonish|stylized|detailed|detail|details|texture|dramatic|colorful|colourful|bright|dark|cinematic|natural|professional|polished|blurry|grainy|sharp|dull|flat|saturated|vivid|washed\s+out|badass|edgy)\b/i,
   /\b(same|keep\s+the)\s+(pose|person|character|face|subject|background|outfit|style|lighting|composition|camera|angle)\b.*\b(different|new|but|with|without|change)\b/i,
@@ -705,6 +706,26 @@ function effectiveConversationMediaMessage(
     !clarification.originalRequest.trim() ||
     !isVisualClarificationReply(currentMessage)
   ) {
+    const normalized = currentMessage.replace(/\s+/g, " ").trim();
+    const priorMessage = lastTurn?.userMessage?.replace(/\s+/g, " ").trim() ?? "";
+    const priorHasVisuals = Boolean(
+      lastTurn &&
+      ((lastTurn.userAssets ?? []).some((asset) => asset.kind === "image") ||
+        lastTurn.outputs.some(isConversationImageCandidate))
+    );
+    const isEllipticalInspectionFollowUp = normalized.length > 0 && normalized.length <= 180 && [
+      /^(?:please\s+)?(?:just\s+|only\s+)?(?:give|tell|show|read|transcribe|extract|identify)\s+(?:me\s+)?(?:just\s+|only\s+)?(?:the\s+)?(?:title|text|words?|name|label|caption|writing|lettering|answer)(?:\s+(?:only|instead))?[\s.!?]*$/i,
+      /^(?:please\s+)?(?:just\s+|only\s+)?(?:the\s+)?(?:title|text|words?|name|label|caption|writing|lettering|answer)(?:\s+(?:only|instead))?[\s.!?]*$/i,
+      /^(?:so\s+)?what(?:'s|\s+is)\s+(?:the\s+)?(?:title|text|name|label|caption|writing|answer)(?:\s+then)?[\s.!?]*$/i
+    ].some((pattern) => pattern.test(normalized));
+    if (
+      priorHasVisuals &&
+      isEllipticalInspectionFollowUp &&
+      priorMessage &&
+      (shouldUseConversationMediaContext(priorMessage) || (lastTurn?.userAssets ?? []).some((asset) => asset.kind === "image"))
+    ) {
+      return `${priorMessage}\nVisual inspection follow-up: ${normalized}`;
+    }
     return currentMessage;
   }
   return `${clarification.originalRequest.trim()}\nVisual selection clarification: ${currentMessage.trim()}`;

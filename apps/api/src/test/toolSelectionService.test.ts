@@ -48,6 +48,25 @@ describe("tool selection", () => {
     ]))).resolves.toMatchObject({ toolOptions: { imageGeneration: true } });
   });
 
+  it("keeps OCR and inspection of an attached image out of image generation", async () => {
+    const screenshot = {
+      id: "image-ocr",
+      kind: "image" as const,
+      fileName: "screen.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 2048
+    };
+    for (const prompt of [
+      "Can you give me the text of this title in the image?",
+      "Read the title in this screenshot.",
+      "What text is visible in this image?"
+    ]) {
+      await expect(selectTools(request(prompt, [screenshot]))).resolves.toMatchObject({
+        toolOptions: { imageGeneration: false }
+      });
+    }
+  });
+
   it("automatically enables analysis for dashboard, chart, and file output requests", async () => {
     await expect(selectTools(request("Turn this into a dashboard."))).resolves.toMatchObject({
       toolOptions: { codeInterpreter: true }

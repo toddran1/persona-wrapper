@@ -1,5 +1,5 @@
 import { NEUTRAL_PERSONA_ID } from "@persona/shared";
-import type { AuthUser, ChatJobResponse, ChatResponse, ClientContext, ContentBlock, ConversationSummary, ConversationTurn, CurrentPoliciesResponse, DataTransferJob, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, PolicyVersions, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
+import type { AuthUser, ChatJobResponse, ChatResponse, ContentBlock, ConversationSummary, ConversationTurn, CurrentPoliciesResponse, DataTransferJob, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, PolicyVersions, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
@@ -18,6 +18,7 @@ import { GoldenPairReviewPage } from "./components/GoldenPairReviewPage.js";
 import { NeutralResponsePanel } from "./components/NeutralResponsePanel.js";
 import { PersonaHeader } from "./components/PersonaHeader.js";
 import { PersonaVisualStage, type PersonaVisualState } from "./components/PersonaVisualStage.js";
+import { getClientContextForMessage } from "./lib/clientContext.js";
 
 const NON_AUDIO_SPEAKING_MS = 8000;
 
@@ -114,17 +115,6 @@ function mergeCrossSessionTurns(current: RenderedTurn[], fresh: RenderedTurn[]):
     const key = turnSyncKey(turn);
     return key === undefined || !freshKeys.has(key);
   }), ...fresh];
-}
-
-function getClientContext(): ClientContext {
-  const now = new Date();
-
-  return {
-    locale: navigator.language,
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    currentDateTime: now.toISOString(),
-    utcOffsetMinutes: -now.getTimezoneOffset()
-  };
 }
 
 function wait(ms: number, signal?: AbortSignal): Promise<void> {
@@ -906,7 +896,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         provider: submittedProvider,
         audio: submittedAudioEnabled,
         testMode: testModeEnabled,
-        clientContext: getClientContext(),
+        clientContext: await getClientContextForMessage(message, requestController.signal),
         attachments,
         toolOptions: resolvedToolOptions,
         ...(retryAssistantMessageId ? { retryAssistantMessageId } : {}),

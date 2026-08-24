@@ -83,12 +83,12 @@ import { MobileAuthScreen, type MobileAuthMode } from "../auth/MobileAuthScreen"
 import { MobilePolicyConsentScreen } from "../auth/MobilePolicyConsentScreen";
 import { MobileVerifyEmailScreen } from "../auth/MobileVerifyEmailScreen";
 import {
-  getClientContext,
   mergeCrossSessionTurns,
   sortConversationSummaries,
   turnFromChatResponse,
   turnsFromConversationTurns
 } from "./mobileChatUtils";
+import { getClientContextForMessage } from "./mobileClientContext";
 import { NEUTRAL_PERSONA_ID, PASSWORD_MIN_LENGTH, stripGeneratedFileDownloadPrompt } from "@persona/shared";
 import type { MobilePickedFile, RenderedTurn } from "./types";
 
@@ -2730,7 +2730,7 @@ export function MobileChatScreen() {
         message,
         provider: submittedProvider,
         audio: submittedAudioEnabled,
-        clientContext: getClientContext(),
+        clientContext: await getClientContextForMessage(message, controller.signal),
         toolOptions: resolvedToolOptions,
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(options?.retryAssistantMessageId ? { retryAssistantMessageId: options.retryAssistantMessageId } : {}),

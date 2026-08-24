@@ -291,18 +291,34 @@ export async function executeApplicationTool(
 
   if (name === "current_time") {
     const arguments_ = currentTimeArgumentsSchema.parse(rawArguments);
-    const timeZone = arguments_.timeZone ?? clientContext?.timeZone ?? "UTC";
-    const date = clientContext?.currentDateTime ? new Date(clientContext.currentDateTime) : new Date();
+    const requestedTimeZone = arguments_.timeZone ?? clientContext?.timeZone ?? "UTC";
+    const requestedDate = clientContext?.currentDateTime ? new Date(clientContext.currentDateTime) : new Date();
+    const date = Number.isFinite(requestedDate.getTime()) ? requestedDate : new Date();
+    const requestedLocale = clientContext?.locale ?? "en-US";
+    let timeZone = requestedTimeZone;
+    let locale = requestedLocale;
+    let formatted: string;
+    try {
+      formatted = new Intl.DateTimeFormat(locale, {
+        timeZone,
+        dateStyle: "full",
+        timeStyle: "long"
+      }).format(date);
+    } catch {
+      timeZone = "UTC";
+      locale = "en-US";
+      formatted = new Intl.DateTimeFormat(locale, {
+        timeZone,
+        dateStyle: "full",
+        timeStyle: "long"
+      }).format(date);
+    }
 
     return {
       iso: date.toISOString(),
       timeZone,
-      locale: clientContext?.locale ?? "en-US",
-      formatted: new Intl.DateTimeFormat(clientContext?.locale ?? "en-US", {
-        timeZone,
-        dateStyle: "full",
-        timeStyle: "long"
-      }).format(date)
+      locale,
+      formatted
     };
   }
 

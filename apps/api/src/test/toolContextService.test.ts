@@ -29,6 +29,26 @@ describe("ToolContextService", () => {
     vi.unstubAllGlobals();
   });
 
+  it("adds approved approximate location to ordinary weather requests", async () => {
+    const context = await new ToolContextService().buildContext("How is the weather today?", {
+      locale: "en-US",
+      timeZone: "America/Chicago",
+      location: { latitude: 33.15, longitude: -96.82, accuracyMeters: 1_000 }
+    });
+
+    expect(context?.results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "user_location", status: "completed" })
+    ]));
+    expect(context?.message.content).toContain("latitude 33.15, longitude -96.82");
+  });
+
+  it("instructs every provider not to guess location when permission is unavailable", async () => {
+    const context = await new ToolContextService().buildContext("What restaurants are near me?");
+
+    expect(context?.results[0]).toMatchObject({ name: "user_location", status: "skipped" });
+    expect(context?.message.content).toContain("Do not guess the user's location");
+  });
+
   it("leaves web search to the provider's built-in tool", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

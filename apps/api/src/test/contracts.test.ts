@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, clampFiniteNumber, clientContextSchema, contentBlockSchema, currentPoliciesResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, finiteNonnegativeIntegerOr, finiteNumberOr, hasCompletePersonaVisualVideoSet, llmInputSchema, PASSWORD_MAX_LENGTH, personaVisualStageSchema, registerRequestSchema, restoreAccountRequestSchema, statusOutputSchema, tableOutputSchema, ttsOutputSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
+import { accountDeletionResponseSchema, activeSessionsResponseSchema, chatRequestSchema, chatResponseSchema, clampFiniteNumber, clientContextSchema, contentBlockSchema, currentPoliciesResponseSchema, dataExportJobRequestSchema, dataTransferJobSchema, deleteAccountRequestSchema, finiteNonnegativeIntegerOr, finiteNumberOr, hasCompletePersonaVisualVideoSet, llmInputSchema, PASSWORD_MAX_LENGTH, personaVisualStageSchema, registerRequestSchema, requestMayNeedLocation, restoreAccountRequestSchema, statusOutputSchema, tableOutputSchema, ttsOutputSchema, unsafeOutputReportRequestSchema, updateUserProfileRequestSchema } from "@persona/shared";
 
 describe("shared schemas", () => {
   it("rejects or normalizes non-finite numeric values at application boundaries", () => {
@@ -14,6 +14,17 @@ describe("shared schemas", () => {
     expect(tableOutputSchema.safeParse({ type: "table", columns: ["Value"], rows: [[Number.NaN]] }).success).toBe(false);
     expect(statusOutputSchema.safeParse({ type: "status", status: "completed", message: "Done", progress: Number.POSITIVE_INFINITY }).success).toBe(false);
     expect(clientContextSchema.safeParse({ location: { latitude: Number.NaN, longitude: -96.8 } }).success).toBe(false);
+    expect(clientContextSchema.safeParse({ currentDateTime: "not-a-date" }).success).toBe(false);
+    expect(clientContextSchema.safeParse({ locale: "" }).success).toBe(false);
+    expect(clientContextSchema.safeParse({ timeZone: "x".repeat(101) }).success).toBe(false);
+  });
+
+  it("detects location-dependent requests without matching unrelated weather words", () => {
+    expect(requestMayNeedLocation("How is the weather today?")).toBe(true);
+    expect(requestMayNeedLocation("Will it rain tonight?")).toBe(true);
+    expect(requestMayNeedLocation("Find the closest pharmacy to me")).toBe(true);
+    expect(requestMayNeedLocation("Make an image of a storm over the closest planet to Earth")).toBe(false);
+    expect(requestMayNeedLocation("Write a song about rain")).toBe(false);
   });
 
   it("defaults omitted persona videos to image-only stages", () => {

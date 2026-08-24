@@ -82,7 +82,7 @@ services:
       - key: TERMS_POLICY_VERSION
         value: "2026-08-14.2"
       - key: PRIVACY_POLICY_VERSION
-        value: "2026-08-14.3"
+        value: "2026-08-23.1"
       - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS
         value: "30"
       - key: AUTH_SIGNUP_DEVICE_LIMIT
@@ -382,7 +382,7 @@ services:
       - key: TERMS_POLICY_VERSION
         value: "2026-08-14.2"
       - key: PRIVACY_POLICY_VERSION
-        value: "2026-08-14.3"
+        value: "2026-08-23.1"
       - key: AUTH_ACCOUNT_DELETION_GRACE_DAYS
         value: "30"
       - key: AUTH_SIGNUP_DEVICE_LIMIT

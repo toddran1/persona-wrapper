@@ -71,6 +71,56 @@ describe("conversation media context", () => {
     expect(hinted.attachments).toHaveLength(1);
   });
 
+  it("inherits the immediately preceding visual inspection for an elliptical follow-up", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const result = await resolveConversationMediaContext({
+      id: "conv-ocr-follow-up",
+      turns: [{
+        userMessage: "Can you give me the text of this title in the image?",
+        userAssets: [{
+          id: "upload-title",
+          kind: "image",
+          fileName: "title.jpg",
+          mimeType: "image/jpeg"
+        }],
+        assistantText: "The visible title is available in the image.",
+        outputs: [{ type: "text", text: "The visible title is available in the image." }]
+      }]
+    }, {
+      message: "Just give me the title",
+      ownerId: "owner-a"
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      candidateCount: 1,
+      intent: "inspect",
+      source: "user_uploads",
+      minimumImages: 1
+    });
+    // Resolution can fail in this isolated test because no upload bytes were
+    // persisted, but the prior image must still be recognized as the context.
+    expect(result.unavailableCount).toBe(1);
+  });
+
+  it("does not reuse an older visual for an unrelated elliptical request", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const result = await resolveConversationMediaContext({
+      id: "conv-unrelated-follow-up",
+      turns: [{
+        userMessage: "Tell me a joke.",
+        assistantText: "A joke.",
+        outputs: [{ type: "text", text: "A joke." }]
+      }]
+    }, {
+      message: "Just give me the title",
+      ownerId: "owner-a"
+    });
+
+    expect(result.referenced).toBe(false);
+    expect(result.candidateCount).toBe(0);
+  });
+
   it("detects broad natural follow-up references to prior visual output", async () => {
     const { inferConversationMediaMinimum, shouldUseConversationMediaContext } = await import("../services/conversationMediaContext.js");
 

@@ -1,4 +1,4 @@
-import type { ChatMessage, ClientContext, ProviderId, UploadedAsset } from "@persona/shared";
+import { requestMayNeedLocation, type ChatMessage, type ClientContext, type ProviderId, type UploadedAsset } from "@persona/shared";
 import { LinkResolutionService, type ResolvedLink } from "./linkResolutionService.js";
 import { mediaTranscriptService } from "./mediaTranscriptService.js";
 
@@ -14,7 +14,6 @@ export type ToolContext = {
 };
 
 const DATE_PATTERN = /\b(today|current date|what date|what day|current time|date of today|what time|time is it|right now)\b/i;
-const LOCATION_PATTERN = /\b(my location|where am i|where i am|near me|nearby|local to me|in my area)\b/i;
 const MAX_LINK_CONTEXT_CHARACTERS = 20_000;
 const SENSITIVE_URL_PARAMETER = /(?:^|[-_.])(?:access[-_.]?token|api[-_.]?key|auth|authorization|credential|key|key[-_.]?pair[-_.]?id|password|policy|secret|signature|sig|token)(?:$|[-_.])/i;
 
@@ -66,11 +65,9 @@ function formatLinkResult(link: ResolvedLink, availableCharacters: number): Tool
 }
 
 function formatCurrentDate(clientContext?: ClientContext): string {
-  const date = clientContext?.currentDateTime ? new Date(clientContext.currentDateTime) : new Date();
-  const timeZone = clientContext?.timeZone ?? "America/Chicago";
-  const locale = clientContext?.locale ?? "en-US";
-  return new Intl.DateTimeFormat(locale, {
-    timeZone,
+  const requestedDate = clientContext?.currentDateTime ? new Date(clientContext.currentDateTime) : new Date();
+  const date = Number.isFinite(requestedDate.getTime()) ? requestedDate : new Date();
+  const options: Intl.DateTimeFormatOptions = {
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -78,7 +75,15 @@ function formatCurrentDate(clientContext?: ClientContext): string {
     hour: "numeric",
     minute: "2-digit",
     timeZoneName: "short"
-  }).format(date);
+  };
+  try {
+    return new Intl.DateTimeFormat(clientContext?.locale ?? "en-US", {
+      ...options,
+      timeZone: clientContext?.timeZone ?? "America/Chicago"
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("en-US", { ...options, timeZone: "UTC" }).format(date);
+  }
 }
 
 function isMediaAsset(asset: UploadedAsset): boolean {
@@ -110,16 +115,16 @@ export class ToolContextService {
       });
     }
 
-    if (LOCATION_PATTERN.test(userMessage)) {
+    if (requestMayNeedLocation(userMessage)) {
       const location = clientContext?.location;
       results.push({
         name: "user_location",
         status: location ? "completed" : "skipped",
         summary: location
-          ? `User browser location coordinates: latitude ${location.latitude}, longitude ${location.longitude}, accuracy ${
+          ? `User-approved approximate device location for this request: latitude ${location.latitude}, longitude ${location.longitude}, accuracy ${
               location.accuracyMeters ?? "unknown"
             } meters.`
-          : "No browser geolocation was provided. Ask the user for their city or enable location sharing before answering location-specific questions."
+          : "No device location was provided. Do not guess the user's location. Ask for their city or suggest enabling location permission before answering a location-specific question."
       });
     }
 

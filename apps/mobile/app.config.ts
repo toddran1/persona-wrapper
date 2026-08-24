@@ -88,6 +88,12 @@ const config: ExpoConfig = {
     "expo-web-browser",
     "expo-apple-authentication",
     [
+      "expo-location",
+      {
+        locationWhenInUsePermission: "Allow For the Baddiez to use your approximate location for weather and nearby requests."
+      }
+    ],
+    [
       "expo-audio",
       {
         microphonePermission: "Allow For the Baddiez to use the microphone for voice input.",

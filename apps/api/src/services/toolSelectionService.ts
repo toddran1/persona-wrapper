@@ -35,10 +35,17 @@ const ANALYSIS_PATTERNS = [
 ];
 
 const IMAGE_GENERATION_PATTERNS = [
-  /\b(generate|create|make|draw|design|render|illustrate|paint|sketch|produce|show|give|provide)\b[\s\S]{0,100}\b(image|photo|picture|portrait|poster|logo|art|artwork|illustration|avatar|thumbnail|banner|flyer|wallpaper|icon|graphic|mockup|meme|sticker)\b/i,
+  /\b(generate|create|make|draw|design|render|illustrate|paint|sketch|produce)\b[\s\S]{0,100}\b(image|photo|picture|portrait|poster|logo|art|artwork|illustration|avatar|thumbnail|banner|flyer|wallpaper|icon|graphic|mockup|meme|sticker)\b/i,
+  /\b(?:show|give|provide)\s+(?:me|us)\s+(?:an?|the|some|another|one\s+more)\s+(?:[\w-]+\s+){0,4}(?:image|photo|picture|portrait|poster|logo|artwork|illustration|avatar|thumbnail|banner|flyer|wallpaper|icon|graphic|mockup|meme|sticker)\b/i,
   /\b(image|photo|picture|portrait|poster|logo|art|artwork|illustration|avatar|thumbnail|banner|flyer|wallpaper|icon|graphic|mockup|meme|sticker)\b[\s\S]{0,100}\b(of|showing|depicting|with|featuring|in the style|that looks)\b/i,
   /\b(what would|show me what|visuali[sz]e how)\b[\s\S]{0,100}\b(look like|appear|look)\b/i,
   /\b(text to image|image generation|generate an? visual|create an? visual)\b/i
+];
+
+const ATTACHED_IMAGE_INSPECTION_PATTERNS = [
+  /\b(?:read|transcribe|extract|identify|recognize|recognise|describe|caption|inspect|analy[sz]e|summari[sz]e)\b[\s\S]{0,100}\b(?:image|photo|picture|screenshot|attachment|text|title|words?|writing|lettering|label|sign)\b/i,
+  /\b(?:what|which)\b[\s\S]{0,80}\b(?:text|title|name|words?|writing|lettering|label|sign|language|object|person|place)\b[\s\S]{0,80}\b(?:image|photo|picture|screenshot|attachment|shown|visible|say)\b/i,
+  /\b(?:give|tell|show)\s+me\b[\s\S]{0,80}\b(?:text|title|name|words?|writing|lettering|label)\b[\s\S]{0,80}\b(?:image|photo|picture|screenshot|attachment)\b/i
 ];
 
 const IMAGE_EDIT_PATTERNS = [
@@ -145,6 +152,13 @@ function deterministicDecision(request: ChatRequest): RouterDecision {
   };
 }
 
+function isAttachedImageInspectionRequest(request: ChatRequest): boolean {
+  const hasImages = request.attachments?.some((attachment) => attachment.kind === "image") ?? false;
+  if (!hasImages || !matchesAny(request.message, ATTACHED_IMAGE_INSPECTION_PATTERNS)) return false;
+  return !matchesAny(request.message, IMAGE_EDIT_PATTERNS) &&
+    !/\b(?:generate|create|draw|design|render|illustrate|paint|sketch|produce)\b/i.test(request.message);
+}
+
 export function shouldEnableWebSearchForMessage(message: string): boolean {
   return containsHttpUrl(message) || matchesAny(message, WEB_SEARCH_PATTERNS);
 }
@@ -223,6 +237,13 @@ export async function selectTools(request: ChatRequest): Promise<ChatRequest> {
     } catch {
       // Deterministic routing is the fallback; router failure should not block chat.
     }
+  }
+
+  // A model-router guess must not turn OCR or visual inspection of an upload
+  // into image generation. This also protects phrases such as "give me the
+  // text in this image", where "give" and "image" are not a creation request.
+  if (isAttachedImageInspectionRequest(request)) {
+    toolOptions = { ...toolOptions, imageGeneration: false };
   }
 
   return {

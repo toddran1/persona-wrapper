@@ -462,9 +462,11 @@ export const toolOptionsSchema = z.object({
 export type ToolOptions = z.infer<typeof toolOptionsSchema>;
 
 export const clientContextSchema = z.object({
-  locale: z.string().optional(),
-  timeZone: z.string().optional(),
-  currentDateTime: z.string().optional(),
+  locale: z.string().trim().min(1).max(35).optional(),
+  timeZone: z.string().trim().min(1).max(100).optional(),
+  currentDateTime: z.string().trim().max(50).refine((value) => Number.isFinite(Date.parse(value)), {
+    message: "Current date/time must be a valid date string."
+  }).optional(),
   utcOffsetMinutes: z.number().finite().int().min(-14 * 60).max(14 * 60).optional(),
   location: z
     .object({
@@ -475,6 +477,19 @@ export const clientContextSchema = z.object({
     .optional()
 });
 export type ClientContext = z.infer<typeof clientContextSchema>;
+
+const EXPLICIT_DEVICE_LOCATION_PATTERN = /\b(?:near me|nearby|closest(?:\s+[^.!?]{0,40})?\s+to me|local to me|in my area|around me|my location|where am i|where i am)\b/i;
+const WEATHER_REQUEST_PATTERN = /\b(?:weather|forecast|temperature|air quality|humidity|sunrise|sunset|uv index|heat index|wind chill)\b/i;
+const WEATHER_CONDITION_REQUEST_PATTERN = /\b(?:(?:is it|will it|is there (?:a )?(?:chance of)?|chance of|expect(?:ing)?|going to)\s+(?:rain(?:ing)?|snow(?:ing)?|storm(?:ing)?)|(?:rain|snow|storm)\s+(?:today|tonight|tomorrow|this (?:morning|afternoon|evening|week|weekend)))\b/i;
+const LOCAL_REQUEST_PATTERN = /\b(?:things to do|places to (?:eat|go)|restaurant(?:s)? near|store(?:s)? near|event(?:s)? near|traffic (?:near|around|today|tonight|now)|how(?:'s| is) (?:the )?traffic)\b/i;
+
+/** Shared just-in-time geolocation trigger used by both clients and the API. */
+export function requestMayNeedLocation(message: string): boolean {
+  return EXPLICIT_DEVICE_LOCATION_PATTERN.test(message)
+    || WEATHER_REQUEST_PATTERN.test(message)
+    || WEATHER_CONDITION_REQUEST_PATTERN.test(message)
+    || LOCAL_REQUEST_PATTERN.test(message);
+}
 
 export const authClientTypeSchema = z.enum(["web", "desktop", "ios", "android", "unknown"]);
 export type AuthClientType = z.infer<typeof authClientTypeSchema>;
