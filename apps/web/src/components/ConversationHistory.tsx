@@ -977,5 +977,5 @@ const REPORT_CATEGORIES: Array<{ value: UnsafeOutputReportCategory; label: strin
   { value: "privacy_or_impersonation", label: "Privacy or impersonation" },
   { value: "dangerous_or_illegal", label: "Dangerous or illegal advice" },
   { value: "misinformation", label: "False or misleading information" },
-  { value: "other", label: "Something else" }
+  { value: "other", label: "Other" }
 ];

@@ -307,6 +307,7 @@ describe("ConversationHistory pending state", () => {
     await user.click(screen.getByRole("button", { name: "More response actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Report unsafe output" }));
     expect(screen.getByRole("dialog", { name: "Report this response" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Other" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("radio", { name: "Dangerous or illegal advice" }));
     await user.type(screen.getByLabelText(/Anything else/), "This could cause harm.");
@@ -333,6 +334,7 @@ describe("ConversationHistory pending state", () => {
     await user.click(screen.getByRole("button", { name: "More response actions" }));
     await user.click(screen.getByRole("menuitem", { name: "Send feedback" }));
     expect(screen.getByRole("dialog", { name: "Feedback on this response" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Other" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("radio", { name: "Helpful" }));
     await user.type(screen.getByLabelText(/Anything else/), "The answer was clear.");

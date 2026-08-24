@@ -112,7 +112,7 @@ const REPORT_CATEGORIES: Array<{ value: UnsafeOutputReportCategory; label: strin
   { value: "privacy_or_impersonation", label: "Privacy or impersonation" },
   { value: "dangerous_or_illegal", label: "Dangerous or illegal advice" },
   { value: "misinformation", label: "False or misleading information" },
-  { value: "other", label: "Something else" }
+  { value: "other", label: "Other" }
 ];
 
 const FEEDBACK_CATEGORIES: Array<{ value: ResponseFeedbackCategory; label: string }> = [
@@ -120,7 +120,7 @@ const FEEDBACK_CATEGORIES: Array<{ value: ResponseFeedbackCategory; label: strin
   { value: "not_helpful", label: "Not helpful" },
   { value: "inaccurate", label: "Incorrect or misleading" },
   { value: "style_or_tone", label: "Style or tone" },
-  { value: "other", label: "Something else" }
+  { value: "other", label: "Other" }
 ];
 
 function hasCurrentPolicyConsent(user: AuthUser | undefined, policies: CurrentPoliciesResponse | undefined): boolean {
@@ -345,6 +345,8 @@ export function MobileChatScreen() {
   const conversationLayoutRef = useRef<{ y: number; height: number } | undefined>(undefined);
   const currentComposerDraftRef = useRef("");
   const speechBaseDraftRef = useRef("");
+  const feedbackFormScrollRef = useRef<ScrollView>(null);
+  const reportFormScrollRef = useRef<ScrollView>(null);
   const speechRuntimeRef = useRef<SpeechRecognitionRuntime | undefined>(undefined);
   const speechSubscriptionsRef = useRef<SpeechRecognitionSubscription[]>([]);
   const activeChatAbortControllerRef = useRef<AbortController | undefined>(undefined);
@@ -4924,14 +4926,14 @@ export function MobileChatScreen() {
         animationType="slide"
         onRequestClose={() => { if (!feedbackBusy) setFeedbackTarget(undefined); }}
       >
-        <KeyboardAvoidingView style={styles.actionSheetScrim} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.actionSheetScrim} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close feedback" style={StyleSheet.absoluteFill} onPress={() => { if (!feedbackBusy) setFeedbackTarget(undefined); }} />
           <View style={[styles.reportSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 18) }]}>
             <ScrollView
+              ref={feedbackFormScrollRef}
               contentContainerStyle={styles.reportSheetContent}
               keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
               keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled
               showsVerticalScrollIndicator={false}
             >
               <View style={styles.referenceHeader}>
@@ -4944,7 +4946,7 @@ export function MobileChatScreen() {
                 </Pressable>
               </View>
               <Text style={[styles.reportCopy, { color: theme.muted }]}>Tell us how this response worked for you. General feedback is reviewed separately from safety reports.</Text>
-              <ScrollView style={styles.reportCategoryScroll} contentContainerStyle={styles.reportCategories} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+              <View style={styles.reportCategories}>
                 {FEEDBACK_CATEGORIES.map((option) => {
                   const selected = feedbackCategory === option.value;
                   return (
@@ -4960,11 +4962,15 @@ export function MobileChatScreen() {
                     </Pressable>
                   );
                 })}
-              </ScrollView>
+              </View>
               <TextInput
                 accessibilityLabel="Additional feedback details"
                 value={feedbackDetails}
                 onChangeText={setFeedbackDetails}
+                onFocus={() => {
+                  requestAnimationFrame(() => feedbackFormScrollRef.current?.scrollToEnd({ animated: true }));
+                  setTimeout(() => feedbackFormScrollRef.current?.scrollToEnd({ animated: true }), 220);
+                }}
                 placeholder="Anything else? (optional)"
                 placeholderTextColor={theme.muted}
                 maxLength={1000}
@@ -4991,14 +4997,14 @@ export function MobileChatScreen() {
         animationType="slide"
         onRequestClose={() => { if (!reportBusy) setReportTarget(undefined); }}
       >
-        <KeyboardAvoidingView style={styles.actionSheetScrim} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.actionSheetScrim} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <Pressable accessibilityRole="button" accessibilityLabel="Close report" style={StyleSheet.absoluteFill} onPress={() => { if (!reportBusy) setReportTarget(undefined); }} />
           <View style={[styles.reportSheet, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong, paddingBottom: Math.max(insets.bottom, 18) }]}>
             <ScrollView
+              ref={reportFormScrollRef}
               contentContainerStyle={styles.reportSheetContent}
               keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
               keyboardShouldPersistTaps="handled"
-              nestedScrollEnabled
               showsVerticalScrollIndicator={false}
             >
             <View style={styles.referenceHeader}>
@@ -5011,7 +5017,7 @@ export function MobileChatScreen() {
               </Pressable>
             </View>
             <Text style={[styles.reportCopy, { color: theme.muted }]}>Tell us what went wrong. Reports help us investigate unsafe AI output and do not automatically remove your conversation.</Text>
-            <ScrollView style={styles.reportCategoryScroll} contentContainerStyle={styles.reportCategories} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+            <View style={styles.reportCategories}>
               {REPORT_CATEGORIES.map((option) => {
                 const selected = reportCategory === option.value;
                 return (
@@ -5027,11 +5033,15 @@ export function MobileChatScreen() {
                   </Pressable>
                 );
               })}
-            </ScrollView>
+            </View>
             <TextInput
               accessibilityLabel="Additional report details"
               value={reportDetails}
               onChangeText={setReportDetails}
+              onFocus={() => {
+                requestAnimationFrame(() => reportFormScrollRef.current?.scrollToEnd({ animated: true }));
+                setTimeout(() => reportFormScrollRef.current?.scrollToEnd({ animated: true }), 220);
+              }}
               placeholder="Anything else? (optional)"
               placeholderTextColor={theme.muted}
               maxLength={1000}
@@ -5479,9 +5489,6 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 46,
     paddingHorizontal: 13
-  },
-  reportCategoryScroll: {
-    maxHeight: 226
   },
   reportCategoryText: {
     flex: 1,
