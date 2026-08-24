@@ -2506,6 +2506,7 @@ export function MobileChatScreen() {
 
   async function selectConversation(nextConversationId: string, options?: { keepDrawerOpen?: boolean; accountId?: string }): Promise<void> {
     cancelActiveChatRequest();
+    void releaseCurrentAudioPlayback();
     const selectionGeneration = ++selectionGenerationRef.current;
     setLoadingEarlierTurns(false);
     try {
@@ -2564,6 +2565,7 @@ export function MobileChatScreen() {
 
   function newChat(): void {
     cancelActiveChatRequest();
+    void releaseCurrentAudioPlayback();
     selectionGenerationRef.current += 1;
     setLoadingEarlierTurns(false);
     setConversationId(undefined);
@@ -2969,6 +2971,7 @@ export function MobileChatScreen() {
   async function logout(): Promise<void> {
     const signedOutUserId = authUser?.id;
     cancelActiveChatRequest();
+    await releaseCurrentAudioPlayback();
     selectionGenerationRef.current += 1;
     conversationListGenerationRef.current += 1;
     let logoutError: string | undefined;

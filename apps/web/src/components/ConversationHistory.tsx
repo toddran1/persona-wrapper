@@ -1,6 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { NEUTRAL_PERSONA_ID, stripGeneratedFileDownloadPrompt, type ChatResponse, type ContentBlock, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { MarkdownText } from "./MarkdownText.js";
 import { OutputRenderer } from "./OutputRenderer.js";
 import { api, resolveApiUrl } from "../lib/api.js";
@@ -322,6 +322,7 @@ function AssistantActions({
   audioBlocks,
   personaId,
   autoPlayAudio = false,
+  onAudioPlaybackRequest,
   onAudioPlaybackChange,
   onRetry,
   onRetryWithoutPersona,
@@ -332,7 +333,8 @@ function AssistantActions({
   audioBlocks: Extract<ContentBlock, { type: "audio" }>[];
   personaId: string;
   autoPlayAudio?: boolean;
-  onAudioPlaybackChange?: ((playing: boolean, personaId: string) => void) | undefined;
+  onAudioPlaybackRequest?: ((audio: HTMLAudioElement, personaId: string) => void) | undefined;
+  onAudioPlaybackChange?: ((playing: boolean, personaId: string, audio: HTMLAudioElement) => void) | undefined;
   onRetry?: (() => void) | undefined;
   onRetryWithoutPersona?: (() => void) | undefined;
   onReport?: (() => void) | undefined;
@@ -366,21 +368,21 @@ function AssistantActions({
     return () => window.removeEventListener("pointerdown", handlePointerDown);
   }, [sourcesOpen, menuOpen, audioOpen]);
 
+  const playAudio = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    onAudioPlaybackRequest?.(audio, personaId);
+    audio.currentTime = 0;
+    playAudioElement(audio);
+  }, [onAudioPlaybackRequest, personaId]);
+
   useEffect(() => {
     if (!autoPlayAudio || !resolvedAudioUrl || autoPlayedUrlRef.current === resolvedAudioUrl) return;
     autoPlayedUrlRef.current = resolvedAudioUrl;
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = 0;
-    playAudioElement(audioRef.current);
-  }, [autoPlayAudio, resolvedAudioUrl]);
+    playAudio();
+  }, [autoPlayAudio, playAudio, resolvedAudioUrl]);
 
   if (!text && flatSources.length === 0 && !primaryAudio) return null;
-
-  const playAudio = () => {
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = 0;
-    playAudioElement(audioRef.current);
-  };
 
   const downloadAudio = () => {
     if (!primaryAudio) return;
@@ -396,10 +398,10 @@ function AssistantActions({
           ref={audioRef}
           src={resolvedAudioUrl}
           preload="metadata"
-          onPlay={() => onAudioPlaybackChange?.(true, personaId)}
-          onPause={() => onAudioPlaybackChange?.(false, personaId)}
-          onEnded={() => onAudioPlaybackChange?.(false, personaId)}
-          onError={() => onAudioPlaybackChange?.(false, personaId)}
+          onPlay={(event) => onAudioPlaybackChange?.(true, personaId, event.currentTarget)}
+          onPause={(event) => onAudioPlaybackChange?.(false, personaId, event.currentTarget)}
+          onEnded={(event) => onAudioPlaybackChange?.(false, personaId, event.currentTarget)}
+          onError={(event) => onAudioPlaybackChange?.(false, personaId, event.currentTarget)}
         />
       ) : null}
       {text ? (
@@ -568,6 +570,7 @@ export function ConversationHistory({
   thinking,
   testMode = false,
   autoPlayAudioTurnIndex,
+  onAudioPlaybackRequest,
   onAudioPlaybackChange,
   onOutputAction,
   onEditUserPrompt,
@@ -591,7 +594,8 @@ export function ConversationHistory({
   thinking?: boolean | undefined;
   testMode?: boolean | undefined;
   autoPlayAudioTurnIndex?: number | undefined;
-  onAudioPlaybackChange?: ((playing: boolean, personaId: string) => void) | undefined;
+  onAudioPlaybackRequest?: ((audio: HTMLAudioElement, personaId: string) => void) | undefined;
+  onAudioPlaybackChange?: ((playing: boolean, personaId: string, audio: HTMLAudioElement) => void) | undefined;
   onOutputAction?: ((action: Extract<ContentBlock, { type: "action" }>) => void | Promise<void>) | undefined;
   onEditUserPrompt?: ((message: string, files: File[]) => void) | undefined;
   onRetryAssistantTurn?: ((turn: RenderedTurn) => void) | undefined;
@@ -777,6 +781,7 @@ export function ConversationHistory({
                     audioBlocks={audioBlocks}
                     personaId={turnPersonaId}
                     autoPlayAudio={turnIndex === autoPlayAudioTurnIndex}
+                    onAudioPlaybackRequest={onAudioPlaybackRequest}
                     onAudioPlaybackChange={onAudioPlaybackChange}
                     onRetry={onRetryAssistantTurn && turnIndex === turns.length - 1 ? () => onRetryAssistantTurn(turn) : undefined}
                     onRetryWithoutPersona={onRetryAssistantTurnWithoutPersona && turnIndex === turns.length - 1 && turnPersonaId !== NEUTRAL_PERSONA_ID ? () => onRetryAssistantTurnWithoutPersona(turn) : undefined}

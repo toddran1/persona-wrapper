@@ -542,6 +542,19 @@ async function requestJson<T>(path: string, init?: RequestInit, options?: { skip
 }
 
 export const api = {
+  abandonLiveAudioStream: async (url: string): Promise<void> => {
+    try {
+      const response = await fetch(resolveApiUrl(url), {
+        credentials: "include",
+        headers: requestHeaders(false)
+      });
+      await response.body?.cancel();
+    } catch {
+      // Best effort only. Closing the response body tells the server that this
+      // browser no longer needs progressive playback while generation and
+      // durable storage continue independently.
+    }
+  },
   fetchUploadBlob: async (url: string, signal?: AbortSignal): Promise<Blob> => {
     const resolvedUrl = resolveApiUrl(url);
     for (let attempt = 0; attempt < 2; attempt += 1) {

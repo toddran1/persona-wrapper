@@ -599,6 +599,7 @@ describe("ConversationHistory pending state", () => {
 
   it("reports generated audio playback state changes", () => {
     const playSpy = vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const onAudioPlaybackRequest = vi.fn();
     const onAudioPlaybackChange = vi.fn();
     const { container } = render(
       <ConversationHistory
@@ -612,6 +613,7 @@ describe("ConversationHistory pending state", () => {
             ]
           }
         ]}
+        onAudioPlaybackRequest={onAudioPlaybackRequest}
         onAudioPlaybackChange={onAudioPlaybackChange}
       />
     );
@@ -619,11 +621,15 @@ describe("ConversationHistory pending state", () => {
     const audio = container.querySelector("audio");
     expect(audio).toBeInstanceOf(HTMLAudioElement);
 
+    fireEvent.click(screen.getByRole("button", { name: "Audio settings" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Replay audio" }));
+    expect(onAudioPlaybackRequest).toHaveBeenLastCalledWith(audio, "persona");
+
     fireEvent.play(audio as HTMLAudioElement);
-    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(true, "persona");
+    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(true, "persona", audio);
 
     fireEvent.ended(audio as HTMLAudioElement);
-    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(false, "persona");
+    expect(onAudioPlaybackChange).toHaveBeenLastCalledWith(false, "persona", audio);
 
     playSpy.mockRestore();
   });

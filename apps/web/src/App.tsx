@@ -313,6 +313,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const [loading, setLoading] = useState(false);
   const [personaAudioPlaying, setPersonaAudioPlaying] = useState(false);
   const liveAudioElementRef = useRef<HTMLAudioElement | undefined>(undefined);
+  const liveAudioStreamIdRef = useRef<string | undefined>(undefined);
+  const savedAudioElementRef = useRef<HTMLAudioElement | undefined>(undefined);
   const [nonAudioVisualState, setNonAudioVisualState] = useState<PersonaVisualState>("idle");
   const [error, setError] = useState<string | undefined>();
   const [conversationId, setConversationId] = useState<string | undefined>(() => storedConversationId());
@@ -398,6 +400,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   const completedTurnCountRef = useRef(0);
   const lastCompletedTurnWasImageOnlyRef = useRef(false);
   const suppressAudioVisualForCurrentTurnRef = useRef(false);
+  const savedReplaySupersededRequestRef = useRef(false);
   const suppressPersonaVisualTransitionsRef = useRef(false);
   const nonAudioVisualTimeoutRef = useRef<number | undefined>(undefined);
   const loadCurrentPolicies = useCallback(async (): Promise<void> => {
@@ -771,10 +774,12 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
   }
 
-  const stopLiveAudio = useCallback(() => {
+  const stopLiveAudio = useCallback((expectedStreamId?: string) => {
+    if (expectedStreamId && liveAudioStreamIdRef.current !== expectedStreamId) return false;
     const audio = liveAudioElementRef.current;
     liveAudioElementRef.current = undefined;
-    if (!audio) return;
+    liveAudioStreamIdRef.current = undefined;
+    if (!audio) return false;
     audio.onplay = null;
     audio.onpause = null;
     audio.onended = null;
@@ -783,16 +788,54 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     audio.removeAttribute("src");
     audio.load();
     setPersonaAudioPlaying(false);
+    return true;
+  }, []);
+
+  const stopSavedAudio = useCallback((expectedAudio?: HTMLAudioElement) => {
+    const audio = savedAudioElementRef.current;
+    if (!audio || (expectedAudio && audio !== expectedAudio)) return false;
+    savedAudioElementRef.current = undefined;
+    audio.pause();
+    setPersonaAudioPlaying(false);
+    return true;
+  }, []);
+
+  const stopAllAudio = useCallback(() => {
+    stopLiveAudio();
+    stopSavedAudio();
+  }, [stopLiveAudio, stopSavedAudio]);
+
+  const handleSavedAudioPlaybackRequest = useCallback((audio: HTMLAudioElement) => {
+    if (activeRequestRef.current) savedReplaySupersededRequestRef.current = true;
+    stopLiveAudio();
+    if (savedAudioElementRef.current !== audio) stopSavedAudio();
+    savedAudioElementRef.current = audio;
+  }, [stopLiveAudio, stopSavedAudio]);
+
+  const handleSavedAudioPlaybackChange = useCallback((
+    playing: boolean,
+    turnPersonaId: string,
+    audio: HTMLAudioElement
+  ) => {
+    if (playing) {
+      savedAudioElementRef.current = audio;
+    } else {
+      if (savedAudioElementRef.current !== audio) return;
+      savedAudioElementRef.current = undefined;
+    }
+    if (suppressAudioVisualForCurrentTurnRef.current) return;
+    if (turnPersonaId !== selectedPersonaIdRef.current) return;
+    setPersonaAudioPlaying(playing);
   }, []);
 
   useEffect(() => {
     if (!audioEnabled) {
-      stopLiveAudio();
+      stopAllAudio();
       setPersonaAudioPlaying(false);
     }
-  }, [audioEnabled, stopLiveAudio]);
+  }, [audioEnabled, stopAllAudio]);
 
-  useEffect(() => () => stopLiveAudio(), [stopLiveAudio]);
+  useEffect(() => () => stopAllAudio(), [stopAllAudio]);
 
   useEffect(() => () => clearNonAudioVisualTimer(), []);
 
@@ -869,7 +912,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     }
 
     const submittedPersonaId = personaIdOverride ?? personaDetail.id;
-    stopLiveAudio();
+    stopAllAudio();
+    savedReplaySupersededRequestRef.current = false;
     setLoading(true);
     setPersonaAudioPlaying(false);
     suppressAudioVisualForCurrentTurnRef.current = false;
@@ -898,7 +942,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     let createdVectorStoreId: string | undefined;
     let chatRequestStarted = false;
     let liveAudioStreamId: string | undefined;
-    let liveAudioPlayback: Promise<boolean> | undefined;
+    let liveAudioPlayback: Promise<"started" | "failed" | "superseded"> | undefined;
 
     try {
       uploadedAttachments = files.length > 0 ? await api.uploadFiles(files, requestController.signal) : [];
@@ -937,19 +981,26 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           },
           onAudioStart: (event) => {
             if (!submittedAudioEnabled) return;
+            if (savedReplaySupersededRequestRef.current) {
+              liveAudioPlayback = Promise.resolve("superseded");
+              void api.abandonLiveAudioStream(event.url);
+              return;
+            }
             stopLiveAudio();
             liveAudioStreamId = event.id;
             const audio = new Audio(api.resolveUrl(event.url));
             audio.preload = "auto";
             liveAudioElementRef.current = audio;
+            liveAudioStreamIdRef.current = event.id;
             audio.onplay = () => {
               if (liveAudioElementRef.current === audio && selectedPersonaIdRef.current === submittedPersonaId) {
                 setPersonaAudioPlaying(true);
               }
             };
             const handleStopped = () => {
-              if (liveAudioElementRef.current === audio) {
+              if (liveAudioElementRef.current === audio && liveAudioStreamIdRef.current === event.id) {
                 liveAudioElementRef.current = undefined;
+                liveAudioStreamIdRef.current = undefined;
                 setPersonaAudioPlaying(false);
               }
             };
@@ -957,16 +1008,23 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
             audio.onended = handleStopped;
             audio.onerror = handleStopped;
             liveAudioPlayback = audio.play()
-              .then(() => true)
+              .then(() => (
+                liveAudioElementRef.current === audio && liveAudioStreamIdRef.current === event.id
+                  ? "started" as const
+                  : "superseded" as const
+              ))
               .catch(() => {
-                if (liveAudioElementRef.current === audio) stopLiveAudio();
-                return false;
+                if (liveAudioElementRef.current !== audio || liveAudioStreamIdRef.current !== event.id) {
+                  return "superseded" as const;
+                }
+                stopLiveAudio(event.id);
+                return "failed" as const;
               });
           },
           onAudioError: (event) => {
             if (event.id !== liveAudioStreamId) return;
-            stopLiveAudio();
-            liveAudioPlayback = Promise.resolve(false);
+            const stopped = stopLiveAudio(event.id);
+            liveAudioPlayback = Promise.resolve(stopped ? "failed" : "superseded");
           }
         }, requestController.signal)
         : await api.sendChat(payload, requestController.signal);
@@ -1004,8 +1062,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
         replaceBackgroundTurnWithResult(backgroundJob.id, finalResult);
         clearStoredBackgroundJob(backgroundJob.id);
       } else {
-        const liveAudioPlayed = await (liveAudioPlayback ?? Promise.resolve(false));
-        appendChatResult(message, finalResult, attachments, files, retryAssistantMessageId, liveAudioPlayed);
+        const liveAudioResult = await (liveAudioPlayback ?? Promise.resolve("failed" as const));
+        appendChatResult(message, finalResult, attachments, files, retryAssistantMessageId, liveAudioResult !== "failed");
       }
       void refreshConversationList(finalResult.conversationId);
       activeBackgroundJobIdRef.current = undefined;
@@ -1260,6 +1318,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
 
   async function loadConversation(nextConversationId: string, accountId = authUser?.id): Promise<void> {
     abandonActiveRequest();
+    stopAllAudio();
     const selectionGeneration = ++selectionGenerationRef.current;
     holdPersonaVisualIdleForCurrentMutation();
     setLoadingEarlierTurns(false);
@@ -1720,6 +1779,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
 
   function resetConversation(): void {
     abandonActiveRequest();
+    stopAllAudio();
     selectionGenerationRef.current += 1;
     setLoadingEarlierTurns(false);
     personaSelectionGenerationRef.current += 1;
@@ -2146,11 +2206,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
               thinking={loading && pendingPrompt !== undefined}
               testMode={testModeEnabled}
               autoPlayAudioTurnIndex={autoPlayAudioTurnIndex}
-              onAudioPlaybackChange={audioEnabled ? (playing, turnPersonaId) => {
-                if (suppressAudioVisualForCurrentTurnRef.current) return;
-                if (turnPersonaId !== selectedPersonaIdRef.current) return;
-                setPersonaAudioPlaying(playing);
-              } : undefined}
+              onAudioPlaybackRequest={audioEnabled ? handleSavedAudioPlaybackRequest : undefined}
+              onAudioPlaybackChange={audioEnabled ? handleSavedAudioPlaybackChange : undefined}
               onEditUserPrompt={(message, files) => {
                 setComposerDraft(message);
                 setComposerDraftAttachments(files);
