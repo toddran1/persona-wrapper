@@ -94,6 +94,12 @@ const COMMON_SPEECH_REPLACEMENTS: Array<[RegExp, string]> = [
 ];
 
 const UNIT_REPLACEMENTS: Array<[RegExp, string]> = [
+  // Temperatures need an explicit unit name. Speech providers often read a bare
+  // trailing "F" or "C" as a letter even when the degree glyph is present.
+  [/\b(\d+(?:\.\d+)?)\s*°\s*F\b/gi, "$1 degrees Fahrenheit"],
+  [/\b(\d+(?:\.\d+)?)\s*°\s*C\b/gi, "$1 degrees Celsius"],
+  [/\b(\d+(?:\.\d+)?)\s*(?:degrees?|deg\.?)\s*F\b/gi, "$1 degrees Fahrenheit"],
+  [/\b(\d+(?:\.\d+)?)\s*(?:degrees?|deg\.?)\s*C\b/gi, "$1 degrees Celsius"],
   [/\b(\d+(?:\.\d+)?)\s?lbs?\b/gi, "$1 pounds"],
   [/\b(\d+(?:\.\d+)?)\s?oz\b/gi, "$1 ounces"],
   [/\b(\d+(?:\.\d+)?)\s?ft\b/gi, "$1 feet"],

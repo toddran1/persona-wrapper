@@ -39,6 +39,14 @@ describe("buildTtsScript", () => {
     expect(script).not.toContain("https://example.com/test");
   });
 
+  it("expands Fahrenheit and Celsius notation instead of leaving a bare unit letter", () => {
+    const script = buildTtsScript("Atlanta: 90°F/68°F. London: 18 °C. The lab is 72 deg F.", larae);
+
+    expect(script).toContain("90 degrees Fahrenheit/68 degrees Fahrenheit");
+    expect(script).toContain("18 degrees Celsius");
+    expect(script).toContain("72 degrees Fahrenheit");
+  });
+
   it("expands abbreviated weekdays in schedules without rewriting unrelated words", () => {
     const script = buildTtsScript(
       "Open Mon, Tues, Wed, Thurs, Fri, Sat, and Sun. Meet on Sun at 8:00 PM. Sun Microsystems and the sentence 'Sat by the door' stay unchanged.",
