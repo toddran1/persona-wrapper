@@ -93,6 +93,80 @@ describe("GeminiProvider", () => {
     expect(output.metadata?.interactionStored).toBe(false);
   });
 
+  it("streams Gemini text deltas without exposing the hidden audio-script envelope", async () => {
+    const createInteractionStream = vi.fn().mockResolvedValue((async function* () {
+      yield {
+        data: {
+          event_type: "interaction.created",
+          interaction: {
+            id: "interaction_stream",
+            status: "in_progress",
+            model: "gemini-3.5-flash-lite"
+          }
+        }
+      };
+      yield {
+        data: {
+          event_type: "step.start",
+          index: 0,
+          step: { type: "model_output", content: [] }
+        }
+      };
+      yield {
+        data: {
+          event_type: "step.delta",
+          index: 0,
+          delta: { type: "text", text: "A streamed " },
+          metadata: { total_usage: { total_input_tokens: 12 } }
+        }
+      };
+      yield {
+        data: {
+          event_type: "step.delta",
+          index: 0,
+          delta: { type: "text", text: "answer." }
+        }
+      };
+      yield {
+        data: {
+          event_type: "step.stop",
+          index: 0,
+          usage: { total_output_tokens: 3, total_tokens: 15 }
+        }
+      };
+      yield {
+        data: {
+          event_type: "interaction.completed",
+          interaction: {
+            id: "interaction_stream",
+            status: "completed",
+            model: "gemini-3.5-flash-lite",
+            usage: {
+              total_input_tokens: 12,
+              total_output_tokens: 3,
+              total_tokens: 15
+            }
+          }
+        }
+      };
+    })());
+    const input = geminiInput();
+    input.audio = true;
+    const deltas: string[] = [];
+
+    const output = await new GeminiProvider({ createInteractionStream }).generateResponseStream(input, {
+      onTextDelta: (delta) => deltas.push(delta)
+    });
+
+    expect(deltas.join("")).toBe("A streamed answer.");
+    expect(output.rawText).toBe("A streamed answer.");
+    expect(output.usage).toMatchObject({ inputTokens: 12, outputTokens: 3, totalTokens: 15 });
+    const request = createInteractionStream.mock.calls[0]?.[0];
+    expect(request).toMatchObject({ stream: true, store: false });
+    expect(request.response_format).toBeUndefined();
+    expect(String(request.system_instruction)).not.toContain("visible_text");
+  });
+
   it("does not append uncensored style references in professional mode", async () => {
     const createInteraction = vi.fn().mockResolvedValue({
       id: "interaction_professional",

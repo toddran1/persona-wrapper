@@ -25,13 +25,14 @@ import { extractHttpUrls, extractYouTubeVideoUrls } from "../../services/urlInpu
 import { HttpError } from "../../utils/httpError.js";
 import { logger } from "../../utils/logger.js";
 import { executeApplicationTool } from "../tools/toolRegistry.js";
-import type { LLMProgressCallbacks, LLMProvider } from "./LLMProvider.js";
+import type { LLMProgressCallbacks, LLMProvider, LLMStreamCallbacks } from "./LLMProvider.js";
 import {
   buildOpenAIResponseInstructions,
   OpenAIProvider,
   parseDualTextPayload
 } from "./OpenAIProvider.js";
 import { buildStubOutput } from "./stubScenarioBuilder.js";
+import { emitTextChunks } from "./streamText.js";
 
 type ServerAttachment = NonNullable<LLMInput["attachments"]>[number] & {
   storageKey?: string;
@@ -61,7 +62,10 @@ type InteractionStep = {
   result?: unknown;
   is_error?: boolean;
   content?: InteractionContent[];
-  error?: { code?: number; message?: string };
+  signature?: string;
+  summary?: InteractionContent[];
+  error?: { code?: string; message?: string };
+  [key: string]: unknown;
 };
 
 type InteractionUsage = {
@@ -86,11 +90,10 @@ type InteractionTool =
   | { type: "code_execution" }
   | { type: "function"; name: string; description?: string; parameters?: unknown };
 
-type InteractionRequest = {
+type InteractionRequestBase = {
   model: string;
   input: InteractionContent[] | InteractionStep[];
   store: false;
-  stream: false;
   system_instruction: string;
   generation_config: { max_output_tokens: number };
   tools?: InteractionTool[];
@@ -100,6 +103,9 @@ type InteractionRequest = {
     schema: Record<string, unknown>;
   };
 };
+
+type InteractionRequest = InteractionRequestBase & { stream: false };
+type StreamingInteractionRequest = Omit<InteractionRequestBase, "response_format"> & { stream: true };
 
 type InteractionRequestOptions = {
   timeout: number;
@@ -112,9 +118,30 @@ type CreateInteraction = (
   options: InteractionRequestOptions
 ) => Promise<InteractionResponse>;
 
+type InteractionStreamEvent = {
+  event_type: string;
+  interaction?: Partial<InteractionResponse>;
+  index?: number;
+  step?: InteractionStep;
+  delta?: Record<string, unknown> & { type?: string };
+  metadata?: { total_usage?: InteractionUsage };
+  usage?: InteractionUsage;
+  step_usage?: InteractionUsage;
+  error?: { code?: number; message?: string };
+};
+
+type InteractionEventStream = AsyncIterable<InteractionStreamEvent | { data: InteractionStreamEvent }>;
+
+type CreateInteractionStream = (
+  request: StreamingInteractionRequest,
+  options: InteractionRequestOptions
+) => Promise<InteractionEventStream>;
+
 export type GeminiProviderOptions = {
   /** Test seam for validating request and response behavior without a paid API call. */
   createInteraction?: CreateInteraction;
+  /** Streaming test seam equivalent to the Gemini Interactions SSE stream. */
+  createInteractionStream?: CreateInteractionStream;
   publicMediaAnalysisCache?: PublicMediaAnalysisCache;
 };
 
@@ -339,10 +366,26 @@ function toolsForInput(input: LLMInput): InteractionTool[] {
 function interactionRequest(
   input: LLMInput,
   interactionInput: InteractionContent[] | InteractionStep[],
-  tools: InteractionTool[]
-): InteractionRequest {
+  tools: InteractionTool[],
+  streaming?: false
+): InteractionRequest;
+function interactionRequest(
+  input: LLMInput,
+  interactionInput: InteractionContent[] | InteractionStep[],
+  tools: InteractionTool[],
+  streaming: true
+): StreamingInteractionRequest;
+function interactionRequest(
+  input: LLMInput,
+  interactionInput: InteractionContent[] | InteractionStep[],
+  tools: InteractionTool[],
+  streaming = false
+): InteractionRequest | StreamingInteractionRequest {
   const systemInstruction = [
-    buildOpenAIResponseInstructions(input, "full"),
+    // Stream only user-visible prose. The dual visible_text/tts_script JSON
+    // envelope is generated only for non-streaming requests; exposing it as
+    // deltas would leak the hidden narration script to SSE consumers.
+    buildOpenAIResponseInstructions(input, "full", streaming ? false : undefined),
     input.personaInfluenceLevel !== "professional" && input.persona.styleReference?.enabled
       ? buildPersonaStyleReference(input.persona)
       : ""
@@ -353,7 +396,7 @@ function interactionRequest(
     model: env.GEMINI_MODEL,
     input: interactionInput,
     store: false,
-    stream: false,
+    stream: streaming,
     system_instruction: systemInstruction,
     generation_config: {
       max_output_tokens: maxOutputTokensForRequest(input.audio, input.conciseAudioResponse)
@@ -368,7 +411,7 @@ function interactionRequest(
     // documented plain-text interaction route instead of also asking Gemini
     // to enforce a JSON schema for a separate TTS script. ChatService creates
     // the safe speech-script fallback from the visible answer after response.
-    ...(dualText && tools.length === 0 && !nativeYouTubeInput ? {
+    ...(!streaming && dualText && tools.length === 0 && !nativeYouTubeInput ? {
       response_format: {
         type: "text",
         mime_type: "application/json",
@@ -384,6 +427,134 @@ function interactionRequest(
       }
     } : {})
   };
+}
+
+function mergeUsage(target: InteractionUsage, source?: InteractionUsage): void {
+  if (!source) return;
+  target.total_input_tokens = Math.max(
+    finiteNonnegativeIntegerOr(target.total_input_tokens),
+    finiteNonnegativeIntegerOr(source.total_input_tokens)
+  );
+  target.total_output_tokens = Math.max(
+    finiteNonnegativeIntegerOr(target.total_output_tokens),
+    finiteNonnegativeIntegerOr(source.total_output_tokens)
+  );
+  target.total_thought_tokens = Math.max(
+    finiteNonnegativeIntegerOr(target.total_thought_tokens),
+    finiteNonnegativeIntegerOr(source.total_thought_tokens)
+  );
+  target.total_tokens = Math.max(
+    finiteNonnegativeIntegerOr(target.total_tokens),
+    finiteNonnegativeIntegerOr(source.total_tokens)
+  );
+}
+
+function normalizeStreamEvent(raw: InteractionStreamEvent | { data: InteractionStreamEvent }): InteractionStreamEvent {
+  return "data" in raw ? raw.data : raw;
+}
+
+function appendTextContent(step: InteractionStep, text: string): void {
+  step.content ??= [];
+  const current = step.content.at(-1);
+  if (current?.type === "text") {
+    current.text += text;
+  } else {
+    step.content.push({ type: "text", text });
+  }
+}
+
+function appendAnnotations(step: InteractionStep, annotations: InteractionAnnotation[]): void {
+  step.content ??= [];
+  const current = step.content.at(-1);
+  if (current?.type === "text") {
+    current.annotations = [...(current.annotations ?? []), ...annotations];
+  }
+}
+
+async function consumeInteractionStream(
+  stream: InteractionEventStream,
+  callbacks: LLMStreamCallbacks,
+  progressCallbacks?: LLMProgressCallbacks
+): Promise<InteractionResponse> {
+  const response: InteractionResponse = { id: "", status: "in_progress", steps: [] };
+  const usage: InteractionUsage = {};
+  const argumentBuffers = new Map<number, string>();
+  let completed = false;
+
+  for await (const raw of stream) {
+    const event = normalizeStreamEvent(raw);
+    if (event.event_type === "error") {
+      throw new Error(event.error?.message ?? "Gemini streaming response failed.");
+    }
+    if (
+      event.event_type === "interaction.created" ||
+      event.event_type === "interaction.status_update" ||
+      event.event_type === "interaction.completed"
+    ) {
+      const interaction = event.interaction;
+      if (interaction?.id) response.id = interaction.id;
+      if (interaction?.status) response.status = interaction.status;
+      if (interaction?.model) response.model = interaction.model;
+      if (interaction?.steps?.length) response.steps = interaction.steps;
+      mergeUsage(usage, interaction?.usage);
+      if (response.id) {
+        progressCallbacks?.onProviderResponse?.({ id: response.id, status: response.status });
+      }
+      if (event.event_type === "interaction.completed") completed = true;
+      continue;
+    }
+    if (event.event_type === "step.start" && event.index !== undefined && event.step) {
+      response.steps[event.index] = { ...event.step };
+      continue;
+    }
+    if (event.event_type === "step.delta" && event.index !== undefined && event.delta) {
+      const step = response.steps[event.index] ?? { type: "unknown" };
+      response.steps[event.index] = step;
+      const deltaType = event.delta.type;
+      if (deltaType === "text" && typeof event.delta.text === "string") {
+        appendTextContent(step, event.delta.text);
+        if (step.type === "model_output") callbacks.onTextDelta(event.delta.text);
+      } else if (deltaType === "text_annotation_delta" && Array.isArray(event.delta.annotations)) {
+        appendAnnotations(step, event.delta.annotations as InteractionAnnotation[]);
+      } else if (deltaType === "arguments_delta" && typeof event.delta.arguments === "string") {
+        argumentBuffers.set(event.index, `${argumentBuffers.get(event.index) ?? ""}${event.delta.arguments}`);
+      } else if (deltaType === "thought_signature" && typeof event.delta.signature === "string") {
+        step.signature = event.delta.signature;
+      } else if (deltaType === "thought_summary" && event.delta.content && typeof event.delta.content === "object") {
+        step.summary = [...(step.summary ?? []), event.delta.content as InteractionContent];
+      } else {
+        // Built-in tool streams may provide structured partial results. Keep
+        // them available to the existing response formatter without exposing
+        // provider reasoning as visible text.
+        const { type: _deltaType, ...deltaFields } = event.delta;
+        Object.assign(step, deltaFields);
+      }
+      mergeUsage(usage, event.metadata?.total_usage);
+      continue;
+    }
+    if (event.event_type === "step.stop" && event.index !== undefined) {
+      const step = response.steps[event.index];
+      const serializedArguments = argumentBuffers.get(event.index);
+      if (step && serializedArguments !== undefined) {
+        try {
+          const parsed = JSON.parse(serializedArguments) as unknown;
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("Function arguments must be a JSON object.");
+          }
+          step.arguments = parsed as Record<string, unknown>;
+        } catch {
+          throw new HttpError("Gemini returned invalid application-action arguments.", 502);
+        }
+      }
+      mergeUsage(usage, event.usage ?? event.step_usage);
+    }
+  }
+
+  if (!completed) throw new HttpError("Gemini stream ended before the response completed.", 502);
+  response.steps = response.steps.filter(Boolean);
+  response.usage = usage;
+  response.output_text = textFrom(response);
+  return response;
 }
 
 function textFrom(response: InteractionResponse): string {
@@ -479,13 +650,14 @@ function mapGeminiError(error: unknown): Error {
 
 function interactionFailure(response: InteractionResponse): HttpError | undefined {
   const modelError = response.steps.find((step) => step.type === "model_output" && step.error)?.error;
+  const modelErrorCode = errorStatus(modelError);
   if (response.status === "completed" || response.status === "requires_action") return undefined;
   if (response.status === "budget_exceeded") return new HttpError("Gemini reached its processing budget. Please try a shorter request.", 422);
   if (response.status === "cancelled") return new HttpError("The Gemini request was cancelled.", 499);
   if (response.status === "incomplete") return new HttpError("Gemini returned an incomplete response. Please try again.", 502);
-  if (modelError?.code === 8) return new HttpError("Gemini is busy right now. Please try again shortly.", 429);
-  if (modelError?.code === 4) return new HttpError("Gemini took too long to respond. Please try again.", 504);
-  if (modelError?.code === 7 || modelError?.code === 16) return new HttpError("Gemini is not configured correctly.", 503);
+  if (modelErrorCode === 8) return new HttpError("Gemini is busy right now. Please try again shortly.", 429);
+  if (modelErrorCode === 4) return new HttpError("Gemini took too long to respond. Please try again.", 504);
+  if (modelErrorCode === 7 || modelErrorCode === 16) return new HttpError("Gemini is not configured correctly.", 503);
   if (/safety|prohibited|blocked/i.test(modelError?.message ?? "")) {
     return new HttpError("Gemini could not return this response because of its safety filters.", 422);
   }
@@ -541,9 +713,30 @@ export class GeminiProvider implements LLMProvider {
   constructor(private readonly options: GeminiProviderOptions = {}) {}
 
   async generateResponse(input: LLMInput, signal?: AbortSignal, progressCallbacks?: LLMProgressCallbacks): Promise<LLMOutput> {
+    return this.generateResponseInternal(input, undefined, signal, progressCallbacks);
+  }
+
+  async generateResponseStream(
+    input: LLMInput,
+    callbacks: LLMStreamCallbacks,
+    signal?: AbortSignal,
+    progressCallbacks?: LLMProgressCallbacks
+  ): Promise<LLMOutput> {
+    return this.generateResponseInternal(input, callbacks, signal, progressCallbacks);
+  }
+
+  private async generateResponseInternal(
+    input: LLMInput,
+    streamCallbacks?: LLMStreamCallbacks,
+    signal?: AbortSignal,
+    progressCallbacks?: LLMProgressCallbacks
+  ): Promise<LLMOutput> {
     const delegation = delegatedCapability(input);
     if (delegation) {
-      const delegated = await new OpenAIProvider().generateResponse(input, signal, progressCallbacks);
+      const openAI = new OpenAIProvider();
+      const delegated = streamCallbacks
+        ? await openAI.generateResponseStream(input, streamCallbacks, signal, progressCallbacks)
+        : await openAI.generateResponse(input, signal, progressCallbacks);
       return llmOutputSchema.parse({
         ...delegated,
         provider: "gemini",
@@ -556,13 +749,20 @@ export class GeminiProvider implements LLMProvider {
       });
     }
 
-    if ((!env.GOOGLE_GEMINI_API_KEY && !this.options.createInteraction) ||
-      (env.NODE_ENV === "test" && !this.options.createInteraction)) {
+    const hasTestSeam = streamCallbacks
+      ? Boolean(this.options.createInteractionStream)
+      : Boolean(this.options.createInteraction);
+    if ((!env.GOOGLE_GEMINI_API_KEY && !hasTestSeam) || (env.NODE_ENV === "test" && !hasTestSeam)) {
       if (env.NODE_ENV === "production") throw new HttpError("Gemini is not configured.", 503);
-      return buildStubOutput(input, "gemini", "full");
+      const output = buildStubOutput(input, "gemini", "full");
+      if (streamCallbacks) emitTextChunks(output.rawText, streamCallbacks);
+      return output;
     }
 
     const createInteraction = this.options.createInteraction ?? this.sdkCreateInteraction();
+    const createInteractionStream = streamCallbacks
+      ? this.options.createInteractionStream ?? this.sdkCreateInteractionStream()
+      : undefined;
     const requestSignal = signal ?? new AbortController().signal;
     const videoPolicy = videoAnalysisPolicy(input);
     const videoAnalysis = videoPolicy.allowed && videoPolicy.video
@@ -586,13 +786,23 @@ export class GeminiProvider implements LLMProvider {
 
     try {
       for (let iteration = 0; iteration <= env.GEMINI_MAX_TOOL_ITERATIONS; iteration += 1) {
-        response = await this.generateWithRetry(
-          createInteraction,
-          input,
-          continuationSteps ?? initialContent,
-          tools,
-          requestSignal
-        );
+        response = streamCallbacks && createInteractionStream
+          ? await this.generateStreamingWithRetry(
+              createInteractionStream,
+              input,
+              continuationSteps ?? initialContent,
+              tools,
+              streamCallbacks,
+              requestSignal,
+              progressCallbacks
+            )
+          : await this.generateWithRetry(
+              createInteraction,
+              input,
+              continuationSteps ?? initialContent,
+              tools,
+              requestSignal
+            );
         totalUsage.total_input_tokens += finiteNonnegativeIntegerOr(response.usage?.total_input_tokens);
         totalUsage.total_output_tokens += finiteNonnegativeIntegerOr(response.usage?.total_output_tokens);
         totalUsage.total_thought_tokens += finiteNonnegativeIntegerOr(response.usage?.total_thought_tokens);
@@ -751,6 +961,14 @@ export class GeminiProvider implements LLMProvider {
       // `InteractionRequest` mirrors those unions while keeping our adapter testable.
       const response = await ai.interactions.create(request as never, options);
       return response as InteractionResponse;
+    };
+  }
+
+  private sdkCreateInteractionStream(): CreateInteractionStream {
+    const ai = new GoogleGenAI({ apiKey: env.GOOGLE_GEMINI_API_KEY! });
+    return async (request, options) => {
+      const stream = await ai.interactions.create(request as never, options);
+      return stream as unknown as InteractionEventStream;
     };
   }
 
@@ -917,6 +1135,87 @@ export class GeminiProvider implements LLMProvider {
           // recordings beyond the model's context window). Log the provider
           // detail so the next rejection doesn't need a manual repro.
           logger.info("Gemini native YouTube input failed; retrying with resolved-link context", {
+            personaId: input.persona.id,
+            model: env.GEMINI_MODEL,
+            resolution: "low",
+            timeoutMs: requestTimeoutMs,
+            reason: isTimeoutError(error) ? "timeout" : "rejected",
+            message: (error instanceof Error ? error.message : String(error)).slice(0, 500)
+          });
+          continue;
+        }
+        if (attempt >= env.GEMINI_MAX_RETRIES || (status !== 429 && (!status || status < 500))) throw error;
+        await wait(Math.min(4_000, 300 * 2 ** attempt), signal);
+        attempt += 1;
+      }
+    }
+    throw lastError;
+  }
+
+  private async generateStreamingWithRetry(
+    createInteractionStream: CreateInteractionStream,
+    input: LLMInput,
+    interactionInput: InteractionContent[] | InteractionStep[],
+    tools: InteractionTool[],
+    callbacks: LLMStreamCallbacks,
+    signal: AbortSignal,
+    progressCallbacks?: LLMProgressCallbacks
+  ): Promise<InteractionResponse> {
+    let lastError: unknown;
+    let requestInput = interactionInput;
+    let usedNativeYouTubeFallback = false;
+    let emittedText = false;
+    let attempt = 0;
+    const guardedCallbacks: LLMStreamCallbacks = {
+      onTextDelta: (delta) => {
+        emittedText = true;
+        callbacks.onTextDelta(delta);
+      }
+    };
+
+    while (attempt <= env.GEMINI_MAX_RETRIES) {
+      signal.throwIfAborted();
+      const hasNativeYouTube = containsNativeYouTubeContent(requestInput);
+      const requestTimeoutMs = hasNativeYouTube
+        ? env.GEMINI_NATIVE_YOUTUBE_REQUEST_TIMEOUT_MS
+        : env.GEMINI_REQUEST_TIMEOUT_MS;
+      const timeoutSignal = AbortSignal.timeout(requestTimeoutMs);
+      const attemptSignal = AbortSignal.any([signal, timeoutSignal]);
+      try {
+        const stream = await awaitWithAbort(createInteractionStream(
+          interactionRequest(input, requestInput, tools, true),
+          {
+            timeout: requestTimeoutMs,
+            maxRetries: 0,
+            fetchOptions: { signal: attemptSignal }
+          }
+        ), attemptSignal);
+        const response = await consumeInteractionStream(stream, guardedCallbacks, progressCallbacks);
+        if (hasNativeYouTube) {
+          logger.info("Gemini native YouTube stream succeeded", {
+            personaId: input.persona.id,
+            model: env.GEMINI_MODEL,
+            resolution: "low",
+            timeoutMs: requestTimeoutMs
+          });
+        }
+        return response;
+      } catch (error) {
+        lastError = error;
+        const status = errorStatus(error);
+        // Once visible text has been delivered, retrying would duplicate it in
+        // the SSE consumer. Surface the terminal error and let the user retry
+        // the complete turn instead.
+        if (emittedText) throw error;
+        if (
+          !signal.aborted &&
+          !usedNativeYouTubeFallback &&
+          (status === 400 || isTimeoutError(error)) &&
+          hasNativeYouTube
+        ) {
+          requestInput = withoutNativeYouTubeContent(requestInput);
+          usedNativeYouTubeFallback = true;
+          logger.info("Gemini native YouTube stream failed; retrying with resolved-link context", {
             personaId: input.persona.id,
             model: env.GEMINI_MODEL,
             resolution: "low",

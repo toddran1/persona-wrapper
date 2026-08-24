@@ -270,11 +270,20 @@ export async function postChatStream(request: Request, response: Response): Prom
   response.setHeader("Connection", "keep-alive");
   response.setHeader("X-Accel-Buffering", "no");
   response.flushHeaders();
+  const flush = () => (response as Response & { flush?: () => void }).flush?.();
+  const heartbeat = setInterval(() => {
+    if (!response.writableEnded && !response.destroyed) {
+      response.write(": keep-alive\n\n");
+      flush();
+    }
+  }, 15_000);
+  heartbeat.unref();
   try {
     const result = await chatService.handleChat(payload, {
       onTextDelta: (delta) => {
-        if (!response.writableEnded) {
+        if (!response.writableEnded && !response.destroyed) {
           response.write(`event: delta\ndata: ${JSON.stringify({ delta })}\n\n`);
+          flush();
         }
       }
     }, controller.signal, undefined, { ownerId: identity });
@@ -286,8 +295,11 @@ export async function postChatStream(request: Request, response: Response): Prom
         error: error instanceof Error ? error.message : String(error)
       });
     });
-    response.write(`event: response\ndata: ${JSON.stringify(result)}\n\n`);
-    response.end();
+    if (!response.writableEnded && !response.destroyed) {
+      response.write(`event: response\ndata: ${JSON.stringify(result)}\n\n`);
+      flush();
+      response.end();
+    }
   } catch (error) {
     if (!reservationReconciled) {
       await releaseUsageReservation(identity, reservationId, response.locals.requestId);
@@ -306,6 +318,8 @@ export async function postChatStream(request: Request, response: Response): Prom
       })}\n\n`);
       response.end();
     }
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
