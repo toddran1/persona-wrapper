@@ -102,7 +102,7 @@ services:
       - key: CUSTOMER_USAGE_ENFORCEMENT_ENABLED
         value: "true"
       - key: BILLING_ENABLED
-        value: "false"
+        value: "true"
       - key: BILLING_PROVIDER
         value: revenuecat
       - key: REVENUECAT_OFFERING_ID
@@ -230,6 +230,20 @@ services:
         value: "10000"
       - key: PLACES_SEARCH_MAX_RESULTS
         value: "8"
+      - key: MOBILE_UPDATE_POLICY_VERSION
+        value: "1"
+      - key: MOBILE_UPDATE_MESSAGE
+        value: A newer version of For the Baddiez is available.
+      - key: MOBILE_IOS_LATEST_BUILD
+        value: "0"
+      - key: MOBILE_IOS_MINIMUM_BUILD
+        value: "0"
+      - key: MOBILE_ANDROID_LATEST_BUILD
+        value: "0"
+      - key: MOBILE_ANDROID_MINIMUM_BUILD
+        value: "0"
+      - key: MOBILE_ANDROID_STORE_URL
+        value: https://play.google.com/store/apps/details?id=com.forthebaddiez.mobile
       - key: FACEBOOK_OAUTH_CLIENT_ID
         sync: false
       - key: FACEBOOK_OAUTH_CLIENT_SECRET
@@ -401,10 +415,8 @@ services:
         value: "120"
       - key: CUSTOMER_USAGE_ENFORCEMENT_ENABLED
         value: "true"
-      # Leave billing disabled until Store Connect, Google Play, and RevenueCat
-      # products/webhook have all been configured for production.
       - key: BILLING_ENABLED
-        value: "false"
+        value: "true"
       - key: BILLING_PROVIDER
         value: revenuecat
       - key: REVENUECAT_OFFERING_ID
@@ -530,6 +542,20 @@ services:
         value: "10000"
       - key: PLACES_SEARCH_MAX_RESULTS
         value: "8"
+      - key: MOBILE_UPDATE_POLICY_VERSION
+        value: "1"
+      - key: MOBILE_UPDATE_MESSAGE
+        value: A newer version of For the Baddiez is available.
+      - key: MOBILE_IOS_LATEST_BUILD
+        value: "0"
+      - key: MOBILE_IOS_MINIMUM_BUILD
+        value: "0"
+      - key: MOBILE_ANDROID_LATEST_BUILD
+        value: "0"
+      - key: MOBILE_ANDROID_MINIMUM_BUILD
+        value: "0"
+      - key: MOBILE_ANDROID_STORE_URL
+        value: https://play.google.com/store/apps/details?id=com.forthebaddiez.mobile
       - key: FACEBOOK_OAUTH_CLIENT_ID
         sync: false
       - key: FACEBOOK_OAUTH_CLIENT_SECRET

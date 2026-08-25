@@ -24,6 +24,7 @@ import type {
   ForTheBaddiezArchive,
   LoginRequest,
   MeResponse,
+  MobileUpdatePolicy,
   OAuthProvider,
   OAuthProviderStatus,
   CurrentPoliciesResponse,
@@ -699,6 +700,16 @@ export const api = {
     }
   },
   mediaHeaders: (): Promise<Record<string, string>> => requestHeaders(false),
+  getMobileUpdatePolicy: async (input: {
+    platform: "ios" | "android";
+    build: number;
+    version?: string;
+    runtimeVersion?: string;
+  }): Promise<MobileUpdatePolicy> => {
+    const response = await contractClient.mobile.updatePolicy({ query: input });
+    if (response.status !== 200) throw contractError(response.body, "Could not check for app updates.");
+    return response.body;
+  },
   uploadFiles: async (
     files: MobileUploadFile[],
     options?: { skipAuthRefresh?: boolean; signal?: AbortSignal }

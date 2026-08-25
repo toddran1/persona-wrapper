@@ -1109,6 +1109,184 @@ textarea {
   animation: settings-section-in 170ms ease-out both;
 }
 
+.settings-section-plan {
+  max-width: none;
+}
+
+.settings-plan-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  padding-top: 4px;
+}
+
+.settings-plan-heading h4 {
+  margin: 5px 0 0;
+  color: #fff8ef;
+  font-size: 1.05rem;
+  letter-spacing: -0.025em;
+}
+
+.settings-plan-renewal {
+  color: rgba(207, 195, 219, 0.62);
+  font-size: 0.68rem;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.settings-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-plan-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto minmax(58px, auto) auto 1fr auto;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(214, 181, 94, 0.15);
+  border-radius: 16px;
+  background:
+    linear-gradient(150deg, rgba(255, 248, 239, 0.055), transparent 42%),
+    rgba(9, 6, 14, 0.7);
+}
+
+.settings-plan-card::after {
+  position: absolute;
+  inset: auto -18px -38px auto;
+  width: 88px;
+  height: 88px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.07;
+  content: "";
+  pointer-events: none;
+}
+
+.settings-plan-card-silver { color: #ded9e6; }
+.settings-plan-card-gold { color: #f1cf67; }
+
+.settings-plan-card-current {
+  border-color: rgba(214, 181, 94, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(214, 181, 94, 0.1), 0 12px 30px rgba(0, 0, 0, 0.2);
+}
+
+.settings-plan-card-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: rgba(207, 195, 219, 0.55);
+  font-size: 0.54rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.settings-plan-card-topline strong {
+  padding: 4px 6px;
+  border: 1px solid rgba(214, 181, 94, 0.22);
+  border-radius: 999px;
+  color: var(--accent-2);
+  background: rgba(214, 181, 94, 0.08);
+  font-size: 0.48rem;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.settings-plan-card h5 {
+  margin: 0;
+  color: #fff8ef;
+  font-size: 1.2rem;
+  font-weight: 880;
+  letter-spacing: -0.04em;
+}
+
+.settings-plan-card p,
+.settings-plan-footnote {
+  margin: 0;
+  color: rgba(207, 195, 219, 0.66);
+  font-size: 0.67rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.settings-plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  color: rgba(207, 195, 219, 0.62);
+  font-size: 0.63rem;
+}
+
+.settings-plan-price strong {
+  color: #fff8ef;
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.045em;
+}
+
+.settings-plan-card ul {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid rgba(214, 181, 94, 0.1);
+  list-style: none;
+}
+
+.settings-plan-card li {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 5px;
+  color: rgba(244, 235, 229, 0.82);
+  font-size: 0.64rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.settings-plan-card li span {
+  color: var(--accent-2);
+  font-weight: 900;
+}
+
+.settings-plan-action {
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid rgba(214, 181, 94, 0.24);
+  border-radius: 10px;
+  color: #130c1b;
+  background: linear-gradient(115deg, #fff8ef, #e3bd57);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 850;
+}
+
+.settings-plan-action:hover:not(:disabled),
+.settings-plan-action:focus-visible:not(:disabled) {
+  box-shadow: 0 0 0 3px rgba(214, 181, 94, 0.14);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.settings-plan-action:disabled {
+  color: rgba(244, 235, 229, 0.52);
+  background: rgba(255, 255, 255, 0.055);
+  cursor: default;
+}
+
+.settings-plan-footnote {
+  padding: 0 2px;
+  text-align: center;
+}
+
 .settings-section-heading {
   display: grid;
   gap: 7px;
@@ -2021,6 +2199,26 @@ textarea {
   .settings-data-actions {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .settings-plan-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-plan-heading {
+    align-items: start;
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 920px) {
+  .settings-plan-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-plan-card-gold {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2031,6 +2229,10 @@ textarea {
   }
 
   .settings-progress-track span {
+    transition: none;
+  }
+
+  .settings-plan-action {
     transition: none;
   }
 }

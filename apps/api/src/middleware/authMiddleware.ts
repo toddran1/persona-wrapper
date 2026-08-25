@@ -81,7 +81,10 @@ const policyConsentExemptPaths = new Set([
   "/api/account/me",
   "/api/account/policies/current",
   "/api/account/policies/accept",
-  "/api/account/oauth/providers"
+  "/api/account/oauth/providers",
+  // The native-version gate must remain reachable before account consent and
+  // email-verification gates so obsolete clients can always reach the store.
+  "/api/mobile/update-policy"
 ]);
 
 export function requireCurrentPolicyConsent(request: Request, _response: Response, next: NextFunction): void {

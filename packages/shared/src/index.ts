@@ -1511,8 +1511,40 @@ export const adminRevokePlanOverrideSchema = z.object({
 export type AdminGrantPlanOverrideRequest = z.infer<typeof adminGrantPlanOverrideSchema>;
 export type AdminRevokePlanOverrideRequest = z.infer<typeof adminRevokePlanOverrideSchema>;
 
+export const mobilePlatformSchema = z.enum(["ios", "android"]);
+export const mobileUpdateStatusSchema = z.enum(["current", "optional", "required"]);
+export const mobileUpdatePolicyQuerySchema = z.object({
+  platform: mobilePlatformSchema,
+  build: z.coerce.number().int().min(0),
+  version: z.string().trim().max(64).optional(),
+  runtimeVersion: z.string().trim().max(128).optional()
+});
+export const mobileUpdatePolicySchema = z.object({
+  platform: mobilePlatformSchema,
+  installedBuild: z.number().int().min(0),
+  latestBuild: z.number().int().min(0),
+  minimumSupportedBuild: z.number().int().min(0),
+  status: mobileUpdateStatusSchema,
+  message: z.string().max(500),
+  storeUrl: z.string().url().optional(),
+  policyVersion: z.string().min(1).max(64),
+  checkedAt: z.string().datetime()
+});
+export type MobileUpdatePolicy = z.infer<typeof mobileUpdatePolicySchema>;
+
 /** Shared runtime contract for the endpoints used by both first-party clients. */
 export const apiContract = contract.router({
+  mobile: contract.router({
+    updatePolicy: {
+      method: "GET",
+      path: "/api/mobile/update-policy",
+      query: mobileUpdatePolicyQuerySchema,
+      responses: {
+        200: mobileUpdatePolicySchema,
+        400: apiErrorSchema
+      }
+    }
+  }),
   admin: contract.router({
     planOverrides: {
       method: "GET",

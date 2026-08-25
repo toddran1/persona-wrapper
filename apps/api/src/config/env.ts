@@ -63,6 +63,14 @@ const envSchema = z.object({
   API_TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   APP_TEST_MODE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   APP_ADMIN_EMAILS: z.preprocess(optionalTrimmedString, z.string().default("")),
+  MOBILE_UPDATE_POLICY_VERSION: z.string().trim().min(1).max(64).default("1"),
+  MOBILE_UPDATE_MESSAGE: z.string().trim().max(500).default("A newer version of For the Baddiez is available."),
+  MOBILE_IOS_LATEST_BUILD: z.coerce.number().int().min(0).default(0),
+  MOBILE_IOS_MINIMUM_BUILD: z.coerce.number().int().min(0).default(0),
+  MOBILE_IOS_STORE_URL: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
+  MOBILE_ANDROID_LATEST_BUILD: z.coerce.number().int().min(0).default(0),
+  MOBILE_ANDROID_MINIMUM_BUILD: z.coerce.number().int().min(0).default(0),
+  MOBILE_ANDROID_STORE_URL: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   CORS_ALLOWED_ORIGINS: z.preprocess(emptyStringToUndefined, z.string().optional()),
   OBSERVABILITY_DASHBOARD_TOKEN: z.preprocess(optionalTrimmedString, z.string().min(24).optional()),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.preprocess(optionalTrimmedString, z.string().url().optional()),
@@ -291,6 +299,25 @@ const envSchema = z.object({
   STYLE_TRANSFER_ENDPOINT: z.preprocess(emptyStringToUndefined, z.string().url().optional()),
   STYLE_TRANSFER_MODEL_ID: z.preprocess(emptyStringToUndefined, z.string().optional())
 }).superRefine((value, context) => {
+  for (const platform of ["IOS", "ANDROID"] as const) {
+    const latest = value[`MOBILE_${platform}_LATEST_BUILD`];
+    const minimum = value[`MOBILE_${platform}_MINIMUM_BUILD`];
+    const storeUrl = value[`MOBILE_${platform}_STORE_URL`];
+    if (latest < minimum) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [`MOBILE_${platform}_LATEST_BUILD`],
+        message: "The latest mobile build cannot be lower than the minimum supported build."
+      });
+    }
+    if (minimum > 0 && !storeUrl) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [`MOBILE_${platform}_STORE_URL`],
+        message: "A store URL is required before a minimum supported mobile build can be enforced."
+      });
+    }
+  }
   const supportedFishAudioSampleRates: Record<typeof value.FISH_AUDIO_FORMAT, number[]> = {
     mp3: [32000, 44100],
     opus: [48000],

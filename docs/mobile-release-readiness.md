@@ -189,3 +189,32 @@ npm run android -w @persona/mobile
 ```
 
 Store candidates should be tested as release builds, not only through Metro or a development client.
+# Mobile update policy
+
+The app uses two complementary update paths:
+
+- EAS Update delivers compatible JavaScript and asset patches. The client downloads these in the background and applies them on the next launch unless the user chooses **Restart now**.
+- App Store and Google Play builds deliver native dependency, permission, runtime-version, and binary changes.
+
+The API evaluates native builds using these environment variables:
+
+```text
+MOBILE_UPDATE_POLICY_VERSION=1
+MOBILE_UPDATE_MESSAGE=A newer version of For the Baddiez is available.
+MOBILE_IOS_LATEST_BUILD=0
+MOBILE_IOS_MINIMUM_BUILD=0
+MOBILE_IOS_STORE_URL=
+MOBILE_ANDROID_LATEST_BUILD=0
+MOBILE_ANDROID_MINIMUM_BUILD=0
+MOBILE_ANDROID_STORE_URL=https://play.google.com/store/apps/details?id=com.forthebaddiez.mobile
+```
+
+An installed build below `LATEST_BUILD` receives a dismissible prompt. A build
+below `MINIMUM_BUILD` is blocked until updated. Never raise a minimum until the
+replacement build is approved and available in that platform's store. Keep the
+minimum at `0` while configuring store listings. A nonzero minimum requires a
+valid store URL and the API refuses to boot on invalid policy configuration.
+
+Increment `MOBILE_UPDATE_POLICY_VERSION` when materially changing policy. Use
+store staged/phased releases before increasing `LATEST_BUILD`, monitor the new
+binary, and increase `MINIMUM_BUILD` only for compatibility or security needs.

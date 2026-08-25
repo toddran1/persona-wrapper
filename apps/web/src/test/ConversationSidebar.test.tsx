@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { personaSummarySchema } from "@persona/shared";
+import { personaSummarySchema, type BillingCatalogResponse } from "@persona/shared";
 import { ConversationSidebar } from "../components/ConversationSidebar.js";
 
 const now = "2026-07-24T05:00:00.000Z";
@@ -28,6 +28,30 @@ const planUsage = {
   },
   meters: [],
   enforcementEnabled: false
+};
+const billingCatalog: BillingCatalogResponse = {
+  enabled: true,
+  provider: "revenuecat",
+  offeringId: "default",
+  currentPlanId: "bronze",
+  products: [
+    {
+      productId: "ftb_silver_monthly",
+      entitlementId: "silver",
+      planId: "silver",
+      displayName: "Silver",
+      description: "More media usage, most personas, and no ads.",
+      monthlyPriceCents: 799
+    },
+    {
+      productId: "ftb_gold_monthly",
+      entitlementId: "gold",
+      planId: "gold",
+      displayName: "Gold",
+      description: "The full persona library and the most generous media limits.",
+      monthlyPriceCents: 1199
+    }
+  ]
 };
 const activeSessions = [
   {
@@ -121,6 +145,7 @@ function renderSidebar(options: {
       onClearConversationMemory={vi.fn().mockResolvedValue(undefined)}
       onClearAllMemory={onClearAllMemory}
       onGetPlanUsage={vi.fn().mockResolvedValue(options.planUsageOverride ?? planUsage)}
+      onGetBillingCatalog={vi.fn().mockResolvedValue(billingCatalog)}
       onListActiveSessions={vi.fn().mockResolvedValue(activeSessions)}
       onRevokeActiveSession={vi.fn().mockResolvedValue(undefined)}
       onRevokeOtherSessions={vi.fn().mockResolvedValue({ revoked: 1 })}
@@ -178,6 +203,7 @@ describe("ConversationSidebar settings", () => {
         onClearConversationMemory={vi.fn()}
         onClearAllMemory={vi.fn()}
         onGetPlanUsage={vi.fn().mockResolvedValue(planUsage)}
+        onGetBillingCatalog={vi.fn().mockResolvedValue(billingCatalog)}
         onListActiveSessions={vi.fn()}
         onRevokeActiveSession={vi.fn()}
         onRevokeOtherSessions={vi.fn()}
@@ -244,6 +270,7 @@ describe("ConversationSidebar settings", () => {
         onClearConversationMemory={vi.fn()}
         onClearAllMemory={vi.fn()}
         onGetPlanUsage={vi.fn().mockResolvedValue(planUsage)}
+        onGetBillingCatalog={vi.fn().mockResolvedValue(billingCatalog)}
         onListActiveSessions={vi.fn()}
         onRevokeActiveSession={vi.fn()}
         onRevokeOtherSessions={vi.fn()}
@@ -369,7 +396,7 @@ describe("ConversationSidebar settings", () => {
     await user.click(screen.getByTestId("account-menu-toggle"));
     const menu = screen.getByRole("menu", { name: "Account menu" });
     expect(within(menu).getAllByRole("menuitem")).toHaveLength(3);
-    expect(within(menu).getByRole("menuitem", { name: "Upgrade plan Soon" })).toBeDisabled();
+    expect(within(menu).getByRole("menuitem", { name: "Upgrade plan View" })).toBeEnabled();
 
     await user.click(within(menu).getByRole("menuitem", { name: "Settings" }));
     const dialog = screen.getByRole("dialog", { name: "Settings" });
@@ -391,7 +418,12 @@ describe("ConversationSidebar settings", () => {
     expect(within(dialog).getByText("Choose both a birthday month and day, or clear both fields.")).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
-    expect(await within(dialog).findByText("Coming soon")).toBeInTheDocument();
+    expect(await within(dialog).findByRole("heading", { name: "Membership passes" })).toBeInTheDocument();
+    expect(within(dialog).getByText("$7.99")).toBeInTheDocument();
+    expect(within(dialog).getByText("$11.99")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Your plan" })).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "Choose silver" }));
+    expect(within(dialog).getByText(/purchases are currently completed.*mobile app/i)).toBeInTheDocument();
     expect(within(dialog).getByText("94% left")).toBeInTheDocument();
     expect(within(dialog).getByRole("progressbar", { name: "Total monthly usage remaining" })).toHaveAttribute(
       "aria-valuenow",

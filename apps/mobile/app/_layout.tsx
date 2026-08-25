@@ -12,6 +12,7 @@ import { LocalizationProvider } from "../src/localization/LocalizationProvider";
 import { NetworkProvider } from "../src/network/NetworkProvider";
 import { queryClient } from "../src/api/queryClient";
 import { restorePublicQueryCache, subscribePublicQueryCache } from "../src/api/queryPersistence";
+import { MobileUpdateGate } from "../src/features/updates/MobileUpdateGate";
 
 const AppGestureHandlerRootView = GestureHandlerRootView as ComponentType<PropsWithChildren<ViewProps>>;
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
@@ -45,8 +46,10 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <NetworkProvider>
             <MobileErrorBoundary>
-              <StatusBar style="light" />
-              {cacheReady ? <Stack screenOptions={{ headerShown: false }} /> : null}
+              <MobileUpdateGate>
+                <StatusBar style="light" />
+                {cacheReady ? <Stack screenOptions={{ headerShown: false }} /> : null}
+              </MobileUpdateGate>
             </MobileErrorBoundary>
           </NetworkProvider>
         </QueryClientProvider>

@@ -42,6 +42,7 @@ import { uploadService } from "../services/uploadService.js";
 import { requestOwnerId } from "../utils/requestIdentity.js";
 import { customerUsageService } from "../services/customerUsageService.js";
 import { getPlanDefinition, planIncludesPersona, type PlanDefinition } from "../services/planCatalog.js";
+import { getMobileUpdatePolicy } from "../services/mobileUpdatePolicyService.js";
 
 const server = initServer();
 
@@ -119,6 +120,12 @@ const completeUpload = (async (input: unknown) => {
 }) as never;
 
 export const apiContractRouter = server.router(apiContract, {
+  mobile: {
+    updatePolicy: async ({ query }) => ({
+      status: 200,
+      body: getMobileUpdatePolicy(query.platform, query.build)
+    })
+  },
   admin: {
     planOverrides: captured(listPlanOverrides),
     grantPlanOverride: captured(grantPlanOverride),

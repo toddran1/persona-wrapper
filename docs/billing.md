@@ -64,9 +64,9 @@ REVENUECAT_ALLOWED_APP_IDS=<revenuecat-ios-app-id>,<revenuecat-android-app-id>
 Production should use `REVENUECAT_ALLOWED_ENVIRONMENTS=PRODUCTION`. Do not
 allow SANDBOX in production; sandbox events would otherwise grant paid access.
 
-`render.yaml` keeps billing disabled by default and declares the secret values
-without committing them. Enable billing only after the database migration and
-RevenueCat webhook are configured.
+`render.yaml` enables billing for the hosted development and production APIs
+and declares secret values without committing them. A deployment will fail
+closed if the webhook authorization or allowed RevenueCat app IDs are absent.
 
 ## Production Render environment
 

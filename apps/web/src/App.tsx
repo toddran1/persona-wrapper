@@ -2132,6 +2132,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
             setAuthUser(await api.updateProfile(profile));
           }}
           onGetPlanUsage={api.getPlanUsage}
+          onGetBillingCatalog={api.getBillingCatalog}
           onGetMemorySettings={api.getMemorySettings}
           onUpdateMemorySettings={async (enabled) => {
             const memoryEnabled = await api.updateMemorySettings(enabled);

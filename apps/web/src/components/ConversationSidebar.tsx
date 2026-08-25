@@ -2,12 +2,14 @@ import { clampFiniteNumber, finiteNonnegativeIntegerOr, PASSWORD_MIN_LENGTH } fr
 import type {
   ActiveSession,
   AuthUser,
+  BillingCatalogResponse,
   ConnectedAccount,
   ConversationSummary,
   CurrentPoliciesResponse,
   DataTransferJob,
   OAuthProvider,
   PolicyVersions,
+  PlanId,
   PlanUsageSummary,
   OAuthProviderStatus,
   PersonaSummary,
@@ -22,6 +24,28 @@ const REGISTER_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 const APPLE_LOGO_URL = "https://appleid.cdn-apple.com/appleid/button/logo?color=black&border=false&size=30&scale=3";
 type SettingsSection = "account" | "influence" | "provider" | "plan" | "audio" | "security" | "memory" | "data" | "about" | "delete";
+
+const PLAN_PRESENTATION: Record<PlanId, {
+  eyebrow: string;
+  description: string;
+  features: string[];
+}> = {
+  bronze: {
+    eyebrow: "The first look",
+    description: "Core chat access with a light monthly media allowance.",
+    features: ["24 monthly media credits", "20 audio minutes", "LaRae access", "Standard image quality"]
+  },
+  silver: {
+    eyebrow: "The regular",
+    description: "More room to chat, create, and meet most personas without ads.",
+    features: ["90 monthly media credits", "90 audio minutes", "Most personas", "No ads"]
+  },
+  gold: {
+    eyebrow: "All access",
+    description: "The full persona library with the most generous creative limits.",
+    features: ["180 monthly media credits", "180 audio minutes", "All personas", "Priority media queue"]
+  }
+};
 
 function SettingsGlyph({ section }: { section: SettingsSection }) {
   const paths: Record<SettingsSection, React.ReactNode> = {
@@ -86,6 +110,7 @@ export function ConversationSidebar({
   onChangePassword,
   onUpdateProfile,
   onGetPlanUsage,
+  onGetBillingCatalog,
   onGetMemorySettings,
   onUpdateMemorySettings,
   onClearConversationMemory,
@@ -139,6 +164,7 @@ export function ConversationSidebar({
   onChangePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   onUpdateProfile: (profile: UpdateUserProfileRequest) => Promise<void>;
   onGetPlanUsage: () => Promise<PlanUsageSummary>;
+  onGetBillingCatalog: () => Promise<BillingCatalogResponse>;
   onGetMemorySettings: () => Promise<boolean>;
   onUpdateMemorySettings: (enabled: boolean) => Promise<void>;
   onClearConversationMemory: (conversationId: string) => Promise<void>;
@@ -202,6 +228,8 @@ export function ConversationSidebar({
   const [memoryNotice, setMemoryNotice] = useState<string | undefined>();
   const [memoryConfirmation, setMemoryConfirmation] = useState<"chat" | "all" | undefined>();
   const [planUsage, setPlanUsage] = useState<PlanUsageSummary | undefined>();
+  const [billingCatalog, setBillingCatalog] = useState<BillingCatalogResponse | undefined>();
+  const [planNotice, setPlanNotice] = useState<string | undefined>();
   const [preferredName, setPreferredName] = useState("");
   const [gender, setGender] = useState<AuthUser["gender"] | "">("");
   const [birthMonth, setBirthMonth] = useState("");
@@ -514,6 +542,7 @@ export function ConversationSidebar({
     setProfileNotice(undefined);
     setSecurityNotice(undefined);
     setProviderNotice(undefined);
+    setPlanNotice(undefined);
     accountButtonRef.current?.focus();
   }
 
@@ -521,19 +550,24 @@ export function ConversationSidebar({
     setSettingsSection(section);
     setLocalAuthError(undefined);
     setSecurityNotice(undefined);
+    setPlanNotice(undefined);
     if (section === "plan") {
       const requestedAccountId = authUser?.id;
       setAuthBusy(true);
-      try {
-        const usage = await onGetPlanUsage();
-        if (accountIdRef.current === requestedAccountId) setPlanUsage(usage);
-      } catch (error) {
-        if (accountIdRef.current === requestedAccountId) {
-          setLocalAuthError(error instanceof Error ? error.message : "Could not load plan usage.");
+      const [usageResult, catalogResult] = await Promise.allSettled([onGetPlanUsage(), onGetBillingCatalog()]);
+      if (accountIdRef.current === requestedAccountId) {
+        if (usageResult.status === "fulfilled") setPlanUsage(usageResult.value);
+        if (catalogResult.status === "fulfilled") setBillingCatalog(catalogResult.value);
+        const failure = usageResult.status === "rejected"
+          ? usageResult.reason
+          : catalogResult.status === "rejected"
+            ? catalogResult.reason
+            : undefined;
+        if (failure) {
+          setLocalAuthError(failure instanceof Error ? failure.message : "Could not load all plan details.");
         }
-      } finally {
-        if (accountIdRef.current === requestedAccountId) setAuthBusy(false);
       }
+      if (accountIdRef.current === requestedAccountId) setAuthBusy(false);
       return;
     }
     if (section === "memory") {
@@ -599,9 +633,9 @@ export function ConversationSidebar({
     }
   }
 
-  function openSettings(): void {
+  function openSettings(initialSection: SettingsSection = "account"): void {
     setAccountMenuOpen(false);
-    setSettingsSection("account");
+    setSettingsSection(initialSection);
     setUsername(authUser?.username ?? "");
     setUsernameEditing(false);
     setPreferredName(authUser?.preferredName ?? "");
@@ -613,7 +647,9 @@ export function ConversationSidebar({
     setSecurityNotice(undefined);
     setMemoryNotice(undefined);
     setMemoryConfirmation(undefined);
+    setPlanNotice(undefined);
     setSettingsOpen(true);
+    if (initialSection === "plan") return;
     const requestedAccountId = authUser?.id;
     void onGetPlanUsage().then((usage) => {
       if (accountIdRef.current === requestedAccountId) setPlanUsage(usage);
@@ -621,6 +657,11 @@ export function ConversationSidebar({
       // The dedicated Plan & usage panel exposes a retryable error if opened.
       // Account settings remain usable when usage telemetry is temporarily down.
     });
+  }
+
+  function openPlanSettings(): void {
+    openSettings("plan");
+    void selectSettingsSection("plan");
   }
 
   async function toggleMemory(): Promise<void> {
@@ -1352,13 +1393,12 @@ export function ConversationSidebar({
                 type="button"
                 className="conversation-account-menu-button conversation-account-menu-button-planned"
                 role="menuitem"
-                disabled
-                title="Plan upgrades are coming later"
+                onClick={openPlanSettings}
               >
                 <span>Upgrade plan</span>
-                <small>Soon</small>
+                <small>View</small>
               </button>
-              <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={openSettings}>
+              <button type="button" className="conversation-account-menu-button" role="menuitem" onClick={() => openSettings()}>
                 <span>Settings</span>
                 <span aria-hidden="true">⌘,</span>
               </button>
@@ -1655,7 +1695,7 @@ export function ConversationSidebar({
                     ) : null}
 
                     {settingsSection === "plan" ? (
-                      <div className="settings-section">
+                      <div className="settings-section settings-section-plan">
                         <div className="settings-section-heading">
                           <span className="settings-section-eyebrow">Membership</span>
                           <h3>{planUsage?.plan.displayName ?? "Plan & usage"}</h3>
@@ -1713,11 +1753,51 @@ export function ConversationSidebar({
                                 );
                               })}
                             </div>
-                            <div className="settings-coming-soon">
-                              <span>Upgrade plan</span>
-                              <p>Silver and Gold subscriptions will appear here when billing launches.</p>
-                              <span className="settings-coming-soon-badge">Coming soon</span>
+                            <div className="settings-plan-heading">
+                              <div>
+                                <span className="settings-section-eyebrow">Choose your access</span>
+                                <h4>Membership passes</h4>
+                              </div>
+                              <span className="settings-plan-renewal">Monthly · cancel anytime</span>
                             </div>
+                            {planNotice ? <div className="settings-notice" role="status">{planNotice}</div> : null}
+                            <div className="settings-plan-grid">
+                              {(["bronze", "silver", "gold"] as const).map((planId) => {
+                                const product = billingCatalog?.products.find((candidate) => candidate.planId === planId);
+                                const presentation = PLAN_PRESENTATION[planId];
+                                const current = (billingCatalog?.currentPlanId ?? planUsage.plan.id) === planId;
+                                const price = planId === "bronze" ? "$0" : product
+                                  ? `$${(product.monthlyPriceCents / 100).toFixed(2)}`
+                                  : planId === "silver" ? "$7.99" : "$11.99";
+                                return (
+                                  <article className={`settings-plan-card settings-plan-card-${planId}${current ? " settings-plan-card-current" : ""}`} key={planId}>
+                                    <div className="settings-plan-card-topline">
+                                      <span>{presentation.eyebrow}</span>
+                                      {current ? <strong>Current plan</strong> : planId === "gold" ? <strong>Full access</strong> : null}
+                                    </div>
+                                    <h5>{planId[0]?.toUpperCase()}{planId.slice(1)}</h5>
+                                    <p>{product?.description ?? presentation.description}</p>
+                                    <div className="settings-plan-price"><strong>{price}</strong><span>/ month</span></div>
+                                    <ul>
+                                      {presentation.features.map((feature) => <li key={feature}><span aria-hidden="true">✓</span>{feature}</li>)}
+                                    </ul>
+                                    <button
+                                      type="button"
+                                      className="settings-plan-action"
+                                      disabled={current || !billingCatalog?.enabled}
+                                      onClick={() => setPlanNotice(
+                                        "Silver and Gold purchases are currently completed in the For the Baddiez mobile app. Your plan will sync to the web automatically."
+                                      )}
+                                    >
+                                      {current ? "Your plan" : billingCatalog?.enabled ? `Choose ${planId}` : "Subscriptions unavailable"}
+                                    </button>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                            <p className="settings-plan-footnote">
+                              Purchases, restores, changes, and cancellations currently use Apple or Google through the mobile app. Your membership follows your account across mobile and web.
+                            </p>
                           </>
                         ) : authBusy ? <p className="settings-empty-copy">Loading usage...</p> : null}
                       </div>
