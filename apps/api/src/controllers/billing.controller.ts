@@ -5,6 +5,9 @@ import { HttpError } from "../utils/httpError.js";
 
 export async function getAccountBillingCatalog(request: Request, response: Response): Promise<void> {
   if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  // Checkout URLs contain the authenticated RevenueCat app user id and must
+  // never be served from a shared browser, CDN, or intermediary cache.
+  response.setHeader("Cache-Control", "private, no-store");
   response.status(200).json(await getBillingCatalog(request.auth.userId));
 }
 

@@ -9,16 +9,21 @@ import { normalizeStoreProductId, planIdForStoreProduct } from "./billingCatalog
 import { getPlanDefinition } from "./planCatalog.js";
 
 const eventSchema = z.object({
-  id: z.string().min(1), type: z.string().min(1), app_user_id: z.string().min(1),
-  original_app_user_id: z.string().optional(), aliases: z.array(z.string()).optional(),
-  product_id: z.string().optional(), new_product_id: z.string().optional(),
-  environment: z.enum(["SANDBOX", "PRODUCTION"]).optional(), store: z.string().optional(),
-  app_id: z.string().optional(), expiration_at_ms: z.number().nullable().optional(),
-  event_timestamp_ms: z.number().optional(), original_transaction_id: z.string().optional(),
-  transaction_id: z.string().optional()
+  id: z.string().min(1), type: z.string().min(1), app_user_id: z.string().min(1).nullish(),
+  original_app_user_id: z.string().nullish(), aliases: z.array(z.string()).nullish(),
+  product_id: z.string().nullish(), new_product_id: z.string().nullish(),
+  environment: z.enum(["SANDBOX", "PRODUCTION"]).nullish(), store: z.string().nullish(),
+  app_id: z.string().nullish(), expiration_at_ms: z.number().nullable().optional(),
+  event_timestamp_ms: z.number().nullish(), original_transaction_id: z.string().nullish(),
+  transaction_id: z.string().nullish()
 }).passthrough();
-const webhookSchema = z.object({ api_version: z.string().optional(), event: eventSchema }).passthrough();
-type Event = z.infer<typeof eventSchema>;
+const webhookSchema = z.object({ api_version: z.string().nullish(), event: eventSchema }).passthrough();
+export type RevenueCatWebhookEvent = z.infer<typeof eventSchema>;
+type Event = RevenueCatWebhookEvent;
+
+export function parseRevenueCatWebhookEvent(input: unknown): RevenueCatWebhookEvent {
+  return eventSchema.parse(input);
+}
 
 const activeTypes = new Set(["INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "NON_RENEWING_PURCHASE", "SUBSCRIPTION_EXTENDED", "REFUND_REVERSED"]);
 const retainedTypes = new Set(["CANCELLATION", "SUBSCRIPTION_PAUSED", "BILLING_ISSUE"]);
@@ -183,6 +188,7 @@ export class RevenueCatBillingService {
         metadata: { provider: "revenuecat", productId: normalizedProductId, lastEventId: event.id }
       }).onConflictDoUpdate({ target: userPlanAssignments.id, set: {
         planId, planVersion: plan.version, status: expired ? "expired" : "active", expiresAt,
+        effectiveAt: eventAt,
         metadata: { provider: "revenuecat", productId: normalizedProductId, lastEventId: event.id }, updatedAt: new Date()
       }});
       await tx.insert(billingSubscriptions).values({

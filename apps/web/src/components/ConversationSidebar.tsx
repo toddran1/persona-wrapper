@@ -230,6 +230,7 @@ export function ConversationSidebar({
   const [planUsage, setPlanUsage] = useState<PlanUsageSummary | undefined>();
   const [billingCatalog, setBillingCatalog] = useState<BillingCatalogResponse | undefined>();
   const [planNotice, setPlanNotice] = useState<string | undefined>();
+  const [billingCheckoutPlanId, setBillingCheckoutPlanId] = useState<PlanId | undefined>();
   const [preferredName, setPreferredName] = useState("");
   const [gender, setGender] = useState<AuthUser["gender"] | "">("");
   const [birthMonth, setBirthMonth] = useState("");
@@ -315,6 +316,9 @@ export function ConversationSidebar({
       // account-scoped state immediately so a slow response from the previous
       // account cannot be displayed for the next one.
       setPlanUsage(undefined);
+      setBillingCatalog(undefined);
+      setBillingCheckoutPlanId(undefined);
+      setPlanNotice(undefined);
       setConnectedAccounts([]);
       setCurrentPassword("");
       setNewPassword("");
@@ -546,6 +550,48 @@ export function ConversationSidebar({
     accountButtonRef.current?.focus();
   }
 
+  async function refreshPlanDetails(expectedAccountId = accountIdRef.current): Promise<{
+    usage?: PlanUsageSummary;
+    catalog?: BillingCatalogResponse;
+    failure?: unknown;
+  }> {
+    const [usageResult, catalogResult] = await Promise.allSettled([onGetPlanUsage(), onGetBillingCatalog()]);
+    const usage = usageResult.status === "fulfilled" ? usageResult.value : undefined;
+    const catalog = catalogResult.status === "fulfilled" ? catalogResult.value : undefined;
+    if (accountIdRef.current === expectedAccountId) {
+      if (usage) setPlanUsage(usage);
+      if (catalog) setBillingCatalog(catalog);
+    }
+    return {
+      ...(usage ? { usage } : {}),
+      ...(catalog ? { catalog } : {}),
+      ...(usageResult.status === "rejected"
+        ? { failure: usageResult.reason }
+        : catalogResult.status === "rejected"
+          ? { failure: catalogResult.reason }
+          : {})
+    };
+  }
+
+  function startWebCheckout(planId: PlanId, checkoutUrl: string | undefined): void {
+    if (!checkoutUrl) {
+      setPlanNotice("Web checkout is not configured for this plan yet.");
+      return;
+    }
+    const checkoutWindow = window.open(checkoutUrl, "_blank");
+    if (!checkoutWindow) {
+      setPlanNotice("Your browser blocked the checkout window. Allow pop-ups for this site and try again.");
+      return;
+    }
+    try {
+      checkoutWindow.opener = null;
+    } catch {
+      // Some browsers isolate cross-origin checkout windows before this assignment.
+    }
+    setBillingCheckoutPlanId(planId);
+    setPlanNotice(`RevenueCat checkout opened for ${planId}. Return here after payment while we confirm your membership.`);
+  }
+
   async function selectSettingsSection(section: SettingsSection): Promise<void> {
     setSettingsSection(section);
     setLocalAuthError(undefined);
@@ -554,17 +600,10 @@ export function ConversationSidebar({
     if (section === "plan") {
       const requestedAccountId = authUser?.id;
       setAuthBusy(true);
-      const [usageResult, catalogResult] = await Promise.allSettled([onGetPlanUsage(), onGetBillingCatalog()]);
+      const result = await refreshPlanDetails(requestedAccountId);
       if (accountIdRef.current === requestedAccountId) {
-        if (usageResult.status === "fulfilled") setPlanUsage(usageResult.value);
-        if (catalogResult.status === "fulfilled") setBillingCatalog(catalogResult.value);
-        const failure = usageResult.status === "rejected"
-          ? usageResult.reason
-          : catalogResult.status === "rejected"
-            ? catalogResult.reason
-            : undefined;
-        if (failure) {
-          setLocalAuthError(failure instanceof Error ? failure.message : "Could not load all plan details.");
+        if (result.failure) {
+          setLocalAuthError(result.failure instanceof Error ? result.failure.message : "Could not load all plan details.");
         }
       }
       if (accountIdRef.current === requestedAccountId) setAuthBusy(false);
@@ -602,6 +641,46 @@ export function ConversationSidebar({
       if (accountIdRef.current === requestedAccountId) setAuthBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (!billingCheckoutPlanId || !authUser?.id) return;
+    const requestedAccountId = authUser.id;
+    let cancelled = false;
+    let attempts = 0;
+    let refreshPending = false;
+    const refresh = async () => {
+      if (refreshPending) return;
+      refreshPending = true;
+      attempts += 1;
+      try {
+        const result = await refreshPlanDetails(requestedAccountId);
+        if (cancelled || accountIdRef.current !== requestedAccountId) return;
+        const activePlan = result.catalog?.currentPlanId ?? result.usage?.plan.id;
+        if (activePlan === billingCheckoutPlanId) {
+          setPlanNotice(`${billingCheckoutPlanId[0]?.toUpperCase()}${billingCheckoutPlanId.slice(1)} is active on your account.`);
+          setBillingCheckoutPlanId(undefined);
+        } else if (attempts >= 40) {
+          setPlanNotice("Your checkout may still be processing. Reopen Plan & usage in a moment to refresh your membership.");
+          setBillingCheckoutPlanId(undefined);
+        }
+      } finally {
+        refreshPending = false;
+      }
+    };
+    const intervalId = window.setInterval(() => void refresh(), 3000);
+    const onFocus = () => void refresh();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [authUser?.id, billingCheckoutPlanId]);
 
   async function revokeSession(session: ActiveSession): Promise<void> {
     setAuthBusy(true);
@@ -1766,6 +1845,11 @@ export function ConversationSidebar({
                                 const product = billingCatalog?.products.find((candidate) => candidate.planId === planId);
                                 const presentation = PLAN_PRESENTATION[planId];
                                 const current = (billingCatalog?.currentPlanId ?? planUsage.plan.id) === planId;
+                                const currentPlanId = billingCatalog?.currentPlanId ?? planUsage.plan.id;
+                                const planRank = { bronze: 0, silver: 1, gold: 2 } as const;
+                                const lowerThanCurrent = planRank[planId] < planRank[currentPlanId];
+                                const checkoutPending = billingCheckoutPlanId === planId;
+                                const paidPlan = planId !== "bronze";
                                 const price = planId === "bronze" ? "$0" : product
                                   ? `$${(product.monthlyPriceCents / 100).toFixed(2)}`
                                   : planId === "silver" ? "$7.99" : "$11.99";
@@ -1784,19 +1868,29 @@ export function ConversationSidebar({
                                     <button
                                       type="button"
                                       className="settings-plan-action"
-                                      disabled={current || !billingCatalog?.enabled}
-                                      onClick={() => setPlanNotice(
-                                        "Silver and Gold purchases are currently completed in the For the Baddiez mobile app. Your plan will sync to the web automatically."
-                                      )}
+                                      disabled={current || lowerThanCurrent || !paidPlan || !billingCatalog?.enabled || checkoutPending || !product?.webCheckoutUrl}
+                                      onClick={() => startWebCheckout(planId, product?.webCheckoutUrl)}
                                     >
-                                      {current ? "Your plan" : billingCatalog?.enabled ? `Choose ${planId}` : "Subscriptions unavailable"}
+                                      {current
+                                        ? "Your plan"
+                                        : lowerThanCurrent
+                                          ? "Included in your plan"
+                                        : !paidPlan
+                                          ? "Free plan"
+                                          : checkoutPending
+                                            ? "Confirming..."
+                                            : !billingCatalog?.enabled
+                                              ? "Subscriptions unavailable"
+                                              : !product?.webCheckoutUrl
+                                                ? "Web checkout unavailable"
+                                                : `Choose ${planId}`}
                                     </button>
                                   </article>
                                 );
                               })}
                             </div>
                             <p className="settings-plan-footnote">
-                              Purchases, restores, changes, and cancellations currently use Apple or Google through the mobile app. Your membership follows your account across mobile and web.
+                              Web purchases use RevenueCat's secure checkout. Store purchases use Apple or Google in the mobile app. Your membership follows your account across mobile and web after the purchase is confirmed.
                             </p>
                           </>
                         ) : authBusy ? <p className="settings-empty-copy">Loading usage...</p> : null}

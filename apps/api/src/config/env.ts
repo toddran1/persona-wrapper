@@ -168,6 +168,18 @@ const envSchema = z.object({
     z.array(z.enum(["SANDBOX", "PRODUCTION"])).default(["SANDBOX"])
   ),
   REVENUECAT_ALLOWED_APP_IDS: z.preprocess(commaSeparatedStrings, z.array(z.string().min(1)).default([])),
+  REVENUECAT_WEB_PURCHASE_LINK_URL: z.preprocess(
+    optionalTrimmedString,
+    z.string().url()
+      .refine((value) => new URL(value).protocol === "https:", {
+        message: "RevenueCat web purchase links must use HTTPS."
+      })
+      .refine((value) => new URL(value).hostname === "pay.rev.cat", {
+        message: "RevenueCat web purchase links must use pay.rev.cat."
+      }).optional()
+  ),
+  REVENUECAT_WEB_SILVER_PACKAGE_ID: z.preprocess(optionalTrimmedString, z.string().min(1).optional()),
+  REVENUECAT_WEB_GOLD_PACKAGE_ID: z.preprocess(optionalTrimmedString, z.string().min(1).optional()),
   CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD: z.coerce.number().nonnegative().default(0.021),
   CUSTOMER_USAGE_IMAGE_INPUT_COST_USD: z.coerce.number().nonnegative().default(0.02),
   CUSTOMER_USAGE_STYLE_TRANSFER_COST_PER_CALL_USD: z.coerce.number().nonnegative().default(0.01),
@@ -477,6 +489,27 @@ const envSchema = z.object({
       path: ["REVENUECAT_ALLOWED_APP_IDS"],
       message: "At least one RevenueCat app id must be allowed when billing is enabled."
     });
+  }
+  const hasRevenueCatWebPackages = Boolean(
+    value.REVENUECAT_WEB_SILVER_PACKAGE_ID || value.REVENUECAT_WEB_GOLD_PACKAGE_ID
+  );
+  if (hasRevenueCatWebPackages && !value.REVENUECAT_WEB_PURCHASE_LINK_URL) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["REVENUECAT_WEB_PURCHASE_LINK_URL"],
+      message: "REVENUECAT_WEB_PURCHASE_LINK_URL is required when RevenueCat web package ids are configured."
+    });
+  }
+  if (value.REVENUECAT_WEB_PURCHASE_LINK_URL) {
+    for (const key of ["REVENUECAT_WEB_SILVER_PACKAGE_ID", "REVENUECAT_WEB_GOLD_PACKAGE_ID"] as const) {
+      if (!value[key]) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when RevenueCat web checkout is configured.`
+        });
+      }
+    }
   }
   if (value.STORAGE_DRIVER === "s3") {
     if (value.NODE_ENV !== "production") {

@@ -113,6 +113,12 @@ services:
         value: SANDBOX
       - key: REVENUECAT_ALLOWED_APP_IDS
         sync: false
+      - key: REVENUECAT_WEB_PURCHASE_LINK_URL
+        sync: false
+      - key: REVENUECAT_WEB_SILVER_PACKAGE_ID
+        sync: false
+      - key: REVENUECAT_WEB_GOLD_PACKAGE_ID
+        sync: false
       - key: CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD
         value: "0.021"
       - key: CUSTOMER_USAGE_IMAGE_INPUT_COST_USD
@@ -426,6 +432,12 @@ services:
       - key: REVENUECAT_ALLOWED_ENVIRONMENTS
         value: PRODUCTION
       - key: REVENUECAT_ALLOWED_APP_IDS
+        sync: false
+      - key: REVENUECAT_WEB_PURCHASE_LINK_URL
+        sync: false
+      - key: REVENUECAT_WEB_SILVER_PACKAGE_ID
+        sync: false
+      - key: REVENUECAT_WEB_GOLD_PACKAGE_ID
         sync: false
       - key: EXPO_PUBLIC_REVENUECAT_IOS_API_KEY
         sync: false

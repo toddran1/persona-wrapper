@@ -1,9 +1,14 @@
-# Mobile billing and subscriptions
+# Billing and subscriptions
 
 The first billing adapter uses RevenueCat for Apple App Store and Google Play
 subscriptions. RevenueCat handles store receipts, while the API remains the
 only authority that grants a Silver or Gold plan. The mobile SDK never writes
 plan assignments directly.
+
+Web subscriptions use RevenueCat Web Purchase Links. The API creates an
+identified checkout URL for the signed-in application user, RevenueCat handles
+payment, and the same webhook used by mobile grants the plan server-side. The
+web client never grants itself paid access.
 
 ## Product catalog
 
@@ -36,6 +41,14 @@ fallback display prices remain versioned in
 6. Set `REVENUECAT_ALLOWED_APP_IDS` to the comma-separated RevenueCat app IDs.
    This prevents another project/app from granting access even if a webhook
    secret is accidentally reused.
+7. Add a RevenueCat Web Billing app, create matching web products using the
+   same `ftb_silver_monthly` and `ftb_gold_monthly` identifiers, and attach
+   them to the `default` offering.
+8. Create custom Silver and Gold packages in that offering and create a Web
+   Purchase Link. Use the generated sandbox link for development and the
+   production link for production.
+9. Add the RevenueCat Web Billing app ID to `REVENUECAT_ALLOWED_APP_IDS` so its
+   webhook events are accepted by the API.
 
 Webhook event IDs are persisted before processing. Duplicate deliveries are
 safe, in-progress duplicates return a retryable response, failed events can be
@@ -59,10 +72,15 @@ REVENUECAT_OFFERING_ID=default
 REVENUECAT_WEBHOOK_AUTHORIZATION=<long-random-shared-value>
 REVENUECAT_ALLOWED_ENVIRONMENTS=SANDBOX
 REVENUECAT_ALLOWED_APP_IDS=<revenuecat-ios-app-id>,<revenuecat-android-app-id>
+REVENUECAT_WEB_PURCHASE_LINK_URL=https://pay.rev.cat/<sandbox-purchase-link-token>
+REVENUECAT_WEB_SILVER_PACKAGE_ID=<silver-custom-package-id>
+REVENUECAT_WEB_GOLD_PACKAGE_ID=<gold-custom-package-id>
 ```
 
 Production should use `REVENUECAT_ALLOWED_ENVIRONMENTS=PRODUCTION`. Do not
 allow SANDBOX in production; sandbox events would otherwise grant paid access.
+Set the production API's `REVENUECAT_WEB_PURCHASE_LINK_URL` to RevenueCat's
+production Purchase Link, not its sandbox link.
 
 `render.yaml` enables billing for the hosted development and production APIs
 and declares secret values without committing them. A deployment will fail
@@ -128,6 +146,14 @@ if either endpoint is localhost, or if an endpoint is not HTTPS.
   manager. This avoids incorrect Android replacement/proration handling.
 - Signing out logs out of RevenueCat as well, preventing account state from
   leaking between users on a shared device.
+- Web checkout opens an identified RevenueCat Purchase Link containing only
+  the authenticated application user ID and selected package ID. The web app
+  polls the API for a bounded period while the existing webhook records the
+  subscription. A delayed webhook remains recoverable by reopening Plan &
+  usage; access is never granted from the browser's success state alone.
+- Browser pop-up blocking leaves the user on the plan page with a retryable
+  message. Configure RevenueCat's Purchase Link success behavior for a useful
+  confirmation page, but do not treat that redirect as proof of payment.
 - Configure RevenueCat's restore/transfer behavior to keep purchases with the
   original identified App User ID. Account sharing and automatic transfers to
   a different application account are not supported; customer support should

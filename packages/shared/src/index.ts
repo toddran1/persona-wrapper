@@ -637,7 +637,8 @@ export const billingCatalogProductSchema = z.object({
   planId: planIdSchema,
   displayName: z.string().min(1),
   description: z.string().min(1),
-  monthlyPriceCents: z.number().int().positive()
+  monthlyPriceCents: z.number().int().positive(),
+  webCheckoutUrl: z.string().url().optional()
 }).strict();
 export type BillingCatalogProduct = z.infer<typeof billingCatalogProductSchema>;
 

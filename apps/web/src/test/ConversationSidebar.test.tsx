@@ -41,7 +41,8 @@ const billingCatalog: BillingCatalogResponse = {
       planId: "silver",
       displayName: "Silver",
       description: "More media usage, most personas, and no ads.",
-      monthlyPriceCents: 799
+      monthlyPriceCents: 799,
+      webCheckoutUrl: "https://pay.rev.cat/test-link/user_1?package_id=silver_monthly"
     },
     {
       productId: "ftb_gold_monthly",
@@ -49,7 +50,8 @@ const billingCatalog: BillingCatalogResponse = {
       planId: "gold",
       displayName: "Gold",
       description: "The full persona library and the most generous media limits.",
-      monthlyPriceCents: 1199
+      monthlyPriceCents: 1199,
+      webCheckoutUrl: "https://pay.rev.cat/test-link/user_1?package_id=gold_monthly"
     }
   ]
 };
@@ -391,6 +393,8 @@ describe("ConversationSidebar settings", () => {
 
   it("keeps the account menu compact and moves account controls into the settings modal", async () => {
     const user = userEvent.setup();
+    const checkoutWindow = { opener: window };
+    const windowOpen = vi.spyOn(window, "open").mockReturnValue(checkoutWindow as unknown as Window);
     const { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory } = renderSidebar();
 
     await user.click(screen.getByTestId("account-menu-toggle"));
@@ -423,7 +427,12 @@ describe("ConversationSidebar settings", () => {
     expect(within(dialog).getByText("$11.99")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Your plan" })).toBeDisabled();
     await user.click(within(dialog).getByRole("button", { name: "Choose silver" }));
-    expect(within(dialog).getByText(/purchases are currently completed.*mobile app/i)).toBeInTheDocument();
+    expect(windowOpen).toHaveBeenCalledWith(
+      "https://pay.rev.cat/test-link/user_1?package_id=silver_monthly",
+      "_blank"
+    );
+    expect(checkoutWindow.opener).toBeNull();
+    expect(within(dialog).getByText(/RevenueCat checkout opened for silver/i)).toBeInTheDocument();
     expect(within(dialog).getByText("94% left")).toBeInTheDocument();
     expect(within(dialog).getByRole("progressbar", { name: "Total monthly usage remaining" })).toHaveAttribute(
       "aria-valuenow",

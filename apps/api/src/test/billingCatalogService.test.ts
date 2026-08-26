@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildRevenueCatWebCheckoutUrl,
   normalizeStoreProductId,
   planIdForStoreProduct
 } from "../services/billingCatalogService.js";
@@ -20,5 +21,23 @@ describe("billing product catalog", () => {
     expect(planIdForStoreProduct("ftb_platinum_monthly")).toBeUndefined();
     expect(planIdForStoreProduct(" ")).toBeUndefined();
     expect(planIdForStoreProduct(undefined)).toBeUndefined();
+  });
+
+  it("builds an identified RevenueCat web checkout without leaking user data", () => {
+    expect(buildRevenueCatWebCheckoutUrl(
+      "https://pay.rev.cat/sandbox-token",
+      "user/with spaces",
+      "silver_monthly"
+    )).toBe(
+      "https://pay.rev.cat/sandbox-token/user%2Fwith%20spaces?package_id=silver_monthly&skip_purchase_success=true"
+    );
+    expect(buildRevenueCatWebCheckoutUrl(undefined, "user_1")).toBeUndefined();
+  });
+
+  it("rejects checkout links outside RevenueCat's secure purchase-link host", () => {
+    expect(() => buildRevenueCatWebCheckoutUrl("http://pay.rev.cat/test", "user_1", "silver_monthly"))
+      .toThrow(/HTTPS pay\.rev\.cat/);
+    expect(() => buildRevenueCatWebCheckoutUrl("https://example.com/test", "user_1", "silver_monthly"))
+      .toThrow(/HTTPS pay\.rev\.cat/);
   });
 });
