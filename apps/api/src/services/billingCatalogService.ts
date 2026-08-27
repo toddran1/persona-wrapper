@@ -8,6 +8,10 @@ import { customerUsageService } from "./customerUsageService.js";
 import { getPlanDefinition } from "./planCatalog.js";
 
 const catalogEntries = Object.values(billingProductCatalog);
+const legacyStoreProductIds: Readonly<Record<string, PlanId>> = {
+  ftb_silver_monthly: "silver",
+  ftb_gold_monthly: "gold"
+};
 
 function webPackageId(planId: PlanId): string | undefined {
   if (planId === "silver") return env.REVENUECAT_WEB_SILVER_PACKAGE_ID;
@@ -37,8 +41,16 @@ export function normalizeStoreProductId(productId: string): string {
 
 export function planIdForStoreProduct(productId: string | null | undefined): PlanId | undefined {
   if (!productId) return undefined;
-  const normalized = normalizeStoreProductId(productId);
-  return catalogEntries.find((product) => product.productId === normalized)?.planId;
+  const candidate = productId.trim();
+  if (!candidate) return undefined;
+  const exactMatch = catalogEntries.find((product) =>
+    candidate === product.iosProductId ||
+    candidate === `${product.androidProductId}:${product.androidBasePlanId}`
+  );
+  if (exactMatch) return exactMatch.planId;
+  const normalized = normalizeStoreProductId(candidate);
+  const baseMatch = catalogEntries.find((product) => normalized === product.androidProductId);
+  return baseMatch?.planId ?? legacyStoreProductIds[normalized];
 }
 
 export async function getBillingCatalog(userId: string): Promise<BillingCatalogResponse> {
@@ -50,7 +62,7 @@ export async function getBillingCatalog(userId: string): Promise<BillingCatalogR
     products: catalogEntries.map((product) => {
       const plan = getPlanDefinition(product.planId);
       if (plan.monthlyPriceCents === null) {
-        throw new Error(`Paid billing product ${product.productId} is mapped to a free plan.`);
+        throw new Error(`Paid billing product ${product.planId} is mapped to a free plan.`);
       }
       const packageId = webPackageId(product.planId);
       const webCheckoutUrl = packageId

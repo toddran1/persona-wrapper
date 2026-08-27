@@ -9,7 +9,7 @@ describe("RevenueCat webhook parsing", () => {
       app_user_id: "user_1",
       original_app_user_id: null,
       aliases: null,
-      product_id: "ftb_silver_monthly",
+      product_id: "com.forthebaddiez.silver:silver-monthly",
       new_product_id: null,
       app_id: null,
       store: null,

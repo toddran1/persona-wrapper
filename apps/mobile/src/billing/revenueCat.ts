@@ -1,4 +1,4 @@
-import type { BillingCatalogResponse } from "@persona/shared";
+import type { BillingCatalogProduct, BillingCatalogResponse, PlanId } from "@persona/shared";
 import { Platform } from "react-native";
 import Purchases, {
   LOG_LEVEL,
@@ -58,10 +58,21 @@ export function disconnectRevenueCat(): Promise<void> {
 }
 
 export type StoreBillingProduct = {
-  productId: string;
+  planId: "silver" | "gold";
+  storeProductId: string;
   price: string;
   package: PurchasesPackage;
 };
+
+function androidRevenueCatProductId(product: BillingCatalogProduct): string {
+  return `${product.androidProductId}:${product.androidBasePlanId}`;
+}
+
+function matchesCatalogProduct(identifier: string, product: BillingCatalogProduct): boolean {
+  if (Platform.OS === "ios") return identifier === product.iosProductId;
+  if (Platform.OS !== "android") return false;
+  return identifier === product.androidProductId || identifier === androidRevenueCatProductId(product);
+}
 
 export async function loadStoreBillingProducts(
   userId: string,
@@ -72,21 +83,62 @@ export async function loadStoreBillingProducts(
     const offerings = await Purchases.getOfferings();
     const offering = offerings.all[catalog.offeringId] ?? offerings.current;
     if (!offering) throw new Error("Subscriptions are temporarily unavailable. Please try again later.");
-    const catalogIds = new Set(catalog.products.map((product) => product.productId));
     return offering.availablePackages.flatMap((candidate) => {
-      const normalized = candidate.product.identifier.split(":", 1)[0] ?? candidate.product.identifier;
-      return catalogIds.has(normalized)
-        ? [{ productId: normalized, price: candidate.product.priceString, package: candidate }]
+      const product = catalog.products.find((entry) => matchesCatalogProduct(candidate.product.identifier, entry));
+      return product && product.planId !== "bronze"
+        ? [{ planId: product.planId, storeProductId: candidate.product.identifier, price: candidate.product.priceString, package: candidate }]
         : [];
     });
   });
 }
 
-export function purchaseStorePackage(userId: string, candidate: PurchasesPackage): Promise<"purchased" | "cancelled"> {
+function androidActiveProductIdentifier(productIdentifier: string, productPlanIdentifier: string | null): string {
+  if (productIdentifier.includes(":") || !productPlanIdentifier) return productIdentifier;
+  return `${productIdentifier}:${productPlanIdentifier}`;
+}
+
+export function purchaseStorePackage(
+  userId: string,
+  candidate: PurchasesPackage,
+  catalog: BillingCatalogResponse,
+  targetPlanId: "silver" | "gold"
+): Promise<"purchased" | "cancelled"> {
   return runRevenueCatOperation(async () => {
     if (!(await configureRevenueCatInternal(userId))) throw new Error("Store billing is not configured for this build.");
     try {
-      await Purchases.purchasePackage(candidate);
+      const currentPlanId = catalog.currentPlanId;
+      if (currentPlanId !== "bronze" && currentPlanId !== targetPlanId) {
+        const currentProduct = catalog.products.find((product) => product.planId === currentPlanId);
+        const currentEntitlement = currentProduct
+          ? (await Purchases.getCustomerInfo()).entitlements.active[currentProduct.entitlementId]
+          : undefined;
+        if (!currentProduct || !currentEntitlement) {
+          throw new Error("This subscription is managed outside this app store. Use Manage subscription to change it without creating a second subscription.");
+        }
+        if (Platform.OS === "android") {
+          if (currentEntitlement.store !== "PLAY_STORE") {
+            throw new Error("This subscription was purchased on another platform. Use Manage subscription to change it there.");
+          }
+          const planRank: Record<PlanId, number> = { bronze: 0, silver: 1, gold: 2 };
+          const replacementMode = planRank[targetPlanId] > planRank[currentPlanId]
+            ? Purchases.STORE_REPLACEMENT_MODE.CHARGE_PRORATED_PRICE
+            : Purchases.STORE_REPLACEMENT_MODE.DEFERRED;
+          await Purchases.purchasePackage(candidate, null, {
+            oldProductIdentifier: androidActiveProductIdentifier(
+              currentEntitlement.productIdentifier,
+              currentEntitlement.productPlanIdentifier
+            ),
+            replacementMode
+          });
+        } else {
+          if (Platform.OS === "ios" && currentEntitlement.store !== "APP_STORE") {
+            throw new Error("This subscription was purchased on another platform. Use Manage subscription to change it there.");
+          }
+          await Purchases.purchasePackage(candidate);
+        }
+      } else {
+        await Purchases.purchasePackage(candidate);
+      }
       return "purchased";
     } catch (error) {
       const purchaseError = error as Partial<PurchasesError>;

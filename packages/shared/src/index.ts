@@ -620,19 +620,25 @@ export type BillingProvider = z.infer<typeof billingProviderSchema>;
 
 export const billingProductCatalog = {
   silverMonthly: {
-    productId: "ftb_silver_monthly",
+    iosProductId: "com.forthebaddiez.silver.monthly",
+    androidProductId: "com.forthebaddiez.silver",
+    androidBasePlanId: "silver-monthly",
     entitlementId: "silver",
     planId: "silver"
   },
   goldMonthly: {
-    productId: "ftb_gold_monthly",
+    iosProductId: "com.forthebaddiez.gold.monthly",
+    androidProductId: "com.forthebaddiez.gold",
+    androidBasePlanId: "gold-monthly",
     entitlementId: "gold",
     planId: "gold"
   }
 } as const;
 
 export const billingCatalogProductSchema = z.object({
-  productId: z.string().min(1),
+  iosProductId: z.string().min(1),
+  androidProductId: z.string().min(1),
+  androidBasePlanId: z.string().min(1),
   entitlementId: z.string().min(1),
   planId: planIdSchema,
   displayName: z.string().min(1),

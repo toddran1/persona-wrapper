@@ -15,14 +15,18 @@ web client never grants itself paid access.
 Create matching products in App Store Connect, Google Play Console, and
 RevenueCat:
 
-| Plan | Store product ID | RevenueCat entitlement | Price |
-| --- | --- | --- | --- |
-| Silver | `ftb_silver_monthly` | `silver` | $7.99/month |
-| Gold | `ftb_gold_monthly` | `gold` | $11.99/month |
+| Plan | Apple product ID | Google product/base plan | RevenueCat entitlement | Price |
+| --- | --- | --- | --- | --- |
+| Silver | `com.forthebaddiez.silver.monthly` | `com.forthebaddiez.silver` / `silver-monthly` | `silver` | $7.99/month |
+| Gold | `com.forthebaddiez.gold.monthly` | `com.forthebaddiez.gold` / `gold-monthly` | `gold` | $11.99/month |
 
 Create a RevenueCat offering named `default` and add both monthly packages.
-Google Play base-plan suffixes are accepted by the API, so webhook product IDs
-such as `ftb_silver_monthly:monthly` still map to Silver.
+RevenueCat reports the Google products as
+`com.forthebaddiez.silver:silver-monthly` and
+`com.forthebaddiez.gold:gold-monthly`; the API accepts both those full IDs and
+their base product IDs. The former `ftb_silver_monthly` and
+`ftb_gold_monthly` IDs remain server-only aliases so existing test receipts do
+not unexpectedly lose access, but clients do not advertise those products.
 
 The identifiers live in `packages/shared/src/index.ts`. Plan allowances and
 fallback display prices remain versioned in
@@ -33,7 +37,11 @@ fallback display prices remain versioned in
 1. Complete the paid-app agreements, tax, and banking setup in App Store
    Connect and Google Play Console.
 2. Connect both store apps to one RevenueCat project.
-3. Create the products, entitlements, and `default` offering above.
+3. Create the products, entitlements, and `default` offering above. Put both
+   Apple products in the same subscription group and rank Gold above Silver.
+   Configure the Google `silver-monthly` and `gold-monthly` base plans as
+   active monthly offers, then verify RevenueCat imports both product/base-plan
+   combinations for replacement purchases.
 4. Configure this webhook URL:
    `https://<api-host>/api/billing/revenuecat/webhook`.
 5. Give the webhook a long random Authorization value and set the identical
@@ -41,14 +49,19 @@ fallback display prices remain versioned in
 6. Set `REVENUECAT_ALLOWED_APP_IDS` to the comma-separated RevenueCat app IDs.
    This prevents another project/app from granting access even if a webhook
    secret is accidentally reused.
-7. Add a RevenueCat Web Billing app, create matching web products using the
-   same `ftb_silver_monthly` and `ftb_gold_monthly` identifiers, and attach
-   them to the `default` offering.
+7. Add a RevenueCat Web Billing app, create matching Silver and Gold web
+   products, and attach them to the `default` offering.
 8. Create custom Silver and Gold packages in that offering and create a Web
    Purchase Link. Use the generated sandbox link for development and the
    production link for production.
 9. Add the RevenueCat Web Billing app ID to `REVENUECAT_ALLOWED_APP_IDS` so its
    webhook events are accepted by the API.
+10. Configure Silver-to-Gold and Gold-to-Silver package-change paths for the
+    RevenueCat Web purchase flow. Upgrades should be immediate and downgrades
+    should begin at the next renewal.
+11. Enable Google Play real-time developer notifications in RevenueCat.
+    Deferred Google downgrades depend on those notifications reaching
+    RevenueCat and the application webhook.
 
 Webhook event IDs are persisted before processing. Duplicate deliveries are
 safe, in-progress duplicates return a retryable response, failed events can be
@@ -142,8 +155,15 @@ if either endpoint is localhost, or if an endpoint is not HTTPS.
 - A successful store purchase is followed by bounded API polling while the
   RevenueCat webhook updates the server plan.
 - Restore purchases is always available in a configured store build.
-- Paid users change or cancel plans through the native store subscription
-  manager. This avoids incorrect Android replacement/proration handling.
+- Paid users can explicitly switch between Silver and Gold in Plan & usage.
+  Apple performs the change inside the shared subscription group. Android
+  supplies the active product to RevenueCat and uses prorated charging for an
+  upgrade or a deferred replacement for a downgrade.
+- A mobile subscription purchased from another platform cannot be replaced in
+  the current store. The app directs that user to Manage subscription instead
+  of risking a second active subscription.
+- Manage subscription remains available for cancellation, payment-method
+  changes, and store-level subscription details.
 - Signing out logs out of RevenueCat as well, preventing account state from
   leaking between users on a shared device.
 - Web checkout opens an identified RevenueCat Purchase Link containing only
@@ -151,6 +171,12 @@ if either endpoint is localhost, or if an endpoint is not HTTPS.
   polls the API for a bounded period while the existing webhook records the
   subscription. A delayed webhook remains recoverable by reopening Plan &
   usage; access is never granted from the browser's success state alone.
+- Web upgrades are polled until the upgraded plan is active. Web downgrades
+  remain on the current plan until renewal, so the client reports the scheduled
+  change without prematurely reducing access.
+- RevenueCat `PRODUCT_CHANGE` webhooks are informational and do not grant or
+  revoke access. Effective purchase/renewal/expiration events remain the
+  authority for plan access.
 - Browser pop-up blocking leaves the user on the plan page with a retryable
   message. Configure RevenueCat's Purchase Link success behavior for a useful
   confirmation page, but do not treat that redirect as proof of payment.
@@ -167,8 +193,12 @@ the subscription controls disabled.
 
 - Apply migration `0022_revenuecat_billing.sql` before enabling the webhook.
 - Confirm the two store products are active and attached to `default`.
+- Confirm the Apple products share one subscription group with Gold ranked
+  above Silver, and that Google real-time developer notifications are active.
 - Verify purchase, cancellation, expiration, refund, restore, and account
   switching with sandbox accounts on both platforms.
+- Verify Silver-to-Gold upgrades and Gold-to-Silver deferred downgrades on
+  Apple, Google, and RevenueCat Web.
 - Verify an interrupted purchase and a delayed webhook leave the client in a
   recoverable pending state without granting access locally.
 - Verify a duplicate webhook returns `duplicate` and does not create a second

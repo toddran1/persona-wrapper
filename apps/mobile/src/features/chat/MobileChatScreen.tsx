@@ -931,22 +931,48 @@ export function MobileChatScreen() {
   async function purchaseBillingProduct(product: StoreBillingProduct): Promise<void> {
     const requestedAccountId = authUser?.id;
     if (!requestedAccountId) return;
-    const catalogProduct = billingCatalog?.products.find((candidate) => candidate.productId === product.productId);
-    if (!catalogProduct) {
+    const catalog = billingCatalog;
+    const catalogProduct = catalog?.products.find((candidate) => candidate.planId === product.planId);
+    if (!catalog || !catalogProduct) {
       setBillingError("This subscription option is no longer available. Refresh the plan page and try again.");
       return;
     }
-    setBillingBusyProductId(product.productId);
+    const planRank: Record<"bronze" | "silver" | "gold", number> = { bronze: 0, silver: 1, gold: 2 };
+    const currentPlanId = catalog.currentPlanId;
+    const isPlanChange = currentPlanId !== "bronze" && currentPlanId !== product.planId;
+    const isDowngrade = isPlanChange && planRank[product.planId] < planRank[currentPlanId];
+    if (isPlanChange) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          isDowngrade ? `Switch to ${catalogProduct.displayName}?` : `Upgrade to ${catalogProduct.displayName}?`,
+          isDowngrade
+            ? `${catalogProduct.displayName} will begin at your next renewal. Your current plan remains active until then.`
+            : `${catalogProduct.displayName} access begins after the app store confirms the change. Your store may charge a prorated amount.`,
+          [
+            { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+            { text: isDowngrade ? "Schedule switch" : "Upgrade", onPress: () => resolve(true) }
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) }
+        );
+      });
+      if (!confirmed) return;
+    }
+    setBillingBusyProductId(product.planId);
     setBillingError(undefined);
     setBillingNotice(undefined);
     try {
-      const result = await purchaseStorePackage(requestedAccountId, product.package);
+      const result = await purchaseStorePackage(requestedAccountId, product.package, catalog, product.planId);
       if (result === "cancelled") return;
       if (currentAccountIdRef.current !== requestedAccountId) return;
-      setBillingNotice("Purchase received. Updating your access…");
-      const updated = await waitForBillingPlan(catalogProduct.planId === "gold" ? "gold" : "silver");
+      if (isDowngrade) {
+        setBillingNotice(`${catalogProduct.displayName} is scheduled for your next renewal. Your current plan remains active until then.`);
+        await refreshBilling();
+        return;
+      }
+      setBillingNotice(isPlanChange ? "Plan change received. Updating your access…" : "Purchase received. Updating your access…");
+      const updated = await waitForBillingPlan(product.planId);
       if (updated) {
-        setBillingNotice("Purchase complete. Your plan is now available.");
+        setBillingNotice(isPlanChange ? `${catalogProduct.displayName} is now active.` : "Purchase complete. Your plan is now available.");
       }
     } catch (purchaseError) {
       if (currentAccountIdRef.current === requestedAccountId) {
@@ -4195,12 +4221,14 @@ export function MobileChatScreen() {
                     <View style={styles.settingsSection}>
                       <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Subscription plans</Text>
                       {billingCatalog.products.map((product) => {
-                        const storeProduct = storeBillingProducts.find((candidate) => candidate.productId === product.productId);
+                        const storeProduct = storeBillingProducts.find((candidate) => candidate.planId === product.planId);
                         const current = billingCatalog.currentPlanId === product.planId;
-                        const hasPaidPlan = billingCatalog.currentPlanId !== "bronze";
+                        const planRank = { bronze: 0, silver: 1, gold: 2 } as const;
+                        const isPlanChange = billingCatalog.currentPlanId !== "bronze" && !current;
+                        const isDowngrade = isPlanChange && planRank[product.planId] < planRank[billingCatalog.currentPlanId];
                         const price = storeProduct?.price ?? `$${(product.monthlyPriceCents / 100).toFixed(2)}`;
                         return (
-                          <View key={product.productId} style={[styles.settingsPlanCard, { backgroundColor: "rgba(255,255,255,0.07)", borderColor: current ? theme.accent2 : theme.border }]}>
+                          <View key={product.planId} style={[styles.settingsPlanCard, { backgroundColor: "rgba(255,255,255,0.07)", borderColor: current ? theme.accent2 : theme.border }]}>
                             <View style={styles.settingsUsageHeading}>
                               <Text style={[styles.settingsRowText, { color: theme.text }]}>{product.displayName}</Text>
                               <Text style={[styles.settingsTotalUsageRemaining, { color: theme.accent2 }]}>{price}/month</Text>
@@ -4208,8 +4236,6 @@ export function MobileChatScreen() {
                             <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>{product.description}</Text>
                             {current ? (
                               <Text style={[styles.settingsRowHint, { color: theme.accent2 }]}>Current plan</Text>
-                            ) : hasPaidPlan ? (
-                              <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Change paid plans through Manage subscription.</Text>
                             ) : (
                               <Pressable
                                 accessibilityRole="button"
@@ -4217,7 +4243,11 @@ export function MobileChatScreen() {
                                 onPress={() => storeProduct ? void purchaseBillingProduct(storeProduct) : undefined}
                                 style={[styles.settingsBillingButton, { backgroundColor: theme.accent2, opacity: storeProduct && !billingBusyProductId ? 1 : 0.45 }]}
                               >
-                                {billingBusyProductId === product.productId ? <ActivityIndicator color={theme.background} /> : <Text style={[styles.settingsBillingButtonText, { color: theme.background }]}>Choose {product.displayName}</Text>}
+                                {billingBusyProductId === product.planId
+                                  ? <ActivityIndicator color={theme.background} />
+                                  : <Text style={[styles.settingsBillingButtonText, { color: theme.background }]}>
+                                      {isDowngrade ? `Switch to ${product.displayName}` : isPlanChange ? `Upgrade to ${product.displayName}` : `Choose ${product.displayName}`}
+                                    </Text>}
                               </Pressable>
                             )}
                           </View>

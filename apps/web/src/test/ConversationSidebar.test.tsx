@@ -36,7 +36,9 @@ const billingCatalog: BillingCatalogResponse = {
   currentPlanId: "bronze",
   products: [
     {
-      productId: "ftb_silver_monthly",
+      iosProductId: "com.forthebaddiez.silver.monthly",
+      androidProductId: "com.forthebaddiez.silver",
+      androidBasePlanId: "silver-monthly",
       entitlementId: "silver",
       planId: "silver",
       displayName: "Silver",
@@ -45,7 +47,9 @@ const billingCatalog: BillingCatalogResponse = {
       webCheckoutUrl: "https://pay.rev.cat/test-link/user_1?package_id=silver_monthly"
     },
     {
-      productId: "ftb_gold_monthly",
+      iosProductId: "com.forthebaddiez.gold.monthly",
+      androidProductId: "com.forthebaddiez.gold",
+      androidBasePlanId: "gold-monthly",
       entitlementId: "gold",
       planId: "gold",
       displayName: "Gold",

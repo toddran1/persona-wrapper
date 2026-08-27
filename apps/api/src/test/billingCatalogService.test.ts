@@ -7,14 +7,19 @@ import {
 
 describe("billing product catalog", () => {
   it("maps the shared store products to application plans", () => {
-    expect(planIdForStoreProduct("ftb_silver_monthly")).toBe("silver");
-    expect(planIdForStoreProduct("ftb_gold_monthly")).toBe("gold");
+    expect(planIdForStoreProduct("com.forthebaddiez.silver.monthly")).toBe("silver");
+    expect(planIdForStoreProduct("com.forthebaddiez.gold.monthly")).toBe("gold");
   });
 
   it("accepts Google Play base-plan product identifiers", () => {
-    expect(normalizeStoreProductId("ftb_gold_monthly:monthly")).toBe("ftb_gold_monthly");
+    expect(normalizeStoreProductId("com.forthebaddiez.gold:gold-monthly")).toBe("com.forthebaddiez.gold");
+    expect(planIdForStoreProduct("com.forthebaddiez.gold:gold-monthly")).toBe("gold");
+    expect(planIdForStoreProduct("  com.forthebaddiez.silver:silver-monthly  ")).toBe("silver");
+  });
+
+  it("keeps legacy product aliases valid for existing receipts", () => {
+    expect(planIdForStoreProduct("ftb_silver_monthly")).toBe("silver");
     expect(planIdForStoreProduct("ftb_gold_monthly:monthly")).toBe("gold");
-    expect(planIdForStoreProduct("  ftb_silver_monthly:monthly  ")).toBe("silver");
   });
 
   it("does not grant access for unknown or blank products", () => {
