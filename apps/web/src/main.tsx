@@ -8,6 +8,7 @@ import { AppErrorBoundary } from "./components/AppErrorBoundary.js";
 import { PublicLegalPage, PUBLIC_PAGE_PATHS } from "./components/PublicLegalPage.js";
 import { MobileOAuthReturnPage } from "./components/MobileOAuthReturnPage.js";
 import { ResetPasswordPage } from "./components/ResetPasswordPage.js";
+import { BillingReturnPage } from "./components/BillingReturnPage.js";
 import { installClientCrashReporting } from "./lib/telemetry.js";
 import "./styles.css";
 import { queryClient } from "./lib/queryClient.js";
@@ -25,6 +26,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/auth/mobile-callback" element={<MobileOAuthReturnPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/billing/return" element={<BillingReturnPage />} />
             {[...PUBLIC_PAGE_PATHS].map((path) => (
               <Route key={path} path={path} element={<PublicLegalPage path={path} />} />
             ))}

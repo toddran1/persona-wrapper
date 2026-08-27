@@ -435,7 +435,7 @@ services:
       - key: REVENUECAT_WEBHOOK_AUTHORIZATION
         sync: false
       - key: REVENUECAT_ALLOWED_ENVIRONMENTS
-        value: PRODUCTION
+        value: SANDBOX,PRODUCTION
       - key: REVENUECAT_ALLOWED_APP_IDS
         sync: false
       - key: REVENUECAT_WEB_PURCHASE_LINK_URL

@@ -19,6 +19,7 @@ import type {
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { PasswordInput } from "./PasswordInput.js";
+import { clearPendingBillingCheckout, savePendingBillingCheckout } from "../lib/pendingBillingCheckout.js";
 
 const REGISTER_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
@@ -587,8 +588,19 @@ export function ConversationSidebar({
       setPlanNotice("Web checkout is not configured for this plan yet.");
       return;
     }
+    if (!authUser?.id) {
+      setPlanNotice("Sign in before opening checkout so the purchase can be connected to your account.");
+      return;
+    }
+    savePendingBillingCheckout({
+      accountId: authUser.id,
+      currentPlanId,
+      planId,
+      startedAt: Date.now()
+    });
     const checkoutWindow = window.open(checkoutUrl, "_blank");
     if (!checkoutWindow) {
+      clearPendingBillingCheckout();
       setPlanNotice("Your browser blocked the checkout window. Allow pop-ups for this site and try again.");
       return;
     }
