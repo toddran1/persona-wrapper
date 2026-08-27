@@ -10,6 +10,9 @@ services:
     name: for-the-baddiez-api-dev
     region: ohio
     plan: starter
+    # Keep development isolated from production deploys. Render otherwise uses
+    # the repository default branch whenever this Blueprint syncs.
+    branch: develop
     autoDeployTrigger: commit
     # TypeScript's declarations are build-time dev dependencies. Keep the
     # service's production mode scoped to migration and runtime commands.
@@ -296,6 +299,7 @@ services:
   - type: web
     runtime: static
     name: for-the-baddiez-web-dev
+    branch: develop
     autoDeployTrigger: commit
     buildCommand: npm ci --include=dev && npm run build -w @persona/shared && npm run build -w @persona/web
     staticPublishPath: ./apps/web/dist
@@ -339,6 +343,7 @@ services:
     name: for-the-baddiez-api
     region: ohio
     plan: starter
+    branch: main
     autoDeployTrigger: commit
     buildCommand: npm ci --include=dev && npm run build -w @persona/shared && npm run build -w @persona/api
     preDeployCommand: NODE_ENV=production npm run db:migrate -w @persona/api
@@ -614,6 +619,7 @@ services:
   - type: web
     runtime: static
     name: for-the-baddiez-web
+    branch: main
     autoDeployTrigger: commit
     buildCommand: npm ci --include=dev && npm run build -w @persona/shared && npm run build -w @persona/web
     staticPublishPath: ./apps/web/dist
