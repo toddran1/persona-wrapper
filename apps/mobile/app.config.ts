@@ -3,19 +3,10 @@ import type { ExpoConfig } from "expo/config";
 const appEnvironment = process.env.EXPO_PUBLIC_APP_ENV?.trim() || "development";
 const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() || "http://localhost:4000";
 const webAppUrl = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "http://localhost:5173";
-const requiresRevenueCatConfiguration =
-  appEnvironment === "production" || process.env.EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION === "true";
-
-if (appEnvironment === "production" || requiresRevenueCatConfiguration) {
+if (appEnvironment === "production") {
   const required = [
     ["EXPO_PUBLIC_API_URL", apiUrl],
-    ["EXPO_PUBLIC_WEB_APP_URL", webAppUrl],
-    ...(requiresRevenueCatConfiguration
-      ? ([
-          ["EXPO_PUBLIC_REVENUECAT_IOS_API_KEY", process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY?.trim()],
-          ["EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY", process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY?.trim()]
-        ] as const)
-      : [])
+    ["EXPO_PUBLIC_WEB_APP_URL", webAppUrl]
   ] as const;
   const missing = required.filter(([, value]) => !value).map(([name]) => name);
   if (missing.length > 0) throw new Error(`Store mobile configuration is missing: ${missing.join(", ")}`);
