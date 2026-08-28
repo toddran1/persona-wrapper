@@ -162,6 +162,7 @@ const envSchema = z.object({
   BILLING_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
   BILLING_PROVIDER: z.literal("revenuecat").default("revenuecat"),
   REVENUECAT_OFFERING_ID: z.preprocess(optionalTrimmedString, z.string().min(1).default("default")),
+  REVENUECAT_PROJECT_ID: z.preprocess(optionalTrimmedString, z.string().min(1).max(255).optional()),
   REVENUECAT_SECRET_API_KEY: z.preprocess(optionalWhitespaceFreeSecret, z.string().min(1).optional()),
   REVENUECAT_WEBHOOK_AUTHORIZATION: z.preprocess(optionalTrimmedString, z.string().min(24).optional()),
   REVENUECAT_ALLOWED_ENVIRONMENTS: z.preprocess(

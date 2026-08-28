@@ -91,7 +91,8 @@ Development/sandbox:
 BILLING_ENABLED=true
 BILLING_PROVIDER=revenuecat
 REVENUECAT_OFFERING_ID=default
-REVENUECAT_SECRET_API_KEY=<secret-api-key-with-customer-information-read-access>
+REVENUECAT_PROJECT_ID=<revenuecat-project-id>
+REVENUECAT_SECRET_API_KEY=<revenuecat-rest-api-v2-secret-key>
 REVENUECAT_WEBHOOK_AUTHORIZATION=<long-random-shared-value>
 REVENUECAT_ALLOWED_ENVIRONMENTS=SANDBOX
 REVENUECAT_ALLOWED_APP_IDS=<revenuecat-ios-app-id>,<revenuecat-android-app-id>
@@ -109,13 +110,22 @@ Purchase Links are used only when a Bronze member starts a paid subscription.
 Existing paid members must change plans through RevenueCat Billing's Customer
 Portal so the configured upgrade and downgrade paths are applied. The API uses
 `REVENUECAT_SECRET_API_KEY` only server-side to fetch the authenticated portal
-URL for the signed-in App User ID. Create a secret key with the minimum
-customer and subscription read permissions; never expose it through the web or
-mobile clients.
+URL for the signed-in App User ID. It lists the customer's active RevenueCat
+Web Billing subscriptions with REST API v2, then requests a secure single-use
+management URL for that subscription. Create an API Version 2 secret key with
+only `customer_information:subscriptions:read`; no write, refund, cancellation,
+or entitlement permissions are required. Never expose the key through the web
+or mobile clients.
 
 `render.yaml` enables billing for the hosted development and production APIs
 and declares secret values without committing them. A deployment will fail
 closed if the webhook authorization or allowed RevenueCat app IDs are absent.
+Because `REVENUECAT_PROJECT_ID` and `REVENUECAT_SECRET_API_KEY` are declared
+with `sync: false`, adding them to the Blueprint does not populate an existing
+Render service automatically. Set both separately on each API service that
+needs subscription management, then redeploy that service. A Version 1 key,
+public SDK key, or purchase-link token cannot authenticate the v2 management
+request.
 
 ## Production Render environment
 

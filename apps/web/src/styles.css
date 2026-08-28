@@ -1334,6 +1334,39 @@ textarea {
   line-height: 1.55;
 }
 
+.settings-plan-change-confirmation {
+  display: grid;
+  gap: 8px;
+  margin-top: 17px;
+  color: rgba(244, 235, 229, 0.82);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.settings-plan-change-confirmation strong {
+  color: var(--accent-2);
+  letter-spacing: 0.08em;
+}
+
+.settings-plan-change-confirmation input {
+  width: 100%;
+  min-height: 42px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid rgba(214, 181, 94, 0.3);
+  border-radius: 10px;
+  outline: none;
+  color: #fff8ef;
+  background: rgba(7, 4, 11, 0.62);
+  font: inherit;
+  letter-spacing: 0.08em;
+}
+
+.settings-plan-change-confirmation input:focus-visible {
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px rgba(214, 181, 94, 0.13);
+}
+
 .settings-plan-change-actions {
   display: flex;
   justify-content: end;

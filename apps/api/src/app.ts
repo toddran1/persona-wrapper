@@ -11,7 +11,7 @@ import { createExpressEndpoints } from "@ts-rest/express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { authenticateRequest, requireCurrentPolicyConsent, requireVerifiedEmail } from "./middleware/authMiddleware.js";
-import { authRateLimit, dataTransferRateLimit, safetyReportRateLimit, signupAbuseRateLimit } from "./middleware/authRateLimit.js";
+import { authRateLimit, billingManagementRateLimit, dataTransferRateLimit, safetyReportRateLimit, signupAbuseRateLimit } from "./middleware/authRateLimit.js";
 import { forwardExpressClientIp } from "./middleware/proxyClientIp.js";
 import { chatRouter } from "./routes/chat.routes.js";
 import { apiContractRouter } from "./routes/contract.routes.js";
@@ -308,6 +308,7 @@ export function createApp() {
   // Rate-limit account mutations, but not the provider-status read that runs
   // whenever the sign-in screen mounts.
   app.post("/api/account/restore", authRateLimit);
+  app.post("/api/account/billing/management", billingManagementRateLimit);
   app.delete("/api/account", authRateLimit);
   app.post("/api/data/jobs/export", dataTransferRateLimit);
   app.post("/api/data/jobs/import/presign", dataTransferRateLimit);

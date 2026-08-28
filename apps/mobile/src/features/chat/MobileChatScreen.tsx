@@ -329,6 +329,8 @@ export function MobileChatScreen() {
   const [billingBusyProductId, setBillingBusyProductId] = useState<string | undefined>();
   const [billingError, setBillingError] = useState<string | undefined>();
   const [billingNotice, setBillingNotice] = useState<string | undefined>();
+  const [freeDowngradeVisible, setFreeDowngradeVisible] = useState(false);
+  const [freeDowngradeConfirmation, setFreeDowngradeConfirmation] = useState("");
   const drawerX = useSharedValue(-drawerWidth);
   const scrollRef = useRef<FlashListRef<RenderedTurn>>(null);
   const turnsRef = useRef<RenderedTurn[]>([]);
@@ -472,6 +474,8 @@ export function MobileChatScreen() {
     setBillingBusyProductId(undefined);
     setBillingError(undefined);
     setBillingNotice(undefined);
+    setFreeDowngradeVisible(false);
+    setFreeDowngradeConfirmation("");
   }, [authUser?.id]);
 
   useEffect(() => {
@@ -1015,13 +1019,16 @@ export function MobileChatScreen() {
     }
   }
 
-  async function manageBillingSubscription(): Promise<void> {
+  async function manageBillingSubscription(intent: "manage" | "free-downgrade" = "manage"): Promise<void> {
     const requestedAccountId = authUser?.id;
     if (!requestedAccountId) return;
     setBillingBusyProductId("manage");
     setBillingError(undefined);
     try {
       await showStoreSubscriptionManagement(requestedAccountId);
+      if (intent === "free-downgrade" && currentAccountIdRef.current === requestedAccountId) {
+        setBillingNotice("Cancel renewal in subscription management to return to Bronze after your current paid period.");
+      }
     } catch (manageError) {
       if (currentAccountIdRef.current === requestedAccountId) {
         setBillingError(manageError instanceof Error ? manageError.message : "Could not open subscription management.");
@@ -1029,6 +1036,20 @@ export function MobileChatScreen() {
     } finally {
       if (currentAccountIdRef.current === requestedAccountId) setBillingBusyProductId(undefined);
     }
+  }
+
+  function openFreeDowngradeConfirmation(): void {
+    setBillingError(undefined);
+    setBillingNotice(undefined);
+    setFreeDowngradeConfirmation("");
+    setFreeDowngradeVisible(true);
+  }
+
+  async function confirmFreeDowngrade(): Promise<void> {
+    if (freeDowngradeConfirmation.trim() !== "DOWNGRADE" || billingBusyProductId === "manage") return;
+    setFreeDowngradeVisible(false);
+    setFreeDowngradeConfirmation("");
+    await manageBillingSubscription("free-downgrade");
   }
 
   async function refreshMemorySettings(): Promise<void> {
@@ -4220,6 +4241,23 @@ export function MobileChatScreen() {
                   {billingCatalog?.enabled ? (
                     <View style={styles.settingsSection}>
                       <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Subscription plans</Text>
+                      {billingCatalog.currentPlanId !== "bronze" ? (
+                        <View style={[styles.settingsPlanCard, { backgroundColor: "rgba(255,255,255,0.07)", borderColor: theme.border }]}>
+                          <View style={styles.settingsUsageHeading}>
+                            <Text style={[styles.settingsRowText, { color: theme.text }]}>Bronze</Text>
+                            <Text style={[styles.settingsTotalUsageRemaining, { color: theme.accent2 }]}>$0/month</Text>
+                          </View>
+                          <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Free access begins after your current paid period ends.</Text>
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={Boolean(billingBusyProductId) || !revenueCatIsAvailable()}
+                            onPress={openFreeDowngradeConfirmation}
+                            style={[styles.settingsBillingButton, { backgroundColor: theme.accent2, opacity: billingBusyProductId || !revenueCatIsAvailable() ? 0.45 : 1 }]}
+                          >
+                            <Text style={[styles.settingsBillingButtonText, { color: theme.background }]}>Downgrade to Bronze</Text>
+                          </Pressable>
+                        </View>
+                      ) : null}
                       {billingCatalog.products.map((product) => {
                         const storeProduct = storeBillingProducts.find((candidate) => candidate.planId === product.planId);
                         const current = billingCatalog.currentPlanId === product.planId;
@@ -4525,6 +4563,61 @@ export function MobileChatScreen() {
               </Pressable>
               <Pressable accessibilityRole="button" accessibilityState={{ disabled: deleteAccountBusy || deleteConfirmation !== "DELETE" }} testID="mobile-delete-confirm" disabled={deleteAccountBusy || deleteConfirmation !== "DELETE"} onPress={() => void deleteAccount()} style={[styles.renamePrimaryButton, { backgroundColor: theme.danger, opacity: deleteConfirmation === "DELETE" ? 1 : 0.45 }]}>
                 <Text style={{ color: "#fff", fontWeight: "800" }}>{deleteAccountBusy ? "Scheduling..." : "Delete account"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        accessibilityViewIsModal
+        visible={freeDowngradeVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setFreeDowngradeVisible(false); setFreeDowngradeConfirmation(""); }}
+      >
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.loginScrim}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close downgrade confirmation"
+            style={StyleSheet.absoluteFill}
+            onPress={() => { setFreeDowngradeVisible(false); setFreeDowngradeConfirmation(""); }}
+          />
+          <View style={[styles.loginCard, styles.deleteAccountCard, sheetHorizontalInsets, { borderColor: theme.border, backgroundColor: defaultPersonaTheme.surfaceStrong }]}>
+            <Text style={[styles.loginTitle, { color: theme.text }]}>Return to Bronze?</Text>
+            <Text style={{ color: theme.muted, lineHeight: 20 }}>
+              Your paid access stays active through the current period. Subscription management will open so you can cancel renewal and return to Bronze afterward.
+            </Text>
+            <Text style={[styles.settingsFieldLabel, { color: theme.muted }]}>Type DOWNGRADE to confirm</Text>
+            <TextInput
+              accessibilityLabel="Type DOWNGRADE to confirm free plan downgrade"
+              testID="mobile-free-downgrade-confirmation"
+              value={freeDowngradeConfirmation}
+              onChangeText={setFreeDowngradeConfirmation}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              placeholder="Type DOWNGRADE"
+              placeholderTextColor={theme.muted}
+              style={[styles.loginInput, { borderColor: theme.border, color: theme.text }]}
+            />
+            <View style={styles.renameActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={billingBusyProductId === "manage"}
+                onPress={() => { setFreeDowngradeVisible(false); setFreeDowngradeConfirmation(""); }}
+                style={[styles.renameSecondaryButton, { borderColor: theme.border }]}
+              >
+                <Text style={{ color: theme.text }}>Keep current plan</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ disabled: freeDowngradeConfirmation.trim() !== "DOWNGRADE" || billingBusyProductId === "manage" }}
+                testID="mobile-free-downgrade-confirm"
+                disabled={freeDowngradeConfirmation.trim() !== "DOWNGRADE" || billingBusyProductId === "manage"}
+                onPress={() => void confirmFreeDowngrade()}
+                style={[styles.renamePrimaryButton, { backgroundColor: theme.accent2, opacity: freeDowngradeConfirmation.trim() === "DOWNGRADE" ? 1 : 0.45 }]}
+              >
+                <Text style={{ color: theme.background, fontWeight: "800" }}>Open subscription management</Text>
               </Pressable>
             </View>
           </View>

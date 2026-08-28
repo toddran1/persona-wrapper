@@ -16,6 +16,7 @@ const signupAttempts = new Map<string, RateLimitEntry>();
 const oauthPollAttempts = new Map<string, RateLimitEntry>();
 const dataTransferAttempts = new Map<string, RateLimitEntry>();
 const safetyReportAttempts = new Map<string, RateLimitEntry>();
+const billingManagementAttempts = new Map<string, RateLimitEntry>();
 const MAX_TRACKED_CLIENTS = 10_000;
 
 function pruneExpired(now: number): void {
@@ -216,6 +217,29 @@ export function safetyReportRateLimit(request: Request, response: Response, next
     ? { count: 1, resetAt: now + windowMs }
     : { ...current, count: current.count + 1 };
   safetyReportAttempts.set(key, entry);
+  finishRateLimit(entry, limit, response, next, message);
+}
+
+export function billingManagementRateLimit(request: Request, response: Response, next: NextFunction): void {
+  const identity = request.auth?.userId || request.ip || request.socket.remoteAddress || "unknown";
+  const key = `billing-management:${identity}`;
+  const message = "Too many subscription management requests. Please wait a moment and try again.";
+  const limit = 20;
+  const windowMs = 60 * 1000;
+  if (getDatabase()) {
+    void consumeDistributedLimit(key, "billing_management_request", limit, windowMs)
+      .then((entry) => finishRateLimit(entry, limit, response, next, message))
+      .catch(next);
+    return;
+  }
+
+  const now = Date.now();
+  pruneMap(billingManagementAttempts, now);
+  const current = billingManagementAttempts.get(key);
+  const entry = !current || current.resetAt <= now
+    ? { count: 1, resetAt: now + windowMs }
+    : { ...current, count: current.count + 1 };
+  billingManagementAttempts.set(key, entry);
   finishRateLimit(entry, limit, response, next, message);
 }
 

@@ -1733,6 +1733,7 @@ export const apiContract = contract.router({
         200: billingManagementResponseSchema,
         401: apiErrorSchema,
         409: apiErrorSchema,
+        429: apiErrorSchema,
         503: apiErrorSchema
       }
     },

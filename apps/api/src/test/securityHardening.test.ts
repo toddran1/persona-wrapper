@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
-import { authRateLimit, signupAbuseRateLimit } from "../middleware/authRateLimit.js";
+import { authRateLimit, billingManagementRateLimit, signupAbuseRateLimit } from "../middleware/authRateLimit.js";
 import { forwardExpressClientIp } from "../middleware/proxyClientIp.js";
 import { authCookieAttributes } from "../utils/authCookieConfig.js";
 import { contentDisposition } from "../utils/httpHeaders.js";
@@ -42,6 +42,35 @@ describe("security hardening", () => {
     }
 
     expect(next).toHaveBeenCalledTimes(env.AUTH_RATE_LIMIT_REQUESTS);
+  });
+
+  it("throttles subscription management URL creation per authenticated account", () => {
+    const next = vi.fn();
+    const request = {
+      auth: { userId: `billing-user-${crypto.randomUUID()}` },
+      ip: "203.0.113.42",
+      path: "/api/account/billing/management",
+      socket: {}
+    } as unknown as Request;
+
+    for (let index = 0; index < 21; index += 1) {
+      const response = {
+        locals: { requestId: "request-billing-limit" },
+        setHeader: vi.fn(),
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn()
+      } as unknown as Response;
+      billingManagementRateLimit(request, response, next as unknown as NextFunction);
+      if (index === 20) {
+        expect(response.status).toHaveBeenCalledWith(429);
+        expect(response.json).toHaveBeenCalledWith(expect.objectContaining({
+          code: "RATE_LIMITED",
+          requestId: "request-billing-limit"
+        }));
+      }
+    }
+
+    expect(next).toHaveBeenCalledTimes(20);
   });
 
   it("uses cross-site compatible cookies in production", () => {

@@ -110,6 +110,7 @@ function renderSidebar(options: {
   onSelectPersona?: (id: string) => void;
   planUsageOverride?: PlanUsageSummary;
   billingCatalogOverride?: BillingCatalogResponse;
+  onGetBillingManagementUrl?: () => Promise<string>;
   oauthReturnAction?: "link" | "sign-in";
   oauthReturnNotice?: string;
 } = {}) {
@@ -117,6 +118,9 @@ function renderSidebar(options: {
   const onGetMemorySettings = vi.fn().mockResolvedValue(true);
   const onUpdateMemorySettings = vi.fn().mockResolvedValue(undefined);
   const onClearAllMemory = vi.fn().mockResolvedValue(undefined);
+  const onGetBillingManagementUrl = options.onGetBillingManagementUrl ?? vi.fn().mockResolvedValue(
+    "https://billing.revenuecat.com/app_test/sub_test?token=test"
+  );
   const view = render(
     <ConversationSidebar
       personaName="LaRae the Baddest"
@@ -153,7 +157,7 @@ function renderSidebar(options: {
       onClearAllMemory={onClearAllMemory}
       onGetPlanUsage={vi.fn().mockResolvedValue(options.planUsageOverride ?? planUsage)}
       onGetBillingCatalog={vi.fn().mockResolvedValue(options.billingCatalogOverride ?? billingCatalog)}
-      onGetBillingManagementUrl={vi.fn().mockResolvedValue("https://billing.revenuecat.com/app_test/sub_test?token=test")}
+      onGetBillingManagementUrl={onGetBillingManagementUrl}
       onListActiveSessions={vi.fn().mockResolvedValue(activeSessions)}
       onRevokeActiveSession={vi.fn().mockResolvedValue(undefined)}
       onRevokeOtherSessions={vi.fn().mockResolvedValue({ revoked: 1 })}
@@ -181,7 +185,7 @@ function renderSidebar(options: {
       onPinConversation={vi.fn()}
     />,
   );
-  return { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory, ...view };
+  return { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory, onGetBillingManagementUrl, ...view };
 }
 
 describe("ConversationSidebar settings", () => {
@@ -485,14 +489,14 @@ describe("ConversationSidebar settings", () => {
 
   it("requires confirmation before an existing member upgrades or schedules a downgrade", async () => {
     const user = userEvent.setup();
-    const checkoutWindow = { opener: window };
-    const windowOpen = vi.spyOn(window, "open").mockReturnValue(checkoutWindow as unknown as Window);
+    const managementWindow = { opener: window, location: { replace: vi.fn() }, close: vi.fn() };
+    const windowOpen = vi.spyOn(window, "open").mockReturnValue(managementWindow as unknown as Window);
     const silverUsage = {
       ...planUsage,
       plan: { ...planUsage.plan, id: "silver" as const, displayName: "Silver", monthlyPriceCents: 799 }
     };
     const silverCatalog = { ...billingCatalog, currentPlanId: "silver" as const };
-    renderSidebar({ planUsageOverride: silverUsage, billingCatalogOverride: silverCatalog });
+    const { onGetBillingManagementUrl } = renderSidebar({ planUsageOverride: silverUsage, billingCatalogOverride: silverCatalog });
 
     await user.click(screen.getByTestId("account-menu-toggle"));
     await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
@@ -501,12 +505,14 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(dialog).getByRole("button", { name: "Upgrade to gold" }));
     const review = await screen.findByRole("alertdialog", { name: "Upgrade your access?" });
     expect(within(review).getByText(/final price and any prorated charge/i)).toBeInTheDocument();
+    expect(onGetBillingManagementUrl).not.toHaveBeenCalled();
     await user.click(within(review).getByRole("button", { name: "Continue to upgrade" }));
-    expect(windowOpen).toHaveBeenCalledWith(
-      "https://billing.revenuecat.com/app_test/sub_test?token=test",
-      "_blank"
-    );
-    expect(within(dialog).getByText(/customer portal opened.*change subscription.*gold/i)).toBeInTheDocument();
+    expect(windowOpen).toHaveBeenCalledWith("about:blank", "_blank");
+    await waitFor(() => expect(managementWindow.location.replace).toHaveBeenCalledWith(
+      "https://billing.revenuecat.com/app_test/sub_test?token=test"
+    ));
+    expect(onGetBillingManagementUrl).toHaveBeenCalledOnce();
+    expect(await within(dialog).findByText(/customer portal opened.*change subscription.*gold/i)).toBeInTheDocument();
 
   });
 
@@ -526,6 +532,65 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(dialog).getByRole("button", { name: "Downgrade to silver" }));
     const review = await screen.findByRole("alertdialog", { name: "Schedule your downgrade?" });
     expect(within(review).getByText(/stays active until the next renewal/i)).toBeInTheDocument();
+  });
+
+  it("requires the DOWNGRADE confirmation before returning a paid member to Bronze", async () => {
+    const user = userEvent.setup();
+    const managementWindow = { opener: window, location: { replace: vi.fn() }, close: vi.fn() };
+    const windowOpen = vi.spyOn(window, "open").mockReturnValue(managementWindow as unknown as Window);
+    const goldUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "gold" as const, displayName: "Gold", monthlyPriceCents: 1199 }
+    };
+    const goldCatalog = { ...billingCatalog, currentPlanId: "gold" as const };
+    renderSidebar({ planUsageOverride: goldUsage, billingCatalogOverride: goldCatalog });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+    await user.click(within(dialog).getByRole("button", { name: "Downgrade to Bronze" }));
+
+    const review = await screen.findByRole("alertdialog", { name: "Return to Bronze?" });
+    const confirm = within(review).getByRole("button", { name: "Open cancellation portal" });
+    expect(confirm).toBeDisabled();
+    await user.type(within(review).getByLabelText("Type DOWNGRADE to confirm"), "DOWNGRADE");
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    expect(windowOpen).toHaveBeenCalledWith("about:blank", "_blank");
+    await waitFor(() => expect(managementWindow.location.replace).toHaveBeenCalledWith(
+      "https://billing.revenuecat.com/app_test/sub_test?token=test"
+    ));
+    expect(await within(dialog).findByText(/cancel the subscription there to return to Bronze/i)).toBeInTheDocument();
+  });
+
+  it("closes the placeholder tab and keeps the review available when portal creation fails", async () => {
+    const user = userEvent.setup();
+    const managementWindow = { opener: window, location: { replace: vi.fn() }, close: vi.fn() };
+    vi.spyOn(window, "open").mockReturnValue(managementWindow as unknown as Window);
+    const silverUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "silver" as const, displayName: "Silver", monthlyPriceCents: 799 }
+    };
+    const silverCatalog = { ...billingCatalog, currentPlanId: "silver" as const };
+    renderSidebar({
+      planUsageOverride: silverUsage,
+      billingCatalogOverride: silverCatalog,
+      onGetBillingManagementUrl: vi.fn().mockRejectedValue(new Error("Subscription portal is unavailable."))
+    });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+    await user.click(within(dialog).getByRole("button", { name: "Upgrade to gold" }));
+    const review = await screen.findByRole("alertdialog", { name: "Upgrade your access?" });
+    await user.click(within(review).getByRole("button", { name: "Continue to upgrade" }));
+
+    await waitFor(() => expect(managementWindow.close).toHaveBeenCalledOnce());
+    expect(managementWindow.location.replace).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog", { name: "Upgrade your access?" })).toBeInTheDocument();
+    expect(within(dialog).getByText("Subscription portal is unavailable.")).toBeInTheDocument();
   });
 
   it("reopens Security and confirms a successful provider link", async () => {

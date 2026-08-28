@@ -234,16 +234,16 @@ export function ConversationSidebar({
   const [billingCatalog, setBillingCatalog] = useState<BillingCatalogResponse | undefined>();
   const [planNotice, setPlanNotice] = useState<string | undefined>();
   const [billingCheckout, setBillingCheckout] = useState<{
-    planId: "silver" | "gold";
+    planId: PlanId;
     mode: "purchase" | "upgrade" | "downgrade";
   } | undefined>();
   const [billingPlanChange, setBillingPlanChange] = useState<{
-    planId: "silver" | "gold";
+    planId: PlanId;
     currentPlanId: Exclude<PlanId, "bronze">;
     mode: "upgrade" | "downgrade";
-    managementUrl: string;
   } | undefined>();
   const [billingPlanChangeLoading, setBillingPlanChangeLoading] = useState(false);
+  const [billingFreeDowngradeConfirmation, setBillingFreeDowngradeConfirmation] = useState("");
   const [preferredName, setPreferredName] = useState("");
   const [gender, setGender] = useState<AuthUser["gender"] | "">("");
   const [birthMonth, setBirthMonth] = useState("");
@@ -334,6 +334,7 @@ export function ConversationSidebar({
       setBillingCheckout(undefined);
       setBillingPlanChange(undefined);
       setBillingPlanChangeLoading(false);
+      setBillingFreeDowngradeConfirmation("");
       billingCheckoutWindowRef.current = null;
       setPlanNotice(undefined);
       setConnectedAccounts([]);
@@ -566,6 +567,7 @@ export function ConversationSidebar({
     setPlanNotice(undefined);
     setBillingPlanChange(undefined);
     setBillingPlanChangeLoading(false);
+    setBillingFreeDowngradeConfirmation("");
     accountButtonRef.current?.focus();
   }
 
@@ -637,37 +639,46 @@ export function ConversationSidebar({
     );
   }
 
-  function startWebSubscriptionManagement(change: NonNullable<typeof billingPlanChange>): void {
+  function startWebSubscriptionManagement(
+    change: NonNullable<typeof billingPlanChange>,
+    managementWindow: Window,
+    managementUrl: string
+  ): boolean {
     if (!authUser?.id) {
       setPlanNotice("Sign in before managing a subscription.");
-      return;
-    }
-    const managementWindow = window.open(change.managementUrl, "_blank");
-    if (!managementWindow) {
-      setPlanNotice("Your browser blocked the subscription portal. Allow pop-ups for this site and try again.");
-      return;
+      try { managementWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+      return false;
     }
     try {
-      managementWindow.opener = null;
+      const destination = new URL(managementUrl);
+      if (destination.protocol !== "https:" || destination.hostname !== "billing.revenuecat.com") {
+        throw new Error("Untrusted subscription portal URL.");
+      }
+      managementWindow.location.replace(destination.toString());
     } catch {
-      // Some browsers isolate cross-origin management windows immediately.
+      try { managementWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+      setPlanNotice("The subscription portal could not be opened. Please try again.");
+      return false;
     }
     clearPendingBillingCheckout();
     billingCheckoutWindowRef.current = managementWindow;
     setBillingCheckout({ planId: change.planId, mode: change.mode });
     setPlanNotice(
-      `RevenueCat's customer portal opened. Choose Change subscription, then select ${change.planId}.`
+      change.planId === "bronze"
+        ? "RevenueCat's customer portal opened. Cancel the subscription there to return to Bronze after your current paid period."
+        : `RevenueCat's customer portal opened. Choose Change subscription, then select ${change.planId}.`
     );
+    return true;
   }
 
-  async function prepareWebPlanChange(planId: "silver" | "gold"): Promise<void> {
+  async function prepareWebPlanChange(planId: PlanId): Promise<void> {
     const requestedAccountId = authUser?.id;
     if (!requestedAccountId || billingPlanChangeLoading || billingCheckout) return;
     const displayedCurrentPlanId = billingCatalog?.currentPlanId ?? planUsage?.plan.id;
     const displayedProduct = billingCatalog?.products.find((candidate) => candidate.planId === planId);
     // Keep a first purchase synchronous with the click. Browsers commonly
     // block a new window opened after awaiting a network refresh.
-    if (displayedCurrentPlanId === "bronze") {
+    if (displayedCurrentPlanId === "bronze" && planId !== "bronze") {
       startWebCheckout(planId, displayedCurrentPlanId, displayedProduct?.webCheckoutUrl);
       return;
     }
@@ -681,27 +692,25 @@ export function ConversationSidebar({
       setBillingCatalog(catalog);
       const currentPlanId = catalog.currentPlanId;
       const product = catalog.products.find((candidate) => candidate.planId === planId);
-      if (!catalog.enabled || !product) {
+      if (!catalog.enabled || (planId !== "bronze" && !product)) {
         setPlanNotice("This subscription option is not available right now. Refresh Plan & usage and try again.");
         return;
       }
       if (currentPlanId === planId) {
-        setPlanNotice(`${product.displayName} is already active on your account.`);
+        setPlanNotice(`${planId[0]?.toUpperCase()}${planId.slice(1)} is already active on your account.`);
         return;
       }
       if (currentPlanId === "bronze") {
         setPlanNotice("Your membership changed while this page was open. Review the available plans and select one to continue.");
         return;
       }
-      const managementUrl = await onGetBillingManagementUrl();
-      if (accountIdRef.current !== requestedAccountId) return;
       const planRank: Record<PlanId, number> = { bronze: 0, silver: 1, gold: 2 };
       setBillingPlanChange({
         planId,
         currentPlanId,
-        mode: planRank[planId] > planRank[currentPlanId] ? "upgrade" : "downgrade",
-        managementUrl
+        mode: planRank[planId] > planRank[currentPlanId] ? "upgrade" : "downgrade"
       });
+      setBillingFreeDowngradeConfirmation("");
     } catch (error) {
       if (accountIdRef.current === requestedAccountId) {
         setPlanNotice(error instanceof Error ? error.message : "Could not prepare your subscription change.");
@@ -711,11 +720,43 @@ export function ConversationSidebar({
     }
   }
 
-  function confirmWebPlanChange(): void {
+  async function confirmWebPlanChange(): Promise<void> {
     const change = billingPlanChange;
-    if (!change) return;
-    setBillingPlanChange(undefined);
-    startWebSubscriptionManagement(change);
+    const requestedAccountId = authUser?.id;
+    if (!change || !requestedAccountId || billingPlanChangeLoading) return;
+    if (change.planId === "bronze" && billingFreeDowngradeConfirmation.trim() !== "DOWNGRADE") return;
+    const managementWindow = window.open("about:blank", "_blank");
+    if (!managementWindow) {
+      setPlanNotice("Your browser blocked the subscription portal. Allow pop-ups for this site and try again.");
+      return;
+    }
+    try {
+      managementWindow.opener = null;
+    } catch {
+      // The placeholder remains same-origin until the authenticated URL is ready.
+    }
+    setBillingPlanChangeLoading(true);
+    setPlanNotice(undefined);
+    try {
+      // Generate the single-use URL only after the user confirms so it cannot
+      // expire while the review dialog is open.
+      const managementUrl = await onGetBillingManagementUrl();
+      if (accountIdRef.current !== requestedAccountId) {
+        try { managementWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+        return;
+      }
+      if (startWebSubscriptionManagement(change, managementWindow, managementUrl)) {
+        setBillingPlanChange(undefined);
+        setBillingFreeDowngradeConfirmation("");
+      }
+    } catch (error) {
+      try { managementWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+      if (accountIdRef.current === requestedAccountId) {
+        setPlanNotice(error instanceof Error ? error.message : "Could not open subscription management.");
+      }
+    } finally {
+      if (accountIdRef.current === requestedAccountId) setBillingPlanChangeLoading(false);
+    }
   }
 
   async function selectSettingsSection(section: SettingsSection): Promise<void> {
@@ -1987,6 +2028,8 @@ export function ConversationSidebar({
                                 const currentPlanId = billingCatalog?.currentPlanId ?? planUsage.plan.id;
                                 const planRank = { bronze: 0, silver: 1, gold: 2 } as const;
                                 const paidPlan = planId !== "bronze";
+                                const freeDowngrade = planId === "bronze" && currentPlanId !== "bronze";
+                                const actionablePlan = paidPlan || freeDowngrade;
                                 const lowerThanCurrent = planRank[planId] < planRank[currentPlanId];
                                 const isPaidPlanChange = currentPlanId !== "bronze" && !current && paidPlan;
                                 const webPurchaseUnavailable = currentPlanId === "bronze" && !product?.webCheckoutUrl;
@@ -2009,11 +2052,13 @@ export function ConversationSidebar({
                                     <button
                                       type="button"
                                       className="settings-plan-action"
-                                      disabled={current || !paidPlan || !billingCatalog?.enabled || Boolean(billingCheckout) || billingPlanChangeLoading || Boolean(billingPlanChange) || !product || webPurchaseUnavailable}
-                                      onClick={() => paidPlan ? void prepareWebPlanChange(planId) : undefined}
+                                      disabled={current || !actionablePlan || !billingCatalog?.enabled || Boolean(billingCheckout) || billingPlanChangeLoading || Boolean(billingPlanChange) || (paidPlan && !product) || webPurchaseUnavailable}
+                                      onClick={() => actionablePlan ? void prepareWebPlanChange(planId) : undefined}
                                     >
                                       {current
                                         ? "Your plan"
+                                        : freeDowngrade
+                                          ? "Downgrade to Bronze"
                                         : !paidPlan
                                           ? "Free plan"
                                           : checkoutPending
@@ -2044,17 +2089,48 @@ export function ConversationSidebar({
                                 <section className="settings-plan-change-dialog" role="alertdialog" aria-modal="true" aria-labelledby="plan-change-title" aria-describedby="plan-change-description">
                                   <span className="settings-section-eyebrow">Review membership change</span>
                                   <h5 id="plan-change-title">
-                                    {billingPlanChange.mode === "upgrade" ? "Upgrade your access?" : "Schedule your downgrade?"}
+                                    {billingPlanChange.planId === "bronze"
+                                      ? "Return to Bronze?"
+                                      : billingPlanChange.mode === "upgrade"
+                                        ? "Upgrade your access?"
+                                        : "Schedule your downgrade?"}
                                   </h5>
                                   <p id="plan-change-description">
-                                    {billingPlanChange.mode === "upgrade"
+                                    {billingPlanChange.planId === "bronze"
+                                      ? `You’ll keep ${billingPlanChange.currentPlanId} access through the paid period. In RevenueCat, cancel renewal to move to Bronze afterward. Type DOWNGRADE to continue.`
+                                      : billingPlanChange.mode === "upgrade"
                                       ? `You’re moving from ${billingPlanChange.currentPlanId} to ${billingPlanChange.planId}. RevenueCat will show the final price and any prorated charge before you confirm.`
                                       : `You’re moving from ${billingPlanChange.currentPlanId} to ${billingPlanChange.planId}. Your ${billingPlanChange.currentPlanId} access stays active until the next renewal, then ${billingPlanChange.planId} begins.`}
                                   </p>
+                                  {billingPlanChange.planId === "bronze" ? (
+                                    <label className="settings-plan-change-confirmation">
+                                      Type <strong>DOWNGRADE</strong> to confirm
+                                      <input
+                                        type="text"
+                                        value={billingFreeDowngradeConfirmation}
+                                        onChange={(event) => setBillingFreeDowngradeConfirmation(event.target.value)}
+                                        disabled={billingPlanChangeLoading}
+                                        autoComplete="off"
+                                        spellCheck={false}
+                                        aria-label="Type DOWNGRADE to confirm"
+                                      />
+                                    </label>
+                                  ) : null}
                                   <div className="settings-plan-change-actions">
-                                    <button type="button" className="settings-action" onClick={() => setBillingPlanChange(undefined)}>Keep current plan</button>
-                                    <button type="button" className="settings-action settings-action-primary" onClick={confirmWebPlanChange}>
-                                      {billingPlanChange.mode === "upgrade" ? `Continue to upgrade` : "Continue to schedule"}
+                                    <button type="button" className="settings-action" disabled={billingPlanChangeLoading} onClick={() => { setBillingPlanChange(undefined); setBillingFreeDowngradeConfirmation(""); }}>Keep current plan</button>
+                                    <button
+                                      type="button"
+                                      className="settings-action settings-action-primary"
+                                      onClick={() => void confirmWebPlanChange()}
+                                      disabled={billingPlanChangeLoading || (billingPlanChange.planId === "bronze" && billingFreeDowngradeConfirmation.trim() !== "DOWNGRADE")}
+                                    >
+                                      {billingPlanChangeLoading
+                                        ? "Opening portal..."
+                                        : billingPlanChange.planId === "bronze"
+                                        ? "Open cancellation portal"
+                                        : billingPlanChange.mode === "upgrade"
+                                          ? `Continue to upgrade`
+                                          : "Continue to schedule"}
                                     </button>
                                   </div>
                                 </section>
