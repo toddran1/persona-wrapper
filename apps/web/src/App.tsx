@@ -2133,6 +2133,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           }}
           onGetPlanUsage={api.getPlanUsage}
           onGetBillingCatalog={api.getBillingCatalog}
+          onGetBillingManagementUrl={api.getBillingManagementUrl}
           onGetMemorySettings={api.getMemorySettings}
           onUpdateMemorySettings={async (enabled) => {
             const memoryEnabled = await api.updateMemorySettings(enabled);

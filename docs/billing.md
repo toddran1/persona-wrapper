@@ -91,6 +91,7 @@ Development/sandbox:
 BILLING_ENABLED=true
 BILLING_PROVIDER=revenuecat
 REVENUECAT_OFFERING_ID=default
+REVENUECAT_SECRET_API_KEY=<secret-api-key-with-customer-information-read-access>
 REVENUECAT_WEBHOOK_AUTHORIZATION=<long-random-shared-value>
 REVENUECAT_ALLOWED_ENVIRONMENTS=SANDBOX
 REVENUECAT_ALLOWED_APP_IDS=<revenuecat-ios-app-id>,<revenuecat-android-app-id>
@@ -103,6 +104,14 @@ Production should use `REVENUECAT_ALLOWED_ENVIRONMENTS=PRODUCTION`. Do not
 allow SANDBOX in production; sandbox events would otherwise grant paid access.
 Set the production API's `REVENUECAT_WEB_PURCHASE_LINK_URL` to RevenueCat's
 production Purchase Link, not its sandbox link.
+
+Purchase Links are used only when a Bronze member starts a paid subscription.
+Existing paid members must change plans through RevenueCat Billing's Customer
+Portal so the configured upgrade and downgrade paths are applied. The API uses
+`REVENUECAT_SECRET_API_KEY` only server-side to fetch the authenticated portal
+URL for the signed-in App User ID. Create a secret key with the minimum
+customer and subscription read permissions; never expose it through the web or
+mobile clients.
 
 `render.yaml` enables billing for the hosted development and production APIs
 and declares secret values without committing them. A deployment will fail

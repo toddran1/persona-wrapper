@@ -11,20 +11,23 @@ const revenueCatCustomerSchema = z.object({
 
 type RevenueCatCustomerServiceOptions = {
   apiKey?: string | undefined;
+  billingEnabled?: boolean | undefined;
   fetchImpl?: typeof fetch | undefined;
 };
 
 export class RevenueCatCustomerService {
   private readonly apiKey: string | undefined;
+  private readonly billingEnabled: boolean;
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: RevenueCatCustomerServiceOptions = {}) {
     this.apiKey = options.apiKey ?? env.REVENUECAT_SECRET_API_KEY;
+    this.billingEnabled = options.billingEnabled ?? env.BILLING_ENABLED;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   async getManagementUrl(userId: string): Promise<string> {
-    if (!env.BILLING_ENABLED) throw new HttpError("Billing is not enabled.", 409);
+    if (!this.billingEnabled) throw new HttpError("Billing is not enabled.", 409);
     if (!this.apiKey) {
       throw new HttpError("Subscription management is not configured yet.", 503);
     }

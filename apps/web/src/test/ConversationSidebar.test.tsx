@@ -153,6 +153,7 @@ function renderSidebar(options: {
       onClearAllMemory={onClearAllMemory}
       onGetPlanUsage={vi.fn().mockResolvedValue(options.planUsageOverride ?? planUsage)}
       onGetBillingCatalog={vi.fn().mockResolvedValue(options.billingCatalogOverride ?? billingCatalog)}
+      onGetBillingManagementUrl={vi.fn().mockResolvedValue("https://billing.revenuecat.com/app_test/sub_test?token=test")}
       onListActiveSessions={vi.fn().mockResolvedValue(activeSessions)}
       onRevokeActiveSession={vi.fn().mockResolvedValue(undefined)}
       onRevokeOtherSessions={vi.fn().mockResolvedValue({ revoked: 1 })}
@@ -211,6 +212,7 @@ describe("ConversationSidebar settings", () => {
         onClearAllMemory={vi.fn()}
         onGetPlanUsage={vi.fn().mockResolvedValue(planUsage)}
         onGetBillingCatalog={vi.fn().mockResolvedValue(billingCatalog)}
+        onGetBillingManagementUrl={vi.fn().mockResolvedValue("https://billing.revenuecat.com/app_test/sub_test?token=test")}
         onListActiveSessions={vi.fn()}
         onRevokeActiveSession={vi.fn()}
         onRevokeOtherSessions={vi.fn()}
@@ -278,6 +280,7 @@ describe("ConversationSidebar settings", () => {
         onClearAllMemory={vi.fn()}
         onGetPlanUsage={vi.fn().mockResolvedValue(planUsage)}
         onGetBillingCatalog={vi.fn().mockResolvedValue(billingCatalog)}
+        onGetBillingManagementUrl={vi.fn().mockResolvedValue("https://billing.revenuecat.com/app_test/sub_test?token=test")}
         onListActiveSessions={vi.fn()}
         onRevokeActiveSession={vi.fn()}
         onRevokeOtherSessions={vi.fn()}
@@ -499,7 +502,11 @@ describe("ConversationSidebar settings", () => {
     const review = await screen.findByRole("alertdialog", { name: "Upgrade your access?" });
     expect(within(review).getByText(/final price and any prorated charge/i)).toBeInTheDocument();
     await user.click(within(review).getByRole("button", { name: "Continue to upgrade" }));
-    expect(windowOpen).toHaveBeenCalledWith("https://pay.rev.cat/test-link/user_1?package_id=gold_monthly", "_blank");
+    expect(windowOpen).toHaveBeenCalledWith(
+      "https://billing.revenuecat.com/app_test/sub_test?token=test",
+      "_blank"
+    );
+    expect(within(dialog).getByText(/customer portal opened.*change subscription.*gold/i)).toBeInTheDocument();
 
   });
 

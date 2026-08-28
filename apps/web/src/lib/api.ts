@@ -744,6 +744,11 @@ export const api = {
     if (response.status !== 200) throw contractError(response.body, "Could not load subscription plans.");
     return response.body;
   },
+  getBillingManagementUrl: async (): Promise<string> => {
+    const response = await contractClient.account.billingManagement({ body: {} });
+    if (response.status !== 200) throw contractError(response.body, "Could not open subscription management.");
+    return response.body.managementUrl;
+  },
   adminLookupPlanOverrides: async (user: string): Promise<AdminPlanOverrideLookup> => {
     const response = await contractClient.admin.planOverrides({ query: { user } });
     if (response.status !== 200) throw contractError(response.body, "Could not load plan overrides.");

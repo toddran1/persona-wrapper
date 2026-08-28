@@ -112,6 +112,7 @@ export function ConversationSidebar({
   onUpdateProfile,
   onGetPlanUsage,
   onGetBillingCatalog,
+  onGetBillingManagementUrl,
   onGetMemorySettings,
   onUpdateMemorySettings,
   onClearConversationMemory,
@@ -166,6 +167,7 @@ export function ConversationSidebar({
   onUpdateProfile: (profile: UpdateUserProfileRequest) => Promise<void>;
   onGetPlanUsage: () => Promise<PlanUsageSummary>;
   onGetBillingCatalog: () => Promise<BillingCatalogResponse>;
+  onGetBillingManagementUrl: () => Promise<string>;
   onGetMemorySettings: () => Promise<boolean>;
   onUpdateMemorySettings: (enabled: boolean) => Promise<void>;
   onClearConversationMemory: (conversationId: string) => Promise<void>;
@@ -239,7 +241,7 @@ export function ConversationSidebar({
     planId: "silver" | "gold";
     currentPlanId: Exclude<PlanId, "bronze">;
     mode: "upgrade" | "downgrade";
-    checkoutUrl: string;
+    managementUrl: string;
   } | undefined>();
   const [billingPlanChangeLoading, setBillingPlanChangeLoading] = useState(false);
   const [preferredName, setPreferredName] = useState("");
@@ -635,6 +637,29 @@ export function ConversationSidebar({
     );
   }
 
+  function startWebSubscriptionManagement(change: NonNullable<typeof billingPlanChange>): void {
+    if (!authUser?.id) {
+      setPlanNotice("Sign in before managing a subscription.");
+      return;
+    }
+    const managementWindow = window.open(change.managementUrl, "_blank");
+    if (!managementWindow) {
+      setPlanNotice("Your browser blocked the subscription portal. Allow pop-ups for this site and try again.");
+      return;
+    }
+    try {
+      managementWindow.opener = null;
+    } catch {
+      // Some browsers isolate cross-origin management windows immediately.
+    }
+    clearPendingBillingCheckout();
+    billingCheckoutWindowRef.current = managementWindow;
+    setBillingCheckout({ planId: change.planId, mode: change.mode });
+    setPlanNotice(
+      `RevenueCat's customer portal opened. Choose Change subscription, then select ${change.planId}.`
+    );
+  }
+
   async function prepareWebPlanChange(planId: "silver" | "gold"): Promise<void> {
     const requestedAccountId = authUser?.id;
     if (!requestedAccountId || billingPlanChangeLoading || billingCheckout) return;
@@ -649,14 +674,14 @@ export function ConversationSidebar({
     setBillingPlanChangeLoading(true);
     setPlanNotice(undefined);
     try {
-      // The checkout URL is account-bound. Refresh it immediately before a
-      // subscription change so a stale tab cannot select an outdated plan.
+      // Refresh account state before requesting the authenticated customer
+      // portal so a stale tab cannot manage an outdated subscription.
       const catalog = await onGetBillingCatalog();
       if (accountIdRef.current !== requestedAccountId) return;
       setBillingCatalog(catalog);
       const currentPlanId = catalog.currentPlanId;
       const product = catalog.products.find((candidate) => candidate.planId === planId);
-      if (!catalog.enabled || !product?.webCheckoutUrl) {
+      if (!catalog.enabled || !product) {
         setPlanNotice("This subscription option is not available right now. Refresh Plan & usage and try again.");
         return;
       }
@@ -668,12 +693,14 @@ export function ConversationSidebar({
         setPlanNotice("Your membership changed while this page was open. Review the available plans and select one to continue.");
         return;
       }
+      const managementUrl = await onGetBillingManagementUrl();
+      if (accountIdRef.current !== requestedAccountId) return;
       const planRank: Record<PlanId, number> = { bronze: 0, silver: 1, gold: 2 };
       setBillingPlanChange({
         planId,
         currentPlanId,
         mode: planRank[planId] > planRank[currentPlanId] ? "upgrade" : "downgrade",
-        checkoutUrl: product.webCheckoutUrl
+        managementUrl
       });
     } catch (error) {
       if (accountIdRef.current === requestedAccountId) {
@@ -688,7 +715,7 @@ export function ConversationSidebar({
     const change = billingPlanChange;
     if (!change) return;
     setBillingPlanChange(undefined);
-    startWebCheckout(change.planId, change.currentPlanId, change.checkoutUrl);
+    startWebSubscriptionManagement(change);
   }
 
   async function selectSettingsSection(section: SettingsSection): Promise<void> {
@@ -1962,6 +1989,7 @@ export function ConversationSidebar({
                                 const paidPlan = planId !== "bronze";
                                 const lowerThanCurrent = planRank[planId] < planRank[currentPlanId];
                                 const isPaidPlanChange = currentPlanId !== "bronze" && !current && paidPlan;
+                                const webPurchaseUnavailable = currentPlanId === "bronze" && !product?.webCheckoutUrl;
                                 const checkoutPending = billingCheckout?.planId === planId;
                                 const price = planId === "bronze" ? "$0" : product
                                   ? `$${(product.monthlyPriceCents / 100).toFixed(2)}`
@@ -1981,7 +2009,7 @@ export function ConversationSidebar({
                                     <button
                                       type="button"
                                       className="settings-plan-action"
-                                      disabled={current || !paidPlan || !billingCatalog?.enabled || Boolean(billingCheckout) || billingPlanChangeLoading || Boolean(billingPlanChange) || !product?.webCheckoutUrl}
+                                      disabled={current || !paidPlan || !billingCatalog?.enabled || Boolean(billingCheckout) || billingPlanChangeLoading || Boolean(billingPlanChange) || !product || webPurchaseUnavailable}
                                       onClick={() => paidPlan ? void prepareWebPlanChange(planId) : undefined}
                                     >
                                       {current
@@ -1994,7 +2022,9 @@ export function ConversationSidebar({
                                               ? "Checking availability..."
                                             : !billingCatalog?.enabled
                                               ? "Subscriptions unavailable"
-                                              : !product?.webCheckoutUrl
+                                              : !product
+                                                ? "Plan unavailable"
+                                              : webPurchaseUnavailable
                                                 ? "Web checkout unavailable"
                                                 : lowerThanCurrent
                                                   ? `Downgrade to ${planId}`
