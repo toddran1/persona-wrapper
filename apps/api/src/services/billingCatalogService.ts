@@ -8,6 +8,7 @@ import { customerUsageService } from "./customerUsageService.js";
 import { getPlanDefinition } from "./planCatalog.js";
 
 const catalogEntries = Object.values(billingProductCatalog);
+type PaidPlanId = Exclude<PlanId, "bronze">;
 const legacyStoreProductIds: Readonly<Record<string, PlanId>> = {
   ftb_silver_monthly: "silver",
   ftb_gold_monthly: "gold"
@@ -51,6 +52,28 @@ export function planIdForStoreProduct(productId: string | null | undefined): Pla
   const normalized = normalizeStoreProductId(candidate);
   const baseMatch = catalogEntries.find((product) => normalized === product.androidProductId);
   return baseMatch?.planId ?? legacyStoreProductIds[normalized];
+}
+
+/**
+ * RevenueCat's Web Billing/Stripe events can identify a purchase with a
+ * provider-side product id that is different from our App Store and Play
+ * product ids. The entitlement is the stable cross-store identifier, so use
+ * it only as a fallback after an explicit store-product match. This keeps
+ * upgrades that temporarily expose multiple entitlements deterministic.
+ */
+export function planIdForRevenueCatPurchase(
+  productId: string | null | undefined,
+  entitlementIds: readonly string[] | null | undefined
+): PlanId | undefined {
+  const byProduct = planIdForStoreProduct(productId);
+  if (byProduct) return byProduct;
+
+  const matchingPlans = [...new Set(
+    (entitlementIds ?? [])
+      .map((entitlementId) => catalogEntries.find((product) => product.entitlementId === entitlementId)?.planId)
+      .filter((planId): planId is PaidPlanId => planId !== undefined)
+  )];
+  return matchingPlans.length === 1 ? matchingPlans[0] : undefined;
 }
 
 export async function getBillingCatalog(userId: string): Promise<BillingCatalogResponse> {

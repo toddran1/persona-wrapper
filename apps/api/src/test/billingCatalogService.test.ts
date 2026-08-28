@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRevenueCatWebCheckoutUrl,
   normalizeStoreProductId,
+  planIdForRevenueCatPurchase,
   planIdForStoreProduct
 } from "../services/billingCatalogService.js";
 
@@ -26,6 +27,16 @@ describe("billing product catalog", () => {
     expect(planIdForStoreProduct("ftb_platinum_monthly")).toBeUndefined();
     expect(planIdForStoreProduct(" ")).toBeUndefined();
     expect(planIdForStoreProduct(undefined)).toBeUndefined();
+  });
+
+  it("maps RevenueCat Web Billing purchases from their stable entitlement", () => {
+    expect(planIdForRevenueCatPurchase("stripe_price_from_revenuecat", ["silver"])).toBe("silver");
+    expect(planIdForRevenueCatPurchase(undefined, ["gold"])).toBe("gold");
+    expect(planIdForRevenueCatPurchase("unknown", ["silver", "gold"])).toBeUndefined();
+  });
+
+  it("prefers an explicit product mapping over a temporarily overlapping entitlement list", () => {
+    expect(planIdForRevenueCatPurchase("com.forthebaddiez.gold.monthly", ["silver", "gold"])).toBe("gold");
   });
 
   it("builds an identified RevenueCat web checkout without leaking user data", () => {

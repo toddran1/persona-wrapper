@@ -5,13 +5,15 @@ import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import { billingSubscriptions, billingWebhookEvents, userPlanAssignments, users } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
-import { normalizeStoreProductId, planIdForStoreProduct } from "./billingCatalogService.js";
+import { logger } from "../utils/logger.js";
+import { normalizeStoreProductId, planIdForRevenueCatPurchase } from "./billingCatalogService.js";
 import { getPlanDefinition } from "./planCatalog.js";
 
 const eventSchema = z.object({
   id: z.string().min(1), type: z.string().min(1), app_user_id: z.string().min(1).nullish(),
   original_app_user_id: z.string().nullish(), aliases: z.array(z.string()).nullish(),
   product_id: z.string().nullish(), new_product_id: z.string().nullish(),
+  entitlement_ids: z.array(z.string().min(1)).nullish(),
   environment: z.enum(["SANDBOX", "PRODUCTION"]).nullish(), store: z.string().nullish(),
   app_id: z.string().nullish(), expiration_at_ms: z.number().nullable().optional(),
   event_timestamp_ms: z.number().nullish(), original_transaction_id: z.string().nullish(),
@@ -31,6 +33,19 @@ const WEBHOOK_PROCESSING_STALE_MS = 5 * 60 * 1000;
 
 function stableId(prefix: string, value: string): string {
   return `${prefix}_${createHash("sha256").update(value).digest("hex").slice(0, 32)}`;
+}
+
+function diagnosticEvent(event: Event): Record<string, unknown> {
+  return {
+    eventId: event.id,
+    eventType: event.type,
+    appId: event.app_id ?? null,
+    environment: event.environment ?? "PRODUCTION",
+    store: event.store ?? null,
+    productId: event.product_id ?? event.new_product_id ?? null,
+    entitlementIds: event.entitlement_ids ?? [],
+    appUserReference: event.app_user_id ? stableId("revenuecat_user", event.app_user_id) : null
+  };
 }
 
 function safeDate(value: number | null | undefined): Date | null {
@@ -74,9 +89,11 @@ export class RevenueCatBillingService {
     const environment = event.environment ?? "PRODUCTION";
 
     if (!env.REVENUECAT_ALLOWED_ENVIRONMENTS.includes(environment)) {
+      logger.warn("RevenueCat billing event ignored for disallowed environment", diagnosticEvent(event));
       return this.ignore(event, payload as Record<string, unknown>, `Environment ${environment} is not allowed.`);
     }
     if (env.REVENUECAT_ALLOWED_APP_IDS.length > 0 && (!event.app_id || !env.REVENUECAT_ALLOWED_APP_IDS.includes(event.app_id))) {
+      logger.warn("RevenueCat billing event ignored for disallowed app id", diagnosticEvent(event));
       return this.ignore(event, payload as Record<string, unknown>, "RevenueCat app id is not allowed.");
     }
 
@@ -98,12 +115,13 @@ export class RevenueCatBillingService {
         // before the first attempt has durably completed.
         throw new HttpError("Billing webhook event is already being processed.", 503);
       }
-      if (prior?.status !== "failed" && prior?.status !== "received") {
+      if (prior?.status !== "failed" && prior?.status !== "received" && prior?.status !== "ignored") {
         return { status: "duplicate", eventId: event.id };
       }
-      // Claim failed attempts and abandoned in-progress rows atomically. Two
-      // RevenueCat retries can arrive together, and both must not advance the
-      // same event concurrently even though downstream writes are upserts.
+      // Claim failed attempts, abandoned in-progress rows, and manually
+      // redelivered ignored rows atomically. The last case lets an operator
+      // replay a checkout webhook after correcting a product/entitlement
+      // mapping without needing to mutate the production database.
       const staleBefore = new Date(Date.now() - WEBHOOK_PROCESSING_STALE_MS);
       const [claimed] = await db.update(billingWebhookEvents)
         .set({ status: "received", error: null, updatedAt: new Date() })
@@ -111,6 +129,7 @@ export class RevenueCatBillingService {
           eq(billingWebhookEvents.id, event.id),
           or(
             eq(billingWebhookEvents.status, "failed"),
+            eq(billingWebhookEvents.status, "ignored"),
             and(
               eq(billingWebhookEvents.status, "received"),
               lte(billingWebhookEvents.updatedAt, staleBefore)
@@ -157,13 +176,21 @@ export class RevenueCatBillingService {
       return { status: "ignored", eventId: event.id };
     }
     const productId = event.product_id ?? event.new_product_id;
-    const planId = planIdForStoreProduct(productId);
+    const planId = planIdForRevenueCatPurchase(productId, event.entitlement_ids);
     const recognized = activeTypes.has(event.type) || retainedTypes.has(event.type) || event.type === "EXPIRATION";
-    if (!recognized || !productId || !planId) return { status: "ignored", eventId: event.id };
+    if (!recognized || !planId) {
+      logger.warn("RevenueCat billing event ignored because its plan could not be mapped", {
+        ...diagnosticEvent(event),
+        recognized
+      });
+      return { status: "ignored", eventId: event.id };
+    }
     const userId = await findUserId(event);
     if (!userId) throw new HttpError("RevenueCat app user does not match an application user.", 422);
 
-    const normalizedProductId = normalizeStoreProductId(productId);
+    const normalizedProductId = productId
+      ? normalizeStoreProductId(productId)
+      : `entitlement:${planId}`;
     const externalId = event.original_transaction_id ?? event.transaction_id ?? `${userId}:${normalizedProductId}`;
     const assignmentId = stableId("plan_assignment_revenuecat", externalId);
     const subscriptionId = stableId("billing_subscription", externalId);
@@ -203,6 +230,7 @@ export class RevenueCatBillingService {
         metadata: payload, updatedAt: new Date()
       }});
     });
+    logger.info("RevenueCat billing event applied", { ...diagnosticEvent(event), planId });
     return { status: "processed", eventId: event.id };
   }
 }

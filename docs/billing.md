@@ -56,6 +56,15 @@ fallback display prices remain versioned in
    production link for production.
 9. Add the RevenueCat Web Billing app ID to `REVENUECAT_ALLOWED_APP_IDS` so its
    webhook events are accepted by the API.
+   During sandbox checkout testing, also include `SANDBOX` in
+   `REVENUECAT_ALLOWED_ENVIRONMENTS`; switch the Purchase Link and allowed
+   environment to `PRODUCTION` for live billing.
+
+   Each web package must be attached to exactly one matching entitlement:
+   Silver to `silver` and Gold to `gold`. The API resolves a webhook by its
+   registered product ID first, then uses a single matching entitlement as a
+   safe fallback for web/Stripe product IDs. Do not attach both paid
+   entitlements to the same package.
 10. Configure Silver-to-Gold and Gold-to-Silver package-change paths for the
     RevenueCat Web purchase flow. Upgrades should be immediate and downgrades
     should begin at the next renewal.
@@ -180,6 +189,10 @@ if either endpoint is localhost, or if an endpoint is not HTTPS.
 - Browser pop-up blocking leaves the user on the plan page with a retryable
   message. Configure RevenueCat's Purchase Link success behavior for a useful
   confirmation page, but do not treat that redirect as proof of payment.
+- If a webhook was previously recorded as ignored because its app ID,
+  environment, product mapping, or entitlement mapping was corrected later,
+  resend it from RevenueCat's Events view after deploying the correction. The
+  API deliberately reprocesses an ignored event on a later delivery.
 - Configure RevenueCat's restore/transfer behavior to keep purchases with the
   original identified App User ID. Account sharing and automatic transfers to
   a different application account are not supported; customer support should

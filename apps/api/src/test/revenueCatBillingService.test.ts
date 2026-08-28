@@ -11,6 +11,7 @@ describe("RevenueCat webhook parsing", () => {
       aliases: null,
       product_id: "com.forthebaddiez.silver:silver-monthly",
       new_product_id: null,
+      entitlement_ids: ["silver"],
       app_id: null,
       store: null,
       original_transaction_id: null,
@@ -22,6 +23,7 @@ describe("RevenueCat webhook parsing", () => {
     expect(event.id).toBe("event_1");
     expect(event.original_app_user_id).toBeNull();
     expect(event.aliases).toBeNull();
+    expect(event.entitlement_ids).toEqual(["silver"]);
   });
 
   it("still rejects malformed required event identity", () => {
