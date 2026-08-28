@@ -110,6 +110,8 @@ services:
         value: revenuecat
       - key: REVENUECAT_OFFERING_ID
         value: default
+      - key: REVENUECAT_SECRET_API_KEY
+        sync: false
       - key: REVENUECAT_WEBHOOK_AUTHORIZATION
         sync: false
       - key: REVENUECAT_ALLOWED_ENVIRONMENTS
@@ -432,6 +434,8 @@ services:
         value: revenuecat
       - key: REVENUECAT_OFFERING_ID
         value: default
+      - key: REVENUECAT_SECRET_API_KEY
+        sync: false
       - key: REVENUECAT_WEBHOOK_AUTHORIZATION
         sync: false
       - key: REVENUECAT_ALLOWED_ENVIRONMENTS

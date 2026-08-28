@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { getBillingCatalog } from "../services/billingCatalogService.js";
 import { revenueCatBillingService } from "../services/revenueCatBillingService.js";
+import { revenueCatCustomerService } from "../services/revenueCatCustomerService.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
 
@@ -10,6 +11,14 @@ export async function getAccountBillingCatalog(request: Request, response: Respo
   // never be served from a shared browser, CDN, or intermediary cache.
   response.setHeader("Cache-Control", "private, no-store");
   response.status(200).json(await getBillingCatalog(request.auth.userId));
+}
+
+export async function postAccountBillingManagement(request: Request, response: Response): Promise<void> {
+  if (!request.auth) throw new HttpError("Not authenticated.", 401);
+  response.setHeader("Cache-Control", "private, no-store");
+  response.status(200).json({
+    managementUrl: await revenueCatCustomerService.getManagementUrl(request.auth.userId)
+  });
 }
 
 export function postRevenueCatWebhook(request: Request, response: Response, next: NextFunction): void {

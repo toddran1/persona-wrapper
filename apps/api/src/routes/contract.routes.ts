@@ -8,7 +8,7 @@ import { initServer } from "@ts-rest/express";
 import type { Request, Response } from "express";
 import { acceptPolicies, clearAccountMemory, deleteAccount, getAccountUsage, getCurrentPolicies, getMemorySettings, getOAuthProviders, restoreAccount, updateMemorySettings, updateProfile } from "../controllers/account.controller.js";
 import { grantPlanOverride, listPlanOverrides, listReviewSubmissions, revokePlanOverride } from "../controllers/admin.controller.js";
-import { getAccountBillingCatalog } from "../controllers/billing.controller.js";
+import { getAccountBillingCatalog, postAccountBillingManagement } from "../controllers/billing.controller.js";
 import {
   cancelChatJob,
   clearConversationMemory,
@@ -170,6 +170,7 @@ export const apiContractRouter = server.router(apiContract, {
   },
   account: {
     billingCatalog: captured(getAccountBillingCatalog),
+    billingManagement: captured(postAccountBillingManagement),
     usage: captured(getAccountUsage),
     currentPolicies: captured(getCurrentPolicies),
     acceptPolicies: captured(acceptPolicies),

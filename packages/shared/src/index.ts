@@ -657,6 +657,11 @@ export const billingCatalogResponseSchema = z.object({
 }).strict();
 export type BillingCatalogResponse = z.infer<typeof billingCatalogResponseSchema>;
 
+export const billingManagementResponseSchema = z.object({
+  managementUrl: z.string().url()
+}).strict();
+export type BillingManagementResponse = z.infer<typeof billingManagementResponseSchema>;
+
 export const policyVersionSchema = z.string().trim().min(1).max(80);
 
 export const policyVersionsSchema = z.object({
@@ -1717,6 +1722,17 @@ export const apiContract = contract.router({
       responses: {
         200: billingCatalogResponseSchema,
         401: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    },
+    billingManagement: {
+      method: "POST",
+      path: "/api/account/billing/management",
+      body: z.object({}).strict(),
+      responses: {
+        200: billingManagementResponseSchema,
+        401: apiErrorSchema,
+        409: apiErrorSchema,
         503: apiErrorSchema
       }
     },
