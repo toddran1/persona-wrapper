@@ -1110,6 +1110,7 @@ textarea {
 }
 
 .settings-section-plan {
+  position: relative;
   max-width: none;
 }
 
@@ -1133,6 +1134,17 @@ textarea {
   font-size: 0.68rem;
   font-weight: 720;
   white-space: nowrap;
+}
+
+.settings-plan-change-guide {
+  margin: -10px 0 0;
+  padding: 10px 12px;
+  border-left: 2px solid rgba(214, 181, 94, 0.7);
+  color: rgba(244, 235, 229, 0.8);
+  background: rgba(214, 181, 94, 0.06);
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.45;
 }
 
 .settings-plan-grid {
@@ -1285,6 +1297,48 @@ textarea {
 .settings-plan-footnote {
   padding: 0 2px;
   text-align: center;
+}
+
+.settings-plan-change-backdrop {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(6, 3, 10, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.settings-plan-change-dialog {
+  width: min(100%, 420px);
+  padding: 22px;
+  border: 1px solid rgba(214, 181, 94, 0.42);
+  border-radius: 16px;
+  color: #fff8ef;
+  background: linear-gradient(145deg, rgba(54, 39, 74, 0.98), rgba(16, 9, 23, 0.98));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.48);
+}
+
+.settings-plan-change-dialog h5 {
+  margin: 7px 0 9px;
+  font-size: 1.15rem;
+  letter-spacing: -0.03em;
+}
+
+.settings-plan-change-dialog p {
+  margin: 0;
+  color: rgba(244, 235, 229, 0.74);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.settings-plan-change-actions {
+  display: flex;
+  justify-content: end;
+  gap: 10px;
+  margin-top: 20px;
 }
 
 .settings-section-heading {

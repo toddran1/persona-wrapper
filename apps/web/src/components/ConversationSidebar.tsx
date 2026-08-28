@@ -1,4 +1,3 @@
-import { clampFiniteNumber, finiteNonnegativeIntegerOr, PASSWORD_MIN_LENGTH } from "@persona/shared";
 import type {
   ActiveSession,
   AuthUser,
@@ -8,18 +7,19 @@ import type {
   CurrentPoliciesResponse,
   DataTransferJob,
   OAuthProvider,
-  PolicyVersions,
-  PlanId,
-  PlanUsageSummary,
   OAuthProviderStatus,
   PersonaSummary,
+  PlanId,
+  PlanUsageSummary,
+  PolicyVersions,
   RevokeOtherSessionsResponse,
   UpdateUserProfileRequest,
 } from "@persona/shared";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { clampFiniteNumber, finiteNonnegativeIntegerOr, PASSWORD_MIN_LENGTH } from "@persona/shared";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { PasswordInput } from "./PasswordInput.js";
 import { clearPendingBillingCheckout, savePendingBillingCheckout } from "../lib/pendingBillingCheckout.js";
+import { PasswordInput } from "./PasswordInput.js";
 
 const REGISTER_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
@@ -235,6 +235,13 @@ export function ConversationSidebar({
     planId: "silver" | "gold";
     mode: "purchase" | "upgrade" | "downgrade";
   } | undefined>();
+  const [billingPlanChange, setBillingPlanChange] = useState<{
+    planId: "silver" | "gold";
+    currentPlanId: Exclude<PlanId, "bronze">;
+    mode: "upgrade" | "downgrade";
+    checkoutUrl: string;
+  } | undefined>();
+  const [billingPlanChangeLoading, setBillingPlanChangeLoading] = useState(false);
   const [preferredName, setPreferredName] = useState("");
   const [gender, setGender] = useState<AuthUser["gender"] | "">("");
   const [birthMonth, setBirthMonth] = useState("");
@@ -323,6 +330,8 @@ export function ConversationSidebar({
       setPlanUsage(undefined);
       setBillingCatalog(undefined);
       setBillingCheckout(undefined);
+      setBillingPlanChange(undefined);
+      setBillingPlanChangeLoading(false);
       billingCheckoutWindowRef.current = null;
       setPlanNotice(undefined);
       setConnectedAccounts([]);
@@ -553,6 +562,8 @@ export function ConversationSidebar({
     setSecurityNotice(undefined);
     setProviderNotice(undefined);
     setPlanNotice(undefined);
+    setBillingPlanChange(undefined);
+    setBillingPlanChangeLoading(false);
     accountButtonRef.current?.focus();
   }
 
@@ -622,6 +633,62 @@ export function ConversationSidebar({
         ? `RevenueCat checkout opened to schedule ${planId}. Your current plan remains active until renewal.`
         : `RevenueCat checkout opened for ${planId}. Return here after payment while we confirm your membership.`
     );
+  }
+
+  async function prepareWebPlanChange(planId: "silver" | "gold"): Promise<void> {
+    const requestedAccountId = authUser?.id;
+    if (!requestedAccountId || billingPlanChangeLoading || billingCheckout) return;
+    const displayedCurrentPlanId = billingCatalog?.currentPlanId ?? planUsage?.plan.id;
+    const displayedProduct = billingCatalog?.products.find((candidate) => candidate.planId === planId);
+    // Keep a first purchase synchronous with the click. Browsers commonly
+    // block a new window opened after awaiting a network refresh.
+    if (displayedCurrentPlanId === "bronze") {
+      startWebCheckout(planId, displayedCurrentPlanId, displayedProduct?.webCheckoutUrl);
+      return;
+    }
+    setBillingPlanChangeLoading(true);
+    setPlanNotice(undefined);
+    try {
+      // The checkout URL is account-bound. Refresh it immediately before a
+      // subscription change so a stale tab cannot select an outdated plan.
+      const catalog = await onGetBillingCatalog();
+      if (accountIdRef.current !== requestedAccountId) return;
+      setBillingCatalog(catalog);
+      const currentPlanId = catalog.currentPlanId;
+      const product = catalog.products.find((candidate) => candidate.planId === planId);
+      if (!catalog.enabled || !product?.webCheckoutUrl) {
+        setPlanNotice("This subscription option is not available right now. Refresh Plan & usage and try again.");
+        return;
+      }
+      if (currentPlanId === planId) {
+        setPlanNotice(`${product.displayName} is already active on your account.`);
+        return;
+      }
+      if (currentPlanId === "bronze") {
+        setPlanNotice("Your membership changed while this page was open. Review the available plans and select one to continue.");
+        return;
+      }
+      const planRank: Record<PlanId, number> = { bronze: 0, silver: 1, gold: 2 };
+      setBillingPlanChange({
+        planId,
+        currentPlanId,
+        mode: planRank[planId] > planRank[currentPlanId] ? "upgrade" : "downgrade",
+        checkoutUrl: product.webCheckoutUrl
+      });
+    } catch (error) {
+      if (accountIdRef.current === requestedAccountId) {
+        setPlanNotice(error instanceof Error ? error.message : "Could not prepare your subscription change.");
+      }
+    } finally {
+      if (accountIdRef.current === requestedAccountId) setBillingPlanChangeLoading(false);
+    }
+  }
+
+  function confirmWebPlanChange(): void {
+    const change = billingPlanChange;
+    if (!change) return;
+    setBillingPlanChange(undefined);
+    startWebCheckout(change.planId, change.currentPlanId, change.checkoutUrl);
   }
 
   async function selectSettingsSection(section: SettingsSection): Promise<void> {
@@ -1879,6 +1946,11 @@ export function ConversationSidebar({
                               </div>
                               <span className="settings-plan-renewal">Monthly · cancel anytime</span>
                             </div>
+                            {(billingCatalog?.currentPlanId ?? planUsage.plan.id) !== "bronze" ? (
+                              <p className="settings-plan-change-guide" role="status">
+                                Upgrades take effect after confirmation. Downgrades are scheduled for your next renewal, so your current access stays available until then.
+                              </p>
+                            ) : null}
                             {planNotice ? <div className="settings-notice" role="status">{planNotice}</div> : null}
                             <div className="settings-plan-grid">
                               {(["bronze", "silver", "gold"] as const).map((planId) => {
@@ -1909,8 +1981,8 @@ export function ConversationSidebar({
                                     <button
                                       type="button"
                                       className="settings-plan-action"
-                                      disabled={current || !paidPlan || !billingCatalog?.enabled || Boolean(billingCheckout) || !product?.webCheckoutUrl}
-                                      onClick={() => paidPlan ? startWebCheckout(planId, currentPlanId, product?.webCheckoutUrl) : undefined}
+                                      disabled={current || !paidPlan || !billingCatalog?.enabled || Boolean(billingCheckout) || billingPlanChangeLoading || Boolean(billingPlanChange) || !product?.webCheckoutUrl}
+                                      onClick={() => paidPlan ? void prepareWebPlanChange(planId) : undefined}
                                     >
                                       {current
                                         ? "Your plan"
@@ -1918,12 +1990,14 @@ export function ConversationSidebar({
                                           ? "Free plan"
                                           : checkoutPending
                                             ? "Confirming..."
+                                            : billingPlanChangeLoading
+                                              ? "Checking availability..."
                                             : !billingCatalog?.enabled
                                               ? "Subscriptions unavailable"
                                               : !product?.webCheckoutUrl
                                                 ? "Web checkout unavailable"
                                                 : lowerThanCurrent
-                                                  ? `Switch to ${planId}`
+                                                  ? `Downgrade to ${planId}`
                                                   : isPaidPlanChange
                                                     ? `Upgrade to ${planId}`
                                                     : `Choose ${planId}`}
@@ -1935,6 +2009,27 @@ export function ConversationSidebar({
                             <p className="settings-plan-footnote">
                               Web purchases use RevenueCat's secure checkout. Upgrades can take effect after confirmation; downgrades begin at the next renewal. Store purchases use Apple or Google in the mobile app. Your membership follows your account across mobile and web after the purchase is confirmed.
                             </p>
+                            {billingPlanChange ? (
+                              <div className="settings-plan-change-backdrop" role="presentation">
+                                <section className="settings-plan-change-dialog" role="alertdialog" aria-modal="true" aria-labelledby="plan-change-title" aria-describedby="plan-change-description">
+                                  <span className="settings-section-eyebrow">Review membership change</span>
+                                  <h5 id="plan-change-title">
+                                    {billingPlanChange.mode === "upgrade" ? "Upgrade your access?" : "Schedule your downgrade?"}
+                                  </h5>
+                                  <p id="plan-change-description">
+                                    {billingPlanChange.mode === "upgrade"
+                                      ? `You’re moving from ${billingPlanChange.currentPlanId} to ${billingPlanChange.planId}. RevenueCat will show the final price and any prorated charge before you confirm.`
+                                      : `You’re moving from ${billingPlanChange.currentPlanId} to ${billingPlanChange.planId}. Your ${billingPlanChange.currentPlanId} access stays active until the next renewal, then ${billingPlanChange.planId} begins.`}
+                                  </p>
+                                  <div className="settings-plan-change-actions">
+                                    <button type="button" className="settings-action" onClick={() => setBillingPlanChange(undefined)}>Keep current plan</button>
+                                    <button type="button" className="settings-action settings-action-primary" onClick={confirmWebPlanChange}>
+                                      {billingPlanChange.mode === "upgrade" ? `Continue to upgrade` : "Continue to schedule"}
+                                    </button>
+                                  </div>
+                                </section>
+                              </div>
+                            ) : null}
                           </>
                         ) : authBusy ? <p className="settings-empty-copy">Loading usage...</p> : null}
                       </div>

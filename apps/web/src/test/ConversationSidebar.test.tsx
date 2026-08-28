@@ -1,7 +1,7 @@
+import { type BillingCatalogResponse, type PlanUsageSummary, personaSummarySchema } from "@persona/shared";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { personaSummarySchema, type BillingCatalogResponse } from "@persona/shared";
 import { ConversationSidebar } from "../components/ConversationSidebar.js";
 
 const now = "2026-07-24T05:00:00.000Z";
@@ -108,7 +108,8 @@ const persona = personaSummarySchema.parse({
 function renderSidebar(options: {
   showPersona?: boolean;
   onSelectPersona?: (id: string) => void;
-  planUsageOverride?: typeof planUsage;
+  planUsageOverride?: PlanUsageSummary;
+  billingCatalogOverride?: BillingCatalogResponse;
   oauthReturnAction?: "link" | "sign-in";
   oauthReturnNotice?: string;
 } = {}) {
@@ -151,7 +152,7 @@ function renderSidebar(options: {
       onClearConversationMemory={vi.fn().mockResolvedValue(undefined)}
       onClearAllMemory={onClearAllMemory}
       onGetPlanUsage={vi.fn().mockResolvedValue(options.planUsageOverride ?? planUsage)}
-      onGetBillingCatalog={vi.fn().mockResolvedValue(billingCatalog)}
+      onGetBillingCatalog={vi.fn().mockResolvedValue(options.billingCatalogOverride ?? billingCatalog)}
       onListActiveSessions={vi.fn().mockResolvedValue(activeSessions)}
       onRevokeActiveSession={vi.fn().mockResolvedValue(undefined)}
       onRevokeOtherSessions={vi.fn().mockResolvedValue({ revoked: 1 })}
@@ -431,10 +432,10 @@ describe("ConversationSidebar settings", () => {
     expect(within(dialog).getByText("$11.99")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Your plan" })).toBeDisabled();
     await user.click(within(dialog).getByRole("button", { name: "Choose silver" }));
-    expect(windowOpen).toHaveBeenCalledWith(
+    await waitFor(() => expect(windowOpen).toHaveBeenCalledWith(
       "https://pay.rev.cat/test-link/user_1?package_id=silver_monthly",
       "_blank"
-    );
+    ));
     expect(checkoutWindow.opener).toBeNull();
     expect(within(dialog).getByText(/RevenueCat checkout opened for silver/i)).toBeInTheDocument();
     expect(within(dialog).getByText("94% left")).toBeInTheDocument();
@@ -477,6 +478,47 @@ describe("ConversationSidebar settings", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
     expect(within(dialog).getByRole("button", { name: "Continue to deletion" })).toBeInTheDocument();
+  });
+
+  it("requires confirmation before an existing member upgrades or schedules a downgrade", async () => {
+    const user = userEvent.setup();
+    const checkoutWindow = { opener: window };
+    const windowOpen = vi.spyOn(window, "open").mockReturnValue(checkoutWindow as unknown as Window);
+    const silverUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "silver" as const, displayName: "Silver", monthlyPriceCents: 799 }
+    };
+    const silverCatalog = { ...billingCatalog, currentPlanId: "silver" as const };
+    renderSidebar({ planUsageOverride: silverUsage, billingCatalogOverride: silverCatalog });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+    await user.click(within(dialog).getByRole("button", { name: "Upgrade to gold" }));
+    const review = await screen.findByRole("alertdialog", { name: "Upgrade your access?" });
+    expect(within(review).getByText(/final price and any prorated charge/i)).toBeInTheDocument();
+    await user.click(within(review).getByRole("button", { name: "Continue to upgrade" }));
+    expect(windowOpen).toHaveBeenCalledWith("https://pay.rev.cat/test-link/user_1?package_id=gold_monthly", "_blank");
+
+  });
+
+  it("explains that an existing member's downgrade begins at renewal", async () => {
+    const user = userEvent.setup();
+    const goldUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "gold" as const, displayName: "Gold", monthlyPriceCents: 1199 }
+    };
+    const goldCatalog = { ...billingCatalog, currentPlanId: "gold" as const };
+    renderSidebar({ planUsageOverride: goldUsage, billingCatalogOverride: goldCatalog });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+    await user.click(within(dialog).getByRole("button", { name: "Downgrade to silver" }));
+    const review = await screen.findByRole("alertdialog", { name: "Schedule your downgrade?" });
+    expect(within(review).getByText(/stays active until the next renewal/i)).toBeInTheDocument();
   });
 
   it("reopens Security and confirms a successful provider link", async () => {
