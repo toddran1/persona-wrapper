@@ -8,10 +8,11 @@ import {
   type PendingBillingCheckout
 } from "../lib/pendingBillingCheckout.js";
 
-type ConfirmationState = "checking" | "confirmed" | "waiting" | "signed-out" | "error";
+type ConfirmationState = "checking" | "confirmed" | "waiting" | "delayed" | "signed-out" | "error";
 
 const MAX_AUTOMATIC_CHECKS = 40;
 const CHECK_INTERVAL_MS = 3_000;
+const CONFIRMATION_DELAY_MS = 90_000;
 
 function titleCasePlan(planId: PlanId | undefined): string {
   if (!planId) return "membership";
@@ -73,10 +74,13 @@ export function BillingReturnPage() {
         return;
       }
 
-      setState("waiting");
+      const confirmationIsDelayed = Boolean(
+        pending && Date.now() - pending.startedAt >= CONFIRMATION_DELAY_MS
+      ) || checksRef.current >= MAX_AUTOMATIC_CHECKS;
+      setState(confirmationIsDelayed ? "delayed" : "waiting");
       setMessage(
-        checksRef.current >= MAX_AUTOMATIC_CHECKS
-          ? "The store accepted the checkout, but your membership has not reached us yet. You can continue and check Plan & usage again shortly."
+        confirmationIsDelayed
+          ? "Checkout completed, but we have not received the store entitlement yet. Your payment is not lost. Continue to the app and check Plan & usage again later, or contact support if your plan is still unchanged."
           : `RevenueCat is still confirming your ${titleCasePlan(pending?.planId)} membership. This usually takes only a few seconds.`
       );
     } catch (error) {
@@ -110,8 +114,8 @@ export function BillingReturnPage() {
   }, [checkMembership, state]);
 
   const planLabel = titleCasePlan(activePlan ?? pendingRef.current?.planId);
-  const eyebrow = state === "confirmed" ? "Membership confirmed" : state === "signed-out" ? "Account needed" : "Secure checkout return";
-  const heading = state === "confirmed" ? `Welcome to ${planLabel}` : state === "waiting" ? "Almost there" : state === "signed-out" ? "Finish with the right account" : state === "error" ? "We need another look" : "Confirming your plan";
+  const eyebrow = state === "confirmed" ? "Membership confirmed" : state === "signed-out" ? "Account needed" : state === "delayed" ? "Confirmation delayed" : "Secure checkout return";
+  const heading = state === "confirmed" ? `Welcome to ${planLabel}` : state === "waiting" ? "Almost there" : state === "delayed" ? "Checkout received" : state === "signed-out" ? "Finish with the right account" : state === "error" ? "We need another look" : "Confirming your plan";
 
   return (
     <main className="billing-return-page">
@@ -138,7 +142,7 @@ export function BillingReturnPage() {
 
           <ol className="billing-return-steps" aria-label="Purchase confirmation progress">
             <li className="complete"><span>1</span><div><b>Checkout</b><small>Payment submitted securely</small></div></li>
-            <li className={state === "confirmed" ? "complete" : "active"}><span>2</span><div><b>Account sync</b><small>{state === "confirmed" ? "Entitlement received" : "Waiting for confirmation"}</small></div></li>
+            <li className={state === "confirmed" ? "complete" : "active"}><span>2</span><div><b>Account sync</b><small>{state === "confirmed" ? "Entitlement received" : state === "delayed" ? "Store confirmation delayed" : "Waiting for confirmation"}</small></div></li>
             <li className={state === "confirmed" ? "complete" : ""}><span>3</span><div><b>Access</b><small>{state === "confirmed" ? "Ready across your devices" : "Unlocks automatically"}</small></div></li>
           </ol>
 

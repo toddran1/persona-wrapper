@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { getBillingCatalog } from "../services/billingCatalogService.js";
 import { revenueCatBillingService } from "../services/revenueCatBillingService.js";
 import { HttpError } from "../utils/httpError.js";
+import { logger } from "../utils/logger.js";
 
 export async function getAccountBillingCatalog(request: Request, response: Response): Promise<void> {
   if (!request.auth) throw new HttpError("Not authenticated.", 401);
@@ -15,6 +16,11 @@ export function postRevenueCatWebhook(request: Request, response: Response, next
   try {
     revenueCatBillingService.authorize(request.header("authorization"));
   } catch (error) {
+    logger.warn("RevenueCat webhook authorization rejected", {
+      hasAuthorizationHeader: Boolean(request.header("authorization")),
+      hasUserAgent: Boolean(request.header("user-agent")),
+      requestId: response.locals.requestId ?? null
+    });
     next(error);
     return;
   }

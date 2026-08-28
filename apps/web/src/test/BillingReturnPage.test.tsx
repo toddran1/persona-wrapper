@@ -108,6 +108,25 @@ describe("BillingReturnPage", () => {
     expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
   });
 
+  it("stops presenting an old checkout as an actively processing confirmation", async () => {
+    savePendingBillingCheckout({
+      accountId: "user-1",
+      currentPlanId: "bronze",
+      planId: "silver",
+      startedAt: Date.now() - 120_000
+    });
+    vi.mocked(api.getCurrentUser).mockResolvedValue(meResponse());
+    vi.mocked(api.getPlanUsage).mockResolvedValue(usageResponse("bronze"));
+    vi.mocked(api.getBillingCatalog).mockResolvedValue(catalogResponse("bronze"));
+
+    render(<MemoryRouter><BillingReturnPage /></MemoryRouter>);
+
+    expect(await screen.findByRole("heading", { name: "Checkout received" })).toBeInTheDocument();
+    expect(screen.getByText(/have not received the store entitlement yet/i)).toBeInTheDocument();
+    expect(screen.getByText("Store confirmation delayed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
+  });
+
   it("asks the customer to sign in when the return tab has no authenticated session", async () => {
     vi.mocked(api.getCurrentUser).mockRejectedValue(new Error("Authentication required."));
 
