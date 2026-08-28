@@ -10,7 +10,8 @@ const revenueCatSubscriptionSchema = z.object({
   id: z.string().min(1),
   gives_access: z.boolean(),
   current_period_ends_at: z.number().nullish(),
-  management_url: z.string().url().nullish()
+  management_url: z.string().url().nullish(),
+  store: z.string().min(1)
 }).passthrough();
 
 const revenueCatSubscriptionListSchema = z.object({
@@ -100,8 +101,11 @@ export class RevenueCatCustomerService {
       requestUrl = nextUrl.toString();
     }
 
+    // The list response's management_url may be RevenueCat's email-link flow
+    // on api.revenuecat.com. The store field is the authoritative Web Billing
+    // discriminator; only the final authenticated URL must use billing.revenuecat.com.
     const activeWebSubscriptions = subscriptions
-      .filter((subscription) => subscription.gives_access && isRevenueCatBillingUrl(subscription.management_url))
+      .filter((subscription) => subscription.gives_access && subscription.store === "rc_billing")
       .sort((left, right) =>
         (right.current_period_ends_at ?? 0) - (left.current_period_ends_at ?? 0) || left.id.localeCompare(right.id)
       );

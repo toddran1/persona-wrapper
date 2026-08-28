@@ -11,13 +11,14 @@ function jsonResponse(body: unknown, status = 200): Response {
 function subscription(
   id: string,
   managementUrl: string | null,
-  options: { endsAt?: number; givesAccess?: boolean } = {}
+  options: { endsAt?: number; givesAccess?: boolean; store?: string } = {}
 ): Record<string, unknown> {
   return {
     id,
     gives_access: options.givesAccess ?? true,
     current_period_ends_at: options.endsAt ?? 2_000,
-    management_url: managementUrl
+    management_url: managementUrl,
+    store: options.store ?? "rc_billing"
   };
 }
 
@@ -25,7 +26,7 @@ describe("RevenueCat customer management", () => {
   it("uses the v2 read-only flow to return a single-use RevenueCat Billing portal URL", async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(jsonResponse({
-        items: [subscription("sub_1", "https://billing.revenuecat.com/app_1/sub_1")],
+        items: [subscription("sub_1", "https://api.revenuecat.com/rcbilling/v1/customerportal/tx_1/portal")],
         next_page: null
       }))
       .mockResolvedValueOnce(jsonResponse({
@@ -60,7 +61,7 @@ describe("RevenueCat customer management", () => {
       .mockResolvedValueOnce(jsonResponse({
         items: [
           subscription("expired", "https://billing.revenuecat.com/app_1/expired", { givesAccess: false }),
-          subscription("mobile", "https://apps.apple.com/account/subscriptions", { endsAt: 9_000 }),
+          subscription("mobile", "https://apps.apple.com/account/subscriptions", { endsAt: 9_000, store: "app_store" }),
           subscription("sub_older", "https://billing.revenuecat.com/app_1/sub_older", { endsAt: 3_000 })
         ],
         next_page: "/v2/projects/proj_1/customers/user_1/subscriptions?starting_after=sub_older&limit=100"
@@ -91,7 +92,7 @@ describe("RevenueCat customer management", () => {
       apiKey: "sk_v2_read_only",
       billingEnabled: true,
       fetchImpl: vi.fn().mockResolvedValue(jsonResponse({
-        items: [subscription("mobile", "https://apps.apple.com/account/subscriptions")],
+        items: [subscription("mobile", "https://apps.apple.com/account/subscriptions", { store: "app_store" })],
         next_page: null
       })) as unknown as typeof fetch,
       projectId: "proj_1"
