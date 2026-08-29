@@ -102,15 +102,27 @@ function balanceId(userId: string, meter: CustomerUsageMeter, periodStart: Date)
   return `balance_${Buffer.from(`${userId}:${meter}:${periodStart.toISOString()}`).toString("base64url").slice(0, 96)}`;
 }
 
-function quotaError(meter: CustomerUsageMeter): HttpError {
+function quotaResetLabel(periodEnd: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC"
+  }).format(periodEnd);
+}
+
+function quotaError(meter: CustomerUsageMeter, plan: PlanDefinition, periodEnd: Date): HttpError {
+  const resetLabel = quotaResetLabel(periodEnd);
+  const upgradeOrWait = plan.id === "gold"
+    ? `It resets ${resetLabel}.`
+    : `Upgrade your plan or wait until it resets ${resetLabel}.`;
   return new HttpError(
     meter === "total_usage_microusd"
-      ? "Your monthly total usage allowance has been reached. It resets at the start of your next billing period."
+      ? `You do not have enough total usage remaining for this request. ${upgradeOrWait}`
       : meter === "credits"
-      ? "Your monthly credits have been used. Upgrade options are coming soon."
+      ? `You do not have enough image credits remaining for this request. ${upgradeOrWait}`
       : meter === "audio_seconds"
-        ? "Your monthly audio allowance has been used. You can continue chatting without generated audio."
-        : "This monthly allowance has been used. Upgrade options are coming soon.",
+        ? `You do not have enough audio allowance remaining for this request. Turn off audio to keep chatting, or wait until it resets ${resetLabel}.`
+        : `You do not have enough allowance remaining for this request. ${upgradeOrWait}`,
     429
   );
 }
@@ -190,7 +202,7 @@ export class CustomerUsageService {
         const balance = this.localBalances.get(key) ?? { used: 0, reserved: 0 };
         const limit = plan.allowances[meter] ?? null;
         if (enforceUsage && limit !== null && balance.used + balance.reserved + rawQuantity > limit) {
-          throw quotaError(meter);
+          throw quotaError(meter, plan, period.end);
         }
         pendingBalances.set(key, {
           used: balance.used,
@@ -257,7 +269,7 @@ export class CustomerUsageService {
           && limit !== null
           && Number(balance?.used ?? 0) + Number(balance?.reserved ?? 0) + quantity > limit
         ) {
-          throw quotaError(meter);
+          throw quotaError(meter, plan, period.end);
         }
         await tx.insert(customerUsageBalances).values({
           id: balanceId(userId, meter, period.start),

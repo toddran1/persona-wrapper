@@ -2298,7 +2298,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
             />
           </aside>
         ) : null}
-        {error ? <div className="error-banner">{error}</div> : null}
+        {error ? <div className="error-banner" role="alert">{error}</div> : null}
       </div>
     </main>
     )

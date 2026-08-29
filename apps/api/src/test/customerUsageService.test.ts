@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { env } from "../config/env.js";
 import { calculateRolloverQuantity, CustomerUsageService } from "../services/customerUsageService.js";
 import { getPlanDefinition, planIncludesPersona } from "../services/planCatalog.js";
 
@@ -116,6 +117,49 @@ describe("customer usage plans", () => {
     summary = await service.summary("user_metered");
     expect(summary.totalUsage).toMatchObject({ usedMicroUsd: 125_000, reservedMicroUsd: 0 });
     expect(summary.meters.find((meter) => meter.key === "credits")).toMatchObject({ used: 2, reserved: 0 });
+  });
+
+  it("blocks total, image, and audio requests once their complete allowance is reserved", async () => {
+    const enforcementWasEnabled = env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED;
+    env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED = true;
+    try {
+      const service = new CustomerUsageService();
+      await service.reserve("user_total_limit", {
+        total_usage_microusd: 3_000_000
+      }, { idempotencyKey: "fill_total" });
+      await expect(service.reserve("user_total_limit", {
+        total_usage_microusd: 1
+      }, { idempotencyKey: "exceed_total" })).rejects.toMatchObject({
+        statusCode: 429,
+        message: expect.stringMatching(/^You do not have enough total usage remaining.+resets [A-Z][a-z]+ \d{1,2}\.$/)
+      });
+
+      await service.reserve("user_image_limit", {
+        credits: 24
+      }, { idempotencyKey: "fill_images" });
+      await expect(service.reserve("user_image_limit", {
+        credits: 1
+      }, { idempotencyKey: "exceed_images" })).rejects.toMatchObject({
+        statusCode: 429,
+        message: expect.stringMatching(/^You do not have enough image credits remaining.+Upgrade your plan.+resets [A-Z][a-z]+ \d{1,2}\.$/)
+      });
+
+      await service.reserve("user_audio_limit", {
+        audio_seconds: 1_200
+      }, { idempotencyKey: "fill_audio" });
+      await expect(service.reserve("user_audio_limit", {
+        audio_seconds: 1
+      }, { idempotencyKey: "exceed_audio" })).rejects.toMatchObject({
+        statusCode: 429,
+        message: expect.stringMatching(/^You do not have enough audio allowance remaining.+Turn off audio to keep chatting.+resets [A-Z][a-z]+ \d{1,2}\.$/)
+      });
+
+      expect((await service.summary("user_total_limit")).totalUsage.remainingMicroUsd).toBe(0);
+      expect((await service.summary("user_image_limit")).meters.find((meter) => meter.key === "credits")?.remaining).toBe(0);
+      expect((await service.summary("user_audio_limit")).meters.find((meter) => meter.key === "audio_seconds")?.remaining).toBe(0);
+    } finally {
+      env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED = enforcementWasEnabled;
+    }
   });
 
   it("retries a failed settlement on the next drain instead of losing the usage", async () => {
