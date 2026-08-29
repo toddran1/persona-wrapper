@@ -337,9 +337,9 @@ textarea {
 .conversation-new-chat:hover,
 .conversation-sidebar-icon-button:hover,
 .conversation-list-more:hover,
-.conversation-auth-submit:hover,
-.conversation-auth-secondary:hover,
-.conversation-oauth-button:hover {
+.conversation-auth-submit:hover:not(:disabled),
+.conversation-auth-secondary:hover:not(:disabled),
+.conversation-oauth-button:hover:not(:disabled) {
   border-color: rgba(214, 181, 94, 0.42);
   background: rgba(214, 181, 94, 0.12);
 }
@@ -610,6 +610,17 @@ textarea {
 .conversation-auth-submit {
   color: #181018;
   background: linear-gradient(135deg, rgba(188, 135, 255, 0.92), rgba(246, 213, 111, 0.88));
+}
+
+.conversation-auth-submit:hover:not(:disabled),
+.conversation-auth-submit:focus-visible:not(:disabled) {
+  border-color: rgba(255, 244, 207, 0.78);
+  color: #160d1c;
+  background: linear-gradient(135deg, #cbb0ff, #f3d77f);
+  box-shadow:
+    0 12px 24px rgba(93, 53, 153, 0.28),
+    0 0 0 3px rgba(214, 181, 94, 0.16);
+  outline: none;
 }
 
 .conversation-auth-submit:disabled,
@@ -2075,10 +2086,10 @@ textarea {
   font-weight: 800;
 }
 
-.settings-action:hover,
-.settings-action:focus-visible,
-.settings-inline-action:hover,
-.settings-inline-action:focus-visible {
+.settings-action:hover:not(:disabled),
+.settings-action:focus-visible:not(:disabled),
+.settings-inline-action:hover:not(:disabled),
+.settings-inline-action:focus-visible:not(:disabled) {
   border-color: rgba(214, 181, 94, 0.44);
   background: rgba(214, 181, 94, 0.09);
   outline: none;
@@ -2096,6 +2107,17 @@ textarea {
   color: #180f1b;
   background: linear-gradient(135deg, #e4c66b, #cda84b);
   box-shadow: 0 8px 22px rgba(214, 181, 94, 0.13);
+}
+
+.settings-action-primary:hover:not(:disabled),
+.settings-action-primary:focus-visible:not(:disabled) {
+  border-color: rgba(255, 241, 195, 0.78);
+  color: #160d1c;
+  background: linear-gradient(135deg, #f3dda0, #ddb84f);
+  box-shadow:
+    0 12px 26px rgba(95, 64, 17, 0.26),
+    0 0 0 3px rgba(214, 181, 94, 0.16);
+  outline: none;
 }
 
 .settings-action-apple {
@@ -3733,6 +3755,18 @@ button:disabled {
 .stop-button {
   background: #9f3545;
   border-color: rgba(255, 190, 198, 0.55);
+  color: #fff8f2;
+}
+
+.stop-button:hover:not(:disabled),
+.stop-button:focus-visible:not(:disabled) {
+  border-color: rgba(255, 214, 220, 0.82);
+  color: #fffdfb;
+  background: #7f2335;
+  filter: none;
+  box-shadow:
+    0 14px 28px rgba(111, 22, 45, 0.34),
+    0 0 0 3px rgba(255, 137, 158, 0.18);
 }
 
 .panel-header {
