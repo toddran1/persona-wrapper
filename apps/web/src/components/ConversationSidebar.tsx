@@ -919,8 +919,16 @@ export function ConversationSidebar({
         const endingSubscription = result.catalog?.subscription?.state === "canceled"
           ? result.catalog.subscription
           : undefined;
+        const scheduledSubscription = result.catalog?.subscription?.state === "change_scheduled"
+          && result.catalog.subscription.pendingPlanId === billingCheckout.planId
+          ? result.catalog.subscription
+          : undefined;
         if (billingCheckout.planId === "bronze" && endingSubscription) {
           setPlanNotice(`${activePlan[0]?.toUpperCase()}${activePlan.slice(1)} is canceled. Your paid access ends ${formatMembershipDate(endingSubscription.currentPeriodEndsAt)}.`);
+          setBillingCheckout(undefined);
+          billingCheckoutWindowRef.current = null;
+        } else if (scheduledSubscription) {
+          setPlanNotice(`${billingCheckout.planId[0]?.toUpperCase()}${billingCheckout.planId.slice(1)} is scheduled to begin ${formatMembershipDate(scheduledSubscription.currentPeriodEndsAt)}.`);
           setBillingCheckout(undefined);
           billingCheckoutWindowRef.current = null;
         } else if (activePlan === billingCheckout.planId) {

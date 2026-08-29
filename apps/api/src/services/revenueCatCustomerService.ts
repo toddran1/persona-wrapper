@@ -105,7 +105,7 @@ export class RevenueCatCustomerService {
     // on api.revenuecat.com. The store field is the authoritative Web Billing
     // discriminator; only the final authenticated URL must use billing.revenuecat.com.
     const activeWebSubscriptions = subscriptions
-      .filter((subscription) => subscription.gives_access && subscription.store === "rc_billing")
+      .filter((subscription) => subscription.gives_access && subscription.store.trim().toLowerCase() === "rc_billing")
       .sort((left, right) =>
         (right.current_period_ends_at ?? 0) - (left.current_period_ends_at ?? 0) || left.id.localeCompare(right.id)
       );
@@ -145,6 +145,9 @@ export class RevenueCatCustomerService {
       }
       if (response.status === 429) {
         throw new HttpError("RevenueCat subscription management is busy. Please try again shortly.", 503);
+      }
+      if (response.status === 423) {
+        throw new HttpError("RevenueCat is updating this subscription. Please try again shortly.", 409);
       }
       if (response.status === 404 && operation === "subscriptions") {
         throw new HttpError("No RevenueCat billing customer is available for this account.", 409);

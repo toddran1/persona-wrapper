@@ -87,6 +87,25 @@ describe("RevenueCat customer management", () => {
     );
   });
 
+  it("accepts RevenueCat's Web Billing store discriminator case-insensitively", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        items: [subscription("sub_1", null, { store: "RC_BILLING" })],
+        next_page: null
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        management_url: "https://billing.revenuecat.com/app_1/sub_1?token=single-use"
+      }));
+    const service = new RevenueCatCustomerService({
+      apiKey: "sk_v2_read_only",
+      billingEnabled: true,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      projectId: "proj_1"
+    });
+
+    await expect(service.getManagementUrl("user_1")).resolves.toContain("/sub_1?");
+  });
+
   it("rejects missing Web Billing subscriptions and invalid management destinations", async () => {
     const missingPortal = new RevenueCatCustomerService({
       apiKey: "sk_v2_read_only",
@@ -188,6 +207,17 @@ describe("RevenueCat customer management", () => {
     await expect(rateLimited.getManagementUrl("user_1")).rejects.toMatchObject({
       message: "RevenueCat subscription management is busy. Please try again shortly.",
       statusCode: 503
+    });
+
+    const locked = new RevenueCatCustomerService({
+      apiKey: "sk_v2_read_only",
+      billingEnabled: true,
+      fetchImpl: vi.fn().mockResolvedValue(new Response(null, { status: 423 })) as unknown as typeof fetch,
+      projectId: "proj_1"
+    });
+    await expect(locked.getManagementUrl("user_1")).rejects.toMatchObject({
+      message: "RevenueCat is updating this subscription. Please try again shortly.",
+      statusCode: 409
     });
   });
 });

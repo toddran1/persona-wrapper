@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseRevenueCatWebhookEvent } from "../services/revenueCatBillingService.js";
+import {
+  parseRevenueCatWebhookEvent,
+  revenueCatAccessOutcome,
+  shouldApplyRevenueCatEvent
+} from "../services/revenueCatBillingService.js";
 
 describe("RevenueCat webhook parsing", () => {
   it("accepts nullable optional fields from RevenueCat deliveries", () => {
@@ -37,5 +41,52 @@ describe("RevenueCat webhook parsing", () => {
       type: "INITIAL_PURCHASE",
       app_user_id: "user_1"
     })).toThrow();
+  });
+
+  it("does not let equal-timestamp billing events undo an expiration", () => {
+    const eventAt = new Date("2026-09-01T00:00:00.000Z");
+    expect(shouldApplyRevenueCatEvent(
+      { lastEventAt: eventAt, status: "expired" },
+      eventAt,
+      { type: "BILLING_ISSUE", cancel_reason: null }
+    )).toBe(false);
+    expect(shouldApplyRevenueCatEvent(
+      { lastEventAt: eventAt, status: "billing_issue" },
+      eventAt,
+      { type: "EXPIRATION", cancel_reason: null }
+    )).toBe(true);
+    expect(shouldApplyRevenueCatEvent(
+      { lastEventAt: eventAt, status: "product_change" },
+      eventAt,
+      { type: "RENEWAL", cancel_reason: null }
+    )).toBe(true);
+  });
+
+  it("extends access through grace and revokes support refunds immediately", () => {
+    const eventAt = new Date("2026-09-01T00:00:00.000Z");
+    const periodEnd = new Date("2026-09-01T00:00:00.000Z");
+    const graceEndMs = new Date("2026-09-04T00:00:00.000Z").getTime();
+    expect(revenueCatAccessOutcome({
+      type: "BILLING_ISSUE",
+      cancel_reason: null,
+      expiration_reason: null,
+      grace_period_expiration_at_ms: graceEndMs
+    }, eventAt, periodEnd)).toMatchObject({
+      accessEnded: false,
+      accessEndsAt: new Date(graceEndMs),
+      gracePeriodEndsAt: new Date(graceEndMs),
+      status: "billing_issue"
+    });
+    expect(revenueCatAccessOutcome({
+      type: "CANCELLATION",
+      cancel_reason: "CUSTOMER_SUPPORT",
+      expiration_reason: null,
+      grace_period_expiration_at_ms: null
+    }, eventAt, new Date("2026-10-01T00:00:00.000Z"))).toMatchObject({
+      accessEnded: true,
+      accessEndsAt: eventAt,
+      expirationReason: "CUSTOMER_SUPPORT",
+      status: "refunded"
+    });
   });
 });

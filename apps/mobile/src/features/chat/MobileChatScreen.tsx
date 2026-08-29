@@ -150,7 +150,11 @@ function formatMembershipDate(value: string, short = false): string {
 }
 
 function subscriptionMatchesDeviceStore(subscription: BillingSubscriptionLifecycle | undefined): boolean {
-  if (!subscription || subscription.state === "ended") return true;
+  // Missing lifecycle metadata must fail closed for an already-paid account.
+  // The caller separately permits Bronze purchases, while paid plan changes
+  // require proof that this device owns the existing store subscription.
+  if (!subscription) return false;
+  if (subscription.state === "ended") return true;
   return (subscription.store === "app_store" && Platform.OS === "ios")
     || (subscription.store === "play_store" && Platform.OS === "android");
 }
@@ -1092,8 +1096,12 @@ export function MobileChatScreen() {
         if (currentAccountIdRef.current !== requestedAccountId) return;
         await refreshBilling();
         setBillingNotice("RevenueCat Web subscription details refreshed.");
-      } catch {
-        setBillingError("The secure RevenueCat Web billing page could not be opened. Try again in a moment.");
+      } catch (manageError) {
+        if (currentAccountIdRef.current === requestedAccountId) {
+          setBillingError(manageError instanceof Error
+            ? manageError.message
+            : "The secure RevenueCat Web billing page could not be opened. Try again in a moment.");
+        }
       } finally {
         if (currentAccountIdRef.current === requestedAccountId) setBillingBusyProductId(undefined);
       }

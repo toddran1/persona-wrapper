@@ -106,6 +106,17 @@ describe("billing product catalog", () => {
       endedReason: null
     });
     expect(billingSubscriptionState(
+      subscription({
+        status: "billing_issue",
+        currentPeriodEndsAt: new Date("2026-08-27T00:00:00.000Z"),
+        gracePeriodEndsAt: new Date("2026-09-04T00:00:00.000Z")
+      }),
+      new Date("2026-08-28T00:00:00.000Z")
+    )).toMatchObject({
+      state: "payment_issue",
+      gracePeriodEndsAt: "2026-09-04T00:00:00.000Z"
+    });
+    expect(billingSubscriptionState(
       subscription({ status: "product_change", planId: "gold", pendingPlanId: "silver", store: "PLAY_STORE" }),
       new Date("2026-08-28T00:00:00.000Z")
     )).toMatchObject({
@@ -121,6 +132,10 @@ describe("billing product catalog", () => {
       subscription({ status: "expired", store: "APP_STORE", expirationReason: "BILLING_ERROR" }),
       new Date("2026-09-02T00:00:00.000Z")
     )).toMatchObject({ state: "ended", store: "app_store", endedReason: "payment_issue" });
+    expect(billingSubscriptionState(
+      subscription({ status: "refunded", expirationReason: "CUSTOMER_SUPPORT" }),
+      new Date("2026-09-02T00:00:00.000Z")
+    )).toMatchObject({ state: "ended", endedReason: "other" });
     expect(billingSubscriptionState(
       subscription({ status: "expired" }),
       new Date("2026-10-02T00:00:00.001Z")

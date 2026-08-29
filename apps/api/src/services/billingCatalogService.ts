@@ -102,8 +102,14 @@ export function billingSubscriptionState(
     : undefined;
   if (!planId) return null;
   const periodEndMs = currentPeriodEndsAt.getTime();
-  const ended = subscription.status === "expired" || periodEndMs <= now.getTime();
-  if (ended && now.getTime() - periodEndMs > RECENTLY_ENDED_WINDOW_MS) return null;
+  const effectiveAccessEndMs = (subscription.status === "billing_issue" || subscription.cancelReason === "BILLING_ERROR")
+    && subscription.gracePeriodEndsAt
+    ? subscription.gracePeriodEndsAt.getTime()
+    : periodEndMs;
+  const ended = subscription.status === "expired"
+    || subscription.status === "refunded"
+    || effectiveAccessEndMs <= now.getTime();
+  if (ended && now.getTime() - effectiveAccessEndMs > RECENTLY_ENDED_WINDOW_MS) return null;
   const pendingPlanId = subscription.pendingPlanId === "bronze"
     || subscription.pendingPlanId === "silver"
     || subscription.pendingPlanId === "gold"

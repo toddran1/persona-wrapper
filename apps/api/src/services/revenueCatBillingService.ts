@@ -25,6 +25,78 @@ const webhookSchema = z.object({ api_version: z.string().nullish(), event: event
 export type RevenueCatWebhookEvent = z.infer<typeof eventSchema>;
 type Event = RevenueCatWebhookEvent;
 
+const EVENT_PRECEDENCE: Readonly<Record<string, number>> = {
+  product_change: 10,
+  billing_issue: 20,
+  subscription_paused: 25,
+  cancellation: 30,
+  initial_purchase: 40,
+  renewal: 40,
+  uncancellation: 40,
+  non_renewing_purchase: 40,
+  subscription_extended: 40,
+  refund_reversed: 40,
+  refunded: 45,
+  expired: 50
+};
+
+function incomingEventStatus(event: Pick<Event, "type" | "cancel_reason">): string {
+  if (event.type === "EXPIRATION") return "expired";
+  if (event.type === "CANCELLATION" && event.cancel_reason === "CUSTOMER_SUPPORT") return "refunded";
+  return event.type.toLowerCase();
+}
+
+/**
+ * RevenueCat can deliver billing-issue, cancellation, and expiration events
+ * with the same timestamp in a different order. At an equal timestamp, only
+ * accept a transition that is more authoritative than the stored state.
+ */
+export function shouldApplyRevenueCatEvent(
+  existing: { lastEventAt: Date; status: string } | undefined,
+  eventAt: Date,
+  event: Pick<Event, "type" | "cancel_reason">
+): boolean {
+  if (!existing) return true;
+  const timestampDifference = eventAt.getTime() - existing.lastEventAt.getTime();
+  if (timestampDifference !== 0) return timestampDifference > 0;
+  const incomingStatus = event.type === "EXPIRATION"
+    ? "expired"
+    : event.type === "CANCELLATION" && event.cancel_reason === "CUSTOMER_SUPPORT"
+      ? "refunded"
+      : event.type.toLowerCase();
+  return (EVENT_PRECEDENCE[incomingStatus] ?? 0) > (EVENT_PRECEDENCE[existing.status] ?? 0);
+}
+
+export function revenueCatAccessOutcome(
+  event: Pick<Event, "type" | "cancel_reason" | "expiration_reason" | "grace_period_expiration_at_ms">,
+  eventAt: Date,
+  expiresAt: Date,
+  existingGracePeriodEndsAt?: Date | null
+): {
+  accessEnded: boolean;
+  accessEndsAt: Date;
+  expirationReason: string | null;
+  gracePeriodEndsAt: Date | null;
+  status: string;
+} {
+  const refunded = event.type === "CANCELLATION" && event.cancel_reason === "CUSTOMER_SUPPORT";
+  const expired = event.type === "EXPIRATION";
+  const gracePeriodEndsAt = event.type === "BILLING_ISSUE"
+    ? safeDate(event.grace_period_expiration_at_ms)
+    : event.type === "CANCELLATION" && event.cancel_reason === "BILLING_ERROR"
+      ? safeDate(event.grace_period_expiration_at_ms) ?? existingGracePeriodEndsAt ?? null
+      : null;
+  return {
+    accessEnded: expired || refunded,
+    accessEndsAt: refunded ? eventAt : gracePeriodEndsAt ?? expiresAt,
+    expirationReason: expired
+      ? event.expiration_reason ?? null
+      : refunded ? "CUSTOMER_SUPPORT" : null,
+    gracePeriodEndsAt,
+    status: incomingEventStatus(event)
+  };
+}
+
 export function parseRevenueCatWebhookEvent(input: unknown): RevenueCatWebhookEvent {
   return eventSchema.parse(input);
 }
@@ -195,18 +267,24 @@ export class RevenueCatBillingService {
     const rawExternalProductId = productId?.trim() || "unknown-product";
     const externalId = event.original_transaction_id ?? event.transaction_id ?? `${userId}:${rawExternalProductId}`;
     const subscriptionId = stableId("billing_subscription", externalId);
-    const eventAt = safeDate(event.event_timestamp_ms) ?? new Date();
+    const eventAt = safeDate(event.event_timestamp_ms);
+    if (!eventAt) {
+      throw new HttpError("RevenueCat subscription events must include a valid event timestamp.", 422);
+    }
     const expiresAt = safeDate(event.expiration_at_ms);
     const db = getDatabase();
     if (!db) throw new HttpError("Billing requires database-backed storage.", 503);
     const [existing] = await db.select({
       lastEventAt: billingSubscriptions.lastEventAt,
+      status: billingSubscriptions.status,
       planId: billingSubscriptions.planId,
       currentPeriodEndsAt: billingSubscriptions.currentPeriodEndsAt,
       gracePeriodEndsAt: billingSubscriptions.gracePeriodEndsAt
     }).from(billingSubscriptions)
       .where(and(eq(billingSubscriptions.provider, "revenuecat"), eq(billingSubscriptions.externalSubscriptionId, externalId))).limit(1);
-    if (existing && existing.lastEventAt > eventAt) return { status: "ignored", eventId: event.id };
+    if (!shouldApplyRevenueCatEvent(existing, eventAt, event)) {
+      return { status: "ignored", eventId: event.id };
+    }
 
     if (event.type === "PRODUCT_CHANGE") {
       const pendingPlanId = planIdForRevenueCatPurchase(event.new_product_id, event.entitlement_ids);
@@ -246,41 +324,43 @@ export class RevenueCatBillingService {
       ? normalizeStoreProductId(productId)
       : `entitlement:${planId}`;
     const assignmentId = stableId("plan_assignment_revenuecat", externalId);
-    const expired = event.type === "EXPIRATION";
-    if (!expired && !expiresAt) {
+    const refunded = event.type === "CANCELLATION" && event.cancel_reason === "CUSTOMER_SUPPORT";
+    if (!refunded && !expiresAt) {
       throw new HttpError("RevenueCat subscription events must include an expiration date.", 422);
     }
     const plan = getPlanDefinition(planId);
     const cancelReason = event.type === "CANCELLATION" ? event.cancel_reason ?? null : null;
-    const expirationReason = expired ? event.expiration_reason ?? null : null;
-    const gracePeriodEndsAt = event.type === "BILLING_ISSUE"
-      ? safeDate(event.grace_period_expiration_at_ms)
-      : event.type === "CANCELLATION" && cancelReason === "BILLING_ERROR"
-        ? safeDate(event.grace_period_expiration_at_ms) ?? existing?.gracePeriodEndsAt ?? null
-        : null;
+    const outcome = revenueCatAccessOutcome(
+      event,
+      eventAt,
+      expiresAt ?? eventAt,
+      existing?.gracePeriodEndsAt
+    );
 
     await db.transaction(async (tx) => {
       await tx.insert(userPlanAssignments).values({
         id: assignmentId, userId, planId, planVersion: plan.version,
-        status: expired ? "expired" : "active", source: "subscription",
-        effectiveAt: eventAt, expiresAt,
+        status: outcome.accessEnded ? "expired" : "active", source: "subscription",
+        effectiveAt: eventAt, expiresAt: outcome.accessEndsAt,
         metadata: { provider: "revenuecat", productId: normalizedProductId, lastEventId: event.id }
       }).onConflictDoUpdate({ target: userPlanAssignments.id, set: {
-        planId, planVersion: plan.version, status: expired ? "expired" : "active", expiresAt,
+        planId, planVersion: plan.version, status: outcome.accessEnded ? "expired" : "active", expiresAt: outcome.accessEndsAt,
         effectiveAt: eventAt,
         metadata: { provider: "revenuecat", productId: normalizedProductId, lastEventId: event.id }, updatedAt: new Date()
       }});
       await tx.insert(billingSubscriptions).values({
         id: subscriptionId, userId, provider: "revenuecat", externalSubscriptionId: externalId,
         planAssignmentId: assignmentId, productId: normalizedProductId, planId,
-        status: expired ? "expired" : event.type.toLowerCase(), store: event.store, environment,
-        currentPeriodEndsAt: expiresAt, pendingPlanId: null, cancelReason, expirationReason,
-        gracePeriodEndsAt, lastEventId: event.id, lastEventAt: eventAt, metadata: payload
+        status: outcome.status, store: event.store, environment,
+        currentPeriodEndsAt: refunded ? eventAt : expiresAt, pendingPlanId: null, cancelReason,
+        expirationReason: outcome.expirationReason,
+        gracePeriodEndsAt: outcome.gracePeriodEndsAt, lastEventId: event.id, lastEventAt: eventAt, metadata: payload
       }).onConflictDoUpdate({ target: [billingSubscriptions.provider, billingSubscriptions.externalSubscriptionId], set: {
         userId, planAssignmentId: assignmentId, productId: normalizedProductId, planId,
-        status: expired ? "expired" : event.type.toLowerCase(), store: event.store, environment,
-        currentPeriodEndsAt: expiresAt, pendingPlanId: null, cancelReason, expirationReason,
-        gracePeriodEndsAt, lastEventId: event.id, lastEventAt: eventAt,
+        status: outcome.status, store: event.store, environment,
+        currentPeriodEndsAt: refunded ? eventAt : expiresAt, pendingPlanId: null, cancelReason,
+        expirationReason: outcome.expirationReason,
+        gracePeriodEndsAt: outcome.gracePeriodEndsAt, lastEventId: event.id, lastEventAt: eventAt,
         metadata: payload, updatedAt: new Date()
       }});
     });

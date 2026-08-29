@@ -734,7 +734,7 @@ export function billingLifecyclePresentation(
     return {
       eyebrow: "Check billing status",
       title: `${currentPlan} access is available until ${periodEnd}`,
-      body: `A refund or support change was recorded. Check ${store} for the current renewal and refund details.`,
+      body: `The store reported a billing status this app cannot manage directly. Check ${store} for the latest renewal and access details.`,
       tone: "warning"
     };
   }
