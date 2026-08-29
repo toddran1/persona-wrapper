@@ -107,10 +107,19 @@ export function purchaseStorePackage(
     if (!(await configureRevenueCatInternal(userId))) throw new Error("Store billing is not configured for this build.");
     try {
       const currentPlanId = catalog.currentPlanId;
+      const customerInfo = await Purchases.getCustomerInfo();
+      if (currentPlanId === "bronze") {
+        const activePaidPlan = catalog.products.find((product) =>
+          product.planId !== "bronze" && Boolean(customerInfo.entitlements.active[product.entitlementId])
+        );
+        if (activePaidPlan) {
+          throw new Error(`${activePaidPlan.displayName} is already active in RevenueCat. Refresh Plan & usage before starting another purchase.`);
+        }
+      }
       if (currentPlanId !== "bronze" && currentPlanId !== targetPlanId) {
         const currentProduct = catalog.products.find((product) => product.planId === currentPlanId);
         const currentEntitlement = currentProduct
-          ? (await Purchases.getCustomerInfo()).entitlements.active[currentProduct.entitlementId]
+          ? customerInfo.entitlements.active[currentProduct.entitlementId]
           : undefined;
         if (!currentProduct || !currentEntitlement) {
           throw new Error("This subscription is managed outside this app store. Use Manage subscription to change it without creating a second subscription.");

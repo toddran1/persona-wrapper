@@ -30,6 +30,8 @@ The catalog includes intended monthly prices as metadata only; payment providers
 
 - Monthly periods use UTC calendar months.
 - Total usage, image credits, and audio time are reserved atomically before provider work starts.
+- Silver and Gold carry unused total usage, image credits, and audio time into the next UTC calendar month. Each meter's rollover is capped at one normal monthly allowance, expires at the end of that next month, and never rolls forward again. Bronze and administrator access do not receive rollover.
+- Rollover is consumed before the new month's base allowance. When the following month is initialized, only the unused portion of that month's base allowance is eligible to move forward; an older rollover balance is excluded. Plan changes retain rollover only up to the destination plan's normal monthly allowance.
 - Successful requests settle reservations to estimated provider cost, quality-aware image credits, and estimated generated-audio duration.
 - Failed and cancelled requests release reservations.
 - Background jobs retain reservations while retrying and settle or release at their terminal state.
@@ -50,6 +52,8 @@ The durable tables are:
 - `user_plan_assignments`
 - `customer_usage_balances`
 - `customer_usage_events`
+
+`customer_usage_balances` stores the plan and base-limit snapshot used for each monthly meter plus the separately auditable rollover quantity. Migration `0026_usage_rollovers.sql` adds these fields. Balance initialization is protected by the same per-account Postgres advisory lock used by reservations, so concurrent first requests in a new month cannot mint rollover twice. Reservations still open at month end count as consumed when the next month's snapshot is created.
 
 Users without an active assignment receive Bronze. The assignment table is ready for a later App Store, Play Store, Stripe, or administrative entitlement adapter.
 
@@ -75,7 +79,7 @@ Application administrators are persisted with `users.role = 'admin'`. `APP_ADMIN
 
 Before enabling enforcement in an environment:
 
-1. Apply database migration `0015_customer_usage_plans.sql`.
+1. Apply database migrations through `0026_usage_rollovers.sql`.
 2. Confirm image and audio usage agrees with provider and storage records for at least one full test cycle.
 3. Compare total-usage estimates against provider invoices, including audio, reference images, searches, Code Interpreter, and style transfer.
 4. Verify retries, cancellations, safety rejections, and background timeouts return reservations to zero.

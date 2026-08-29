@@ -27,6 +27,8 @@ DATABASE_URL=postgres://persona:persona_dev_password@localhost:5434/persona_wrap
 npm run db:migrate
 ```
 
+Usage rollover requires `0026_usage_rollovers.sql`, which adds the plan, base allowance, and one-cycle rollover snapshot to monthly customer usage balances.
+
 Migration `0013_user_memory_controls.sql` adds the account-level switch used to
 disable future conversation-memory generation and prompt injection. Memory
 content itself remains scoped to each conversation's metadata and can be

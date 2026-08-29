@@ -359,11 +359,22 @@ export const customerUsageBalances = pgTable("customer_usage_balances", {
   periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
   usedQuantity: integer("used_quantity").notNull().default(0),
   reservedQuantity: integer("reserved_quantity").notNull().default(0),
+  planId: text("plan_id"),
+  baseLimitQuantity: integer("base_limit_quantity").notNull().default(0),
+  rolloverQuantity: integer("rollover_quantity").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => ({
   userMeterPeriodUnique: uniqueIndex("customer_usage_balances_user_meter_period_unique")
     .on(table.userId, table.meterKey, table.periodStart),
-  periodEndIdx: index("customer_usage_balances_period_end_idx").on(table.periodEnd)
+  periodEndIdx: index("customer_usage_balances_period_end_idx").on(table.periodEnd),
+  baseLimitNonnegativeCheck: check(
+    "customer_usage_balances_base_limit_nonnegative_check",
+    sql`${table.baseLimitQuantity} >= 0`
+  ),
+  rolloverRangeCheck: check(
+    "customer_usage_balances_rollover_range_check",
+    sql`${table.rolloverQuantity} >= 0 and ${table.rolloverQuantity} <= ${table.baseLimitQuantity}`
+  )
 }));
 
 export const customerUsageEvents = pgTable("customer_usage_events", {

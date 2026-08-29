@@ -19,6 +19,8 @@ const planUsage = {
   },
   totalUsage: {
     limitMicroUsd: 3_000_000,
+    baseLimitMicroUsd: 3_000_000,
+    rolloverMicroUsd: 0,
     usedMicroUsd: 180_000,
     reservedMicroUsd: 0,
     remainingMicroUsd: 2_820_000,
@@ -111,6 +113,7 @@ function renderSidebar(options: {
   onSelectPersona?: (id: string) => void;
   planUsageOverride?: PlanUsageSummary;
   billingCatalogOverride?: BillingCatalogResponse;
+  onGetBillingCatalog?: () => Promise<BillingCatalogResponse>;
   onGetBillingManagementUrl?: () => Promise<string>;
   oauthReturnAction?: "link" | "sign-in";
   oauthReturnNotice?: string;
@@ -122,6 +125,8 @@ function renderSidebar(options: {
   const onGetBillingManagementUrl = options.onGetBillingManagementUrl ?? vi.fn().mockResolvedValue(
     "https://billing.revenuecat.com/app_test/sub_test?token=test"
   );
+  const onGetBillingCatalog = options.onGetBillingCatalog
+    ?? vi.fn().mockResolvedValue(options.billingCatalogOverride ?? billingCatalog);
   const view = render(
     <ConversationSidebar
       personaName="LaRae the Baddest"
@@ -157,7 +162,7 @@ function renderSidebar(options: {
       onClearConversationMemory={vi.fn().mockResolvedValue(undefined)}
       onClearAllMemory={onClearAllMemory}
       onGetPlanUsage={vi.fn().mockResolvedValue(options.planUsageOverride ?? planUsage)}
-      onGetBillingCatalog={vi.fn().mockResolvedValue(options.billingCatalogOverride ?? billingCatalog)}
+      onGetBillingCatalog={onGetBillingCatalog}
       onGetBillingManagementUrl={onGetBillingManagementUrl}
       onListActiveSessions={vi.fn().mockResolvedValue(activeSessions)}
       onRevokeActiveSession={vi.fn().mockResolvedValue(undefined)}
@@ -186,7 +191,7 @@ function renderSidebar(options: {
       onPinConversation={vi.fn()}
     />,
   );
-  return { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory, onGetBillingManagementUrl, ...view };
+  return { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory, onGetBillingCatalog, onGetBillingManagementUrl, ...view };
 }
 
 describe("ConversationSidebar settings", () => {
@@ -346,6 +351,63 @@ describe("ConversationSidebar settings", () => {
     await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ modelProvider: "gemini" }));
   });
 
+  it("shows one-cycle rollover amounts and their expiration", async () => {
+    const user = userEvent.setup();
+    const rolloverUsage: PlanUsageSummary = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "silver", displayName: "Silver", monthlyPriceCents: 799 },
+      totalUsage: {
+        ...planUsage.totalUsage,
+        limitMicroUsd: 7_000_000,
+        baseLimitMicroUsd: 5_000_000,
+        rolloverMicroUsd: 2_000_000,
+        remainingMicroUsd: 6_820_000
+      },
+      meters: [
+        {
+          key: "credits",
+          label: "Image credits",
+          unit: "credits",
+          limit: 120,
+          baseLimit: 90,
+          rollover: 30,
+          used: 0,
+          reserved: 0,
+          remaining: 120,
+          periodStart: "2026-07-01T00:00:00.000Z",
+          periodEnd: "2026-08-01T00:00:00.000Z"
+        },
+        {
+          key: "audio_seconds",
+          label: "Audio",
+          unit: "seconds",
+          limit: 6_600,
+          baseLimit: 5_400,
+          rollover: 1_200,
+          used: 0,
+          reserved: 0,
+          remaining: 6_600,
+          periodStart: "2026-07-01T00:00:00.000Z",
+          periodEnd: "2026-08-01T00:00:00.000Z"
+        }
+      ]
+    };
+    renderSidebar({
+      planUsageOverride: rolloverUsage,
+      billingCatalogOverride: { ...billingCatalog, currentPlanId: "silver" }
+    });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+
+    expect(await within(dialog).findByText(/\+40% carried from last month/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/\+30 carried from last month/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/\+20 min carried from last month/)).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/use by Aug 1/)).toHaveLength(3);
+  });
+
   it("switches the image provider from provider settings", async () => {
     const user = userEvent.setup();
     const goldPlanUsage = {
@@ -406,7 +468,7 @@ describe("ConversationSidebar settings", () => {
 
   it("keeps the account menu compact and moves account controls into the settings modal", async () => {
     const user = userEvent.setup();
-    const checkoutWindow = { opener: window };
+    const checkoutWindow = { opener: window, location: { replace: vi.fn() }, close: vi.fn() };
     const windowOpen = vi.spyOn(window, "open").mockReturnValue(checkoutWindow as unknown as Window);
     const { onUpdateProfile, onGetMemorySettings, onUpdateMemorySettings, onClearAllMemory } = renderSidebar();
 
@@ -440,9 +502,9 @@ describe("ConversationSidebar settings", () => {
     expect(within(dialog).getByText("$11.99")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Your plan" })).toBeDisabled();
     await user.click(within(dialog).getByRole("button", { name: "Choose silver" }));
-    await waitFor(() => expect(windowOpen).toHaveBeenCalledWith(
-      "https://pay.rev.cat/test-link/user_1?package_id=silver_monthly",
-      "_blank"
+    expect(windowOpen).toHaveBeenCalledWith("about:blank", "_blank");
+    await waitFor(() => expect(checkoutWindow.location.replace).toHaveBeenCalledWith(
+      "https://pay.rev.cat/test-link/user_1?package_id=silver_monthly"
     ));
     expect(checkoutWindow.opener).toBeNull();
     expect(within(dialog).getByText(/RevenueCat checkout opened for silver/i)).toBeInTheDocument();
@@ -516,6 +578,41 @@ describe("ConversationSidebar settings", () => {
     expect(onGetBillingManagementUrl).toHaveBeenCalledOnce();
     expect(await within(dialog).findByText(/customer portal opened.*change subscription.*gold/i)).toBeInTheDocument();
 
+  });
+
+  it("revalidates a first web purchase so a stale Bronze tab cannot open a second subscription", async () => {
+    const user = userEvent.setup();
+    const checkoutWindow = { opener: window, location: { replace: vi.fn() }, close: vi.fn() };
+    vi.spyOn(window, "open").mockReturnValue(checkoutWindow as unknown as Window);
+    const activeSilverCatalog: BillingCatalogResponse = {
+      ...billingCatalog,
+      currentPlanId: "silver",
+      subscription: {
+        state: "active",
+        planId: "silver",
+        store: "revenuecat_web",
+        currentPeriodEndsAt: "2026-09-01T00:00:00.000Z",
+        pendingPlanId: null,
+        gracePeriodEndsAt: null,
+        cancellationReason: null,
+        endedReason: null
+      }
+    };
+    const onGetBillingCatalog = vi.fn()
+      .mockResolvedValueOnce(billingCatalog)
+      .mockResolvedValueOnce(activeSilverCatalog);
+    renderSidebar({ onGetBillingCatalog });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Choose silver" }));
+
+    expect(window.open).toHaveBeenCalledWith("about:blank", "_blank");
+    await waitFor(() => expect(checkoutWindow.close).toHaveBeenCalledOnce());
+    expect(checkoutWindow.location.replace).not.toHaveBeenCalled();
+    expect(within(dialog).getByText(/Silver is already active on your account/i)).toBeInTheDocument();
   });
 
   it("explains that an existing member's downgrade begins at renewal", async () => {
@@ -600,8 +697,8 @@ describe("ConversationSidebar settings", () => {
 
     expect(await within(dialog).findByRole("status", { name: /Payment needs attention/i })).toHaveAccessibleName(/Update payment by September 4/i);
     expect(within(dialog).getByText(/managed through Apple App Store/i)).toBeInTheDocument();
-    expect(within(dialog).getAllByRole("button", { name: "Manage in mobile app" })).toHaveLength(2);
-    for (const button of within(dialog).getAllByRole("button", { name: "Manage in mobile app" })) expect(button).toBeDisabled();
+    expect(within(dialog).getAllByRole("button", { name: "Manage through Apple App Store" })).toHaveLength(2);
+    for (const button of within(dialog).getAllByRole("button", { name: "Manage through Apple App Store" })) expect(button).toBeDisabled();
     expect(within(dialog).queryByText(/you won’t be charged again/i)).not.toBeInTheDocument();
   });
 
@@ -667,6 +764,8 @@ describe("ConversationSidebar settings", () => {
     expect(await within(dialog).findByRole("status", { name: /Renews automatically/i })).toHaveAccessibleName(/Silver renews September 1/i);
     expect(within(dialog).getByText(/managed through RevenueCat Web/i)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Manage billing" })).toBeEnabled();
+    await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(/Deleting your account does not cancel your subscription/i);
   });
 
   it("explains a recently ended paid plan after the account returns to Bronze", async () => {

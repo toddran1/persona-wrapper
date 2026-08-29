@@ -89,4 +89,30 @@ describe("RevenueCat webhook parsing", () => {
       status: "refunded"
     });
   });
+
+  it("keeps voluntary cancellations active through expiration and revokes only on expiration", () => {
+    const cancellationAt = new Date("2026-08-20T00:00:00.000Z");
+    const periodEnd = new Date("2026-09-01T00:00:00.000Z");
+    expect(revenueCatAccessOutcome({
+      type: "CANCELLATION",
+      cancel_reason: "UNSUBSCRIBE",
+      expiration_reason: null,
+      grace_period_expiration_at_ms: null
+    }, cancellationAt, periodEnd)).toMatchObject({
+      accessEnded: false,
+      accessEndsAt: periodEnd,
+      status: "cancellation"
+    });
+    expect(revenueCatAccessOutcome({
+      type: "EXPIRATION",
+      cancel_reason: null,
+      expiration_reason: "UNSUBSCRIBE",
+      grace_period_expiration_at_ms: null
+    }, periodEnd, periodEnd)).toMatchObject({
+      accessEnded: true,
+      accessEndsAt: periodEnd,
+      expirationReason: "UNSUBSCRIBE",
+      status: "expired"
+    });
+  });
 });

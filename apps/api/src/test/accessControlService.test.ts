@@ -10,7 +10,8 @@ describe("access control plan assignments", () => {
         planVersion: 1,
         source: "subscription",
         effectiveAt: new Date("2026-01-01T00:00:00.000Z"),
-        expiresAt: null
+        expiresAt: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z")
       },
       {
         id: "later_silver_promotion",
@@ -18,7 +19,8 @@ describe("access control plan assignments", () => {
         planVersion: 1,
         source: "promotion",
         effectiveAt: new Date("2026-07-01T00:00:00.000Z"),
-        expiresAt: null
+        expiresAt: null,
+        createdAt: new Date("2026-07-01T00:00:00.000Z")
       }
     ]);
 
@@ -33,7 +35,8 @@ describe("access control plan assignments", () => {
         planVersion: 1,
         source: "promotion",
         effectiveAt: new Date("2026-07-20T00:00:00.000Z"),
-        expiresAt: null
+        expiresAt: null,
+        createdAt: new Date("2026-07-20T00:00:00.000Z")
       },
       {
         id: "support_grant",
@@ -41,7 +44,8 @@ describe("access control plan assignments", () => {
         planVersion: 1,
         source: "customer_support",
         effectiveAt: new Date("2026-07-01T00:00:00.000Z"),
-        expiresAt: null
+        expiresAt: null,
+        createdAt: new Date("2026-07-01T00:00:00.000Z")
       }
     ]);
 
@@ -55,7 +59,8 @@ describe("access control plan assignments", () => {
       planVersion: 1,
       source: "promotion",
       effectiveAt: new Date(),
-      expiresAt: null
+      expiresAt: null,
+      createdAt: new Date()
     }])).toBeUndefined();
   });
 });

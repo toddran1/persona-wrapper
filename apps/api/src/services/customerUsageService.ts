@@ -14,8 +14,8 @@ import {
 } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
-import { accessControlService } from "./accessControlService.js";
-import { personaIdsForPlan, planIncludesPersona, type PlanDefinition } from "./planCatalog.js";
+import { accessControlService, type EffectiveAccess } from "./accessControlService.js";
+import { getPlanDefinition, personaIdsForPlan, planIncludesPersona, type PlanDefinition } from "./planCatalog.js";
 import { listPersonas } from "../personas/index.js";
 
 type MeterQuantities = Partial<Record<CustomerUsageMeter, number>>;
@@ -55,11 +55,34 @@ const DISPLAY_METERS: Array<{
   { key: "credits", label: "Image credits", unit: "credits" },
   { key: "audio_seconds", label: "Audio", unit: "seconds" }
 ];
+const ROLLOVER_METERS = ["total_usage_microusd", "credits", "audio_seconds"] as const satisfies readonly CustomerUsageMeter[];
+const ROLLOVER_METER_SET = new Set<CustomerUsageMeter>(ROLLOVER_METERS);
 
 function currentCalendarPeriod(now = new Date()): { start: Date; end: Date } {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   return { start, end };
+}
+
+function previousCalendarPeriod(periodStart: Date): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth() - 1, 1));
+  return { start, end: periodStart };
+}
+
+/** Rollover is consumed before base allowance, so rollover can never roll twice. */
+export function calculateRolloverQuantity(input: {
+  currentBaseLimit: number;
+  previousBaseLimit: number;
+  previousRollover: number;
+  previousUsed: number;
+  previousReserved: number;
+}): number {
+  const currentBaseLimit = positiveInteger(input.currentBaseLimit);
+  const previousBaseLimit = positiveInteger(input.previousBaseLimit);
+  const previousRollover = Math.min(previousBaseLimit, positiveInteger(input.previousRollover));
+  const priorConsumption = positiveInteger(input.previousUsed) + positiveInteger(input.previousReserved);
+  const baseConsumption = Math.max(0, priorConsumption - previousRollover);
+  return Math.min(currentBaseLimit, Math.max(0, previousBaseLimit - baseConsumption));
 }
 
 function positiveInteger(value: number | undefined): number {
@@ -189,6 +212,7 @@ export class CustomerUsageService {
       return operationId;
     }
 
+    await this.ensurePaidRolloverBalances(userId, plan, access, period);
     return db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`customer-usage:${userId}`}, 0))`);
       const [existing] = await tx.select({ operationId: customerUsageEvents.operationId })
@@ -216,13 +240,18 @@ export class CustomerUsageService {
       for (const [meter, quantity] of Object.entries(normalized) as Array<[CustomerUsageMeter, number]>) {
         const [balance] = await tx.select({
           used: customerUsageBalances.usedQuantity,
-          reserved: customerUsageBalances.reservedQuantity
+          reserved: customerUsageBalances.reservedQuantity,
+          rollover: customerUsageBalances.rolloverQuantity
         }).from(customerUsageBalances).where(and(
           eq(customerUsageBalances.userId, userId),
           eq(customerUsageBalances.meterKey, meter),
           eq(customerUsageBalances.periodStart, period.start)
         )).limit(1);
-        const limit = plan.allowances[meter] ?? null;
+        const baseLimit = plan.allowances[meter] ?? null;
+        const rollover = baseLimit !== null && plan.id !== "bronze" && !access.isAdmin && ROLLOVER_METER_SET.has(meter)
+          ? Number(balance?.rollover ?? 0)
+          : 0;
+        const limit = baseLimit === null ? null : baseLimit + rollover;
         if (
           enforceUsage
           && limit !== null
@@ -236,6 +265,8 @@ export class CustomerUsageService {
           meterKey: meter,
           periodStart: period.start,
           periodEnd: period.end,
+          planId: plan.id,
+          baseLimitQuantity: baseLimit ?? 0,
           reservedQuantity: quantity
         }).onConflictDoUpdate({
           target: [
@@ -326,12 +357,16 @@ export class CustomerUsageService {
           // one request across two billing periods.
           : operationPeriod;
         const reservedQuantity = reservation?.quantity ?? 0;
+        const eventPlan = getPlanDefinition(reservations[0]?.planId, reservations[0]?.planVersion);
+        const baseLimit = eventPlan.allowances[meter] ?? 0;
         await tx.insert(customerUsageBalances).values({
           id: balanceId(userId, meter, period.start),
           userId,
           meterKey: meter,
           periodStart: period.start,
           periodEnd: period.end,
+          planId: eventPlan.id,
+          baseLimitQuantity: baseLimit,
           usedQuantity: quantity
         }).onConflictDoUpdate({
           target: [
@@ -522,11 +557,16 @@ export class CustomerUsageService {
     const plan = access.plan;
     const period = currentCalendarPeriod();
     const db = getDatabase();
-    const persisted = db && await this.hasPersistedUser(userId)
+    const hasPersistedUser = Boolean(db && await this.hasPersistedUser(userId));
+    if (hasPersistedUser) {
+      await this.ensurePaidRolloverBalances(userId, plan, access, period);
+    }
+    const persisted = db && hasPersistedUser
       ? await db.select({
           meterKey: customerUsageBalances.meterKey,
           used: customerUsageBalances.usedQuantity,
-          reserved: customerUsageBalances.reservedQuantity
+          reserved: customerUsageBalances.reservedQuantity,
+          rollover: customerUsageBalances.rolloverQuantity
         }).from(customerUsageBalances).where(and(
           eq(customerUsageBalances.userId, userId),
           eq(customerUsageBalances.periodStart, period.start)
@@ -536,8 +576,12 @@ export class CustomerUsageService {
     const totalUsageKey = "total_usage_microusd";
     const totalUsageLocal = this.localBalances.get(`${userId}:${totalUsageKey}:${period.start.toISOString()}`);
     const totalUsagePersisted = persistedByMeter.get(totalUsageKey);
-    const totalUsageLimit = plan.allowances.total_usage_microusd
+    const totalUsageBaseLimit = plan.allowances.total_usage_microusd
       ?? plan.monthlyProviderCostBudget.ceilingMicroUsd;
+    const totalUsageRollover = plan.id === "bronze" || access.isAdmin
+      ? 0
+      : Number(totalUsagePersisted?.rollover ?? 0);
+    const totalUsageLimit = totalUsageBaseLimit + totalUsageRollover;
     const totalUsageUsed = Number(totalUsagePersisted?.used ?? totalUsageLocal?.used ?? 0);
     const totalUsageReserved = Number(totalUsagePersisted?.reserved ?? totalUsageLocal?.reserved ?? 0);
     const totalUsageRemaining = Math.max(0, totalUsageLimit - totalUsageUsed - totalUsageReserved);
@@ -556,6 +600,8 @@ export class CustomerUsageService {
       },
       totalUsage: {
         limitMicroUsd: totalUsageLimit,
+        baseLimitMicroUsd: totalUsageBaseLimit,
+        rolloverMicroUsd: totalUsageRollover,
         usedMicroUsd: totalUsageUsed,
         reservedMicroUsd: totalUsageReserved,
         remainingMicroUsd: totalUsageRemaining,
@@ -568,12 +614,18 @@ export class CustomerUsageService {
         const row = persistedByMeter.get(key);
         const used = Number(row?.used ?? local?.used ?? 0);
         const reserved = Number(row?.reserved ?? local?.reserved ?? 0);
-        const limit = plan.allowances[key] ?? null;
+        const baseLimit = plan.allowances[key] ?? null;
+        const rollover = baseLimit === null || plan.id === "bronze" || access.isAdmin
+          ? 0
+          : Number(row?.rollover ?? 0);
+        const limit = baseLimit === null ? null : baseLimit + rollover;
         return {
           key,
           label,
           unit,
           limit,
+          baseLimit,
+          rollover,
           used,
           reserved,
           remaining: limit === null ? null : Math.max(0, limit - used - reserved),
@@ -583,6 +635,86 @@ export class CustomerUsageService {
       }),
       enforcementEnabled: env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED && !access.isAdmin
     };
+  }
+
+  private async ensurePaidRolloverBalances(
+    userId: string,
+    plan: PlanDefinition,
+    access: EffectiveAccess,
+    period: { start: Date; end: Date }
+  ): Promise<void> {
+    if (plan.id === "bronze" || access.isAdmin || !access.assignment) return;
+    const assignment = access.assignment;
+    const db = getDatabase();
+    if (!db) return;
+    const previousPeriod = previousCalendarPeriod(period.start);
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`customer-usage:${userId}`}, 0))`);
+      const balances = await tx.select({
+        meterKey: customerUsageBalances.meterKey,
+        periodStart: customerUsageBalances.periodStart,
+        used: customerUsageBalances.usedQuantity,
+        reserved: customerUsageBalances.reservedQuantity,
+        planId: customerUsageBalances.planId,
+        baseLimit: customerUsageBalances.baseLimitQuantity,
+        rollover: customerUsageBalances.rolloverQuantity
+      }).from(customerUsageBalances).where(and(
+        eq(customerUsageBalances.userId, userId),
+        inArray(customerUsageBalances.meterKey, [...ROLLOVER_METERS]),
+        inArray(customerUsageBalances.periodStart, [previousPeriod.start, period.start])
+      ));
+      const rowKey = (meter: CustomerUsageMeter, start: Date) => `${meter}:${start.toISOString()}`;
+      const byMeterPeriod = new Map(balances.map((row) => [rowKey(row.meterKey as CustomerUsageMeter, row.periodStart), row]));
+      const assignmentExistedLastMonth = assignment.createdAt < period.start;
+
+      for (const meter of ROLLOVER_METERS) {
+        const currentBaseLimit = positiveInteger(
+          plan.allowances[meter]
+          ?? (meter === "total_usage_microusd" ? plan.monthlyProviderCostBudget.ceilingMicroUsd : 0)
+        );
+        const current = byMeterPeriod.get(rowKey(meter, period.start));
+        if (
+          current?.planId === plan.id
+          && current.baseLimit === currentBaseLimit
+          && current.rollover >= 0
+          && current.rollover <= currentBaseLimit
+        ) continue;
+        const previous = byMeterPeriod.get(rowKey(meter, previousPeriod.start));
+        const previousPlanWasPaid = previous?.planId === "silver" || previous?.planId === "gold";
+        const legacyPreviousBalance = previous && previous.planId === null;
+        const previousBaseLimit = previousPlanWasPaid
+          ? positiveInteger(previous.baseLimit)
+          : legacyPreviousBalance && assignmentExistedLastMonth
+            ? currentBaseLimit
+            : !previous && assignmentExistedLastMonth ? currentBaseLimit : 0;
+        const rollover = calculateRolloverQuantity({
+          currentBaseLimit,
+          previousBaseLimit,
+          previousRollover: previousPlanWasPaid ? previous.rollover : 0,
+          previousUsed: previous?.used ?? 0,
+          previousReserved: previous?.reserved ?? 0
+        });
+        if (current) {
+          await tx.update(customerUsageBalances).set({
+            planId: plan.id,
+            baseLimitQuantity: currentBaseLimit,
+            rolloverQuantity: rollover,
+            updatedAt: new Date()
+          }).where(eq(customerUsageBalances.id, balanceId(userId, meter, period.start)));
+        } else {
+          await tx.insert(customerUsageBalances).values({
+            id: balanceId(userId, meter, period.start),
+            userId,
+            meterKey: meter,
+            periodStart: period.start,
+            periodEnd: period.end,
+            planId: plan.id,
+            baseLimitQuantity: currentBaseLimit,
+            rolloverQuantity: rollover
+          }).onConflictDoNothing();
+        }
+      }
+    });
   }
 
   private async hasPersistedUser(userId: string): Promise<boolean> {

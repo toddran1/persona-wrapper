@@ -43,12 +43,12 @@ const PLAN_PRESENTATION: Record<PlanId, {
   silver: {
     eyebrow: "The regular",
     description: "More room to chat, create, and meet most personas without ads.",
-    features: ["90 monthly media credits", "90 audio minutes", "Most personas", "No ads"]
+    features: ["90 monthly media credits", "90 audio minutes", "One-month usage rollover", "Most personas", "No ads"]
   },
   gold: {
     eyebrow: "All access",
     description: "The full persona library with the most generous creative limits.",
-    features: ["180 monthly media credits", "180 audio minutes", "All personas", "Priority media queue"]
+    features: ["180 monthly media credits", "180 audio minutes", "One-month usage rollover", "All personas", "Priority media queue"]
   }
 };
 
@@ -648,14 +648,28 @@ export function ConversationSidebar({
   function startWebCheckout(
     planId: "silver" | "gold",
     currentPlanId: PlanId,
-    checkoutUrl: string | undefined
+    checkoutUrl: string | undefined,
+    checkoutWindow: Window
   ): void {
     if (!checkoutUrl) {
+      try { checkoutWindow.close(); } catch { /* The placeholder may already be isolated. */ }
       setPlanNotice("Web checkout is not configured for this plan yet.");
       return;
     }
     if (!authUser?.id) {
+      try { checkoutWindow.close(); } catch { /* The placeholder may already be isolated. */ }
       setPlanNotice("Sign in before opening checkout so the purchase can be connected to your account.");
+      return;
+    }
+    try {
+      const destination = new URL(checkoutUrl);
+      if (destination.protocol !== "https:" || destination.hostname !== "pay.rev.cat") {
+        throw new Error("Untrusted checkout URL.");
+      }
+      checkoutWindow.location.replace(destination.toString());
+    } catch {
+      try { checkoutWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+      setPlanNotice("The secure checkout page could not be opened. Refresh Plan & usage and try again.");
       return;
     }
     savePendingBillingCheckout({
@@ -664,17 +678,6 @@ export function ConversationSidebar({
       planId,
       startedAt: Date.now()
     });
-    const checkoutWindow = window.open(checkoutUrl, "_blank");
-    if (!checkoutWindow) {
-      clearPendingBillingCheckout();
-      setPlanNotice("Your browser blocked the checkout window. Allow pop-ups for this site and try again.");
-      return;
-    }
-    try {
-      checkoutWindow.opener = null;
-    } catch {
-      // Some browsers isolate cross-origin checkout windows before this assignment.
-    }
     const planRank: Record<PlanId, number> = { bronze: 0, silver: 1, gold: 2 };
     const mode = currentPlanId === "bronze"
       ? "purchase"
@@ -726,11 +729,58 @@ export function ConversationSidebar({
     const requestedAccountId = authUser?.id;
     if (!requestedAccountId || billingPlanChangeLoading || billingCheckout) return;
     const displayedCurrentPlanId = billingCatalog?.currentPlanId ?? planUsage?.plan.id;
-    const displayedProduct = billingCatalog?.products.find((candidate) => candidate.planId === planId);
-    // Keep a first purchase synchronous with the click. Browsers commonly
-    // block a new window opened after awaiting a network refresh.
+    // Open a same-origin placeholder synchronously so the browser preserves
+    // the user gesture while the API revalidates that this is still a first
+    // purchase. A stale Bronze tab must never start a second subscription.
     if (displayedCurrentPlanId === "bronze" && planId !== "bronze") {
-      startWebCheckout(planId, displayedCurrentPlanId, displayedProduct?.webCheckoutUrl);
+      const checkoutWindow = window.open("about:blank", "_blank");
+      if (!checkoutWindow) {
+        setPlanNotice("Your browser blocked the checkout window. Allow pop-ups for this site and try again.");
+        return;
+      }
+      try {
+        checkoutWindow.opener = null;
+      } catch {
+        // The placeholder remains same-origin until the checkout URL is ready.
+      }
+      setBillingPlanChangeLoading(true);
+      setPlanNotice("Checking your latest membership before opening checkout…");
+      try {
+        const catalog = await onGetBillingCatalog();
+        if (accountIdRef.current !== requestedAccountId) {
+          try { checkoutWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+          return;
+        }
+        setBillingCatalog(catalog);
+        if (!catalog.enabled) {
+          try { checkoutWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+          setPlanNotice("Subscriptions are not available right now.");
+          return;
+        }
+        if (catalog.currentPlanId !== "bronze") {
+          try { checkoutWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+          setPlanNotice(
+            catalog.currentPlanId === planId
+              ? `${planId[0]?.toUpperCase()}${planId.slice(1)} is already active on your account.`
+              : `Your account is now on ${catalog.currentPlanId}. Review the refreshed plans before making another change.`
+          );
+          return;
+        }
+        if (catalog.subscription && catalog.subscription.state !== "ended") {
+          try { checkoutWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+          setPlanNotice(`An existing subscription is still managed through ${billingStoreDisplayName(catalog.subscription.store)}. Refresh its status before starting another subscription.`);
+          return;
+        }
+        const product = catalog.products.find((candidate) => candidate.planId === planId);
+        startWebCheckout(planId, catalog.currentPlanId, product?.webCheckoutUrl, checkoutWindow);
+      } catch (error) {
+        try { checkoutWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+        if (accountIdRef.current === requestedAccountId) {
+          setPlanNotice(error instanceof Error ? error.message : "Could not verify your membership before checkout.");
+        }
+      } finally {
+        if (accountIdRef.current === requestedAccountId) setBillingPlanChangeLoading(false);
+      }
       return;
     }
     setBillingPlanChangeLoading(true);
@@ -743,7 +793,7 @@ export function ConversationSidebar({
       setBillingCatalog(catalog);
       const currentPlanId = catalog.currentPlanId;
       if (catalog.subscription && catalog.subscription.store !== "revenuecat_web") {
-        setPlanNotice(`This subscription is managed through ${billingStoreDisplayName(catalog.subscription.store)}. Open Plan & usage in the mobile app to make changes.`);
+        setPlanNotice(`This subscription is managed through ${billingStoreDisplayName(catalog.subscription.store)}. Make changes through that same store to avoid creating a second subscription.`);
         return;
       }
       const product = catalog.products.find((candidate) => candidate.planId === planId);
@@ -2101,6 +2151,11 @@ export function ConversationSidebar({
                                 <strong>Total usage</strong>
                                 <span>{Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}% left</span>
                               </div>
+                              {planUsage.totalUsage.rolloverMicroUsd > 0 ? (
+                                <span className="settings-rollover-note">
+                                  +{Math.round((planUsage.totalUsage.rolloverMicroUsd / planUsage.totalUsage.baseLimitMicroUsd) * 100)}% carried from last month · use by {new Date(planUsage.totalUsage.periodEnd).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" })}
+                                </span>
+                              ) : null}
                               <div
                                 className="settings-total-usage-track"
                                 role="progressbar"
@@ -2141,6 +2196,11 @@ export function ConversationSidebar({
                                       <strong>{meter.label}</strong>
                                       <span>{formatAmount(used)} of {limit === null ? "unlimited" : formatAmount(limit)}</span>
                                     </div>
+                                    {meter.rollover > 0 ? (
+                                      <span className="settings-rollover-note">
+                                        +{formatAmount(meter.rollover)} carried from last month · use by {new Date(meter.periodEnd).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" })}
+                                      </span>
+                                    ) : null}
                                     {limit !== null ? <div className="settings-usage-track"><span style={{ width: `${percent}%` }} /></div> : null}
                                     <small>{usageLifecycleLabel
                                       ? usageLifecycleLabel
@@ -2163,7 +2223,7 @@ export function ConversationSidebar({
                             {(billingCatalog?.currentPlanId ?? planUsage.plan.id) !== "bronze" && billingSubscription?.state !== "canceled" ? (
                               <p className="settings-plan-change-guide" role="status">
                                 {webManagementUnavailable
-                                  ? `This subscription is managed through ${billingStoreDisplayName(billingSubscription?.store ?? "other")}. Open Plan & usage in the mobile app to make changes.`
+                                  ? `This subscription is managed through ${billingStoreDisplayName(billingSubscription?.store ?? "other")}. Make changes through that same store.`
                                   : "Upgrades take effect after confirmation. Downgrades are scheduled for your next renewal, so your current access stays available until then."}
                               </p>
                             ) : null}
@@ -2208,7 +2268,7 @@ export function ConversationSidebar({
                                       {current
                                         ? "Your plan"
                                         : currentPlanId !== "bronze" && webManagementUnavailable
-                                          ? "Manage in mobile app"
+                                          ? `Manage through ${billingStoreDisplayName(billingSubscription?.store ?? "other")}`
                                         : freeDowngrade
                                           ? "Downgrade to Bronze"
                                         : !paidPlan
@@ -2561,6 +2621,9 @@ export function ConversationSidebar({
                           <span className="settings-section-eyebrow">Danger zone</span>
                           <h3>Delete account</h3>
                           <p>You’ll be signed out immediately. Your account and data are permanently deleted after 30 days unless you restore the account.</p>
+                          {(billingCatalog?.currentPlanId ?? planUsage?.plan.id) !== "bronze" ? (
+                            <p role="alert"><strong>Deleting your account does not cancel your subscription.</strong> Cancel renewal through {billingStoreDisplayName(billingSubscription?.store ?? "other")} first, or that provider may continue billing you after this account becomes unavailable.</p>
+                          ) : null}
                         </div>
                         {!deleteAccountOpen ? (
                           <button type="button" className="settings-action settings-action-danger" onClick={() => setDeleteAccountOpen(true)} disabled={authBusy}>Continue to deletion</button>

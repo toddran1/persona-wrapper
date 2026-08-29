@@ -42,6 +42,8 @@ function usageResponse(planId: PlanId): PlanUsageSummary {
     },
     totalUsage: {
       limitMicroUsd: 1_000_000,
+      baseLimitMicroUsd: 1_000_000,
+      rolloverMicroUsd: 0,
       usedMicroUsd: 0,
       reservedMicroUsd: 0,
       remainingMicroUsd: 1_000_000,

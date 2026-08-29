@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { CustomerUsageService } from "../services/customerUsageService.js";
+import { calculateRolloverQuantity, CustomerUsageService } from "../services/customerUsageService.js";
 import { getPlanDefinition, planIncludesPersona } from "../services/planCatalog.js";
 
 describe("customer usage plans", () => {
@@ -11,15 +11,55 @@ describe("customer usage plans", () => {
     expect(summary.plan.adsEnabled).toBe(true);
     expect(summary.totalUsage).toMatchObject({
       limitMicroUsd: 3_000_000,
+      baseLimitMicroUsd: 3_000_000,
+      rolloverMicroUsd: 0,
       usedMicroUsd: 0,
       reservedMicroUsd: 0,
       remainingMicroUsd: 3_000_000,
       percentRemaining: 100
     });
     expect(summary.meters).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "credits", label: "Image credits", limit: 24, used: 0, reserved: 0 }),
-      expect.objectContaining({ key: "audio_seconds", limit: 1_200, used: 0, reserved: 0 })
+      expect.objectContaining({ key: "credits", label: "Image credits", limit: 24, baseLimit: 24, rollover: 0, used: 0, reserved: 0 }),
+      expect.objectContaining({ key: "audio_seconds", limit: 1_200, baseLimit: 1_200, rollover: 0, used: 0, reserved: 0 })
     ]));
+  });
+
+  it("rolls only unused base allowance forward for one cycle", () => {
+    expect(calculateRolloverQuantity({
+      currentBaseLimit: 90,
+      previousBaseLimit: 90,
+      previousRollover: 20,
+      previousUsed: 50,
+      previousReserved: 0
+    })).toBe(60);
+    expect(calculateRolloverQuantity({
+      currentBaseLimit: 90,
+      previousBaseLimit: 90,
+      previousRollover: 90,
+      previousUsed: 0,
+      previousReserved: 0
+    })).toBe(90);
+    expect(calculateRolloverQuantity({
+      currentBaseLimit: 90,
+      previousBaseLimit: 90,
+      previousRollover: 900,
+      previousUsed: 90,
+      previousReserved: 0
+    })).toBe(90);
+    expect(calculateRolloverQuantity({
+      currentBaseLimit: 90,
+      previousBaseLimit: 180,
+      previousRollover: 0,
+      previousUsed: 0,
+      previousReserved: 0
+    })).toBe(90);
+    expect(calculateRolloverQuantity({
+      currentBaseLimit: 90,
+      previousBaseLimit: 90,
+      previousRollover: 10,
+      previousUsed: 100,
+      previousReserved: 10
+    })).toBe(0);
   });
 
   it("reserves, settles, and releases usage idempotently without a database", async () => {

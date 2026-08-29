@@ -443,6 +443,8 @@ services:
       - key: REVENUECAT_WEBHOOK_AUTHORIZATION
         sync: false
       - key: REVENUECAT_ALLOWED_ENVIRONMENTS
+        # Temporary during pre-launch testing. Remove SANDBOX before accepting
+        # real customer purchases so test transactions cannot grant live access.
         value: SANDBOX,PRODUCTION
       - key: REVENUECAT_ALLOWED_APP_IDS
         sync: false

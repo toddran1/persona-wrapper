@@ -581,6 +581,8 @@ export const planUsageMeterSummarySchema = z.object({
   label: z.string(),
   unit: z.enum(["credits", "seconds", "tokens", "calls", "bytes"]),
   limit: z.number().int().nonnegative().nullable(),
+  baseLimit: z.number().int().nonnegative().nullable(),
+  rollover: z.number().int().nonnegative(),
   used: z.number().int().nonnegative(),
   reserved: z.number().int().nonnegative(),
   remaining: z.number().int().nonnegative().nullable(),
@@ -603,6 +605,8 @@ export const planUsageSummarySchema = z.object({
   }),
   totalUsage: z.object({
     limitMicroUsd: z.number().int().positive(),
+    baseLimitMicroUsd: z.number().int().positive(),
+    rolloverMicroUsd: z.number().int().nonnegative(),
     usedMicroUsd: z.number().int().nonnegative(),
     reservedMicroUsd: z.number().int().nonnegative(),
     remainingMicroUsd: z.number().int().nonnegative(),

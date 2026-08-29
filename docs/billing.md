@@ -120,8 +120,10 @@ REVENUECAT_WEB_SILVER_PACKAGE_ID=<silver-custom-package-id>
 REVENUECAT_WEB_GOLD_PACKAGE_ID=<gold-custom-package-id>
 ```
 
-Production should use `REVENUECAT_ALLOWED_ENVIRONMENTS=PRODUCTION`. Do not
-allow SANDBOX in production; sandbox events would otherwise grant paid access.
+During pre-launch testing, production may temporarily use
+`REVENUECAT_ALLOWED_ENVIRONMENTS=SANDBOX,PRODUCTION` so sandbox purchases can
+exercise the deployed application. Before accepting real customer purchases,
+change it to `PRODUCTION`; sandbox events would otherwise grant live access.
 Set the production API's `REVENUECAT_WEB_PURCHASE_LINK_URL` to RevenueCat's
 production Purchase Link, not its sandbox link.
 
@@ -218,6 +220,14 @@ if either endpoint is localhost, or if an endpoint is not HTTPS.
   Mobile permits replacement purchases only when the subscription belongs to
   the device's current store. Cross-store controls remain disabled to prevent a
   second paid subscription.
+- The originating billing provider owns cancellation, payment-method updates,
+  refunds, and plan changes; the client that opens that provider is only an
+  entry point. RevenueCat Web subscriptions may open the authenticated
+  RevenueCat portal from either web or mobile. Apple subscriptions are managed
+  through the Apple App Store, and Google subscriptions through Google Play.
+- Account deletion does not cancel an App Store, Google Play, or RevenueCat Web
+  subscription. Both clients warn paid members to cancel renewal through the
+  originating provider before making their application account unavailable.
 - Signing out logs out of RevenueCat as well, preventing account state from
   leaking between users on a shared device.
 - Web checkout opens an identified RevenueCat Purchase Link containing only
@@ -249,7 +259,7 @@ the subscription controls disabled.
 
 ## Release checklist
 
-- Apply migrations through `0025_billing_lifecycle.sql` before deploying this
+- Apply migrations through `0026_usage_rollovers.sql` before deploying this
   billing lifecycle response. The API schema and client contract are deployed
   together.
 - Confirm the two store products are active and attached to `default`.
@@ -268,5 +278,5 @@ the subscription controls disabled.
   plan assignment.
 - Confirm Bronze remains active after paid expiration and admin/test overrides
   continue to outrank subscription assignments.
-- Change `REVENUECAT_ALLOWED_ENVIRONMENTS` from `SANDBOX` to `PRODUCTION` only
-  for the production API.
+- Change `REVENUECAT_ALLOWED_ENVIRONMENTS` from `SANDBOX,PRODUCTION` to
+  `PRODUCTION` only before opening production billing to real customers.

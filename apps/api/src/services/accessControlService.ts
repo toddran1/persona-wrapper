@@ -24,6 +24,7 @@ export type EffectiveAccess = {
     source: string;
     effectiveAt: Date;
     expiresAt: Date | null;
+    createdAt: Date;
   };
 };
 
@@ -70,6 +71,7 @@ type PlanAssignmentCandidate = {
   source: string;
   effectiveAt: Date;
   expiresAt: Date | null;
+  createdAt: Date;
 };
 
 export function selectEffectivePlanAssignment(
@@ -115,7 +117,8 @@ export class AccessControlService {
       planVersion: userPlanAssignments.planVersion,
       source: userPlanAssignments.source,
       effectiveAt: userPlanAssignments.effectiveAt,
-      expiresAt: userPlanAssignments.expiresAt
+      expiresAt: userPlanAssignments.expiresAt,
+      createdAt: userPlanAssignments.createdAt
     }).from(userPlanAssignments).where(and(
       eq(userPlanAssignments.userId, userId),
       eq(userPlanAssignments.status, "active"),
@@ -133,7 +136,8 @@ export class AccessControlService {
         id: selected.id,
         source: selected.source,
         effectiveAt: selected.effectiveAt,
-        expiresAt: selected.expiresAt
+        expiresAt: selected.expiresAt,
+        createdAt: selected.createdAt
       }
     };
   }

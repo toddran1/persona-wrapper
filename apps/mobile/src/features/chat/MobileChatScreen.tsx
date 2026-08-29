@@ -1029,7 +1029,39 @@ export function MobileChatScreen() {
     setBillingError(undefined);
     setBillingNotice(undefined);
     try {
-      const result = await purchaseStorePackage(requestedAccountId, product.package, catalog, product.planId);
+      // Revalidate server-owned access immediately before invoking the store.
+      // A stale Bronze screen must not create a second subscription after a
+      // webhook, restore, or purchase completed on another device.
+      const latestCatalog = await api.getBillingCatalog();
+      if (currentAccountIdRef.current !== requestedAccountId) return;
+      setBillingCatalog(latestCatalog);
+      if (latestCatalog.currentPlanId === product.planId) {
+        setBillingNotice(`${catalogProduct.displayName} is already active on your account.`);
+        return;
+      }
+      if (latestCatalog.currentPlanId !== currentPlanId) {
+        setBillingNotice(`Your account is now on ${latestCatalog.currentPlanId}. Review the refreshed plans before making another change.`);
+        return;
+      }
+      if (
+        latestCatalog.currentPlanId !== "bronze"
+        && !subscriptionMatchesDeviceStore(latestCatalog.subscription ?? undefined)
+      ) {
+        const store = latestCatalog.subscription
+          ? billingStoreDisplayName(latestCatalog.subscription.store)
+          : "the original store";
+        setBillingError(`This subscription is managed through ${store}. Make plan changes there to avoid creating a second subscription.`);
+        return;
+      }
+      if (
+        latestCatalog.currentPlanId === "bronze"
+        && latestCatalog.subscription
+        && latestCatalog.subscription.state !== "ended"
+      ) {
+        setBillingError(`An existing subscription is still managed through ${billingStoreDisplayName(latestCatalog.subscription.store)}. Refresh its status before starting another subscription.`);
+        return;
+      }
+      const result = await purchaseStorePackage(requestedAccountId, product.package, latestCatalog, product.planId);
       if (result === "cancelled") return;
       if (currentAccountIdRef.current !== requestedAccountId) return;
       if (isDowngrade) {
@@ -4293,6 +4325,9 @@ export function MobileChatScreen() {
                         {Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}% left
                       </Text>
                     </View>
+                    {planUsage.totalUsage.rolloverMicroUsd > 0 ? (
+                      <Text style={[styles.settingsRolloverNote, { color: theme.accent2, borderColor: theme.border }]}>+{Math.round((planUsage.totalUsage.rolloverMicroUsd / planUsage.totalUsage.baseLimitMicroUsd) * 100)}% carried from last month · use by {new Date(planUsage.totalUsage.periodEnd).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" })}</Text>
+                    ) : null}
                     <View
                       accessible
                       accessibilityRole="progressbar"
@@ -4345,6 +4380,9 @@ export function MobileChatScreen() {
                             {formatAmount(used)} of {limit === null ? "unlimited" : formatAmount(limit)}
                           </Text>
                         </View>
+                        {meter.rollover > 0 ? (
+                          <Text style={[styles.settingsRolloverNote, { color: theme.accent2, borderColor: theme.border }]}>+{formatAmount(meter.rollover)} carried from last month · use by {new Date(meter.periodEnd).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" })}</Text>
+                        ) : null}
                         {limit !== null ? (
                           <View style={styles.settingsUsageTrack}>
                             <View style={[styles.settingsUsageFill, { backgroundColor: theme.accent2, width: `${percent}%` }]} />
@@ -4394,6 +4432,7 @@ export function MobileChatScreen() {
                               <Text style={[styles.settingsTotalUsageRemaining, { color: theme.accent2 }]}>{price}/month</Text>
                             </View>
                             <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>{product.description}</Text>
+                            <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Unused monthly allowances roll over for one month.</Text>
                             {current ? (
                               <Text style={[styles.settingsRowHint, { color: theme.accent2 }]}>{currentPlanBadge}</Text>
                             ) : (
@@ -4675,6 +4714,11 @@ export function MobileChatScreen() {
             <Text style={{ color: theme.muted, lineHeight: 20 }}>
               You will be signed out immediately. Your account and all chats, uploads, images, and audio will be permanently deleted after 30 days unless you restore it.
             </Text>
+            {billingCatalog?.currentPlanId !== "bronze" ? (
+              <Text accessibilityRole="alert" style={{ color: theme.danger, lineHeight: 20 }}>
+                Deleting your account does not cancel your subscription. Cancel renewal through {billingStoreDisplayName(billingSubscription?.store ?? "other")} first, or that provider may continue billing you after this account becomes unavailable.
+              </Text>
+            ) : null}
             <TextInput
               accessibilityLabel="Type DELETE to confirm account deletion"
               testID="mobile-delete-confirmation"
@@ -6097,6 +6141,16 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 18,
     fontWeight: "900"
+  },
+  settingsRolloverNote: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    fontSize: 11,
+    fontWeight: "800",
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 5
   },
   settingsReleaseBuild: {
     fontSize: 11,
