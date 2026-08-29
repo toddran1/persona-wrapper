@@ -371,9 +371,9 @@ describe("ConversationSidebar settings", () => {
           limit: 120,
           baseLimit: 90,
           rollover: 30,
-          used: 0,
-          reserved: 0,
-          remaining: 120,
+          used: 20,
+          reserved: 10,
+          remaining: 90,
           periodStart: "2026-07-01T00:00:00.000Z",
           periodEnd: "2026-08-01T00:00:00.000Z"
         },
@@ -384,9 +384,9 @@ describe("ConversationSidebar settings", () => {
           limit: 6_600,
           baseLimit: 5_400,
           rollover: 1_200,
-          used: 0,
-          reserved: 0,
-          remaining: 6_600,
+          used: 600,
+          reserved: 600,
+          remaining: 5_400,
           periodStart: "2026-07-01T00:00:00.000Z",
           periodEnd: "2026-08-01T00:00:00.000Z"
         }
@@ -406,6 +406,10 @@ describe("ConversationSidebar settings", () => {
     expect(within(dialog).getByText(/\+30 carried from last month/)).toBeInTheDocument();
     expect(within(dialog).getByText(/\+20 min carried from last month/)).toBeInTheDocument();
     expect(within(dialog).getAllByText(/use by Aug 1/)).toHaveLength(3);
+    expect(within(dialog).getByText("90 of 120 left")).toBeInTheDocument();
+    expect(within(dialog).getByText("90 min of 110 min left")).toBeInTheDocument();
+    expect(within(dialog).getByRole("progressbar", { name: "Image credits remaining" })).toHaveAttribute("aria-valuenow", "75");
+    expect(within(dialog).getByRole("progressbar", { name: "Audio remaining" })).toHaveAttribute("aria-valuenow", "82");
   });
 
   it("switches the image provider from provider settings", async () => {

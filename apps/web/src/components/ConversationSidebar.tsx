@@ -2181,8 +2181,9 @@ export function ConversationSidebar({
                               {planUsage.meters.map((meter) => {
                                 const used = finiteNonnegativeIntegerOr(meter.used) + finiteNonnegativeIntegerOr(meter.reserved);
                                 const limit = meter.limit === null ? null : finiteNonnegativeIntegerOr(meter.limit);
-                                const percent = limit && limit > 0
-                                  ? Math.round(clampFiniteNumber((used / limit) * 100, 0, 100))
+                                const remaining = limit === null ? null : Math.max(0, limit - used);
+                                const percentRemaining = limit && limit > 0
+                                  ? Math.round(clampFiniteNumber(((remaining ?? 0) / limit) * 100, 0, 100))
                                   : 0;
                                 const formatAmount = (value: number) => {
                                   const safeValue = finiteNonnegativeIntegerOr(value);
@@ -2194,14 +2195,26 @@ export function ConversationSidebar({
                                   <div className="settings-usage-meter" key={meter.key}>
                                     <div className="settings-usage-meter-heading">
                                       <strong>{meter.label}</strong>
-                                      <span>{formatAmount(used)} of {limit === null ? "unlimited" : formatAmount(limit)}</span>
+                                      <span>{limit === null ? "Unlimited" : `${formatAmount(remaining ?? 0)} of ${formatAmount(limit)} left`}</span>
                                     </div>
                                     {meter.rollover > 0 ? (
                                       <span className="settings-rollover-note">
                                         +{formatAmount(meter.rollover)} carried from last month · use by {new Date(meter.periodEnd).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" })}
                                       </span>
                                     ) : null}
-                                    {limit !== null ? <div className="settings-usage-track"><span style={{ width: `${percent}%` }} /></div> : null}
+                                    {limit !== null ? (
+                                      <div
+                                        className="settings-usage-track"
+                                        role="progressbar"
+                                        aria-label={`${meter.label} remaining`}
+                                        aria-valuemin={0}
+                                        aria-valuemax={100}
+                                        aria-valuenow={percentRemaining}
+                                        aria-valuetext={`${formatAmount(remaining ?? 0)} of ${formatAmount(limit)} left`}
+                                      >
+                                        <span style={{ width: `${percentRemaining}%` }} />
+                                      </div>
+                                    ) : null}
                                     <small>{usageLifecycleLabel
                                       ? usageLifecycleLabel
                                       : `Resets ${new Date(meter.periodEnd).toLocaleDateString([], { month: "long", day: "numeric", timeZone: "UTC" })}`}</small>

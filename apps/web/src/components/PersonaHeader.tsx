@@ -1,4 +1,4 @@
-import type { PersonaDefinition, PersonaSummary } from "@persona/shared";
+import { NEUTRAL_PERSONA_ID, type PersonaDefinition, type PersonaSummary } from "@persona/shared";
 
 type PersonaHeaderProps = {
   personaSummary: PersonaSummary | undefined;
@@ -42,7 +42,7 @@ export function PersonaHeader({
   }
 
   return (
-    <section className="hero-card">
+    <section className={`hero-card${persona.id === NEUTRAL_PERSONA_ID ? " hero-card-neutral" : ""}`}>
       <div className="hero-layout">
         {persona.avatarUrl ? (
           <img className="hero-avatar" src={persona.avatarUrl} alt={`${persona.name} avatar`} />

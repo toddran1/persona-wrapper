@@ -2949,6 +2949,11 @@ textarea {
   align-items: center;
 }
 
+/* The neutral persona has no avatar, so it should not reserve the avatar column. */
+.hero-card-neutral .hero-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .hero-avatar {
   display: block;
   width: 100%;

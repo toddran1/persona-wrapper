@@ -4363,8 +4363,9 @@ export function MobileChatScreen() {
                   {planUsage.meters.map((meter) => {
                     const used = finiteNonnegativeIntegerOr(meter.used) + finiteNonnegativeIntegerOr(meter.reserved);
                     const limit = meter.limit === null ? null : finiteNonnegativeIntegerOr(meter.limit);
-                    const percent = limit && limit > 0
-                      ? Math.round(clampFiniteNumber((used / limit) * 100, 0, 100))
+                    const remaining = limit === null ? null : Math.max(0, limit - used);
+                    const percentRemaining = limit && limit > 0
+                      ? Math.round(clampFiniteNumber(((remaining ?? 0) / limit) * 100, 0, 100))
                       : 0;
                     const formatAmount = (value: number) => {
                       const safeValue = finiteNonnegativeIntegerOr(value);
@@ -4377,15 +4378,26 @@ export function MobileChatScreen() {
                         <View style={styles.settingsUsageHeading}>
                           <Text style={[styles.settingsRowText, { color: theme.text }]}>{meter.label}</Text>
                           <Text style={[styles.settingsRowHint, { color: theme.muted }]}>
-                            {formatAmount(used)} of {limit === null ? "unlimited" : formatAmount(limit)}
+                            {limit === null ? "Unlimited" : `${formatAmount(remaining ?? 0)} of ${formatAmount(limit)} left`}
                           </Text>
                         </View>
                         {meter.rollover > 0 ? (
                           <Text style={[styles.settingsRolloverNote, { color: theme.accent2, borderColor: theme.border }]}>+{formatAmount(meter.rollover)} carried from last month · use by {new Date(meter.periodEnd).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" })}</Text>
                         ) : null}
                         {limit !== null ? (
-                          <View style={styles.settingsUsageTrack}>
-                            <View style={[styles.settingsUsageFill, { backgroundColor: theme.accent2, width: `${percent}%` }]} />
+                          <View
+                            accessible
+                            accessibilityRole="progressbar"
+                            accessibilityLabel={`${meter.label} remaining`}
+                            accessibilityValue={{
+                              min: 0,
+                              max: 100,
+                              now: percentRemaining,
+                              text: `${formatAmount(remaining ?? 0)} of ${formatAmount(limit)} left`
+                            }}
+                            style={styles.settingsUsageTrack}
+                          >
+                            <View style={[styles.settingsUsageFill, { backgroundColor: theme.accent2, width: `${percentRemaining}%` }]} />
                           </View>
                         ) : null}
                         <Text style={[styles.settingsRowHint, { color: theme.muted }]}>
