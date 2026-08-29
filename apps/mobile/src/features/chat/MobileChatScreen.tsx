@@ -30,6 +30,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as WebBrowser from "expo-web-browser";
 import * as ScreenOrientation from "expo-screen-orientation";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import Constants from "expo-constants";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
 import { billingLifecyclePresentation, billingStoreDisplayName, clampFiniteNumber, finiteNonnegativeIntegerOr, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type BillingSubscriptionLifecycle, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type CurrentPoliciesResponse, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
@@ -101,6 +102,10 @@ const DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET = 236;
 const DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET_LANDSCAPE = 220;
 const PERSONA_RESPONSE_FOCUS_GAP = 12;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
+const MOBILE_APP_VERSION = Constants.expoConfig?.version?.trim()
+  || Constants.nativeAppVersion?.trim()
+  || "Unavailable";
+const MOBILE_BUILD_VERSION = Constants.nativeBuildVersion?.trim();
 // Keep this aligned with `scheme` in app.config.ts. OAuth must not depend on
 // Expo Constants because the native manifest can be unavailable during startup.
 const MOBILE_APP_SCHEME = "personawrapper";
@@ -4542,6 +4547,21 @@ export function MobileChatScreen() {
                   <Ionicons name="open-outline" size={18} color={theme.muted} />
                 </Pressable>
               ))}
+              <View
+                accessible
+                accessibilityRole="text"
+                accessibilityLabel={`For the Baddiez version ${MOBILE_APP_VERSION}${MOBILE_BUILD_VERSION ? `, build ${MOBILE_BUILD_VERSION}` : ""}`}
+                style={[styles.settingsReleaseStamp, { borderColor: theme.border, backgroundColor: "rgba(168,111,232,0.07)" }]}
+              >
+                <View style={styles.settingsReleaseCopy}>
+                  <Text style={[styles.settingsReleaseEyebrow, { color: theme.muted }]}>CURRENT APP RELEASE</Text>
+                  <Text style={[styles.settingsReleasePlatform, { color: theme.text }]}>For the Baddiez · {Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Mobile"}</Text>
+                </View>
+                <View style={styles.settingsReleaseVersion}>
+                  <Text style={[styles.settingsReleaseNumber, { color: theme.accent2 }]}>v{MOBILE_APP_VERSION}</Text>
+                  {MOBILE_BUILD_VERSION ? <Text style={[styles.settingsReleaseBuild, { color: theme.muted }]}>Build {MOBILE_BUILD_VERSION}</Text> : null}
+                </View>
+              </View>
             </View>
           ) : null}
           {settingsPanel === "data" ? (
@@ -6077,6 +6097,43 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 18,
     fontWeight: "900"
+  },
+  settingsReleaseBuild: {
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  settingsReleaseCopy: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0
+  },
+  settingsReleaseEyebrow: {
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.3
+  },
+  settingsReleaseNumber: {
+    fontSize: 20,
+    fontVariant: ["tabular-nums"],
+    fontWeight: "900"
+  },
+  settingsReleasePlatform: {
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  settingsReleaseStamp: {
+    alignItems: "center",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 18,
+    minHeight: 74,
+    paddingHorizontal: 18,
+    paddingVertical: 14
+  },
+  settingsReleaseVersion: {
+    alignItems: "flex-end",
+    gap: 2
   },
   settingsSectionHeadingRow: {
     alignItems: "center",

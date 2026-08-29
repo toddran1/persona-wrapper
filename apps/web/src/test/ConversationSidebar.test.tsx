@@ -483,6 +483,7 @@ describe("ConversationSidebar settings", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "About" }));
     expect(within(dialog).getByRole("link", { name: /Privacy Policy/ })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("For the Baddiez web version 0.1.0")).toHaveTextContent("v0.1.0");
 
     await user.click(within(dialog).getByRole("button", { name: "Delete account" }));
     expect(within(dialog).getByRole("button", { name: "Continue to deletion" })).toBeInTheDocument();

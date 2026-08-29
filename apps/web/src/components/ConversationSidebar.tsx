@@ -18,12 +18,16 @@ import type {
 import { billingLifecyclePresentation, billingStoreDisplayName, clampFiniteNumber, finiteNonnegativeIntegerOr, PASSWORD_MIN_LENGTH } from "@persona/shared";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import webPackage from "../../package.json";
 import { clearPendingBillingCheckout, savePendingBillingCheckout } from "../lib/pendingBillingCheckout.js";
 import { PasswordInput } from "./PasswordInput.js";
 
 const REGISTER_PASSWORD_MIN_LENGTH = PASSWORD_MIN_LENGTH;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 const APPLE_LOGO_URL = "https://appleid.cdn-apple.com/appleid/button/logo?color=black&border=false&size=30&scale=3";
+const WEB_APP_VERSION = typeof webPackage.version === "string" && webPackage.version.trim()
+  ? webPackage.version.trim()
+  : "Unavailable";
 type SettingsSection = "account" | "influence" | "provider" | "plan" | "audio" | "security" | "memory" | "data" | "about" | "delete";
 
 const PLAN_PRESENTATION: Record<PlanId, {
@@ -2542,6 +2546,11 @@ export function ConversationSidebar({
                           <a href="/terms"><span>Terms of Use</span><span aria-hidden="true">↗</span></a>
                           <a href="/delete-account"><span>Delete account policy</span><span aria-hidden="true">↗</span></a>
                           <a href="/support"><span>Support</span><span aria-hidden="true">↗</span></a>
+                        </div>
+                        <div className="settings-release-stamp" aria-label={`For the Baddiez web version ${WEB_APP_VERSION}`}>
+                          <span>Current web release</span>
+                          <strong>v{WEB_APP_VERSION}</strong>
+                          <small>For the Baddiez · Web</small>
                         </div>
                       </div>
                     ) : null}

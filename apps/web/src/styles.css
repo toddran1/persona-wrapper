@@ -2294,6 +2294,44 @@ textarea {
   outline: none;
 }
 
+.settings-release-stamp {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 3px 18px;
+  padding: 15px 17px;
+  border: 1px solid rgba(214, 181, 94, 0.13);
+  border-radius: 14px;
+  color: rgba(214, 181, 94, 0.74);
+  background:
+    linear-gradient(105deg, rgba(168, 111, 232, 0.08), transparent 44%),
+    rgba(255, 255, 255, 0.018);
+}
+
+.settings-release-stamp > span {
+  color: rgba(207, 195, 219, 0.64);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.settings-release-stamp > strong {
+  grid-row: 1 / 3;
+  grid-column: 2;
+  color: #f1cf67;
+  font-size: 1.22rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  letter-spacing: -0.025em;
+}
+
+.settings-release-stamp > small {
+  color: rgba(247, 239, 232, 0.72);
+  font-size: 0.72rem;
+  font-weight: 680;
+}
+
 .settings-section-danger .settings-section-eyebrow {
   color: #ff9eb0;
 }
