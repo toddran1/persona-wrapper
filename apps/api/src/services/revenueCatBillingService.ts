@@ -16,8 +16,10 @@ const eventSchema = z.object({
   entitlement_ids: z.array(z.string().min(1)).nullish(),
   environment: z.enum(["SANDBOX", "PRODUCTION"]).nullish(), store: z.string().nullish(),
   app_id: z.string().nullish(), expiration_at_ms: z.number().nullable().optional(),
+  grace_period_expiration_at_ms: z.number().nullable().optional(),
   event_timestamp_ms: z.number().nullish(), original_transaction_id: z.string().nullish(),
-  transaction_id: z.string().nullish()
+  transaction_id: z.string().nullish(), cancel_reason: z.string().nullish(),
+  expiration_reason: z.string().nullish()
 }).passthrough();
 const webhookSchema = z.object({ api_version: z.string().nullish(), event: eventSchema }).passthrough();
 export type RevenueCatWebhookEvent = z.infer<typeof eventSchema>;
@@ -169,16 +171,17 @@ export class RevenueCatBillingService {
   }
 
   private async apply(event: Event, payload: Record<string, unknown>, environment: "SANDBOX" | "PRODUCTION"): Promise<RevenueCatWebhookResult> {
-    if (["TEST", "PRODUCT_CHANGE", "TRANSFER", "TEMPORARY_ENTITLEMENT_GRANT"].includes(event.type)) {
+    if (["TEST", "TRANSFER", "TEMPORARY_ENTITLEMENT_GRANT"].includes(event.type)) {
       // Temporary grants do not identify a store product, so they cannot be
       // mapped safely to Silver or Gold without querying RevenueCat's current
       // subscriber state. Support can grant a time-bound override instead.
       return { status: "ignored", eventId: event.id };
     }
-    const productId = event.product_id ?? event.new_product_id;
-    const planId = planIdForRevenueCatPurchase(productId, event.entitlement_ids);
-    const recognized = activeTypes.has(event.type) || retainedTypes.has(event.type) || event.type === "EXPIRATION";
-    if (!recognized || !planId) {
+    const recognized = activeTypes.has(event.type)
+      || retainedTypes.has(event.type)
+      || event.type === "EXPIRATION"
+      || event.type === "PRODUCT_CHANGE";
+    if (!recognized) {
       logger.warn("RevenueCat billing event ignored because its plan could not be mapped", {
         ...diagnosticEvent(event),
         recognized
@@ -188,24 +191,73 @@ export class RevenueCatBillingService {
     const userId = await findUserId(event);
     if (!userId) throw new HttpError("RevenueCat app user does not match an application user.", 422);
 
-    const normalizedProductId = productId
-      ? normalizeStoreProductId(productId)
-      : `entitlement:${planId}`;
-    const externalId = event.original_transaction_id ?? event.transaction_id ?? `${userId}:${normalizedProductId}`;
-    const assignmentId = stableId("plan_assignment_revenuecat", externalId);
+    const productId = event.product_id ?? event.new_product_id;
+    const rawExternalProductId = productId?.trim() || "unknown-product";
+    const externalId = event.original_transaction_id ?? event.transaction_id ?? `${userId}:${rawExternalProductId}`;
     const subscriptionId = stableId("billing_subscription", externalId);
     const eventAt = safeDate(event.event_timestamp_ms) ?? new Date();
     const expiresAt = safeDate(event.expiration_at_ms);
+    const db = getDatabase();
+    if (!db) throw new HttpError("Billing requires database-backed storage.", 503);
+    const [existing] = await db.select({
+      lastEventAt: billingSubscriptions.lastEventAt,
+      planId: billingSubscriptions.planId,
+      currentPeriodEndsAt: billingSubscriptions.currentPeriodEndsAt,
+      gracePeriodEndsAt: billingSubscriptions.gracePeriodEndsAt
+    }).from(billingSubscriptions)
+      .where(and(eq(billingSubscriptions.provider, "revenuecat"), eq(billingSubscriptions.externalSubscriptionId, externalId))).limit(1);
+    if (existing && existing.lastEventAt > eventAt) return { status: "ignored", eventId: event.id };
+
+    if (event.type === "PRODUCT_CHANGE") {
+      const pendingPlanId = planIdForRevenueCatPurchase(event.new_product_id, event.entitlement_ids);
+      if (!existing || !pendingPlanId || pendingPlanId === existing.planId) {
+        logger.warn("RevenueCat product change ignored because its current or destination plan could not be mapped", {
+          ...diagnosticEvent(event),
+          currentPlanId: existing?.planId ?? null,
+          pendingPlanId: pendingPlanId ?? null
+        });
+        return { status: "ignored", eventId: event.id };
+      }
+      await db.update(billingSubscriptions).set({
+        status: "product_change",
+        pendingPlanId,
+        cancelReason: null,
+        expirationReason: null,
+        gracePeriodEndsAt: null,
+        currentPeriodEndsAt: expiresAt ?? existing.currentPeriodEndsAt,
+        lastEventId: event.id,
+        lastEventAt: eventAt,
+        metadata: payload,
+        updatedAt: new Date()
+      }).where(and(
+        eq(billingSubscriptions.provider, "revenuecat"),
+        eq(billingSubscriptions.externalSubscriptionId, externalId)
+      ));
+      logger.info("RevenueCat product change scheduled", { ...diagnosticEvent(event), pendingPlanId });
+      return { status: "processed", eventId: event.id };
+    }
+
+    const planId = planIdForRevenueCatPurchase(productId, event.entitlement_ids);
+    if (!planId) {
+      logger.warn("RevenueCat billing event ignored because its plan could not be mapped", diagnosticEvent(event));
+      return { status: "ignored", eventId: event.id };
+    }
+    const normalizedProductId = productId
+      ? normalizeStoreProductId(productId)
+      : `entitlement:${planId}`;
+    const assignmentId = stableId("plan_assignment_revenuecat", externalId);
     const expired = event.type === "EXPIRATION";
     if (!expired && !expiresAt) {
       throw new HttpError("RevenueCat subscription events must include an expiration date.", 422);
     }
     const plan = getPlanDefinition(planId);
-    const db = getDatabase();
-    if (!db) throw new HttpError("Billing requires database-backed storage.", 503);
-    const [existing] = await db.select({ lastEventAt: billingSubscriptions.lastEventAt }).from(billingSubscriptions)
-      .where(and(eq(billingSubscriptions.provider, "revenuecat"), eq(billingSubscriptions.externalSubscriptionId, externalId))).limit(1);
-    if (existing && existing.lastEventAt > eventAt) return { status: "ignored", eventId: event.id };
+    const cancelReason = event.type === "CANCELLATION" ? event.cancel_reason ?? null : null;
+    const expirationReason = expired ? event.expiration_reason ?? null : null;
+    const gracePeriodEndsAt = event.type === "BILLING_ISSUE"
+      ? safeDate(event.grace_period_expiration_at_ms)
+      : event.type === "CANCELLATION" && cancelReason === "BILLING_ERROR"
+        ? safeDate(event.grace_period_expiration_at_ms) ?? existing?.gracePeriodEndsAt ?? null
+        : null;
 
     await db.transaction(async (tx) => {
       await tx.insert(userPlanAssignments).values({
@@ -222,11 +274,13 @@ export class RevenueCatBillingService {
         id: subscriptionId, userId, provider: "revenuecat", externalSubscriptionId: externalId,
         planAssignmentId: assignmentId, productId: normalizedProductId, planId,
         status: expired ? "expired" : event.type.toLowerCase(), store: event.store, environment,
-        currentPeriodEndsAt: expiresAt, lastEventId: event.id, lastEventAt: eventAt, metadata: payload
+        currentPeriodEndsAt: expiresAt, pendingPlanId: null, cancelReason, expirationReason,
+        gracePeriodEndsAt, lastEventId: event.id, lastEventAt: eventAt, metadata: payload
       }).onConflictDoUpdate({ target: [billingSubscriptions.provider, billingSubscriptions.externalSubscriptionId], set: {
         userId, planAssignmentId: assignmentId, productId: normalizedProductId, planId,
         status: expired ? "expired" : event.type.toLowerCase(), store: event.store, environment,
-        currentPeriodEndsAt: expiresAt, lastEventId: event.id, lastEventAt: eventAt,
+        currentPeriodEndsAt: expiresAt, pendingPlanId: null, cancelReason, expirationReason,
+        gracePeriodEndsAt, lastEventId: event.id, lastEventAt: eventAt,
         metadata: payload, updatedAt: new Date()
       }});
     });

@@ -905,6 +905,11 @@ export const api = {
     if (response.status !== 200) throw contractError(response.body, "Could not load subscription options.");
     return response.body;
   },
+  getBillingManagementUrl: async (): Promise<string> => {
+    const response = await contractClient.account.billingManagement({ body: {} });
+    if (response.status !== 200) throw contractError(response.body, "Could not open subscription management.");
+    return response.body.managementUrl;
+  },
   updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {
     const response = await contractClient.account.updateProfile({ body: payload });
     if (response.status !== 200) throw contractError(response.body, "Could not update your profile.");

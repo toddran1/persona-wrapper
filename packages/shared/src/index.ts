@@ -653,9 +653,98 @@ export const billingCatalogResponseSchema = z.object({
   provider: billingProviderSchema,
   offeringId: z.string().min(1),
   products: z.array(billingCatalogProductSchema),
-  currentPlanId: planIdSchema
+  currentPlanId: planIdSchema,
+  subscription: z.object({
+    state: z.enum(["active", "change_scheduled", "canceled", "payment_issue", "ended", "status_unknown"]),
+    planId: planIdSchema,
+    store: z.enum(["app_store", "play_store", "revenuecat_web", "other"]),
+    currentPeriodEndsAt: z.string().datetime(),
+    pendingPlanId: planIdSchema.nullable(),
+    gracePeriodEndsAt: z.string().datetime().nullable(),
+    cancellationReason: z.enum(["user", "price_change", "developer", "unknown"]).nullable(),
+    endedReason: z.enum(["payment_issue", "non_renewing", "other"]).nullable()
+  }).strict().nullable()
 }).strict();
 export type BillingCatalogResponse = z.infer<typeof billingCatalogResponseSchema>;
+export type BillingSubscriptionLifecycle = NonNullable<BillingCatalogResponse["subscription"]>;
+
+export function billingStoreDisplayName(store: BillingSubscriptionLifecycle["store"]): string {
+  if (store === "app_store") return "Apple App Store";
+  if (store === "play_store") return "Google Play";
+  if (store === "revenuecat_web") return "RevenueCat Web";
+  return "your billing provider";
+}
+
+export function billingLifecyclePresentation(
+  subscription: BillingSubscriptionLifecycle,
+  formatDate: (value: string) => string
+): {
+  eyebrow: string;
+  title: string;
+  body: string;
+  tone: "steady" | "scheduled" | "warning" | "ended";
+} {
+  const currentPlan = `${subscription.planId[0]?.toUpperCase()}${subscription.planId.slice(1)}`;
+  const periodEnd = formatDate(subscription.currentPeriodEndsAt);
+  const store = billingStoreDisplayName(subscription.store);
+  if (subscription.state === "payment_issue") {
+    const deadline = subscription.gracePeriodEndsAt ? formatDate(subscription.gracePeriodEndsAt) : periodEnd;
+    return {
+      eyebrow: "Payment needs attention",
+      title: `Update payment by ${deadline}`,
+      body: `${currentPlan} access is still available while ${store} retries the payment. Update it there to avoid moving to Bronze.`,
+      tone: "warning"
+    };
+  }
+  if (subscription.state === "change_scheduled" && subscription.pendingPlanId) {
+    const nextPlan = `${subscription.pendingPlanId[0]?.toUpperCase()}${subscription.pendingPlanId.slice(1)}`;
+    return {
+      eyebrow: "Plan change scheduled",
+      title: `${currentPlan} until ${periodEnd}`,
+      body: `${nextPlan} begins on ${periodEnd}. This subscription is managed through ${store}.`,
+      tone: "scheduled"
+    };
+  }
+  if (subscription.state === "canceled") {
+    const eyebrow = subscription.cancellationReason === "user" ? "Plan canceled" : "Renewal ending";
+    const reason = subscription.cancellationReason === "price_change"
+      ? "The store reports that a required price change wasn’t accepted."
+      : "Renewal is turned off.";
+    return {
+      eyebrow,
+      title: `${currentPlan} access ends ${periodEnd}`,
+      body: `${reason} Keep using every ${currentPlan} benefit until then; afterward, your account moves to Bronze.`,
+      tone: "scheduled"
+    };
+  }
+  if (subscription.state === "ended") {
+    const reason = subscription.endedReason === "payment_issue"
+      ? "The store could not recover the renewal payment."
+      : subscription.endedReason === "non_renewing"
+        ? "The subscription reached the end of its final paid period."
+        : "The paid subscription is no longer active.";
+    return {
+      eyebrow: "Paid plan ended",
+      title: `${currentPlan} ended ${periodEnd}`,
+      body: `${reason} Your account is now on Bronze. Choose a paid plan below whenever you’re ready to return.`,
+      tone: "ended"
+    };
+  }
+  if (subscription.state === "status_unknown") {
+    return {
+      eyebrow: "Check billing status",
+      title: `${currentPlan} access is available until ${periodEnd}`,
+      body: `A refund or support change was recorded. Check ${store} for the current renewal and refund details.`,
+      tone: "warning"
+    };
+  }
+  return {
+    eyebrow: "Renews automatically",
+    title: `${currentPlan} renews ${periodEnd}`,
+    body: `Your subscription is managed through ${store}. Your current benefits continue after renewal.`,
+    tone: "steady"
+  };
+}
 
 export const billingManagementResponseSchema = z.object({
   managementUrl: z.string().url()

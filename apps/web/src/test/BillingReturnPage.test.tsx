@@ -60,7 +60,8 @@ function catalogResponse(planId: PlanId): BillingCatalogResponse {
     provider: "revenuecat",
     offeringId: "default",
     products: [],
-    currentPlanId: planId
+    currentPlanId: planId,
+    subscription: null
   };
 }
 

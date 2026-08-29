@@ -34,6 +34,7 @@ const billingCatalog: BillingCatalogResponse = {
   provider: "revenuecat",
   offeringId: "default",
   currentPlanId: "bronze",
+  subscription: null,
   products: [
     {
       iosProductId: "com.forthebaddiez.silver.monthly",
@@ -532,6 +533,165 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(dialog).getByRole("button", { name: "Downgrade to silver" }));
     const review = await screen.findByRole("alertdialog", { name: "Schedule your downgrade?" });
     expect(within(review).getByText(/stays active until the next renewal/i)).toBeInTheDocument();
+  });
+
+  it("makes canceled paid access and its ending date explicit", async () => {
+    const user = userEvent.setup();
+    const silverUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "silver" as const, displayName: "Silver", monthlyPriceCents: 799 }
+    };
+    const silverCatalog: BillingCatalogResponse = {
+      ...billingCatalog,
+      currentPlanId: "silver",
+      subscription: {
+        state: "canceled",
+        planId: "silver",
+        store: "revenuecat_web",
+        currentPeriodEndsAt: "2026-09-01T00:00:00.000Z",
+        pendingPlanId: null,
+        gracePeriodEndsAt: null,
+        cancellationReason: "user",
+        endedReason: null
+      }
+    };
+    renderSidebar({ planUsageOverride: silverUsage, billingCatalogOverride: silverCatalog });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+
+    expect(await within(dialog).findByRole("status", { name: /plan canceled/i })).toHaveAccessibleName(
+      /Silver access ends September 1/i
+    );
+    expect(within(dialog).getByText(/Afterward, your account moves to Bronze/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Paid access ends September 1/i)).toBeInTheDocument();
+    expect(within(dialog).getByText("Ends Sep 1")).toBeInTheDocument();
+  });
+
+  it("distinguishes payment recovery from voluntary cancellation", async () => {
+    const user = userEvent.setup();
+    const silverUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "silver" as const, displayName: "Silver", monthlyPriceCents: 799 }
+    };
+    const silverCatalog: BillingCatalogResponse = {
+      ...billingCatalog,
+      currentPlanId: "silver",
+      subscription: {
+        state: "payment_issue",
+        planId: "silver",
+        store: "app_store",
+        currentPeriodEndsAt: "2026-09-01T00:00:00.000Z",
+        pendingPlanId: null,
+        gracePeriodEndsAt: "2026-09-04T00:00:00.000Z",
+        cancellationReason: null,
+        endedReason: null
+      }
+    };
+    renderSidebar({ planUsageOverride: silverUsage, billingCatalogOverride: silverCatalog });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+
+    expect(await within(dialog).findByRole("status", { name: /Payment needs attention/i })).toHaveAccessibleName(/Update payment by September 4/i);
+    expect(within(dialog).getByText(/managed through Apple App Store/i)).toBeInTheDocument();
+    expect(within(dialog).getAllByRole("button", { name: "Manage in mobile app" })).toHaveLength(2);
+    for (const button of within(dialog).getAllByRole("button", { name: "Manage in mobile app" })) expect(button).toBeDisabled();
+    expect(within(dialog).queryByText(/you won’t be charged again/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps a scheduled downgrade visible after the checkout notice is gone", async () => {
+    const user = userEvent.setup();
+    const goldUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "gold" as const, displayName: "Gold", monthlyPriceCents: 1199 }
+    };
+    const goldCatalog: BillingCatalogResponse = {
+      ...billingCatalog,
+      currentPlanId: "gold",
+      subscription: {
+        state: "change_scheduled",
+        planId: "gold",
+        store: "revenuecat_web",
+        currentPeriodEndsAt: "2026-09-01T00:00:00.000Z",
+        pendingPlanId: "silver",
+        gracePeriodEndsAt: null,
+        cancellationReason: null,
+        endedReason: null
+      }
+    };
+    renderSidebar({ planUsageOverride: goldUsage, billingCatalogOverride: goldCatalog });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+
+    expect(await within(dialog).findByRole("status", { name: /Plan change scheduled/i })).toHaveAccessibleName(/Gold until September 1/i);
+    expect(within(dialog).getByText(/Silver begins on September 1/i)).toBeInTheDocument();
+    expect(within(dialog).getByText("Changes Sep 1")).toBeInTheDocument();
+  });
+
+  it("shows the next renewal for an active paid plan", async () => {
+    const user = userEvent.setup();
+    const silverUsage = {
+      ...planUsage,
+      plan: { ...planUsage.plan, id: "silver" as const, displayName: "Silver", monthlyPriceCents: 799 }
+    };
+    const silverCatalog: BillingCatalogResponse = {
+      ...billingCatalog,
+      currentPlanId: "silver",
+      subscription: {
+        state: "active",
+        planId: "silver",
+        store: "revenuecat_web",
+        currentPeriodEndsAt: "2026-09-01T00:00:00.000Z",
+        pendingPlanId: null,
+        gracePeriodEndsAt: null,
+        cancellationReason: null,
+        endedReason: null
+      }
+    };
+    renderSidebar({ planUsageOverride: silverUsage, billingCatalogOverride: silverCatalog });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+
+    expect(await within(dialog).findByRole("status", { name: /Renews automatically/i })).toHaveAccessibleName(/Silver renews September 1/i);
+    expect(within(dialog).getByText(/managed through RevenueCat Web/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Manage billing" })).toBeEnabled();
+  });
+
+  it("explains a recently ended paid plan after the account returns to Bronze", async () => {
+    const user = userEvent.setup();
+    const endedCatalog: BillingCatalogResponse = {
+      ...billingCatalog,
+      subscription: {
+        state: "ended",
+        planId: "silver",
+        store: "app_store",
+        currentPeriodEndsAt: "2026-09-01T00:00:00.000Z",
+        pendingPlanId: null,
+        gracePeriodEndsAt: null,
+        cancellationReason: null,
+        endedReason: "non_renewing"
+      }
+    };
+    renderSidebar({ billingCatalogOverride: endedCatalog });
+
+    await user.click(screen.getByTestId("account-menu-toggle"));
+    await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    await user.click(within(dialog).getByRole("button", { name: "Plan & usage" }));
+
+    expect(await within(dialog).findByRole("status", { name: /Paid plan ended/i })).toHaveAccessibleName(/Silver ended September 1/i);
+    expect(within(dialog).getByText(/account is now on Bronze/i)).toBeInTheDocument();
   });
 
   it("requires the DOWNGRADE confirmation before returning a paid member to Bronze", async () => {

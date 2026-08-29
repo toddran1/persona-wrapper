@@ -1,9 +1,12 @@
 import {
-  billingProductCatalog,
   type BillingCatalogResponse,
+  billingProductCatalog,
   type PlanId
 } from "@persona/shared";
+import { and, desc, eq } from "drizzle-orm";
 import { env } from "../config/env.js";
+import { getDatabase } from "../db/client.js";
+import { billingSubscriptions } from "../db/schema.js";
 import { customerUsageService } from "./customerUsageService.js";
 import { getPlanDefinition } from "./planCatalog.js";
 
@@ -12,6 +15,18 @@ type PaidPlanId = Exclude<PlanId, "bronze">;
 const legacyStoreProductIds: Readonly<Record<string, PlanId>> = {
   ftb_silver_monthly: "silver",
   ftb_gold_monthly: "gold"
+};
+const RECENTLY_ENDED_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+type StoredBillingSubscription = {
+  status: string;
+  planId: string;
+  store: string | null;
+  currentPeriodEndsAt: Date | null;
+  pendingPlanId: string | null;
+  cancelReason: string | null;
+  expirationReason: string | null;
+  gracePeriodEndsAt: Date | null;
 };
 
 function webPackageId(planId: PlanId): string | undefined {
@@ -76,8 +91,100 @@ export function planIdForRevenueCatPurchase(
   return matchingPlans.length === 1 ? matchingPlans[0] : undefined;
 }
 
+export function billingSubscriptionState(
+  subscription: StoredBillingSubscription | undefined,
+  now = new Date()
+): BillingCatalogResponse["subscription"] {
+  const currentPeriodEndsAt = subscription?.currentPeriodEndsAt;
+  if (!subscription || !currentPeriodEndsAt) return null;
+  const planId = subscription.planId === "silver" || subscription.planId === "gold"
+    ? subscription.planId
+    : undefined;
+  if (!planId) return null;
+  const periodEndMs = currentPeriodEndsAt.getTime();
+  const ended = subscription.status === "expired" || periodEndMs <= now.getTime();
+  if (ended && now.getTime() - periodEndMs > RECENTLY_ENDED_WINDOW_MS) return null;
+  const pendingPlanId = subscription.pendingPlanId === "bronze"
+    || subscription.pendingPlanId === "silver"
+    || subscription.pendingPlanId === "gold"
+    ? subscription.pendingPlanId
+    : null;
+  const normalizedStore = subscription.store?.trim().toUpperCase();
+  const store = normalizedStore === "APP_STORE" || normalizedStore === "MAC_APP_STORE"
+    ? "app_store" as const
+    : normalizedStore === "PLAY_STORE"
+      ? "play_store" as const
+      : normalizedStore === "RC_BILLING"
+        ? "revenuecat_web" as const
+        : "other" as const;
+  const cancellationReason = subscription.cancelReason === "UNSUBSCRIBE"
+    ? "user" as const
+    : subscription.cancelReason === "PRICE_INCREASE"
+      ? "price_change" as const
+      : subscription.cancelReason === "DEVELOPER_INITIATED"
+        ? "developer" as const
+        : subscription.status === "cancellation"
+          && subscription.cancelReason !== "BILLING_ERROR"
+          && subscription.cancelReason !== "CUSTOMER_SUPPORT"
+          ? "unknown" as const
+          : null;
+  const state = ended
+    ? "ended" as const
+    : subscription.status === "billing_issue" || subscription.cancelReason === "BILLING_ERROR"
+      ? "payment_issue" as const
+      : pendingPlanId && pendingPlanId !== planId
+        ? "change_scheduled" as const
+        : subscription.status === "cancellation" || subscription.status === "non_renewing_purchase"
+          ? subscription.cancelReason === "CUSTOMER_SUPPORT" ? "status_unknown" as const : "canceled" as const
+          : subscription.status === "subscription_paused"
+            ? "status_unknown" as const
+            : "active" as const;
+  const endedReason = !ended
+    ? null
+    : subscription.expirationReason === "BILLING_ERROR"
+      ? "payment_issue" as const
+      : subscription.expirationReason === "UNSUBSCRIBE"
+        || subscription.expirationReason === "DEVELOPER_INITIATED"
+        || subscription.expirationReason === "PRICE_INCREASE"
+        ? "non_renewing" as const
+        : "other" as const;
+  return {
+    state,
+    planId,
+    store,
+    currentPeriodEndsAt: currentPeriodEndsAt.toISOString(),
+    pendingPlanId,
+    gracePeriodEndsAt: subscription.gracePeriodEndsAt?.toISOString() ?? null,
+    cancellationReason,
+    endedReason
+  };
+}
+
 export async function getBillingCatalog(userId: string): Promise<BillingCatalogResponse> {
   const access = await customerUsageService.getAccess(userId);
+  const db = getDatabase();
+  const selection = {
+    status: billingSubscriptions.status,
+    planId: billingSubscriptions.planId,
+    store: billingSubscriptions.store,
+    currentPeriodEndsAt: billingSubscriptions.currentPeriodEndsAt,
+    pendingPlanId: billingSubscriptions.pendingPlanId,
+    cancelReason: billingSubscriptions.cancelReason,
+    expirationReason: billingSubscriptions.expirationReason,
+    gracePeriodEndsAt: billingSubscriptions.gracePeriodEndsAt
+  };
+  let subscription: StoredBillingSubscription | undefined;
+  if (db && access.assignment?.source === "subscription") {
+    [subscription] = await db.select(selection).from(billingSubscriptions).where(and(
+      eq(billingSubscriptions.userId, userId),
+      eq(billingSubscriptions.planAssignmentId, access.assignment.id)
+    )).orderBy(desc(billingSubscriptions.updatedAt)).limit(1);
+  } else if (db && access.plan.id === "bronze") {
+    [subscription] = await db.select(selection).from(billingSubscriptions)
+      .where(eq(billingSubscriptions.userId, userId))
+      .orderBy(desc(billingSubscriptions.updatedAt)).limit(1);
+  }
+  const currentSubscription = billingSubscriptionState(subscription);
   return {
     enabled: env.BILLING_ENABLED,
     provider: env.BILLING_PROVIDER,
@@ -99,6 +206,7 @@ export async function getBillingCatalog(userId: string): Promise<BillingCatalogR
         ...(webCheckoutUrl ? { webCheckoutUrl } : {})
       };
     }),
-    currentPlanId: access.plan.id
+    currentPlanId: access.plan.id,
+    subscription: currentSubscription
   };
 }

@@ -15,7 +15,7 @@ import type {
   RevokeOtherSessionsResponse,
   UpdateUserProfileRequest,
 } from "@persona/shared";
-import { clampFiniteNumber, finiteNonnegativeIntegerOr, PASSWORD_MIN_LENGTH } from "@persona/shared";
+import { billingLifecyclePresentation, billingStoreDisplayName, clampFiniteNumber, finiteNonnegativeIntegerOr, PASSWORD_MIN_LENGTH } from "@persona/shared";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clearPendingBillingCheckout, savePendingBillingCheckout } from "../lib/pendingBillingCheckout.js";
@@ -84,6 +84,18 @@ function formatConversationTime(value: string): string {
     return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function formatMembershipDate(value: string, short = false): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const includeYear = date.getUTCFullYear() !== new Date().getUTCFullYear();
+  return date.toLocaleDateString([], {
+    month: short ? "short" : "long",
+    day: "numeric",
+    ...(includeYear ? { year: "numeric" as const } : {}),
+    timeZone: "UTC"
+  });
 }
 
 export function ConversationSidebar({
@@ -254,6 +266,41 @@ export function ConversationSidebar({
   const accountIdRef = useRef(authUser?.id);
   const billingCheckoutWindowRef = useRef<Window | null>(null);
   const dataTransferActive = Boolean(dataTransferJob && ["awaiting_upload", "queued", "running"].includes(dataTransferJob.status));
+  const billingSubscription = billingCatalog?.subscription ?? undefined;
+  const billingLifecycle = billingSubscription
+    ? billingLifecyclePresentation(billingSubscription, (value) => formatMembershipDate(value))
+    : undefined;
+  const billingPeriodEndLabel = billingSubscription
+    ? formatMembershipDate(billingSubscription.currentPeriodEndsAt)
+    : undefined;
+  const billingPeriodEndShortLabel = billingSubscription
+    ? formatMembershipDate(billingSubscription.currentPeriodEndsAt, true)
+    : undefined;
+  const billingLifecycleDate = billingSubscription?.state === "payment_issue" && billingSubscription.gracePeriodEndsAt
+    ? billingSubscription.gracePeriodEndsAt
+    : billingSubscription?.currentPeriodEndsAt;
+  const billingLifecycleDateShortLabel = billingLifecycleDate
+    ? formatMembershipDate(billingLifecycleDate, true)
+    : undefined;
+  const webManagementUnavailable = Boolean(
+    billingSubscription
+    && billingSubscription.state !== "ended"
+    && billingSubscription.store !== "revenuecat_web"
+  );
+  const usageLifecycleLabel = billingSubscription?.state === "canceled"
+    ? `Paid access ends ${billingPeriodEndLabel}`
+    : billingSubscription?.state === "change_scheduled"
+      ? `Current plan changes ${billingPeriodEndLabel}`
+      : billingSubscription?.state === "payment_issue"
+        ? `Payment update due ${formatMembershipDate(billingSubscription.gracePeriodEndsAt ?? billingSubscription.currentPeriodEndsAt)}`
+        : undefined;
+  const currentPlanBadge = billingSubscription?.state === "canceled"
+    ? `Ends ${billingPeriodEndShortLabel}`
+    : billingSubscription?.state === "change_scheduled"
+      ? `Changes ${billingPeriodEndShortLabel}`
+      : billingSubscription?.state === "payment_issue"
+        ? "Payment issue"
+        : "Current plan";
 
   function oauthProviderLabel(provider: string): string {
     if (provider === "google") return "Google";
@@ -691,6 +738,10 @@ export function ConversationSidebar({
       if (accountIdRef.current !== requestedAccountId) return;
       setBillingCatalog(catalog);
       const currentPlanId = catalog.currentPlanId;
+      if (catalog.subscription && catalog.subscription.store !== "revenuecat_web") {
+        setPlanNotice(`This subscription is managed through ${billingStoreDisplayName(catalog.subscription.store)}. Open Plan & usage in the mobile app to make changes.`);
+        return;
+      }
       const product = catalog.products.find((candidate) => candidate.planId === planId);
       if (!catalog.enabled || (planId !== "bronze" && !product)) {
         setPlanNotice("This subscription option is not available right now. Refresh Plan & usage and try again.");
@@ -749,6 +800,48 @@ export function ConversationSidebar({
         setBillingPlanChange(undefined);
         setBillingFreeDowngradeConfirmation("");
       }
+    } catch (error) {
+      try { managementWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+      if (accountIdRef.current === requestedAccountId) {
+        setPlanNotice(error instanceof Error ? error.message : "Could not open subscription management.");
+      }
+    } finally {
+      if (accountIdRef.current === requestedAccountId) setBillingPlanChangeLoading(false);
+    }
+  }
+
+  async function openWebBillingPortal(): Promise<void> {
+    const requestedAccountId = authUser?.id;
+    if (!requestedAccountId || billingPlanChangeLoading || billingCheckout) return;
+    const managementWindow = window.open("about:blank", "_blank");
+    if (!managementWindow) {
+      setPlanNotice("Your browser blocked the subscription portal. Allow pop-ups for this site and try again.");
+      return;
+    }
+    try {
+      managementWindow.opener = null;
+    } catch {
+      // The placeholder remains same-origin until the authenticated URL is ready.
+    }
+    setBillingPlanChangeLoading(true);
+    setPlanNotice(undefined);
+    try {
+      const managementUrl = await onGetBillingManagementUrl();
+      if (accountIdRef.current !== requestedAccountId) {
+        try { managementWindow.close(); } catch { /* The placeholder may already be isolated. */ }
+        return;
+      }
+      const destination = new URL(managementUrl);
+      if (destination.protocol !== "https:" || destination.hostname !== "billing.revenuecat.com") {
+        throw new Error("Untrusted subscription portal URL.");
+      }
+      managementWindow.location.replace(destination.toString());
+      billingCheckoutWindowRef.current = managementWindow;
+      setPlanNotice("RevenueCat's secure billing portal opened in a new tab.");
+      window.addEventListener("focus", () => {
+        billingCheckoutWindowRef.current = null;
+        if (accountIdRef.current === requestedAccountId) void refreshPlanDetails(requestedAccountId);
+      }, { once: true });
     } catch (error) {
       try { managementWindow.close(); } catch { /* The placeholder may already be isolated. */ }
       if (accountIdRef.current === requestedAccountId) {
@@ -822,8 +915,15 @@ export function ConversationSidebar({
       try {
         const result = await refreshPlanDetails(requestedAccountId);
         if (cancelled || accountIdRef.current !== requestedAccountId) return;
-        const activePlan = result.catalog?.currentPlanId ?? result.usage?.plan.id;
-        if (activePlan === billingCheckout.planId) {
+        const activePlan = result.catalog?.currentPlanId ?? result.usage?.plan.id ?? "bronze";
+        const endingSubscription = result.catalog?.subscription?.state === "canceled"
+          ? result.catalog.subscription
+          : undefined;
+        if (billingCheckout.planId === "bronze" && endingSubscription) {
+          setPlanNotice(`${activePlan[0]?.toUpperCase()}${activePlan.slice(1)} is canceled. Your paid access ends ${formatMembershipDate(endingSubscription.currentPeriodEndsAt)}.`);
+          setBillingCheckout(undefined);
+          billingCheckoutWindowRef.current = null;
+        } else if (activePlan === billingCheckout.planId) {
           setPlanNotice(`${billingCheckout.planId[0]?.toUpperCase()}${billingCheckout.planId.slice(1)} is active on your account.`);
           setBillingCheckout(undefined);
           billingCheckoutWindowRef.current = null;
@@ -1957,6 +2057,33 @@ export function ConversationSidebar({
                         </div>
                         {planUsage ? (
                           <>
+                            {billingSubscription && billingLifecycle && billingPeriodEndLabel ? (
+                              <div
+                                className={`settings-plan-ending settings-plan-ending-${billingLifecycle.tone}`}
+                                role="status"
+                                aria-label={`${billingLifecycle.eyebrow}. ${billingLifecycle.title}. ${billingLifecycle.body}`}
+                              >
+                                <div className="settings-plan-ending-date" aria-hidden="true">
+                                  <span>{billingLifecycleDateShortLabel?.split(" ")[0]}</span>
+                                  <strong>{new Date(billingLifecycleDate ?? billingSubscription.currentPeriodEndsAt).getUTCDate()}</strong>
+                                </div>
+                                <div>
+                                  <span className="settings-section-eyebrow">{billingLifecycle.eyebrow}</span>
+                                  <strong>{billingLifecycle.title}</strong>
+                                  <p>{billingLifecycle.body}</p>
+                                  {billingSubscription.store === "revenuecat_web" && billingSubscription.state !== "ended" ? (
+                                    <button
+                                      type="button"
+                                      className="settings-plan-status-action"
+                                      disabled={billingPlanChangeLoading || Boolean(billingCheckout)}
+                                      onClick={() => void openWebBillingPortal()}
+                                    >
+                                      {billingPlanChangeLoading ? "Opening..." : billingSubscription.state === "payment_issue" ? "Update payment" : "Manage billing"}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
                             <div className="settings-total-usage">
                               <div className="settings-total-usage-heading">
                                 <strong>Total usage</strong>
@@ -1974,12 +2101,13 @@ export function ConversationSidebar({
                                 <span style={{ width: `${Math.round(clampFiniteNumber(planUsage.totalUsage.percentRemaining, 0, 100))}%` }} />
                               </div>
                               <small>
-                                Includes text, searches, file work, charts, images, and audio · Resets{" "}
-                                {new Date(planUsage.totalUsage.periodEnd).toLocaleDateString([], {
-                                  month: "long",
-                                  day: "numeric",
-                                  timeZone: "UTC"
-                                })}
+                                Includes text, searches, file work, charts, images, and audio · {usageLifecycleLabel
+                                  ? usageLifecycleLabel
+                                  : <>Resets {new Date(planUsage.totalUsage.periodEnd).toLocaleDateString([], {
+                                      month: "long",
+                                      day: "numeric",
+                                      timeZone: "UTC"
+                                    })}</>}
                               </small>
                             </div>
                             <div className="settings-list">
@@ -2002,7 +2130,9 @@ export function ConversationSidebar({
                                       <span>{formatAmount(used)} of {limit === null ? "unlimited" : formatAmount(limit)}</span>
                                     </div>
                                     {limit !== null ? <div className="settings-usage-track"><span style={{ width: `${percent}%` }} /></div> : null}
-                                    <small>Resets {new Date(meter.periodEnd).toLocaleDateString([], { month: "long", day: "numeric", timeZone: "UTC" })}</small>
+                                    <small>{usageLifecycleLabel
+                                      ? usageLifecycleLabel
+                                      : `Resets ${new Date(meter.periodEnd).toLocaleDateString([], { month: "long", day: "numeric", timeZone: "UTC" })}`}</small>
                                   </div>
                                 );
                               })}
@@ -2012,11 +2142,17 @@ export function ConversationSidebar({
                                 <span className="settings-section-eyebrow">Choose your access</span>
                                 <h4>Membership passes</h4>
                               </div>
-                              <span className="settings-plan-renewal">Monthly · cancel anytime</span>
+                              <span className="settings-plan-renewal">{billingSubscription?.state === "canceled"
+                                ? `Ends ${billingPeriodEndLabel}`
+                                : billingSubscription?.state === "change_scheduled"
+                                  ? `Changes ${billingPeriodEndLabel}`
+                                  : "Monthly · cancel anytime"}</span>
                             </div>
-                            {(billingCatalog?.currentPlanId ?? planUsage.plan.id) !== "bronze" ? (
+                            {(billingCatalog?.currentPlanId ?? planUsage.plan.id) !== "bronze" && billingSubscription?.state !== "canceled" ? (
                               <p className="settings-plan-change-guide" role="status">
-                                Upgrades take effect after confirmation. Downgrades are scheduled for your next renewal, so your current access stays available until then.
+                                {webManagementUnavailable
+                                  ? `This subscription is managed through ${billingStoreDisplayName(billingSubscription?.store ?? "other")}. Open Plan & usage in the mobile app to make changes.`
+                                  : "Upgrades take effect after confirmation. Downgrades are scheduled for your next renewal, so your current access stays available until then."}
                               </p>
                             ) : null}
                             {planNotice ? <div className="settings-notice" role="status">{planNotice}</div> : null}
@@ -2041,7 +2177,9 @@ export function ConversationSidebar({
                                   <article className={`settings-plan-card settings-plan-card-${planId}${current ? " settings-plan-card-current" : ""}`} key={planId}>
                                     <div className="settings-plan-card-topline">
                                       <span>{presentation.eyebrow}</span>
-                                      {current ? <strong>Current plan</strong> : planId === "gold" ? <strong>Full access</strong> : null}
+                                      {current
+                                        ? <strong>{currentPlanBadge}</strong>
+                                        : planId === "gold" ? <strong>Full access</strong> : null}
                                     </div>
                                     <h5>{planId[0]?.toUpperCase()}{planId.slice(1)}</h5>
                                     <p>{product?.description ?? presentation.description}</p>
@@ -2052,11 +2190,13 @@ export function ConversationSidebar({
                                     <button
                                       type="button"
                                       className="settings-plan-action"
-                                      disabled={current || !actionablePlan || !billingCatalog?.enabled || Boolean(billingCheckout) || billingPlanChangeLoading || Boolean(billingPlanChange) || (paidPlan && !product) || webPurchaseUnavailable}
+                                      disabled={current || !actionablePlan || !billingCatalog?.enabled || Boolean(billingCheckout) || billingPlanChangeLoading || Boolean(billingPlanChange) || (paidPlan && !product) || webPurchaseUnavailable || (currentPlanId !== "bronze" && webManagementUnavailable)}
                                       onClick={() => actionablePlan ? void prepareWebPlanChange(planId) : undefined}
                                     >
                                       {current
                                         ? "Your plan"
+                                        : currentPlanId !== "bronze" && webManagementUnavailable
+                                          ? "Manage in mobile app"
                                         : freeDowngrade
                                           ? "Downgrade to Bronze"
                                         : !paidPlan

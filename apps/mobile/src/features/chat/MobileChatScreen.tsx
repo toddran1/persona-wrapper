@@ -32,7 +32,7 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type { ExpoSpeechRecognitionErrorEvent, ExpoSpeechRecognitionResultEvent } from "expo-speech-recognition";
-import { clampFiniteNumber, finiteNonnegativeIntegerOr, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type CurrentPoliciesResponse, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
+import { billingLifecyclePresentation, billingStoreDisplayName, clampFiniteNumber, finiteNonnegativeIntegerOr, MAX_CHAT_ATTACHMENTS, MAX_OPENAI_IMAGE_EDIT_BYTES, type ActiveSession, type AuthUser, type BillingSubscriptionLifecycle, type ChatJobResponse, type ChatResponse, type Citation, type ConnectedAccount, type ConversationSummary, type CurrentPoliciesResponse, type OAuthProvider, type OAuthProviderStatus, type PersonaDefinition, type ProviderId, type UnsafeOutputReportCategory, type UploadedAsset } from "@persona/shared";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -135,6 +135,24 @@ function hasCurrentPolicyConsent(user: AuthUser | undefined, policies: CurrentPo
 function mobileAppUrl(path = ""): string {
   const normalizedPath = path.replace(/^\/+/, "");
   return normalizedPath ? `${MOBILE_APP_SCHEME}://${normalizedPath}` : `${MOBILE_APP_SCHEME}://`;
+}
+
+function formatMembershipDate(value: string, short = false): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const includeYear = date.getUTCFullYear() !== new Date().getUTCFullYear();
+  return date.toLocaleDateString([], {
+    month: short ? "short" : "long",
+    day: "numeric",
+    ...(includeYear ? { year: "numeric" as const } : {}),
+    timeZone: "UTC"
+  });
+}
+
+function subscriptionMatchesDeviceStore(subscription: BillingSubscriptionLifecycle | undefined): boolean {
+  if (!subscription || subscription.state === "ended") return true;
+  return (subscription.store === "app_store" && Platform.OS === "ios")
+    || (subscription.store === "play_store" && Platform.OS === "android");
 }
 
 function assistantTextForDisplay(turn: Pick<RenderedTurn, "assistantText" | "outputs">): string {
@@ -463,6 +481,38 @@ export function MobileChatScreen() {
     deleteAccountError,
     setDeleteAccountError
   } = useAccountSettingsController(authUser);
+  const billingSubscription = billingCatalog?.subscription ?? undefined;
+  const billingLifecycle = billingSubscription
+    ? billingLifecyclePresentation(billingSubscription, (value) => formatMembershipDate(value))
+    : undefined;
+  const billingPeriodEndLabel = billingSubscription
+    ? formatMembershipDate(billingSubscription.currentPeriodEndsAt)
+    : undefined;
+  const billingPeriodEndShortLabel = billingSubscription
+    ? formatMembershipDate(billingSubscription.currentPeriodEndsAt, true)
+    : undefined;
+  const billingLifecycleDate = billingSubscription?.state === "payment_issue" && billingSubscription.gracePeriodEndsAt
+    ? billingSubscription.gracePeriodEndsAt
+    : billingSubscription?.currentPeriodEndsAt;
+  const billingLifecycleDateShortLabel = billingLifecycleDate
+    ? formatMembershipDate(billingLifecycleDate, true)
+    : undefined;
+  const billingStoreMatchesDevice = subscriptionMatchesDeviceStore(billingSubscription);
+  const billingManagementAvailable = billingSubscription?.store === "revenuecat_web" || billingStoreMatchesDevice;
+  const usageLifecycleLabel = billingSubscription?.state === "canceled"
+    ? `Paid access ends ${billingPeriodEndLabel}`
+    : billingSubscription?.state === "change_scheduled"
+      ? `Current plan changes ${billingPeriodEndLabel}`
+      : billingSubscription?.state === "payment_issue"
+        ? `Payment update due ${formatMembershipDate(billingSubscription.gracePeriodEndsAt ?? billingSubscription.currentPeriodEndsAt)}`
+        : undefined;
+  const currentPlanBadge = billingSubscription?.state === "canceled"
+    ? `Canceled · ends ${billingPeriodEndShortLabel}`
+    : billingSubscription?.state === "change_scheduled"
+      ? `Changes ${billingPeriodEndShortLabel}`
+      : billingSubscription?.state === "payment_issue"
+        ? "Payment issue"
+        : "Current plan";
   const currentAccountIdRef = useRef(authUser?.id);
   currentAccountIdRef.current = authUser?.id;
 
@@ -943,6 +993,11 @@ export function MobileChatScreen() {
     }
     const planRank: Record<"bronze" | "silver" | "gold", number> = { bronze: 0, silver: 1, gold: 2 };
     const currentPlanId = catalog.currentPlanId;
+    if (currentPlanId !== "bronze" && !subscriptionMatchesDeviceStore(catalog.subscription ?? undefined)) {
+      const store = catalog.subscription ? billingStoreDisplayName(catalog.subscription.store) : "the original store";
+      setBillingError(`This subscription is managed through ${store}. Make plan changes there to avoid creating a second subscription.`);
+      return;
+    }
     const isPlanChange = currentPlanId !== "bronze" && currentPlanId !== product.planId;
     const isDowngrade = isPlanChange && planRank[product.planId] < planRank[currentPlanId];
     if (isPlanChange) {
@@ -1022,12 +1077,39 @@ export function MobileChatScreen() {
   async function manageBillingSubscription(intent: "manage" | "free-downgrade" = "manage"): Promise<void> {
     const requestedAccountId = authUser?.id;
     if (!requestedAccountId) return;
+    const subscription = billingCatalog?.subscription;
+    if (subscription?.store === "revenuecat_web") {
+      setBillingError(undefined);
+      setBillingBusyProductId("manage");
+      try {
+        const managementUrl = await api.getBillingManagementUrl();
+        if (currentAccountIdRef.current !== requestedAccountId) return;
+        const destination = new URL(managementUrl);
+        if (destination.protocol !== "https:" || destination.hostname !== "billing.revenuecat.com") {
+          throw new Error("Untrusted subscription portal URL.");
+        }
+        await WebBrowser.openBrowserAsync(destination.toString());
+        if (currentAccountIdRef.current !== requestedAccountId) return;
+        await refreshBilling();
+        setBillingNotice("RevenueCat Web subscription details refreshed.");
+      } catch {
+        setBillingError("The secure RevenueCat Web billing page could not be opened. Try again in a moment.");
+      } finally {
+        if (currentAccountIdRef.current === requestedAccountId) setBillingBusyProductId(undefined);
+      }
+      return;
+    }
+    if (!subscriptionMatchesDeviceStore(subscription ?? undefined)) {
+      setBillingError(`This subscription is managed through ${subscription ? billingStoreDisplayName(subscription.store) : "the original store"}. Open Plan & usage on that platform to make changes.`);
+      return;
+    }
     setBillingBusyProductId("manage");
     setBillingError(undefined);
     try {
       await showStoreSubscriptionManagement(requestedAccountId);
+      await refreshBilling();
       if (intent === "free-downgrade" && currentAccountIdRef.current === requestedAccountId) {
-        setBillingNotice("Cancel renewal in subscription management to return to Bronze after your current paid period.");
+        setBillingNotice("Subscription details refreshed. If you canceled renewal, your paid access ending date will appear above once the store confirms it.");
       }
     } catch (manageError) {
       if (currentAccountIdRef.current === requestedAccountId) {
@@ -4167,6 +4249,30 @@ export function MobileChatScreen() {
                     <Text style={[styles.settingsPlanName, { color: theme.text }]}>{planUsage.plan.displayName}</Text>
                     <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>{planUsage.plan.description}</Text>
                   </View>
+                  {billingSubscription && billingLifecycle && billingPeriodEndLabel ? (
+                    <View
+                      accessible
+                      accessibilityRole="summary"
+                      accessibilityLabel={`${billingLifecycle.eyebrow}. ${billingLifecycle.title}. ${billingLifecycle.body}`}
+                      style={[
+                        styles.settingsPlanEndingCard,
+                        {
+                          borderColor: billingLifecycle.tone === "warning" ? theme.danger : billingLifecycle.tone === "ended" ? theme.muted : theme.accent2,
+                          backgroundColor: billingLifecycle.tone === "warning" ? "rgba(238,145,99,0.10)" : billingLifecycle.tone === "ended" ? "rgba(255,255,255,0.045)" : "rgba(214,181,94,0.09)"
+                        }
+                      ]}
+                    >
+                      <View style={[styles.settingsPlanEndingDate, { borderColor: billingLifecycle.tone === "warning" ? theme.danger : theme.accent2 }]}>
+                        <Text style={[styles.settingsPlanEndingMonth, { color: billingLifecycle.tone === "warning" ? theme.danger : theme.accent2 }]}>{billingLifecycleDateShortLabel?.split(" ")[0]}</Text>
+                        <Text style={[styles.settingsPlanEndingDay, { color: theme.text }]}>{new Date(billingLifecycleDate ?? billingSubscription.currentPeriodEndsAt).getUTCDate()}</Text>
+                      </View>
+                      <View style={styles.settingsPlanEndingCopy}>
+                        <Text style={[styles.settingsPlanEndingEyebrow, { color: billingLifecycle.tone === "warning" ? theme.danger : theme.accent2 }]}>{billingLifecycle.eyebrow.toUpperCase()}</Text>
+                        <Text style={[styles.settingsPlanEndingTitle, { color: theme.text }]}>{billingLifecycle.title}</Text>
+                        <Text style={[styles.settingsPlanEndingBody, { color: theme.muted }]}>{billingLifecycle.body}</Text>
+                      </View>
+                    </View>
+                  ) : null}
                   <View style={[styles.settingsTotalUsageCard, { borderColor: theme.border }]}>
                     <View style={styles.settingsUsageHeading}>
                       <Text style={[styles.settingsTotalUsageLabel, { color: theme.text }]}>Total usage</Text>
@@ -4197,12 +4303,13 @@ export function MobileChatScreen() {
                       />
                     </View>
                     <Text style={[styles.settingsRowHint, { color: theme.muted }]}>
-                      Includes text, searches, file work, charts, images, and audio · Resets{" "}
-                      {new Date(planUsage.totalUsage.periodEnd).toLocaleDateString([], {
-                        month: "long",
-                        day: "numeric",
-                        timeZone: "UTC"
-                      })}
+                      Includes text, searches, file work, charts, images, and audio · {usageLifecycleLabel
+                        ? usageLifecycleLabel
+                        : `Resets ${new Date(planUsage.totalUsage.periodEnd).toLocaleDateString([], {
+                            month: "long",
+                            day: "numeric",
+                            timeZone: "UTC"
+                          })}`}
                     </Text>
                   </View>
                   {planUsage.meters.map((meter) => {
@@ -4231,7 +4338,9 @@ export function MobileChatScreen() {
                           </View>
                         ) : null}
                         <Text style={[styles.settingsRowHint, { color: theme.muted }]}>
-                          Resets {new Date(meter.periodEnd).toLocaleDateString([], { month: "long", day: "numeric", timeZone: "UTC" })}
+                          {usageLifecycleLabel
+                            ? usageLifecycleLabel
+                            : `Resets ${new Date(meter.periodEnd).toLocaleDateString([], { month: "long", day: "numeric", timeZone: "UTC" })}`}
                         </Text>
                       </View>
                     );
@@ -4250,9 +4359,9 @@ export function MobileChatScreen() {
                           <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Free access begins after your current paid period ends.</Text>
                           <Pressable
                             accessibilityRole="button"
-                            disabled={Boolean(billingBusyProductId) || !revenueCatIsAvailable()}
+                            disabled={Boolean(billingBusyProductId) || !billingManagementAvailable || (billingSubscription?.store !== "revenuecat_web" && !revenueCatIsAvailable())}
                             onPress={openFreeDowngradeConfirmation}
-                            style={[styles.settingsBillingButton, { backgroundColor: theme.accent2, opacity: billingBusyProductId || !revenueCatIsAvailable() ? 0.45 : 1 }]}
+                            style={[styles.settingsBillingButton, { backgroundColor: theme.accent2, opacity: billingBusyProductId || !billingManagementAvailable || (billingSubscription?.store !== "revenuecat_web" && !revenueCatIsAvailable()) ? 0.45 : 1 }]}
                           >
                             <Text style={[styles.settingsBillingButtonText, { color: theme.background }]}>Downgrade to Bronze</Text>
                           </Pressable>
@@ -4273,18 +4382,20 @@ export function MobileChatScreen() {
                             </View>
                             <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>{product.description}</Text>
                             {current ? (
-                              <Text style={[styles.settingsRowHint, { color: theme.accent2 }]}>Current plan</Text>
+                              <Text style={[styles.settingsRowHint, { color: theme.accent2 }]}>{currentPlanBadge}</Text>
                             ) : (
                               <Pressable
                                 accessibilityRole="button"
-                                disabled={!storeProduct || Boolean(billingBusyProductId)}
+                                disabled={!storeProduct || Boolean(billingBusyProductId) || (billingCatalog.currentPlanId !== "bronze" && !billingStoreMatchesDevice)}
                                 onPress={() => storeProduct ? void purchaseBillingProduct(storeProduct) : undefined}
-                                style={[styles.settingsBillingButton, { backgroundColor: theme.accent2, opacity: storeProduct && !billingBusyProductId ? 1 : 0.45 }]}
+                                style={[styles.settingsBillingButton, { backgroundColor: theme.accent2, opacity: storeProduct && !billingBusyProductId && (billingCatalog.currentPlanId === "bronze" || billingStoreMatchesDevice) ? 1 : 0.45 }]}
                               >
                                 {billingBusyProductId === product.planId
                                   ? <ActivityIndicator color={theme.background} />
                                   : <Text style={[styles.settingsBillingButtonText, { color: theme.background }]}>
-                                      {isDowngrade ? `Switch to ${product.displayName}` : isPlanChange ? `Upgrade to ${product.displayName}` : `Choose ${product.displayName}`}
+                                      {isPlanChange && !billingStoreMatchesDevice
+                                        ? `Manage through ${billingSubscription ? billingStoreDisplayName(billingSubscription.store) : "original store"}`
+                                        : isDowngrade ? `Switch to ${product.displayName}` : isPlanChange ? `Upgrade to ${product.displayName}` : `Choose ${product.displayName}`}
                                     </Text>}
                               </Pressable>
                             )}
@@ -4297,8 +4408,8 @@ export function MobileChatScreen() {
                           {billingBusyProductId === "restore" ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.settingsBillingSecondaryText, { color: theme.text }]}>Restore purchases</Text>}
                         </Pressable>
                         {billingCatalog.currentPlanId !== "bronze" ? (
-                          <Pressable accessibilityRole="button" disabled={Boolean(billingBusyProductId) || !revenueCatIsAvailable()} onPress={() => void manageBillingSubscription()} style={[styles.settingsBillingSecondaryButton, { borderColor: theme.border, opacity: billingBusyProductId || !revenueCatIsAvailable() ? 0.45 : 1 }]}>
-                            {billingBusyProductId === "manage" ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.settingsBillingSecondaryText, { color: theme.text }]}>Manage subscription</Text>}
+                          <Pressable accessibilityRole="button" disabled={Boolean(billingBusyProductId) || !billingManagementAvailable || (billingSubscription?.store !== "revenuecat_web" && !revenueCatIsAvailable())} onPress={() => void manageBillingSubscription()} style={[styles.settingsBillingSecondaryButton, { borderColor: theme.border, opacity: billingBusyProductId || !billingManagementAvailable || (billingSubscription?.store !== "revenuecat_web" && !revenueCatIsAvailable()) ? 0.45 : 1 }]}>
+                            {billingBusyProductId === "manage" ? <ActivityIndicator color={theme.accent2} /> : <Text style={[styles.settingsBillingSecondaryText, { color: theme.text }]}>{billingSubscription?.state === "payment_issue" ? "Update payment" : billingSubscription?.store === "revenuecat_web" ? "Manage on web" : "Manage subscription"}</Text>}
                           </Pressable>
                         ) : null}
                       </View>
@@ -5842,6 +5953,59 @@ const styles = StyleSheet.create({
   settingsPlanName: {
     fontSize: 28,
     fontWeight: "900"
+  },
+  settingsPlanEndingCard: {
+    alignItems: "center",
+    backgroundColor: "rgba(214,181,94,0.09)",
+    borderLeftWidth: 3,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 14,
+    padding: 16
+  },
+  settingsPlanEndingDate: {
+    alignItems: "center",
+    backgroundColor: "rgba(8,5,13,0.46)",
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: "center",
+    minHeight: 58,
+    minWidth: 54,
+    paddingHorizontal: 9,
+    paddingVertical: 7
+  },
+  settingsPlanEndingMonth: {
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.1,
+    textTransform: "uppercase"
+  },
+  settingsPlanEndingDay: {
+    fontSize: 24,
+    fontVariant: ["tabular-nums"],
+    fontWeight: "900",
+    lineHeight: 27
+  },
+  settingsPlanEndingCopy: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0
+  },
+  settingsPlanEndingEyebrow: {
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1
+  },
+  settingsPlanEndingTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 21
+  },
+  settingsPlanEndingBody: {
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 17
   },
   settingsBillingActions: {
     gap: 10

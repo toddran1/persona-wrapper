@@ -83,6 +83,25 @@ expiration date. Temporary entitlement grants are intentionally ignored
 because those events do not identify which application tier to grant; use a
 time-bound support override instead.
 
+The subscription record also preserves `cancel_reason`, the payment-recovery
+deadline from `grace_period_expiration_at_ms`, and the destination plan from a
+deferred `PRODUCT_CHANGE`. This distinction is required because RevenueCat can
+send `CANCELLATION` for a billing error or customer-support refund as well as a
+customer turning off renewal. Clients must never present a billing-error
+cancellation as a voluntary cancellation. A customer-support refund is shown
+as a status that needs review until RevenueCat sends the authoritative renewal
+or expiration event.
+
+Plan & usage presents the same server-owned lifecycle on both clients:
+
+- Active subscriptions show the next renewal date and billing platform.
+- Deferred product changes show the current plan, effective date, and next plan.
+- Voluntary/non-renewing subscriptions show when paid access ends.
+- Billing issues show the grace deadline when supplied and direct the customer
+  to the store that owns the payment method.
+- Expired subscriptions remain visible for 30 days so a return to Bronze is
+  explained instead of appearing as an unexplained plan loss.
+
 ## API environment
 
 Development/sandbox:
@@ -110,9 +129,11 @@ Purchase Links are used only when a Bronze member starts a paid subscription.
 Existing paid members must change plans through RevenueCat Billing's Customer
 Portal so the configured upgrade and downgrade paths are applied. The API uses
 `REVENUECAT_SECRET_API_KEY` only server-side to fetch the authenticated portal
-URL for the signed-in App User ID. It lists the customer's active RevenueCat
-Web Billing subscriptions with REST API v2, then requests a secure single-use
-management URL for that subscription. Create an API Version 2 secret key with
+URL for the signed-in App User ID. Web and mobile both use this server endpoint
+when RevenueCat Web owns the subscription; mobile opens the result in a
+contained browser and refreshes when it closes. The API lists the customer's
+active RevenueCat Web Billing subscriptions with REST API v2, then requests a
+secure single-use management URL for that subscription. Create an API Version 2 secret key with
 only `customer_information:subscriptions:read`; no write, refund, cancellation,
 or entitlement permissions are required. Never expose the key through the web
 or mobile clients.
@@ -192,6 +213,11 @@ if either endpoint is localhost, or if an endpoint is not HTTPS.
   of risking a second active subscription.
 - Manage subscription remains available for cancellation, payment-method
   changes, and store-level subscription details.
+- Plan changes are store-owned. RevenueCat Web subscriptions can be changed on
+  web; App Store and Google Play subscriptions direct web users to mobile.
+  Mobile permits replacement purchases only when the subscription belongs to
+  the device's current store. Cross-store controls remain disabled to prevent a
+  second paid subscription.
 - Signing out logs out of RevenueCat as well, preventing account state from
   leaking between users on a shared device.
 - Web checkout opens an identified RevenueCat Purchase Link containing only
@@ -202,9 +228,9 @@ if either endpoint is localhost, or if an endpoint is not HTTPS.
 - Web upgrades are polled until the upgraded plan is active. Web downgrades
   remain on the current plan until renewal, so the client reports the scheduled
   change without prematurely reducing access.
-- RevenueCat `PRODUCT_CHANGE` webhooks are informational and do not grant or
-  revoke access. Effective purchase/renewal/expiration events remain the
-  authority for plan access.
+- RevenueCat `PRODUCT_CHANGE` webhooks persist the scheduled destination and
+  effective date for display, but do not grant or revoke access. Effective
+  purchase/renewal/expiration events remain the authority for plan access.
 - Browser pop-up blocking leaves the user on the plan page with a retryable
   message. Configure RevenueCat's Purchase Link success behavior for a useful
   confirmation page, but do not treat that redirect as proof of payment.
@@ -223,12 +249,17 @@ the subscription controls disabled.
 
 ## Release checklist
 
-- Apply migration `0022_revenuecat_billing.sql` before enabling the webhook.
+- Apply migrations through `0025_billing_lifecycle.sql` before deploying this
+  billing lifecycle response. The API schema and client contract are deployed
+  together.
 - Confirm the two store products are active and attached to `default`.
 - Confirm the Apple products share one subscription group with Gold ranked
   above Silver, and that Google real-time developer notifications are active.
 - Verify purchase, cancellation, expiration, refund, restore, and account
   switching with sandbox accounts on both platforms.
+- Verify voluntary cancellation, billing-error grace recovery, scheduled plan
+  changes, and recently-ended messaging separately; they intentionally produce
+  different UI states.
 - Verify Silver-to-Gold upgrades and Gold-to-Silver deferred downgrades on
   Apple, Google, and RevenueCat Web.
 - Verify an interrupted purchase and a delayed webhook leave the client in a

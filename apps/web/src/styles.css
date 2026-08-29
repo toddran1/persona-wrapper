@@ -1147,6 +1147,113 @@ textarea {
   line-height: 1.45;
 }
 
+.settings-plan-ending {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(214, 181, 94, 0.3);
+  border-left: 3px solid #d6b55e;
+  border-radius: 14px;
+  background:
+    linear-gradient(105deg, rgba(214, 181, 94, 0.12), rgba(138, 92, 246, 0.06)),
+    rgba(13, 8, 20, 0.72);
+}
+
+.settings-plan-ending-steady {
+  border-color: rgba(138, 92, 246, 0.34);
+  border-left-color: #8a5cf6;
+  background:
+    linear-gradient(105deg, rgba(138, 92, 246, 0.13), rgba(214, 181, 94, 0.04)),
+    rgba(13, 8, 20, 0.72);
+}
+
+.settings-plan-ending-warning {
+  border-color: rgba(238, 145, 99, 0.38);
+  border-left-color: #ee9163;
+  background:
+    linear-gradient(105deg, rgba(238, 145, 99, 0.14), rgba(138, 92, 246, 0.04)),
+    rgba(13, 8, 20, 0.72);
+}
+
+.settings-plan-ending-ended {
+  border-color: rgba(207, 195, 219, 0.22);
+  border-left-color: rgba(207, 195, 219, 0.62);
+  background: rgba(13, 8, 20, 0.62);
+}
+
+.settings-plan-ending-date {
+  display: grid;
+  place-items: center;
+  min-width: 48px;
+  padding: 7px 9px 8px;
+  border: 1px solid rgba(214, 181, 94, 0.28);
+  border-radius: 11px;
+  color: #fff8ef;
+  background: rgba(8, 5, 13, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-plan-ending-date span {
+  color: #d6b55e;
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.settings-plan-ending-date strong {
+  font-size: 1.35rem;
+  line-height: 1.05;
+}
+
+.settings-plan-ending > div:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.settings-plan-ending > div:last-child > strong {
+  color: #fff8ef;
+  font-size: 0.82rem;
+}
+
+.settings-plan-ending p {
+  margin: 0;
+  color: rgba(224, 214, 233, 0.76);
+  font-size: 0.68rem;
+  font-weight: 620;
+  line-height: 1.45;
+}
+
+.settings-plan-status-action {
+  justify-self: start;
+  margin-top: 5px;
+  padding: 7px 10px;
+  border: 1px solid rgba(214, 181, 94, 0.3);
+  border-radius: 9px;
+  color: #fff8ef;
+  background: rgba(214, 181, 94, 0.11);
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.settings-plan-status-action:hover:not(:disabled) {
+  background: rgba(214, 181, 94, 0.18);
+}
+
+.settings-plan-status-action:focus-visible {
+  outline: 2px solid #d6b55e;
+  outline-offset: 2px;
+}
+
+.settings-plan-status-action:disabled {
+  cursor: wait;
+  opacity: 0.52;
+}
+
 .settings-plan-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
