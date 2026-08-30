@@ -4,7 +4,7 @@ import type {
   PlanId,
   PlanUsageSummary
 } from "@persona/shared";
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import {
@@ -64,9 +64,15 @@ function currentCalendarPeriod(now = new Date()): { start: Date; end: Date } {
   return { start, end };
 }
 
-function previousCalendarPeriod(periodStart: Date): { start: Date; end: Date } {
-  const start = new Date(Date.UTC(periodStart.getUTCFullYear(), periodStart.getUTCMonth() - 1, 1));
-  return { start, end: periodStart };
+function usagePeriodForAccess(access: EffectiveAccess, now = new Date()): { start: Date; end: Date } {
+  if (
+    access.plan.id !== "bronze"
+    && !access.isAdmin
+    && access.usagePeriod
+    && access.usagePeriod.start <= now
+    && access.usagePeriod.end > now
+  ) return access.usagePeriod;
+  return currentCalendarPeriod(now);
 }
 
 /** Rollover is consumed before base allowance, so rollover can never roll twice. */
@@ -181,7 +187,7 @@ export class CustomerUsageService {
     const access = await accessControlService.getEffectiveAccess(userId);
     const plan = access.plan;
     const enforceUsage = env.CUSTOMER_USAGE_ENFORCEMENT_ENABLED && !access.isAdmin;
-    const period = currentCalendarPeriod();
+    const period = usagePeriodForAccess(access);
     if (!db || !(await this.hasPersistedUser(userId))) {
       // Re-check after the awaits: the rest of this branch is synchronous, so
       // the first concurrent caller to reach it claims the key for all of them.
@@ -567,7 +573,7 @@ export class CustomerUsageService {
   async summary(userId: string): Promise<PlanUsageSummary> {
     const access = await accessControlService.getEffectiveAccess(userId);
     const plan = access.plan;
-    const period = currentCalendarPeriod();
+    const period = usagePeriodForAccess(access);
     const db = getDatabase();
     const hasPersistedUser = Boolean(db && await this.hasPersistedUser(userId));
     if (hasPersistedUser) {
@@ -656,15 +662,14 @@ export class CustomerUsageService {
     period: { start: Date; end: Date }
   ): Promise<void> {
     if (plan.id === "bronze" || access.isAdmin || !access.assignment) return;
-    const assignment = access.assignment;
     const db = getDatabase();
     if (!db) return;
-    const previousPeriod = previousCalendarPeriod(period.start);
     await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`customer-usage:${userId}`}, 0))`);
       const balances = await tx.select({
         meterKey: customerUsageBalances.meterKey,
         periodStart: customerUsageBalances.periodStart,
+        periodEnd: customerUsageBalances.periodEnd,
         used: customerUsageBalances.usedQuantity,
         reserved: customerUsageBalances.reservedQuantity,
         planId: customerUsageBalances.planId,
@@ -673,11 +678,16 @@ export class CustomerUsageService {
       }).from(customerUsageBalances).where(and(
         eq(customerUsageBalances.userId, userId),
         inArray(customerUsageBalances.meterKey, [...ROLLOVER_METERS]),
-        inArray(customerUsageBalances.periodStart, [previousPeriod.start, period.start])
+        or(
+          eq(customerUsageBalances.periodStart, period.start),
+          eq(customerUsageBalances.periodEnd, period.start)
+        )
       ));
       const rowKey = (meter: CustomerUsageMeter, start: Date) => `${meter}:${start.toISOString()}`;
       const byMeterPeriod = new Map(balances.map((row) => [rowKey(row.meterKey as CustomerUsageMeter, row.periodStart), row]));
-      const assignmentExistedLastMonth = assignment.createdAt < period.start;
+      const previousByMeter = new Map(balances
+        .filter((row) => row.periodEnd.getTime() === period.start.getTime())
+        .map((row) => [row.meterKey as CustomerUsageMeter, row]));
 
       for (const meter of ROLLOVER_METERS) {
         const currentBaseLimit = positiveInteger(
@@ -691,14 +701,14 @@ export class CustomerUsageService {
           && current.rollover >= 0
           && current.rollover <= currentBaseLimit
         ) continue;
-        const previous = byMeterPeriod.get(rowKey(meter, previousPeriod.start));
+        const previous = previousByMeter.get(meter);
         const previousPlanWasPaid = previous?.planId === "silver" || previous?.planId === "gold";
         const legacyPreviousBalance = previous && previous.planId === null;
         const previousBaseLimit = previousPlanWasPaid
           ? positiveInteger(previous.baseLimit)
-          : legacyPreviousBalance && assignmentExistedLastMonth
+          : legacyPreviousBalance
             ? currentBaseLimit
-            : !previous && assignmentExistedLastMonth ? currentBaseLimit : 0;
+            : 0;
         const rollover = calculateRolloverQuantity({
           currentBaseLimit,
           previousBaseLimit,

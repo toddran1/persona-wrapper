@@ -3,7 +3,7 @@ import type { PlanId } from "@persona/shared";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
-import { userPlanAssignments, users } from "../db/schema.js";
+import { billingSubscriptions, userPlanAssignments, users } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { getPlanDefinition, type PlanDefinition } from "./planCatalog.js";
 
@@ -26,6 +26,7 @@ export type EffectiveAccess = {
     expiresAt: Date | null;
     createdAt: Date;
   };
+  usagePeriod?: { start: Date; end: Date };
 };
 
 const planRank: Record<PlanId, number> = {
@@ -62,6 +63,28 @@ export function isConfiguredAdminEmail(email: string | null | undefined): boolea
 function planId(value: string): PlanId | undefined {
   if (value === "bronze" || value === "silver" || value === "gold") return value;
   return undefined;
+}
+
+function metadataPeriodStart(metadata: Record<string, unknown> | undefined): Date | null {
+  const nestedEvent = metadata?.event;
+  const raw = typeof metadata?.purchased_at_ms === "number"
+    ? metadata.purchased_at_ms
+    : nestedEvent && typeof nestedEvent === "object" && typeof (nestedEvent as Record<string, unknown>).purchased_at_ms === "number"
+      ? (nestedEvent as Record<string, unknown>).purchased_at_ms as number
+      : null;
+  if (raw === null) return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function subscriptionUsagePeriod(input: {
+  startsAt: Date | null;
+  endsAt: Date | null;
+  metadata?: Record<string, unknown>;
+  fallbackStart: Date;
+}): { start: Date; end: Date } | undefined {
+  const start = input.startsAt ?? metadataPeriodStart(input.metadata) ?? input.fallbackStart;
+  return input.endsAt && start < input.endsAt ? { start, end: input.endsAt } : undefined;
 }
 
 type PlanAssignmentCandidate = {
@@ -129,6 +152,21 @@ export class AccessControlService {
     const selected = selectEffectivePlanAssignment(assignments);
 
     if (!selected) return { plan: getPlanDefinition(undefined), isAdmin: false };
+    const [subscription] = selected.source === "subscription"
+      ? await db.select({
+          startsAt: billingSubscriptions.currentPeriodStartsAt,
+          endsAt: billingSubscriptions.currentPeriodEndsAt,
+          metadata: billingSubscriptions.metadata
+        }).from(billingSubscriptions).where(eq(billingSubscriptions.planAssignmentId, selected.id)).limit(1)
+      : [];
+    const usagePeriod = selected.source === "subscription"
+      ? subscriptionUsagePeriod({
+          startsAt: subscription?.startsAt ?? null,
+          endsAt: subscription?.endsAt ?? selected.expiresAt,
+          ...(subscription?.metadata ? { metadata: subscription.metadata } : {}),
+          fallbackStart: selected.effectiveAt
+        })
+      : undefined;
     return {
       plan: getPlanDefinition(selected.planId, selected.planVersion),
       isAdmin: false,
@@ -138,7 +176,8 @@ export class AccessControlService {
         effectiveAt: selected.effectiveAt,
         expiresAt: selected.expiresAt,
         createdAt: selected.createdAt
-      }
+      },
+      ...(usagePeriod ? { usagePeriod } : {})
     };
   }
 

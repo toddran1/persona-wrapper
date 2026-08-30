@@ -261,7 +261,7 @@ the subscription controls disabled.
 
 ## Release checklist
 
-- Apply migrations through `0026_usage_rollovers.sql` before deploying this
+- Apply migrations through `0027_subscription_usage_periods.sql` before deploying this
   billing lifecycle response. The API schema and client contract are deployed
   together.
 - Confirm the two store products are active and attached to `default`.

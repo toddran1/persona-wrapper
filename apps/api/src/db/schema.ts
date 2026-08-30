@@ -317,6 +317,7 @@ export const billingSubscriptions = pgTable("billing_subscriptions", {
   status: text("status").notNull(),
   store: text("store"),
   environment: text("environment").notNull(),
+  currentPeriodStartsAt: timestamp("current_period_starts_at", { withTimezone: true }),
   currentPeriodEndsAt: timestamp("current_period_ends_at", { withTimezone: true }),
   pendingPlanId: text("pending_plan_id"),
   cancelReason: text("cancel_reason"),

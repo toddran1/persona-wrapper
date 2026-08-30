@@ -16,6 +16,7 @@ const eventSchema = z.object({
   entitlement_ids: z.array(z.string().min(1)).nullish(),
   environment: z.enum(["SANDBOX", "PRODUCTION"]).nullish(), store: z.string().nullish(),
   app_id: z.string().nullish(), expiration_at_ms: z.number().nullable().optional(),
+  purchased_at_ms: z.number().nullable().optional(),
   grace_period_expiration_at_ms: z.number().nullable().optional(),
   event_timestamp_ms: z.number().nullish(), original_transaction_id: z.string().nullish(),
   transaction_id: z.string().nullish(), cancel_reason: z.string().nullish(),
@@ -272,12 +273,14 @@ export class RevenueCatBillingService {
       throw new HttpError("RevenueCat subscription events must include a valid event timestamp.", 422);
     }
     const expiresAt = safeDate(event.expiration_at_ms);
+    const purchasedAt = safeDate(event.purchased_at_ms);
     const db = getDatabase();
     if (!db) throw new HttpError("Billing requires database-backed storage.", 503);
     const [existing] = await db.select({
       lastEventAt: billingSubscriptions.lastEventAt,
       status: billingSubscriptions.status,
       planId: billingSubscriptions.planId,
+      currentPeriodStartsAt: billingSubscriptions.currentPeriodStartsAt,
       currentPeriodEndsAt: billingSubscriptions.currentPeriodEndsAt,
       gracePeriodEndsAt: billingSubscriptions.gracePeriodEndsAt
     }).from(billingSubscriptions)
@@ -302,6 +305,7 @@ export class RevenueCatBillingService {
         cancelReason: null,
         expirationReason: null,
         gracePeriodEndsAt: null,
+        currentPeriodStartsAt: existing.currentPeriodStartsAt,
         currentPeriodEndsAt: expiresAt ?? existing.currentPeriodEndsAt,
         lastEventId: event.id,
         lastEventAt: eventAt,
@@ -352,12 +356,14 @@ export class RevenueCatBillingService {
         id: subscriptionId, userId, provider: "revenuecat", externalSubscriptionId: externalId,
         planAssignmentId: assignmentId, productId: normalizedProductId, planId,
         status: outcome.status, store: event.store, environment,
+        currentPeriodStartsAt: purchasedAt ?? existing?.currentPeriodStartsAt ?? eventAt,
         currentPeriodEndsAt: refunded ? eventAt : expiresAt, pendingPlanId: null, cancelReason,
         expirationReason: outcome.expirationReason,
         gracePeriodEndsAt: outcome.gracePeriodEndsAt, lastEventId: event.id, lastEventAt: eventAt, metadata: payload
       }).onConflictDoUpdate({ target: [billingSubscriptions.provider, billingSubscriptions.externalSubscriptionId], set: {
         userId, planAssignmentId: assignmentId, productId: normalizedProductId, planId,
         status: outcome.status, store: event.store, environment,
+        currentPeriodStartsAt: purchasedAt ?? existing?.currentPeriodStartsAt ?? eventAt,
         currentPeriodEndsAt: refunded ? eventAt : expiresAt, pendingPlanId: null, cancelReason,
         expirationReason: outcome.expirationReason,
         gracePeriodEndsAt: outcome.gracePeriodEndsAt, lastEventId: event.id, lastEventAt: eventAt,

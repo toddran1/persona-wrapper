@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { selectEffectivePlanAssignment } from "../services/accessControlService.js";
+import { selectEffectivePlanAssignment, subscriptionUsagePeriod } from "../services/accessControlService.js";
 
 describe("access control plan assignments", () => {
+  it("resolves subscription periods from current and legacy RevenueCat records", () => {
+    const start = new Date("2026-08-29T12:00:00.000Z");
+    const end = new Date("2026-09-29T12:00:00.000Z");
+    const fallbackStart = new Date("2026-08-30T00:00:00.000Z");
+
+    expect(subscriptionUsagePeriod({
+      startsAt: null,
+      endsAt: end,
+      metadata: { event: { purchased_at_ms: start.getTime() } },
+      fallbackStart
+    })).toEqual({ start, end });
+    expect(subscriptionUsagePeriod({ startsAt: start, endsAt: end, fallbackStart })).toEqual({ start, end });
+  });
+
   it("selects the highest active plan rather than allowing a later override to downgrade access", () => {
     const selected = selectEffectivePlanAssignment([
       {

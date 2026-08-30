@@ -28,9 +28,9 @@ The catalog includes intended monthly prices as metadata only; payment providers
 
 ## Metering model
 
-- Monthly periods use UTC calendar months.
+- Subscription-backed paid periods follow the RevenueCat billing cycle; Bronze and non-subscription access use UTC calendar months.
 - Total usage, image credits, and audio time are reserved atomically before provider work starts.
-- Silver and Gold carry unused total usage, image credits, and audio time into the next UTC calendar month. Each meter's rollover is capped at one normal monthly allowance, expires at the end of that next month, and never rolls forward again. Bronze and administrator access do not receive rollover.
+- Subscription-backed Silver and Gold allowances follow the store subscription period reported by RevenueCat. Other access follows UTC calendar months. Paid plans carry unused total usage, image credits, and audio time into the immediately following usage period. Each meter's rollover is capped at one normal monthly allowance, expires at the end of that next period, and never rolls forward again. Bronze and administrator access do not receive rollover.
 - Rollover is consumed before the new month's base allowance. When the following month is initialized, only the unused portion of that month's base allowance is eligible to move forward; an older rollover balance is excluded. Plan changes retain rollover only up to the destination plan's normal monthly allowance.
 - Successful requests settle reservations to estimated provider cost, quality-aware image credits, and estimated generated-audio duration.
 - Failed and cancelled requests release reservations.
@@ -79,7 +79,7 @@ Application administrators are persisted with `users.role = 'admin'`. `APP_ADMIN
 
 Before enabling enforcement in an environment:
 
-1. Apply database migrations through `0026_usage_rollovers.sql`.
+1. Apply database migrations through `0027_subscription_usage_periods.sql`.
 2. Confirm image and audio usage agrees with provider and storage records for at least one full test cycle.
 3. Compare total-usage estimates against provider invoices, including audio, reference images, searches, Code Interpreter, and style transfer.
 4. Verify retries, cancellations, safety rejections, and background timeouts return reservations to zero.
