@@ -59,12 +59,18 @@ function UserPromptAssetPreview({ asset }: { asset: UserPromptAsset }) {
     }
 
     const controller = new AbortController();
+    let cancelled = false;
     let objectUrl: string | undefined;
 
     void api.fetchUploadBlob(asset.url, controller.signal)
       .then((blob) => {
-        objectUrl = URL.createObjectURL(blob);
-        setPreviewUrl(objectUrl);
+        const createdObjectUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(createdObjectUrl);
+          return;
+        }
+        objectUrl = createdObjectUrl;
+        setPreviewUrl(createdObjectUrl);
       })
       .catch(() => {
         if (!controller.signal.aborted) {
@@ -74,6 +80,7 @@ function UserPromptAssetPreview({ asset }: { asset: UserPromptAsset }) {
       });
 
     return () => {
+      cancelled = true;
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };

@@ -82,4 +82,23 @@ describe("API error boundary", () => {
       requestId: "request-test"
     });
   });
+
+  it("recognizes database outages wrapped by the query layer", () => {
+    const { response, state } = mockResponse();
+    const connectionError = Object.assign(new Error("connect ETIMEDOUT database.internal"), { code: "ETIMEDOUT" });
+    const wrappedError = new Error('Failed query: select * from "conversations"', { cause: connectionError });
+    apiErrorHandler(
+      wrappedError,
+      { method: "GET", path: "/api/conversations" } as Request,
+      response,
+      vi.fn() as unknown as NextFunction
+    );
+
+    expect(state.status).toBe(503);
+    expect(state.body).toEqual({
+      error: "The service is temporarily unavailable. Please try again shortly.",
+      code: "DATABASE_UNAVAILABLE",
+      requestId: "request-test"
+    });
+  });
 });

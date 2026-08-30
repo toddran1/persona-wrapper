@@ -3039,6 +3039,7 @@ export function MobileChatScreen() {
       if (!streamStarted) focusCompletedResponse(completedTurn.id);
       await refreshConversations();
     } catch (sendError) {
+      if (liveAudioStreamId) await stopLivePersonaAudioStream(liveAudioStreamId);
       if (!chatRequestStarted) {
         await Promise.allSettled([
           ...uploadedAttachments.map((attachment) => api.deleteUpload(attachment.id)),

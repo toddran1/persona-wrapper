@@ -15,6 +15,7 @@ import { openAIResponseLifecycleService } from "../services/openAIResponseLifecy
 import { requestOwnerId } from "../utils/requestIdentity.js";
 import { requestAbuseSignals } from "../utils/requestAbuseSignals.js";
 import { logger } from "../utils/logger.js";
+import { errorMessageForLog } from "../utils/errorReporting.js";
 import { customerUsageService } from "../services/customerUsageService.js";
 import { planAllowsImageProvider, planAllowsModelProvider, type PlanDefinition } from "../services/planCatalog.js";
 import {
@@ -98,7 +99,7 @@ backgroundChatJobService.setExecutor(async (payload, backgroundJob) => {
     await settleCustomerUsage(backgroundJob.customerUsageOperationId, payload, result).catch((error) => {
       logger.warn("Could not settle customer usage after background chat completion", {
         jobId: backgroundJob.id,
-        error: error instanceof Error ? error.message : String(error)
+        error: errorMessageForLog(error)
       });
     });
   }
@@ -181,7 +182,7 @@ export async function postChat(request: Request, response: Response): Promise<vo
     await settleCustomerUsage(customerUsageOperationId, payload, result).catch((error) => {
       logger.warn("Could not settle customer usage after chat completion", {
         requestId: response.locals.requestId,
-        error: error instanceof Error ? error.message : String(error)
+        error: errorMessageForLog(error)
       });
     });
     response.status(200).json(result);
@@ -310,7 +311,7 @@ export async function postChatStream(request: Request, response: Response): Prom
     await settleCustomerUsage(customerUsageOperationId, payload, result).catch((error) => {
       logger.warn("Could not settle customer usage after streaming chat completion", {
         requestId: response.locals.requestId,
-        error: error instanceof Error ? error.message : String(error)
+        error: errorMessageForLog(error)
       });
     });
     if (!response.writableEnded && !response.destroyed) {
@@ -325,7 +326,7 @@ export async function postChatStream(request: Request, response: Response): Prom
     }
     logger.warn("Streaming chat request failed", {
       requestId: response.locals.requestId,
-      error: error instanceof Error ? error.message : String(error)
+      error: errorMessageForLog(error)
     });
     if (!controller.signal.aborted && !response.writableEnded && !response.destroyed) {
       response.write(`event: error\ndata: ${JSON.stringify({
@@ -489,7 +490,7 @@ async function releaseUsageReservation(identity: string, reservationId: string, 
     // original error actionable and let stale-reservation cleanup retry later.
     logger.warn("Could not release usage reservation after chat failure", {
       requestId,
-      error: error instanceof Error ? error.message : String(error)
+      error: errorMessageForLog(error)
     });
   });
 }
@@ -684,7 +685,7 @@ async function releaseCustomerUsage(operationId: string, requestId?: string): Pr
   await customerUsageService.release(operationId).catch((error) => {
     logger.warn("Could not release customer usage reservation after chat failure", {
       requestId,
-      error: error instanceof Error ? error.message : String(error)
+      error: errorMessageForLog(error)
     });
   });
 }

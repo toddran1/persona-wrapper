@@ -1076,6 +1076,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
       setEvalSavedMessage(undefined);
       setEvalError(undefined);
     } catch (submitError) {
+      if (liveAudioStreamId) stopLiveAudio(liveAudioStreamId);
       if (!chatRequestStarted) {
         await Promise.allSettled([
           ...uploadedAttachments.map((attachment) => api.deleteUpload(attachment.id)),

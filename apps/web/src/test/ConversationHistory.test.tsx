@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ConversationHistory } from "../components/ConversationHistory";
 import { MarkdownText } from "../components/MarkdownText";
+import { api } from "../lib/api";
 
 describe("ConversationHistory pending state", () => {
   it("renders fenced code in a copyable code block", async () => {
@@ -440,6 +441,39 @@ describe("ConversationHistory pending state", () => {
 
     expect(screen.getByAltText("reference.png")).toBeInTheDocument();
     expect(screen.getByText("notes.pdf")).toBeInTheDocument();
+  });
+
+  it("revokes a protected preview URL that finishes loading after unmount", async () => {
+    let resolveBlob!: (blob: Blob) => void;
+    vi.spyOn(api, "fetchUploadBlob").mockReturnValue(new Promise((resolve) => {
+      resolveBlob = resolve;
+    }));
+    const createObjectURL = vi.fn(() => "blob:late-preview");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+    const { unmount } = render(
+      <ConversationHistory
+        turns={[{
+          userMessage: "Use this protected image.",
+          userAssets: [{
+            id: "asset_protected",
+            kind: "image",
+            fileName: "protected.png",
+            mimeType: "image/png",
+            url: "/api/uploads/asset_protected"
+          }],
+          assistantText: "Done.",
+          outputs: [{ type: "text", text: "Done." }]
+        }]}
+      />
+    );
+
+    unmount();
+    resolveBlob(new Blob(["image"]));
+
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledOnce());
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:late-preview");
   });
 
   it("renders generated files as a download card without provider metadata or a duplicate download prompt", () => {

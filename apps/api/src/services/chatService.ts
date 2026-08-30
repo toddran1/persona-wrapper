@@ -12,6 +12,7 @@ import { PersonaEngine } from "./personaEngine.js";
 import { ResponseFormatter, type TTSDiagnostic } from "./responseFormatter.js";
 import { HttpError } from "../utils/httpError.js";
 import { logger } from "../utils/logger.js";
+import { errorMessageForLog } from "../utils/errorReporting.js";
 import { measureOperation } from "../utils/observability.js";
 import { generatedMediaService } from "./generatedMediaService.js";
 import { generatedAudioService } from "./generatedAudioService.js";
@@ -906,7 +907,7 @@ export class ChatService {
             provider: request.provider,
             personaId: persona.id,
             conversationId: conversation.id,
-            error: error instanceof Error ? error.message : String(error)
+            error: errorMessageForLog(error)
           });
         }
       } else {
@@ -1101,7 +1102,7 @@ export class ChatService {
         logger.warn("Generated audio message ownership update failed after chat persistence", {
           conversationId: updatedConversation.id,
           messageId: assistantMessageId,
-          error: error instanceof Error ? error.message : String(error)
+          error: errorMessageForLog(error)
         });
       });
     }
@@ -1119,7 +1120,7 @@ export class ChatService {
       logger.warn("OpenAI artifact message ownership update failed after chat persistence", {
         conversationId: updatedConversation.id,
         messageId: assistantMessageId,
-        error: error instanceof Error ? error.message : String(error)
+        error: errorMessageForLog(error)
       });
     });
 

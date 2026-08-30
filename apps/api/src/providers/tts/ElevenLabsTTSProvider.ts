@@ -63,7 +63,10 @@ function requestSignal(signal?: AbortSignal): AbortSignal {
 }
 
 function isRetryableStatus(status: number): boolean {
-  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+  // The synthesis endpoint has no idempotency key. Retry only responses that
+  // explicitly indicate processing did not begin; retrying an ambiguous 5xx,
+  // timeout, or dropped connection can create a second billable generation.
+  return status === 425 || status === 429;
 }
 
 async function readErrorText(response: Response): Promise<string> {
@@ -154,7 +157,10 @@ export class ElevenLabsTTSProvider implements TTSProvider {
       } catch (error) {
         if (signal?.aborted) throw error;
         lastError = error;
-        if (attempt === env.ELEVENLABS_MAX_RETRIES) break;
+        // A transport failure can happen after ElevenLabs accepted the body.
+        // Stop here because there is no safe idempotency guarantee.
+        response = undefined;
+        break;
       }
 
       const delayMs = env.ELEVENLABS_RETRY_BASE_MS * 2 ** attempt;

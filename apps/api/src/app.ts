@@ -28,6 +28,7 @@ import { customerUsageService } from "./services/customerUsageService.js";
 import { storageService } from "./services/storageService.js";
 import { HttpError } from "./utils/httpError.js";
 import { logger } from "./utils/logger.js";
+import { errorMessageForLog } from "./utils/errorReporting.js";
 import { recordMetric, traceIdFromRequest, withObservabilityContext } from "./utils/observability.js";
 import { finishHttpRequestSpan, runWithTelemetrySpan, startHttpRequestSpan } from "./utils/telemetry.js";
 
@@ -62,13 +63,22 @@ export function notFoundHandler(_request: Request, response: Response): void {
 }
 
 function isDatabaseUnavailable(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const code = "code" in error && typeof error.code === "string" ? error.code : undefined;
-  if (code && ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "CONNECTION_CLOSED"].includes(code)) {
-    return true;
+  const visited = new Set<object>();
+  let current = error;
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (typeof current !== "object" || current === null || visited.has(current)) return false;
+    visited.add(current);
+    const code = "code" in current && typeof current.code === "string" ? current.code : undefined;
+    if (code && ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "CONNECTION_CLOSED"].includes(code)) {
+      return true;
+    }
+    const message = "message" in current && typeof current.message === "string" ? current.message : "";
+    if (/database connection|connect (econnrefused|etimedout)|connection (closed|refused|terminated)/i.test(message)) {
+      return true;
+    }
+    current = "cause" in current ? current.cause : undefined;
   }
-  const message = "message" in error && typeof error.message === "string" ? error.message : "";
-  return /database connection|connect (econnrefused|etimedout)|connection (closed|refused|terminated)/i.test(message);
+  return false;
 }
 
 function requireAuthenticatedRequest(request: Request, _response: Response, next: NextFunction): void {
@@ -131,7 +141,7 @@ export function apiErrorHandler(error: unknown, request: Request, response: Resp
       requestId,
       method: request.method,
       path: request.path,
-      error: error instanceof Error ? { name: error.name, message: error.message } : String(error)
+      error: errorMessageForLog(error)
     });
     response.status(503).json({
       error: "The service is temporarily unavailable. Please try again shortly.",
@@ -145,7 +155,7 @@ export function apiErrorHandler(error: unknown, request: Request, response: Resp
     requestId,
     method: request.method,
     path: request.path,
-    error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error)
+    error: errorMessageForLog(error)
   });
   response.status(500).json({
     error: "Something went wrong on the server. Please try again.",

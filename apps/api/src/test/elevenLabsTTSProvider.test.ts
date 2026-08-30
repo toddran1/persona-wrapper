@@ -104,4 +104,16 @@ describe("ElevenLabsTTSProvider", () => {
     expect(start).not.toHaveBeenCalled();
     expect(register).not.toHaveBeenCalled();
   });
+
+  it("does not retry an ambiguous transport failure that may already be billable", async () => {
+    env.ELEVENLABS_API_KEY = "test-eleven-key";
+    env.ELEVENLABS_VOICE_ID = "test-voice";
+    env.ELEVENLABS_MAX_RETRIES = 3;
+    const fetchMock = vi.fn().mockRejectedValue(new Error("socket closed after request upload"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(new ElevenLabsTTSProvider().synthesize({ text: "Hey baby!", persona: larae }))
+      .rejects.toMatchObject({ statusCode: 502 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });

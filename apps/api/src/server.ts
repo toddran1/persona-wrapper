@@ -6,6 +6,7 @@ import { backgroundChatJobService } from "./services/backgroundChatJobService.js
 import { jobQueueService } from "./services/jobQueueService.js";
 import { dataTransferJobService } from "./services/dataTransferJobService.js";
 import { logger } from "./utils/logger.js";
+import { errorMessageForLog, isRoutineClientDisconnect } from "./utils/errorReporting.js";
 import { initializeTelemetry, shutdownTelemetry } from "./utils/telemetry.js";
 
 initializeTelemetry({ endpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT, serviceName: env.OTEL_SERVICE_NAME });
@@ -67,7 +68,11 @@ server.on("error", (error) => {
 });
 
 server.on("clientError", (error, socket) => {
-  logger.warn("Malformed client connection", { message: error.message });
+  if (isRoutineClientDisconnect(error)) {
+    if (!socket.destroyed) socket.destroy();
+    return;
+  }
+  logger.warn("Malformed client connection", { message: errorMessageForLog(error) });
   if (socket.writable) socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
 });
 
