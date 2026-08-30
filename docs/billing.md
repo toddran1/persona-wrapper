@@ -196,8 +196,10 @@ eas env:create --environment production --name EXPO_PUBLIC_REVENUECAT_ANDROID_AP
 The `preview` profile is the only one that still points at the hosted dev
 environment; repeat the host variables with `--environment preview` only if you
 change its hardcoded dev URLs.
-Production EAS builds deliberately fail configuration if either key is absent,
-if either endpoint is localhost, or if an endpoint is not HTTPS.
+Production EAS builds reject localhost or non-HTTPS endpoints. Verify both
+RevenueCat public SDK keys in the selected EAS environment before starting a
+store build; when a key is unavailable at runtime, billing controls remain
+disabled instead of attempting an unconfigured purchase.
 
 ## Purchase behavior
 

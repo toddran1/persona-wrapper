@@ -35,8 +35,7 @@
         "EXPO_PUBLIC_APP_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api.onrender.com",
         "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com",
-        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com",
-        "EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION": "true"
+        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com"
       }
     },
     "testflight": {
@@ -46,8 +45,7 @@
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api.onrender.com",
-        "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com",
-        "EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION": "true"
+        "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com"
       }
     },
     "production": {
@@ -58,8 +56,7 @@
         "EXPO_PUBLIC_APP_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api.onrender.com",
         "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com",
-        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com",
-        "EXPO_PUBLIC_REQUIRE_REVENUECAT_CONFIGURATION": "true"
+        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com"
       }
     }
   },

@@ -35,11 +35,10 @@ npx eas-cli build --platform all --profile production
 ```
 
 The `play-internal` and `testflight` profiles use the EAS `production`
-environment and deliberately require both RevenueCat public SDK keys. The
-production environment must contain the production API, web, and Android
-app-link host values plus both RevenueCat keys. The config rejects missing
-store-build values instead of silently producing a candidate with incomplete
-billing.
+environment. Confirm both RevenueCat public SDK keys are present before each
+store build. The production API, web, and Android app-link host values are
+pinned in `eas.json`; missing platform billing configuration leaves purchase
+controls disabled at runtime.
 
 Before each candidate build, verify variable presence without printing sensitive
 values:
