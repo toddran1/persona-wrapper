@@ -1637,9 +1637,13 @@ export class OpenAIProvider implements LLMProvider {
       } as any, { signal }), signal);
     });
     let completedResponse: OpenAIResponse | undefined;
+    let responseId: string | undefined;
     let streamedText = "";
 
     for await (const event of stream as any) {
+      if (typeof event.response?.id === "string") {
+        responseId = event.response.id;
+      }
       if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
         streamedText += event.delta;
         callbacks.onTextDelta(event.delta);
@@ -1658,7 +1662,43 @@ export class OpenAIProvider implements LLMProvider {
       }
     }
 
-    if (!completedResponse) throw new Error("OpenAI stream ended without a completed response.");
+    // A proxy or transient network interruption can close the SSE connection
+    // after OpenAI has created the response but before the final
+    // `response.completed` event reaches us. Recover the already-billed
+    // response by ID instead of starting a duplicate generation.
+    if (!completedResponse && responseId) {
+      const recoveryStartedAt = Date.now();
+      const recoveryTimeoutMs = Math.min(env.OPENAI_BACKGROUND_POLL_TIMEOUT_MS, 30_000);
+      let intervalMs = Math.min(env.OPENAI_BACKGROUND_POLL_INTERVAL_MS, 1_500);
+
+      while (Date.now() - recoveryStartedAt <= recoveryTimeoutMs) {
+        signal?.throwIfAborted();
+        const recovered = await withRetry(() => client.responses.retrieve(responseId, {
+          include: RESPONSE_INCLUDE_FIELDS as any,
+          stream: false
+        } as any, { signal }) as Promise<OpenAIResponse>, signal);
+        progressCallbacks?.onProviderResponse?.({ id: responseId, status: recovered.status });
+
+        if (recovered.status === "completed") {
+          completedResponse = recovered;
+          break;
+        }
+        if (isBackgroundTerminalFailure(recovered)) {
+          throw new Error(backgroundFailureMessage(recovered));
+        }
+
+        await delay(intervalMs, signal);
+        intervalMs = Math.min(5_000, Math.round(intervalMs * 1.25));
+      }
+    }
+
+    if (!completedResponse) {
+      throw new Error(
+        responseId
+          ? `OpenAI stream ended before completion and response recovery timed out. Response ID: ${responseId}`
+          : "OpenAI stream ended without a completed response."
+      );
+    }
     if (!extractOutputText(completedResponse) && streamedText) completedResponse.output_text = streamedText;
     return completedResponse;
   }

@@ -74,6 +74,11 @@ The generated native configuration must also be reviewed before upload:
 - Android does not request `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`,
   `READ_MEDIA_AUDIO`, or `READ_EXTERNAL_STORAGE`; occasional attachments use the
   system picker.
+- Android does not use the Google Play Advertising ID, and the Expo config
+  explicitly blocks `com.google.android.gms.permission.AD_ID`. Keep the Play
+  Console Advertising ID declaration set to **No** unless an advertising or
+  attribution SDK is intentionally introduced and the privacy disclosures are
+  updated first.
 - iOS declares microphone and speech-recognition usage, plus add-only photo
   access for saving generated images. It does not declare unused camera, Face ID,
   or photo-library read access.

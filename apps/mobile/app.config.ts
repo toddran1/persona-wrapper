@@ -50,6 +50,7 @@ const config: ExpoConfig = {
     icon: "./assets/branding/FTB_Logo_120x120.png",
     softwareKeyboardLayoutMode: "resize",
     blockedPermissions: [
+      "com.google.android.gms.permission.AD_ID",
       "android.permission.READ_EXTERNAL_STORAGE",
       "android.permission.READ_MEDIA_AUDIO",
       "android.permission.READ_MEDIA_IMAGES",

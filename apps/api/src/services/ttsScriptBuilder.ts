@@ -143,9 +143,12 @@ function stripMarkdownForSpeech(text: string): string {
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[[^\]]*]\([^)]+\)/g, " ")
+    // Preserve a Markdown link's human-readable label before removing bare
+    // URLs. Otherwise the bare-URL match also consumes the closing `)`, which
+    // leaves fragments such as `[Watch the review](` for the voice model.
+    .replace(/\[([^\]]+)]\((?:https?:\/\/|sandbox:\/)[^)]+\)/g, "$1")
     .replace(/https?:\/\/\S+/g, " ")
     .replace(/sandbox:\/\S+/g, " ")
-    .replace(/\[([^\]]+)]\((?:https?:\/\/|sandbox:\/)[^)]+\)/g, "$1")
     .replace(/\|/g, ". ")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/\*([^*]+)\*/g, "$1")

@@ -13,8 +13,22 @@ describe("buildTtsScript", () => {
 
     expect(script).toContain("Dallas, Texas");
     expect(script).toContain("A.P.I.");
+    expect(script).toContain("Source");
     expect(script).not.toContain("**");
     expect(script).not.toContain("https://example.com");
+    expect(script).not.toContain("[Source](");
+  });
+
+  it("speaks Markdown link labels without leaking link syntax to the voice model", () => {
+    const script = buildTtsScript(
+      "👉 [Watch the phone-holder review on YouTube](https://www.youtube.com/watch?v=abc123) before buying.",
+      larae
+    );
+
+    expect(script).toContain("Watch the phone-holder review on YouTube before buying.");
+    expect(script).not.toMatch(/https?:\/\//);
+    expect(script).not.toContain("[");
+    expect(script).not.toContain("](");
   });
 
   it("preserves natural punctuation without adding repeated pauses or commas", () => {
