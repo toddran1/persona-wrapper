@@ -81,7 +81,6 @@ const envSchema = z.object({
   OPENAI_MODEL: z.string().default("gpt-5.6-luna"),
   OPENAI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   OPENAI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(4096),
-  OPENAI_AUDIO_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(690),
   OPENAI_CODE_INTERPRETER_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(12288),
   CHAT_AUDIO_MAX_RESPONSE_CHARACTERS: z.coerce.number().int().min(400).max(4800).default(675),
   OPENAI_TEMPERATURE: z.preprocess(emptyStringToUndefined, z.coerce.number().min(0).max(2).optional()),

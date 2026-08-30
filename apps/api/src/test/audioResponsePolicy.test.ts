@@ -32,11 +32,9 @@ describe("audio response policy", () => {
     expect(audioUsageReservationSeconds()).toBeLessThanOrEqual(Math.ceil(expectedSeconds * 1.2));
   });
 
-  it("uses the smaller audio-specific model output budget", () => {
+  it("keeps the full model budget for reasoning even when concise audio is enabled", () => {
     expect(maxOutputTokensForRequest(false)).toBe(env.OPENAI_MAX_OUTPUT_TOKENS);
-    expect(maxOutputTokensForRequest(true)).toBe(
-      Math.min(env.OPENAI_MAX_OUTPUT_TOKENS, env.OPENAI_AUDIO_MAX_OUTPUT_TOKENS)
-    );
+    expect(maxOutputTokensForRequest(true)).toBe(env.OPENAI_MAX_OUTPUT_TOKENS);
     expect(maxOutputTokensForRequest(true, false)).toBe(env.OPENAI_MAX_OUTPUT_TOKENS);
     expect(audioUsageReservationSeconds(false)).toBeGreaterThan(audioUsageReservationSeconds(true));
   });

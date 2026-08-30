@@ -70,7 +70,12 @@ export function maxOutputTokensForRequest(audioEnabled: boolean, conciseAudioRes
   // they never use the inline TTS script format — the concise-audio cap must
   // not strangle them.
   if (codeInterpreter) return base;
-  return audioEnabled && conciseAudioResponse
-    ? Math.min(base, env.OPENAI_AUDIO_MAX_OUTPUT_TOKENS)
-    : base;
+  // `max_output_tokens` includes hidden reasoning tokens. Using a small token
+  // ceiling to enforce concise speech can exhaust the response before the
+  // model finishes its visible answer, especially on web-search turns. The
+  // prompt character requirement and limitAudioResponseText enforce spoken
+  // length without starving the model's reasoning budget.
+  void audioEnabled;
+  void conciseAudioResponse;
+  return base;
 }
