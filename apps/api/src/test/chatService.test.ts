@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
 import { StubStyleTransferProvider } from "../providers/styleTransfer/StubStyleTransferProvider.js";
 import { OpenAIProvider } from "../providers/llm/OpenAIProvider.js";
+import { LocalTTSProvider } from "../providers/tts/LocalTTSProvider.js";
 import { ChatService } from "../services/chatService.js";
 import { ConversationStore } from "../services/conversationStore.js";
 import { generatedAudioService } from "../services/generatedAudioService.js";
@@ -349,6 +350,13 @@ describe("ChatService", () => {
 
   it("associates generated audio only after the assistant message is persisted", async () => {
     env.APP_TEST_MODE = true;
+    const synthesize = LocalTTSProvider.prototype.synthesize;
+    const synthesizeSpy = vi.spyOn(LocalTTSProvider.prototype, "synthesize").mockImplementation(
+      async (input, signal) => {
+        expect(input.messageId).toBeUndefined();
+        return synthesize.call(new LocalTTSProvider(), input, signal);
+      }
+    );
     const conversationStore = new ConversationStore();
     const appendTurn = conversationStore.appendTurn.bind(conversationStore);
     let appendCompleted = false;
@@ -377,6 +385,7 @@ describe("ChatService", () => {
       "https://example.com/local-audio/larae.wav",
       expect.stringMatching(/^msg_/)
     );
+    expect(synthesizeSpy).toHaveBeenCalledOnce();
     expect(response.outputs.some((output) => output.type === "audio")).toBe(true);
   });
 

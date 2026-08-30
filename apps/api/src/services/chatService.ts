@@ -838,7 +838,6 @@ export class ChatService {
                 persona,
                 ...(options.ownerId ? { ownerId: options.ownerId } : {}),
                 conversationId: conversation.id,
-                messageId: assistantMessageId,
                 audit: {
                   scriptMode: ttsScriptMode,
                   sourceProvider: request.provider,
