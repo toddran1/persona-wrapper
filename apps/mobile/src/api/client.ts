@@ -138,6 +138,8 @@ const UPLOAD_REQUEST_TIMEOUT_MS = 10 * 60_000;
 const CHAT_REQUEST_TIMEOUT_MS = 130_000;
 const DATA_TRANSFER_POLL_TIMEOUT_MS = 2 * 60 * 60 * 1000 + 5 * 60 * 1000;
 const DATA_TRANSFER_UPLOAD_TIMEOUT_MS = 4 * 60 * 60 * 1000;
+const INTERRUPTED_CONNECTION_PATTERN =
+  /software caused connection abort|network request failed|connection (?:was )?(?:reset|aborted|closed)|\bECONNRESET\b|socket (?:is )?closed|unexpected end of stream/i;
 
 const IMAGE_MIME_TYPES_BY_EXTENSION: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -320,6 +322,17 @@ async function sendChatStream(
     return await consumeChatEventStream(response, callbacks);
   } catch (error) {
     if (timeout.didTimeout()) throw new Error("The app server took too long to respond. Please try again.");
+    // Android's native fetch implementation does not consistently label a
+    // caller cancellation as AbortError and can expose operating-system text
+    // such as "Software caused connection abort" directly to the UI.
+    if (signal?.aborted) {
+      const cancellation = new Error("Request cancelled.");
+      cancellation.name = "AbortError";
+      throw cancellation;
+    }
+    if (error instanceof Error && INTERRUPTED_CONNECTION_PATTERN.test(error.message)) {
+      throw new Error("The connection was interrupted before the response finished. Please try again.");
+    }
     throw error;
   } finally {
     timeout.dispose();

@@ -15,7 +15,7 @@ import { openAIResponseLifecycleService } from "../services/openAIResponseLifecy
 import { requestOwnerId } from "../utils/requestIdentity.js";
 import { requestAbuseSignals } from "../utils/requestAbuseSignals.js";
 import { logger } from "../utils/logger.js";
-import { errorMessageForLog } from "../utils/errorReporting.js";
+import { errorMessageForLog, isOperationCancellation } from "../utils/errorReporting.js";
 import { customerUsageService } from "../services/customerUsageService.js";
 import { planAllowsImageProvider, planAllowsModelProvider, type PlanDefinition } from "../services/planCatalog.js";
 import {
@@ -324,10 +324,16 @@ export async function postChatStream(request: Request, response: Response): Prom
       await releaseUsageReservation(identity, reservationId, response.locals.requestId);
       if (customerUsageOperationId) await releaseCustomerUsage(customerUsageOperationId, response.locals.requestId);
     }
-    logger.warn("Streaming chat request failed", {
-      requestId: response.locals.requestId,
-      error: errorMessageForLog(error)
-    });
+    if (controller.signal.aborted || isOperationCancellation(error)) {
+      logger.info("Streaming chat request cancelled", {
+        requestId: response.locals.requestId
+      });
+    } else {
+      logger.warn("Streaming chat request failed", {
+        requestId: response.locals.requestId,
+        error: errorMessageForLog(error)
+      });
+    }
     if (!controller.signal.aborted && !response.writableEnded && !response.destroyed) {
       response.write(`event: error\ndata: ${JSON.stringify({
         // SSE headers are already committed, so this path cannot use the
@@ -760,7 +766,7 @@ function createPendingChatResponse(payload: ChatRequest, jobId: string): ChatRes
 function requestAbortController(request: Request, response: Response): AbortController {
   const controller = new AbortController();
   if (typeof request.once === "function") {
-    request.once("aborted", () => controller.abort(new Error("Client cancelled request.")));
+    request.once("aborted", () => controller.abort(new DOMException("Client cancelled request.", "AbortError")));
   }
   // By the time a controller runs, express.json() has fully consumed the
   // request body, so a client disconnect mid-generation only surfaces as a
@@ -768,7 +774,7 @@ function requestAbortController(request: Request, response: Response): AbortCont
   // never fires). Abort unless the response finished normally.
   if (typeof response.once === "function") {
     response.once("close", () => {
-      if (!response.writableEnded) controller.abort(new Error("Client disconnected."));
+      if (!response.writableEnded) controller.abort(new DOMException("Client disconnected.", "AbortError"));
     });
   }
   return controller;

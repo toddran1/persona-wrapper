@@ -15,6 +15,13 @@ export function isRoutineClientDisconnect(error: unknown): boolean {
   return /\b(?:read|write) ECONNRESET\b|socket hang up|premature close/i.test(message);
 }
 
+export function isOperationCancellation(error: unknown): boolean {
+  if (isRoutineClientDisconnect(error)) return true;
+  if (error instanceof Error && error.name === "AbortError") return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /^(?:Client (?:cancelled request|disconnected)|Request aborted)\.?$/i.test(message);
+}
+
 export function errorMessageForLog(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (INTERNAL_DATABASE_ERROR_PATTERN.test(message)) {

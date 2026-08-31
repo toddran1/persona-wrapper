@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { errorMessageForLog, isRoutineClientDisconnect } from "../utils/errorReporting.js";
+import { errorMessageForLog, isOperationCancellation, isRoutineClientDisconnect } from "../utils/errorReporting.js";
 
 describe("error reporting", () => {
   it("does not place SQL parameters or user content into operational logs", () => {
@@ -19,5 +19,11 @@ describe("error reporting", () => {
   it("recognizes routine client disconnects without hiding malformed HTTP errors", () => {
     expect(isRoutineClientDisconnect(Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }))).toBe(true);
     expect(isRoutineClientDisconnect(new Error("Parse Error: Invalid header value char"))).toBe(false);
+  });
+
+  it("classifies abort errors and explicit client disconnects as cancellations", () => {
+    expect(isOperationCancellation(new DOMException("Client disconnected.", "AbortError"))).toBe(true);
+    expect(isOperationCancellation(new Error("Client disconnected."))).toBe(true);
+    expect(isOperationCancellation(new Error("Provider request failed."))).toBe(false);
   });
 });

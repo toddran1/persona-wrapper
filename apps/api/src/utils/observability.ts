@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { logger } from "./logger.js";
 import { recordPersistentMetric, traceOperation } from "./telemetry.js";
+import { isOperationCancellation } from "./errorReporting.js";
 
 type ObservabilityContext = { requestId?: string; traceId?: string };
 type MetricRecord = {
@@ -83,6 +84,15 @@ export async function measureOperation<T>(name: string, attributes: Record<strin
       return result;
     } catch (error) {
       const durationMs = performance.now() - startedAt;
+      if (isOperationCancellation(error)) {
+        recordMetric(name, { durationMs, attributes });
+        logger.info("Observed operation cancelled", {
+          operation: name,
+          durationMs: Math.round(durationMs),
+          attributes
+        });
+        throw error;
+      }
       recordMetric(name, { durationMs, outcome: "failure", attributes });
       logger.warn("Observed operation failed", {
         operation: name,

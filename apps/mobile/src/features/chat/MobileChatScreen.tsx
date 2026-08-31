@@ -1499,6 +1499,12 @@ export function MobileChatScreen() {
             status: "in_progress",
             message: "Thinking"
           }], pendingTurn.backgroundJobId);
+          // The server owns durable chat execution. Stop only this device's
+          // status poll before Android suspends its network stack; the job
+          // continues and reconcilePendingBackgroundTurn reconnects on resume.
+          if (activeBackgroundJobIdRef.current === pendingTurn.backgroundJobId) {
+            activeChatAbortControllerRef.current?.abort();
+          }
         }
       }
       const resumed = (previousState === "background" || previousState === "inactive") && nextState === "active";
@@ -2944,7 +2950,11 @@ export function MobileChatScreen() {
         imageGeneration,
         videoAnalysis: false,
         appFunctions: true,
-        background: imageGeneration,
+        // Mobile operating systems may suspend or terminate a streaming HTTP
+        // connection immediately after the user switches apps. Every mobile
+        // chat therefore starts as a durable server job and is polled while
+        // this app is active.
+        background: true,
         vectorStoreIds: vectorStore ? [vectorStore.id] : []
       };
       setUploadingAttachments(false);
@@ -3074,6 +3084,18 @@ export function MobileChatScreen() {
             // cannot overwrite a successfully recovered response.
             if (activeChatAbortControllerRef.current !== controller) return;
             markPersonaIdle();
+            if (appStateRef.current !== "active") {
+              // Losing the local poll is expected while iOS/Android suspends
+              // the app. Keep the durable server job pending and let the
+              // foreground lifecycle handler reconnect without an error flash.
+              setError(undefined);
+              updateTurnOutputs(optimistic.id, [{
+                type: "status",
+                status: "in_progress",
+                message: "Thinking"
+              }], backgroundJobId);
+              return;
+            }
             setError("The app lost contact with the background request. Tap Check status or reopen the app to reconnect.");
             updateTurnOutputs(optimistic.id, [{
               type: "status",
