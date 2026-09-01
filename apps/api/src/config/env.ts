@@ -59,8 +59,7 @@ const envSchema = z.object({
   API_HEADERS_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
   API_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   API_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
-  // Must exceed the provider's background polling window so the job wrapper
-  // does not terminate a provider request while it is still recoverable.
+  // Overall watchdog for durable chat jobs.
   CHAT_JOB_EXECUTION_TIMEOUT_MS: z.coerce.number().int().positive().default(1260000),
   API_TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   APP_TEST_MODE: z.preprocess(stringToBoolean, z.boolean().default(false)),
@@ -389,13 +388,6 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["OTEL_EXPORTER_OTLP_ENDPOINT"],
       message: "OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_HEADERS must be configured together."
-    });
-  }
-  if (value.CHAT_JOB_EXECUTION_TIMEOUT_MS <= value.OPENAI_BACKGROUND_POLL_TIMEOUT_MS) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["CHAT_JOB_EXECUTION_TIMEOUT_MS"],
-      message: "CHAT_JOB_EXECUTION_TIMEOUT_MS must exceed OPENAI_BACKGROUND_POLL_TIMEOUT_MS."
     });
   }
   if (value.CORS_ALLOWED_ORIGINS) {

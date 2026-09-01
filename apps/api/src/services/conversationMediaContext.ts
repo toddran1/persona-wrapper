@@ -247,6 +247,28 @@ export function shouldUseConversationMediaContext(message: string): boolean {
   return matchesAnyPattern(MEDIA_REFERENCE_PATTERNS, normalized);
 }
 
+function shouldTrustMediaReferenceHint(
+  message: string,
+  hint: ConversationMediaContextOptions["mediaReferenceHint"]
+): boolean {
+  if (!hint || hint === "none") return false;
+
+  // Router output is advisory. Require language that actually points back to
+  // prior content before allowing a model guess to attach historical media.
+  // This keeps useful elliptical follow-ups such as "take those off" while
+  // preventing ordinary questions like "what is the best option" from being
+  // redirected to an old image in the conversation.
+  const normalized = stripLeadingFillers(message.replace(/\s+/g, " ").trim());
+  const hasBackwardPointer = /\b(?:it|its|this|that|these|those|them|one|ones|same|again|above|below|previous|prior|earlier|last|latest|recent)\b/i.test(normalized);
+  if (!hasBackwardPointer) return false;
+
+  if (hint === "transform") {
+    return /\b(?:take|remove|add|put|change|edit|modify|replace|swap|make|turn|convert|transform|style|restyle|redo|remake|regenerate|use|reuse|keep|fix|adjust|enhance|upscale|crop|zoom|combine|mix|merge|do|try)\b/i.test(normalized);
+  }
+
+  return /\b(?:what|who|where|which|how|why|describe|inspect|identify|recognize|read|see|show|look|tell|explain|analyze|analyse|compare|review|check|is|are|does|do|can|could)\b/i.test(normalized);
+}
+
 const EXPLICIT_HISTORICAL_MEDIA_PATTERN =
   /\b(previous|prior|earlier|last|latest|recent|generated|created|result|output|above|first\s+attempt|you\s+(?:made|generated|created|sent|showed|gave)|same|again|go\s+back|return\s+to)\b/i;
 const HISTORICAL_MEDIA_RESET_PATTERNS = [
@@ -800,9 +822,11 @@ export async function resolveConversationMediaContext(
   const patternIntent = inferVisualIntent(effectiveMessage);
   const hint = options.mediaReferenceHint;
   // Patterns are the deterministic base; the router hint only upgrades a
-  // pattern miss, never overrides a pattern match.
-  const referenced = patternReferenced || hint === "inspect" || hint === "transform";
-  const intent = patternReferenced ? patternIntent : hint === "inspect" || hint === "transform" ? hint : patternIntent;
+  // pattern miss when the user's words also point back to prior content.
+  const trustedHint = shouldTrustMediaReferenceHint(effectiveMessage, hint);
+  const hintedIntent = trustedHint && hint && hint !== "none" ? hint : undefined;
+  const referenced = patternReferenced || trustedHint;
+  const intent = patternReferenced ? patternIntent : hintedIntent ?? patternIntent;
   const historicalMediaReset = resetsHistoricalMedia(effectiveMessage);
   const explicitHistoricalReference = hasExplicitHistoricalReference(effectiveMessage);
   const currentImageCount = options.currentImageCount ?? 0;

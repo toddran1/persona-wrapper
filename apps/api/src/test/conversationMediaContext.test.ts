@@ -71,6 +71,35 @@ describe("conversation media context", () => {
     expect(hinted.attachments).toHaveLength(1);
   });
 
+  it("ignores an incorrect router media hint for an unrelated recommendation question", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const result = await resolveConversationMediaContext({
+      id: "conv-unrelated-router-hint",
+      turns: [{
+        userMessage: "Here is an old reference image.",
+        userAssets: [{
+          id: "asset-no-longer-available",
+          kind: "image",
+          fileName: "old-reference.jpg",
+          mimeType: "image/jpeg"
+        }],
+        outputs: []
+      }]
+    }, {
+      message: "Can you give me a breakdown of the best AI generator platforms? I want to know what is the best option for the price.",
+      ownerId: "owner-a",
+      provider: "openai",
+      mediaReferenceHint: "inspect"
+    });
+
+    expect(result).toMatchObject({
+      referenced: false,
+      candidateCount: 0,
+      unavailableCount: 0,
+      attachments: []
+    });
+  });
+
   it("inherits the immediately preceding visual inspection for an elliptical follow-up", async () => {
     const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
     const result = await resolveConversationMediaContext({
