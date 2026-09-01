@@ -1191,13 +1191,19 @@ function backgroundFailureMessage(response: OpenAIResponse): string {
   const status = typeof response?.status === "string" ? response.status : "unknown";
   const errorMessage = response?.error?.message;
   const incompleteReason = response?.incomplete_details?.reason;
+  const outputTokens = finiteNonnegativeIntegerOr(response?.usage?.output_tokens);
+  const reasoningTokens = finiteNonnegativeIntegerOr(response?.usage?.output_tokens_details?.reasoning_tokens);
+  const configuredMax = finiteNonnegativeIntegerOr(response?.max_output_tokens);
+  const usageDetails = outputTokens > 0 || reasoningTokens > 0 || configuredMax > 0
+    ? ` (outputTokens: ${outputTokens}, reasoningTokens: ${reasoningTokens}, maxOutputTokens: ${configuredMax})`
+    : "";
   if (typeof errorMessage === "string" && errorMessage.trim()) {
-    return `OpenAI background response ${status}: ${errorMessage}`;
+    return `OpenAI response ${status}: ${errorMessage}${usageDetails}`;
   }
   if (typeof incompleteReason === "string" && incompleteReason.trim()) {
-    return `OpenAI background response ${status}: ${incompleteReason}`;
+    return `OpenAI response ${status}: ${incompleteReason}${usageDetails}`;
   }
-  return `OpenAI background response ended with status: ${status}`;
+  return `OpenAI response ended with status: ${status}${usageDetails}`;
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {

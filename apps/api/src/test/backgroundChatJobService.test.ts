@@ -60,6 +60,20 @@ describe("BackgroundChatJobService", () => {
     expect(failed?.error).toBe("The response finished, but we could not save it. Please try again.");
   });
 
+  it("does not expose OpenAI incomplete-response internals to the client", async () => {
+    const service = new BackgroundChatJobService();
+    const job = await service.start({}, async () => {
+      throw new Error(
+        "OpenAI response incomplete: max_output_tokens (outputTokens: 4096, reasoningTokens: 3500, maxOutputTokens: 4096)"
+      );
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const failed = await service.get(job.id);
+
+    expect(failed?.error).toBe("This answer needed more response space than was available. Please try again.");
+  });
+
   it("does not expose or cancel jobs for another owner", async () => {
     const service = new BackgroundChatJobService();
     const job = await service.start({ ownerId: "owner-a" }, async (runningJob) => waitForAbort(runningJob.abortController.signal));

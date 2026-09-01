@@ -555,6 +555,9 @@ function publicJobError(error: string): string {
   if (/background chat job exceeded its execution deadline|openai background response timed out/i.test(error)) {
     return "This response took too long and was stopped. Please try again.";
   }
+  if (/openai (?:background )?response incomplete: max_(?:output_)?tokens|incomplete.*max_(?:output_)?tokens/i.test(error)) {
+    return "This answer needed more response space than was available. Please try again.";
+  }
   if (/failed query:|openai_artifacts|foreign key|violates .*constraint|duplicate key/i.test(error)) {
     return "The response finished, but we could not save it. Please try again.";
   }
