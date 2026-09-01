@@ -95,7 +95,10 @@ import type { ResponseFeedbackCategory } from "@persona/shared";
 import type { MobilePickedFile, RenderedTurn } from "./types";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
-const BACKGROUND_POLL_TIMEOUT_MS = 12 * 60 * 1000;
+// Keep polling longer than the server's 20-minute execution window. If the
+// app is backgrounded, the lifecycle handler still stops local polling and
+// resumes it later without cancelling the durable job.
+const BACKGROUND_POLL_TIMEOUT_MS = 22 * 60 * 1000;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 const DEFAULT_RESPONSE_FOCUS_OFFSET = 132;
 const DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET = 236;

@@ -59,7 +59,9 @@ const envSchema = z.object({
   API_HEADERS_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
   API_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   API_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
-  CHAT_JOB_EXECUTION_TIMEOUT_MS: z.coerce.number().int().positive().default(660000),
+  // Must exceed the provider's background polling window so the job wrapper
+  // does not terminate a provider request while it is still recoverable.
+  CHAT_JOB_EXECUTION_TIMEOUT_MS: z.coerce.number().int().positive().default(1260000),
   API_TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   APP_TEST_MODE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   APP_ADMIN_EMAILS: z.preprocess(optionalTrimmedString, z.string().default("")),
@@ -99,7 +101,11 @@ const envSchema = z.object({
   OPENAI_PERSONA_TEXT_VERBOSITY: z.preprocess(emptyStringToUndefined, textVerbositySchema.default("high")),
   OPENAI_MAX_RETRIES: z.coerce.number().int().min(0).max(6).default(3),
   OPENAI_IMAGE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(900000),
-  OPENAI_BACKGROUND_POLL_TIMEOUT_MS: z.coerce.number().int().positive().default(900000),
+  OPENAI_BACKGROUND_POLL_TIMEOUT_MS: z.coerce.number().int().positive().default(1200000),
+  // Web-search responses should not occupy a durable chat worker indefinitely.
+  // The app-level background job can continue after the client leaves, but a
+  // provider response that remains queued/in-progress is treated as stalled.
+  OPENAI_WEB_SEARCH_POLL_TIMEOUT_MS: z.coerce.number().int().positive().default(180000),
   OPENAI_BACKGROUND_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1500),
   OPENAI_MAX_TOOL_ITERATIONS: z.coerce.number().int().min(1).max(10).default(4),
   OPENAI_MAX_CONTEXT_MESSAGES: z.coerce.number().int().min(2).max(100).default(24),
@@ -383,6 +389,13 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["OTEL_EXPORTER_OTLP_ENDPOINT"],
       message: "OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_HEADERS must be configured together."
+    });
+  }
+  if (value.CHAT_JOB_EXECUTION_TIMEOUT_MS <= value.OPENAI_BACKGROUND_POLL_TIMEOUT_MS) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["CHAT_JOB_EXECUTION_TIMEOUT_MS"],
+      message: "CHAT_JOB_EXECUTION_TIMEOUT_MS must exceed OPENAI_BACKGROUND_POLL_TIMEOUT_MS."
     });
   }
   if (value.CORS_ALLOWED_ORIGINS) {

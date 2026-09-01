@@ -7,6 +7,7 @@ import {
   buildDirectImageApiParams,
   buildOpenAIResponseInstructions,
   buildOpenAITools,
+  backgroundPollTimeoutMs,
   shouldRetryForImageGeneration,
   shouldUseDirectImageApi,
   shouldUseFluxImageApi,
@@ -28,6 +29,21 @@ function inputForLaRae(audio = false): LLMInput {
 }
 
 describe("OpenAIProvider instructions", () => {
+  it("uses the shorter bounded poll window for web-search background jobs", () => {
+    const input = inputForLaRae();
+    input.toolOptions = {
+      webSearch: true,
+      fileSearch: false,
+      codeInterpreter: false,
+      imageGeneration: false,
+      appFunctions: false,
+      background: true,
+      vectorStoreIds: []
+    };
+
+    expect(backgroundPollTimeoutMs(input)).toBe(180_000);
+  });
+
   it("keeps prior chat context and omits fabricated text for attachment-only turns", () => {
     const persona = getPersonaById("larae");
     if (!persona) throw new Error("LaRae persona not found");

@@ -174,6 +174,31 @@ function compactObject<T extends Record<string, unknown>>(value: T): Partial<T> 
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
 
+/**
+ * Web search is allowed to run in an app-level durable job, but a provider
+ * response that stays queued/in-progress is not allowed to consume that job's
+ * entire execution deadline. Keep this policy in one place so the timeout is
+ * visible in logs and easy to tune independently from image/code jobs.
+ */
+export function backgroundPollTimeoutMs(input: Pick<LLMInput, "toolOptions">): number {
+  const hasLongRunningTool = Boolean(input.toolOptions?.imageGeneration || input.toolOptions?.codeInterpreter);
+  return input.toolOptions?.webSearch && !hasLongRunningTool
+    ? Math.min(env.OPENAI_BACKGROUND_POLL_TIMEOUT_MS, env.OPENAI_WEB_SEARCH_POLL_TIMEOUT_MS)
+    : env.OPENAI_BACKGROUND_POLL_TIMEOUT_MS;
+}
+
+// `toolOptions.background` is also the app-level durable-job flag. Do not pass
+// that flag through to Responses background mode for ordinary web searches:
+// the durable worker already lets the user leave the app, while provider
+// background polling can remain queued indefinitely. Image/code requests are
+// the cases where OpenAI's background response mode is useful.
+function shouldUseOpenAIBackgroundMode(input: LLMInput): boolean {
+  return Boolean(
+    input.toolOptions?.background &&
+    (input.toolOptions.imageGeneration || input.toolOptions.codeInterpreter)
+  );
+}
+
 function imageQuality(input: LLMInput) {
   return input.toolOptions?.imageQuality ?? env.OPENAI_IMAGE_QUALITY;
 }
@@ -1587,12 +1612,13 @@ export class OpenAIProvider implements LLMProvider {
 
     let next = response;
     const startedAt = Date.now();
+    const pollTimeoutMs = backgroundPollTimeoutMs(input);
     let intervalMs = env.OPENAI_BACKGROUND_POLL_INTERVAL_MS;
 
     while (isBackgroundPending(next)) {
-      if (Date.now() - startedAt > env.OPENAI_BACKGROUND_POLL_TIMEOUT_MS) {
+      if (Date.now() - startedAt > pollTimeoutMs) {
         throw new Error(
-          `OpenAI background response timed out after ${Math.round(env.OPENAI_BACKGROUND_POLL_TIMEOUT_MS / 1000)} seconds. Response ID: ${next.id}`
+          `OpenAI background response timed out after ${Math.round(pollTimeoutMs / 1000)} seconds (status: ${next.status ?? "unknown"}). Response ID: ${next.id}`
         );
       }
 
@@ -1747,7 +1773,7 @@ export class OpenAIProvider implements LLMProvider {
       instructions: buildOpenAIResponseInstructions(input, this.promptMode, inlineTtsScript),
       input: responseInput as any,
       tools: tools as any,
-      background: input.toolOptions?.background ?? false,
+      background: shouldUseOpenAIBackgroundMode(input),
       include: RESPONSE_INCLUDE_FIELDS,
       parallel_tool_calls: true,
       prompt_cache_key: `persona-${input.persona.id}`,
