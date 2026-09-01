@@ -21,7 +21,11 @@ import { stripPersonaAttributionMarkers } from "./personaAttribution.js";
 import { ToolContextService, type ToolContext } from "./toolContextService.js";
 import { buildTtsScript, buildTtsScriptForSpeech } from "./ttsScriptBuilder.js";
 import { limitAudioResponseText } from "./audioResponsePolicy.js";
-import { CONVERSATION_MEDIA_UNAVAILABLE_TEXT, resolveConversationMediaContext } from "./conversationMediaContext.js";
+import {
+  CONVERSATION_MEDIA_UNAVAILABLE_TEXT,
+  resolveConversationMediaContext,
+  shouldBlockForUnavailableHistoricalMedia
+} from "./conversationMediaContext.js";
 import { openAIArtifactService } from "./openAIArtifactService.js";
 import { applyPersonaPhraseReplacements } from "./personaPhraseReplacementService.js";
 import { getDatabase } from "../db/client.js";
@@ -185,6 +189,7 @@ export class ChatService {
       mimeType: asset.mimeType,
       ...(asset.url ? { url: asset.url } : {})
     }));
+    const currentRequestNeedsHistoricalMedia = shouldBlockForUnavailableHistoricalMedia(request.message);
 
     if (conversationMediaAttachments.ambiguityMessage) {
       const clarificationText = conversationMediaAttachments.ambiguityMessage;
@@ -269,6 +274,7 @@ export class ChatService {
       !request.attachments?.length &&
       !imageReferenceRequirement.expectsNewUploads &&
       conversationMediaAttachments.referenced &&
+      currentRequestNeedsHistoricalMedia &&
       conversationMediaAttachments.candidateCount > 0 &&
       conversationMediaAttachments.attachments.length === 0 &&
       conversationMediaAttachments.unavailableCount > 0
@@ -377,7 +383,11 @@ export class ChatService {
       conversationMediaAttachments.minimumImages
     );
     const requiresImageReferences = imageReferenceRequirement.required ||
-      (conversationMediaAttachments.referenced && conversationMediaAttachments.candidateCount > 0);
+      (
+        currentRequestNeedsHistoricalMedia &&
+        conversationMediaAttachments.referenced &&
+        conversationMediaAttachments.candidateCount > 0
+      );
     if (requiresImageReferences && availableImageCount < requiredImageCount) {
       const clarificationText = missingImageReferenceMessage(
         requiredImageCount,

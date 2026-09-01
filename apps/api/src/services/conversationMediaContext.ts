@@ -247,6 +247,25 @@ export function shouldUseConversationMediaContext(message: string): boolean {
   return matchesAnyPattern(MEDIA_REFERENCE_PATTERNS, normalized);
 }
 
+/**
+ * A missing historical file should only replace the normal chat answer when
+ * the current wording independently demonstrates that the file is necessary.
+ * This deliberately uses a narrower rule than context selection: selection
+ * may use advisory model hints, while an error response must not.
+ */
+export function shouldBlockForUnavailableHistoricalMedia(message: string): boolean {
+  const normalized = stripLeadingFillers(message.replace(/\s+/g, " ").trim());
+  if (!normalized) return false;
+
+  const namesVisualMedia = /\b(?:image|images|picture|pictures|photo|photos|pic|pics|visual|visuals|render|renders|upload|uploads|attachment|attachments)\b/i.test(normalized);
+  const pointsBackward = /\b(?:it|its|this|that|these|those|them|one|ones|same|above|below|previous|prior|earlier|last|latest|recent)\b/i.test(normalized);
+  const actsOnOrInspects = /\b(?:take|remove|add|put|change|edit|modify|replace|swap|make|turn|convert|transform|style|restyle|redo|remake|regenerate|use|reuse|keep|fix|adjust|enhance|upscale|crop|zoom|combine|mix|merge|describe|inspect|identify|recognize|read|see|show|look|tell|explain|analyze|analyse|compare|review|check|what|who|where|which|how)\b/i.test(normalized);
+  const referencesDeliveredContent = /\b(?:did\s+you\s+(?:just\s+)?(?:send|make|generate|create|give|show|upload|attach|provide|share)|have\s+you\s+(?:just\s+)?(?:sent|made|generated|created|given|shown|uploaded|attached|provided|shared)|you\s+(?:just|previously|recently)\s+(?:sent|made|generated|created|gave|showed|uploaded|attached|provided|shared))\b/i.test(normalized);
+  const ellipticalVisualInspection = /^(?:please\s+)?(?:just\s+|only\s+)?(?:give|tell|show|read|transcribe|extract|identify)?\s*(?:me\s+)?(?:just\s+|only\s+)?(?:the\s+)?(?:title|text|words?|name|label|caption|writing|lettering)(?:\s+(?:only|instead))?[\s.!?]*$/i.test(normalized);
+
+  return namesVisualMedia || referencesDeliveredContent || ellipticalVisualInspection || (pointsBackward && actsOnOrInspects);
+}
+
 function shouldTrustMediaReferenceHint(
   message: string,
   hint: ConversationMediaContextOptions["mediaReferenceHint"]
@@ -897,6 +916,11 @@ export async function resolveConversationMediaContext(
         logger.warn("Failed to resolve uploaded media for conversation context", {
           conversationId: conversation.id,
           assetId: candidate.id,
+          patternReferenced,
+          trustedHint,
+          mediaReferenceHint: hint ?? "none",
+          explicitHistoricalReference,
+          effectiveMessageChanged: effectiveMessage !== options.message,
           error: error instanceof Error ? error.message : String(error)
         });
       }

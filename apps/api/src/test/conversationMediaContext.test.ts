@@ -100,6 +100,18 @@ describe("conversation media context", () => {
     });
   });
 
+  it("only lets clear historical-media wording replace an answer with the unavailable-file fallback", async () => {
+    const { shouldBlockForUnavailableHistoricalMedia } = await import("../services/conversationMediaContext.js");
+
+    expect(shouldBlockForUnavailableHistoricalMedia(
+      "Can you give me a breakdown of the best AI generator platforms? I want to know what is the best option for the price."
+    )).toBe(false);
+    expect(shouldBlockForUnavailableHistoricalMedia("What breed of puppy did you just send me?")).toBe(true);
+    expect(shouldBlockForUnavailableHistoricalMedia("Take those off.")).toBe(true);
+    expect(shouldBlockForUnavailableHistoricalMedia("Just the title only.")).toBe(true);
+    expect(shouldBlockForUnavailableHistoricalMedia("Describe the previous image.")).toBe(true);
+  });
+
   it("inherits the immediately preceding visual inspection for an elliptical follow-up", async () => {
     const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
     const result = await resolveConversationMediaContext({
