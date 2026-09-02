@@ -191,7 +191,7 @@ export class ChatService {
     }));
     const currentRequestNeedsHistoricalMedia = shouldBlockForUnavailableHistoricalMedia(request.message);
 
-    if (conversationMediaAttachments.ambiguityMessage) {
+    if (conversationMediaAttachments.ambiguityMessage && currentRequestNeedsHistoricalMedia) {
       const clarificationText = conversationMediaAttachments.ambiguityMessage;
       const clarificationOutput = llmOutputSchema.parse({
         provider: request.provider,

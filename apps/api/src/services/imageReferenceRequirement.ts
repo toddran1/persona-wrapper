@@ -1,6 +1,7 @@
 import { MAX_CHAT_ATTACHMENTS } from "@persona/shared";
 
-const IMAGE_NOUN = String.raw`(?:images?|photos?|pictures?|pics?|visuals?|references?|attachments?|uploads?)`;
+const CORE_IMAGE_NOUN = String.raw`(?:images?|photos?|pictures?|pics?|visuals?)`;
+const IMAGE_NOUN = String.raw`(?:${CORE_IMAGE_NOUN}|(?:reference|source|input)\s+${CORE_IMAGE_NOUN}|image\s+(?:references?|attachments?|uploads?))`;
 const IMAGE_COUNT_MODIFIER = String.raw`(?:(?:attached|uploaded|reference|source|input)\s+)?`;
 const UPLOAD_INTENT = String.raw`(?:(?:i|we)\s*(?:am|are|'m|'re|will)|i(?:['’]ll)|we(?:['’]ll)|im|(?:i(?:'m|\s+am)|we(?:'re|\s+are))\s+going\s+to|were)\s+(?:uploading|attaching|sending|upload|attach|send)`;
 const COMPLETED_UPLOAD_INTENT = String.raw`(?:i|we)\s+(?:(?:have|just)\s+)?(?:uploaded|attached|sent)`;
@@ -99,7 +100,7 @@ export function analyzeImageReferenceRequirement(message: string): ImageReferenc
 
   const explicitCount = requestedImageCount(referenceMessage);
   const pluralCombination = new RegExp(
-    String.raw`\b(?:mix|combine|blend|merge|fuse|mash\s*up|composite|stitch|compare|rank|review|collage|montage|arrange)\b[\s\S]{0,100}\b(?:images|photos|pictures|pics|visuals|references|attachments|uploads)\b`,
+    String.raw`\b(?:mix|combine|blend|merge|fuse|mash\s*up|composite|stitch|compare|rank|review|collage|montage|arrange)\b[\s\S]{0,100}\b${IMAGE_NOUN}\b`,
     "i"
   ).test(referenceMessage);
 

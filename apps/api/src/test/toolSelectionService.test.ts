@@ -26,7 +26,7 @@ describe("tool selection", () => {
       "What are the current visa requirements for Japan?",
       "Recommend the best reviewed hotel near the convention center."
     ]) {
-      await expect(selectTools(request(prompt))).resolves.toMatchObject({ toolOptions: { webSearch: true } });
+      await expect(selectTools(request(prompt)), prompt).resolves.toMatchObject({ toolOptions: { webSearch: true } });
     }
   });
 
@@ -108,6 +108,30 @@ describe("tool selection", () => {
       expect(tools?.imageGeneration).toBe(false);
       expect(tools?.fileSearch).toBe(false);
     }
+  });
+
+  it("does not route lexical collisions to unrelated expensive tools", async () => {
+    const expectations = [
+      ["Check the current paragraph for grammar.", { webSearch: false, codeInterpreter: false }],
+      ["Write a different version of this apology.", { webSearch: false, codeInterpreter: false }],
+      ["What are the results of two plus two?", { webSearch: false }],
+      ["Explain the plot of this short story.", { codeInterpreter: false }],
+      ["Help me practice table manners.", { codeInterpreter: false }],
+      ["How does dark mode work?", { codeInterpreter: false }],
+      ["Tell me about Count Dracula.", { codeInterpreter: false }],
+      ["There is too much noise in the background.", { background: false }],
+      ["Put a sunset in the background of the image.", { background: false }]
+    ] as const;
+
+    for (const [message, expected] of expectations) {
+      await expect(selectTools(request(message)), message).resolves.toMatchObject({
+        toolOptions: expected
+      });
+    }
+
+    await expect(selectTools(request("Run this in the background."))).resolves.toMatchObject({
+      toolOptions: { background: true }
+    });
   });
 
   it("uses resolved-link context by default and native video only for deep audiovisual requests", async () => {

@@ -100,6 +100,160 @@ describe("conversation media context", () => {
     });
   });
 
+  it("does not turn durations, quantities, prices, resolutions, or model versions into image selections", async () => {
+    const {
+      resolveConversationMediaContext,
+      shouldBlockForUnavailableHistoricalMedia,
+      shouldUseConversationMediaContext
+    } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const conversation = {
+      id: "conv-numeric-non-visual-requests",
+      turns: [
+        {
+          userMessage: "Create ten options.",
+          outputs: [image("old first"), image("old second")]
+        },
+        {
+          userMessage: "Which video platform is affordable?",
+          assistantText: "Here are several plans.",
+          outputs: [{ type: "text" as const, text: "Here are several plans." }]
+        }
+      ]
+    };
+    const prompts = [
+      "I just need one 10 second video at 720p who has this for free?",
+      "I need three 15-second clips for $20.",
+      "Which one has the best price for 4K video?",
+      "Can you tell me if this plan includes 10 exports?",
+      "What does this subscription have in the free tier?",
+      "Compare version 2.5 with version 3.0.",
+      "Explain this result from my blood test.",
+      "Make this paragraph clearer and keep it under 100 words."
+    ];
+
+    for (const message of prompts) {
+      const result = await resolveConversationMediaContext(conversation, {
+        message,
+        mediaReferenceHint: "inspect"
+      });
+      expect(result, message).toMatchObject({
+        referenced: false,
+        candidateCount: 0,
+        unavailableCount: 0,
+        attachments: [],
+        selectedPositions: []
+      });
+      expect(result.ambiguityMessage, message).toBeUndefined();
+      expect(shouldBlockForUnavailableHistoricalMedia(message), message).toBe(false);
+    }
+
+    expect(shouldUseConversationMediaContext(prompts[0] ?? "")).toBe(false);
+  });
+
+  it("still resolves explicit older-image references after an intervening text turn", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const oldImage = {
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from("old image").toString("base64")}`,
+      alt: "old image"
+    };
+    const conversation = {
+      id: "conv-explicit-older-image",
+      turns: [
+        { userMessage: "Create an image.", outputs: [oldImage] },
+        {
+          userMessage: "Tell me about pricing.",
+          assistantText: "Pricing details.",
+          outputs: [{ type: "text" as const, text: "Pricing details." }]
+        }
+      ]
+    };
+
+    const result = await resolveConversationMediaContext(conversation, {
+      message: "Make the previous image brighter."
+    });
+
+    expect(result).toMatchObject({
+      referenced: true,
+      source: "generated_outputs",
+      intent: "transform",
+      selectedPositions: [1]
+    });
+    expect(result.attachments).toHaveLength(1);
+  });
+
+  it("does not confuse discussion of visual technology with a reference to the latest image", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const conversation = {
+      id: "conv-visual-domain-discussion",
+      turns: [{
+        userMessage: "Create a portrait.",
+        outputs: [{
+          type: "image" as const,
+          url: `data:image/png;base64,${Buffer.from("portrait").toString("base64")}`,
+          alt: "portrait"
+        }]
+      }]
+    };
+
+    for (const message of [
+      "Which image generator has the best free plan?",
+      "What image model is the cheapest?",
+      "How many images can this subscription generate?",
+      "Explain image compression formats.",
+      "Why does this React component render twice?"
+    ]) {
+      const result = await resolveConversationMediaContext(conversation, {
+        message,
+        mediaReferenceHint: "inspect"
+      });
+      expect(result.referenced, message).toBe(false);
+      expect(result.attachments, message).toHaveLength(0);
+      expect(result.ambiguityMessage, message).toBeUndefined();
+    }
+
+    const explicit = await resolveConversationMediaContext(conversation, {
+      message: "Which image generator could recreate this image?"
+    });
+    expect(explicit.referenced).toBe(true);
+    expect(explicit.attachments).toHaveLength(1);
+  });
+
+  it("rejects model-router media guesses for ordinary topic changes after a visual turn", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const conversation = {
+      id: "conv-router-topic-change",
+      turns: [{
+        outputs: [{
+          type: "image" as const,
+          url: `data:image/png;base64,${Buffer.from("portrait").toString("base64")}`,
+          alt: "portrait"
+        }]
+      }]
+    };
+    const cases = [
+      ["Can you tell me if this plan is free?", "inspect"],
+      ["What color should I paint my room?", "inspect"],
+      ["Make this paragraph clearer.", "transform"],
+      ["Change this app setting.", "transform"],
+      ["Fix this sentence and keep it concise.", "transform"]
+    ] as const;
+
+    for (const [message, mediaReferenceHint] of cases) {
+      const result = await resolveConversationMediaContext(conversation, {
+        message,
+        mediaReferenceHint
+      });
+      expect(result.referenced, message).toBe(false);
+      expect(result.attachments, message).toHaveLength(0);
+    }
+  });
+
   it("only lets clear historical-media wording replace an answer with the unavailable-file fallback", async () => {
     const { shouldBlockForUnavailableHistoricalMedia } = await import("../services/conversationMediaContext.js");
 
@@ -108,6 +262,8 @@ describe("conversation media context", () => {
     )).toBe(false);
     expect(shouldBlockForUnavailableHistoricalMedia("What breed of puppy did you just send me?")).toBe(true);
     expect(shouldBlockForUnavailableHistoricalMedia("Take those off.")).toBe(true);
+    expect(shouldBlockForUnavailableHistoricalMedia("Use the third.")).toBe(true);
+    expect(shouldBlockForUnavailableHistoricalMedia("The second one.")).toBe(true);
     expect(shouldBlockForUnavailableHistoricalMedia("Just the title only.")).toBe(true);
     expect(shouldBlockForUnavailableHistoricalMedia("Describe the previous image.")).toBe(true);
   });
@@ -725,6 +881,43 @@ describe("conversation media context", () => {
     expect(result.attachments[0]?.url).toBe(latestSecondUrl);
   });
 
+  it("does not carry a visual clarification into an unrelated sentence with an ordinal or recency word", async () => {
+    const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
+    const image = (label: string) => ({
+      type: "image" as const,
+      url: `data:image/png;base64,${Buffer.from(label).toString("base64")}`,
+      alt: label
+    });
+    const conversation = {
+      id: "conv-clarification-topic-change",
+      turns: [
+        { outputs: [image("older first"), image("older second")] },
+        { outputs: [image("latest first"), image("latest second")] },
+        {
+          userMessage: "Make the second image more realistic.",
+          assistantText: "Which earlier visual set do you mean?",
+          outputs: [{ type: "text" as const, text: "Which earlier visual set do you mean?" }],
+          visualClarification: {
+            status: "ambiguous" as const,
+            originalRequest: "Make the second image more realistic.",
+            selectedPositions: [2]
+          }
+        }
+      ]
+    };
+
+    for (const message of [
+      "The latest iPhone seems expensive.",
+      "The first step is to compare the plans.",
+      "The original article was better."
+    ]) {
+      const result = await resolveConversationMediaContext(conversation, { message });
+      expect(result.referenced, message).toBe(false);
+      expect(result.ambiguityMessage, message).toBeUndefined();
+      expect(result.attachments, message).toHaveLength(0);
+    }
+  });
+
   it("combines a current upload with an explicitly requested historical source", async () => {
     const { uploadService } = await import("../services/uploadService.js");
     const { resolveConversationMediaContext } = await import("../services/conversationMediaContext.js");
@@ -1309,7 +1502,18 @@ describe("conversation media context", () => {
       "You're cute.",
       "Can you sing?",
       // Statement about winter, not a recast request.
-      "Winter is coming."
+      "Winter is coming.",
+      // Text and application actions that use the same verbs/pronouns as image edits.
+      "Make it shorter.",
+      "Make this more concise.",
+      "Rewrite that in a more professional tone.",
+      "Remove that from the list.",
+      "Delete it from the conversation.",
+      "Put it on my calendar.",
+      "Change the background information.",
+      "What was the last one you recommended?",
+      "Tell me more about that option.",
+      "Compare these pricing plans."
     ];
 
     it("detects edit follow-ups as transform-intent media references that plan a historical transformation", async () => {
@@ -1358,6 +1562,7 @@ describe("conversation media context", () => {
 
     it("does not treat ordinary chat as a media reference", async () => {
       const {
+        resolveConversationMediaContext,
         shouldPlanHistoricalVisualTransformation,
         shouldUseConversationMediaContext
       } = await import("../services/conversationMediaContext.js");
@@ -1365,6 +1570,79 @@ describe("conversation media context", () => {
       for (const message of nonReferences) {
         expect(shouldUseConversationMediaContext(message), `not referenced: ${message}`).toBe(false);
         expect(shouldPlanHistoricalVisualTransformation(conversationWithImageTurn, message), `no plan: ${message}`).toBe(false);
+        await expect(resolveConversationMediaContext(conversationWithImageTurn, {
+          message,
+          mediaReferenceHint: "transform"
+        }), `router hint ignored: ${message}`).resolves.toMatchObject({ referenced: false });
+      }
+    });
+
+    it("recognizes natural immediate image follow-ups without making them global text collisions", async () => {
+      const {
+        resolveConversationMediaContext,
+        shouldPlanHistoricalVisualTransformation,
+        shouldUseConversationMediaContext
+      } = await import("../services/conversationMediaContext.js");
+      const conversationWithTwoImages = {
+        id: "conv_two_image_corpus",
+        turns: [{
+          userMessage: "Create two portraits.",
+          assistantText: "Here are both versions.",
+          outputs: [
+            { type: "image" as const, url: "data:image/png;base64,Zmlyc3Q=", alt: "First portrait" },
+            { type: "image" as const, url: "data:image/png;base64,c2Vjb25k", alt: "Second portrait" }
+          ]
+        }]
+      };
+
+      const immediateInspectionFollowUps = [
+        "What do you think of them?",
+        "Which one looks better?",
+        "Which would you choose?",
+        "Compare them.",
+        "What's the difference between them?",
+        "Are they the same?",
+        "I prefer the second one."
+      ];
+      for (const message of immediateInspectionFollowUps) {
+        expect(shouldUseConversationMediaContext(message), `not globally visual: ${message}`).toBe(false);
+        await expect(resolveConversationMediaContext(conversationWithTwoImages, { message }), `contextual inspect: ${message}`)
+          .resolves.toMatchObject({ referenced: true, intent: "inspect" });
+      }
+
+      const singleImageInspectionFollowUps = [
+        "What do you think of it?",
+        "How does it look?",
+        "Where was this taken?",
+        "Is this AI-generated?"
+      ];
+      for (const message of singleImageInspectionFollowUps) {
+        expect(shouldUseConversationMediaContext(message), `not globally visual: ${message}`).toBe(false);
+        await expect(resolveConversationMediaContext(conversationWithImageTurn, { message }), `contextual inspect: ${message}`)
+          .resolves.toMatchObject({ referenced: true, intent: "inspect" });
+      }
+
+      const immediateTransformFollowUps = [
+        "Can you remove it?",
+        "Could you rotate this?",
+        "Can you make it black and white?",
+        "Make this transparent."
+      ];
+      for (const message of immediateTransformFollowUps) {
+        expect(shouldPlanHistoricalVisualTransformation(conversationWithImageTurn, message), `contextual transform: ${message}`).toBe(true);
+      }
+
+      const textOnlyConversation = {
+        id: "conv_text_only_corpus",
+        turns: [{
+          userMessage: "Compare these two plans.",
+          assistantText: "The second plan is cheaper.",
+          outputs: [{ type: "text" as const, text: "The second plan is cheaper." }]
+        }]
+      };
+      for (const message of [...immediateInspectionFollowUps, ...singleImageInspectionFollowUps, "Can you remove it?"]) {
+        await expect(resolveConversationMediaContext(textOnlyConversation, { message }), `text-only context: ${message}`)
+          .resolves.toMatchObject({ referenced: false });
       }
     });
   });

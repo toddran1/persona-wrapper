@@ -142,30 +142,39 @@ const MEDIA_REFERENCE_PATTERNS = [
   /\b(this|that|these|those|the|last|latest|previous|prior|same|recent|new|current|above|below|attached|shown|displayed|generated|created|sent)\s+(image|images|picture|pictures|photo|photos|pic|pics|media|asset|assets|attachment|attachments|file|files|visual|visuals|render|renders|output|outputs|result|results|one|ones)\b/i,
   /\b(image|images|picture|pictures|photo|photos|pic|pics|media|asset|assets|attachment|attachments|file|files|visual|visuals|render|renders|output|outputs|result|results)\s+(you|u|we|it)\s+(just\s+|recently\s+|previously\s+)?(sent|made|generated|created|gave|showed|displayed|rendered|produced|uploaded|attached|returned|provided|shared)\b/i,
   /\b(the|that|this|same|last|previous|prior|recent)\s+(one|ones|thing|version|result|output|render|file|upload|attachment)\b/i,
-  /\b(what|who|where|when|why|how|which)\b.*\b(image|images|picture|pictures|photo|photos|pic|pics|media|asset|assets|attachment|attachments|visual|visuals|render|renders|output|outputs|result|results|it|that|this|these|those|one|ones)\b/i,
+  /\b(what|who|where|when|why|how|which)\b.*\b(image|images|picture|pictures|photo|photos|pic|pics|media|asset|assets|attachment|attachments|visual|visuals|render|renders)\b/i,
 
   // Natural inspection questions that often omit the word "image".
-  /\b(what|which)\s+(breed|kind|type|color|colour|style|outfit|clothes|clothing|shirt|dress|hair|pose|position|angle|view|background|setting|scene|room|place|location|object|thing|animal|dog|puppy|cat|person|character|brand|logo|text|word|words|lettering|language|expression|emotion|mood)\b/i,
-  /\b(can|could|would)\s+you\s+(see|tell|figure\s+out|identify|recognize|recognise|guess|check|look)\b.*\b(it|that|this|one|image|picture|photo|pic|asset|attachment|file|visual)\b/i,
-  /\b(does|do|is|are|was|were)\b.*\b(in|on|inside|shown|visible|pictured|displayed)\b.*\b(it|that|this|one|image|picture|photo|pic|visual|scene)\b/i,
-  /\b(is|are|does|do)\s+(it|that|this|one|they|those|these)\s+(look|seem|appear|show|have|include|contain)\b/i,
+  /\b(what|which)\s+(breed|kind|type|color|colour|style|outfit|clothes|clothing|shirt|dress|hair|pose|position|angle|view|background|setting|scene|room|place|location|object|thing|animal|dog|puppy|cat|person|character|brand|logo|text|word|words|lettering|language|expression|emotion|mood)\s+(?:is|are|does|do|was|were)\b/i,
+  /\b(?:what|which)\s+(?:breed|kind|type)\s+of\s+(?:animal|dog|puppy|cat|bird|plant|car|vehicle|object)\b[\s\S]{0,80}\b(?:is|are|does|do|did|was|were|it|this|that|you)\b/i,
+  /\b(can|could|would)\s+you\s+(?:figure\s+out|identify|recognize|recognise|guess)\b.*\b(it|that|this|one|image|picture|photo|pic|asset|attachment|file|visual)\b/i,
+  /\b(can|could|would)\s+you\s+tell\b.*\b(?:breed|kind|type)\s+of\s+(?:animal|dog|puppy|cat|bird|plant|car|vehicle|object)\b/i,
+  /\b(can|could|would)\s+you\s+(?:see|tell|check|look)\b.*\b(image|picture|photo|pic|asset|attachment|visual|shown|pictured|visible)\b/i,
+  /\b(does|do|is|are|was|were)\b.*\b(in|on|inside|shown|visible|pictured|displayed)\b.*\b(image|picture|photo|pic|visual|scene)\b/i,
+  /\b(is|are|does|do)\s+(it|that|this|one|they|those|these)\s+(look|seem|appear|show)\b/i,
+  accessoryAwareRegExp("\\b(?:is|are|does|do)\\s+(?:it|that|this|one|they|those|these)\\s+(?:have|include|contain)\\b[\\s\\S]{0,60}\\b(?:background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|pose|lighting|color|colour|text|caption|watermark|sign|logo|object|person|animal|sky|__ACCESSORIES__)\\b"),
   /\b(what\s+does|how\s+does)\s+(she|he|it|the\s+(?:person|character|subject))\s+look\s+like\b/i,
-  /\b(does|do|is|are)\s+(she|he|they|the\s+(?:person|character|subject|people|characters?))\s+(have|wearing|holding|standing|sitting|look|appear)\b/i,
+  /\b(does|do|is|are)\s+(she|he|they|the\s+(?:person|character|subject|people|characters?))\s+(wearing|holding|standing|sitting|look|appear)\b/i,
+  accessoryAwareRegExp("\\b(?:does|do)\\s+(?:she|he|they|the\\s+(?:person|character|subject|people|characters?))\\s+have\\b[\\s\\S]{0,60}\\b(?:outfit|clothes|clothing|shirt|dress|hair|eyes|pose|__ACCESSORIES__)\\b"),
   /\b(who|what)\s+is\s+(standing|sitting|shown|pictured|next\s+to|behind|beside|in\s+front\s+of)\b/i,
   /\b(can|could)\s+you\s+(read|make\s+out|transcribe)\s+(the|that|this)\s+(sign|text|label|writing|words?|lettering)\b/i,
 
   // Explicit visual analysis language.
-  /\b(describe|caption|inspect|analyze|analyse|identify|recognize|recognise|classify|interpret|review|critique|judge|rate|compare|zoom|crop|enhance|upscale|clean\s+up|look\s+at|take\s+a\s+look\s+at|tell\s+me\s+about|walk\s+me\s+through|break\s+down|explain)\b.*\b(image|images|picture|pictures|photo|photos|pic|pics|media|asset|assets|attachment|attachments|file|files|visual|visuals|render|renders|output|outputs|result|results|it|that|this|these|those|one|ones)\b/i,
+  /\b(describe|caption|inspect|analyze|analyse|identify|recognize|recognise|classify|interpret|review|critique|judge|rate|compare|zoom|crop|enhance|upscale|clean\s+up|look\s+at|take\s+a\s+look\s+at|tell\s+me\s+about|walk\s+me\s+through|break\s+down|explain)\b.*\b(image|images|picture|pictures|photo|photos|pic|pics|media|asset|assets|attachment|attachments|visual|visuals|render|renders)\b/i,
   /\b(what\s+am\s+i\s+looking\s+at|what\s+are\s+we\s+looking\s+at|what\s+is\s+going\s+on\s+here|what\s+do\s+you\s+see|tell\s+me\s+what\s+you\s+see|describe\s+what\s+you\s+see|caption\s+this|caption\s+it)\b/i,
 
   // Edit requests against the prior asset.
-  /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|remix|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth|animate)\b.*\b(it|that|this|these|those|image|images|picture|pictures|photo|photos|pic|pics|asset|assets|attachment|attachments|file|files|visual|visuals|render|renders|output|outputs|result|results|one|ones)\b/i,
+  /\b(edit|change|modify|update|revise|redo|remake|regenerate|rerender|re-render|recreate|rework|remix|fix|adjust|tweak|improve|enhance|clean\s+up|touch\s+up|retouch|restore|sharpen|upscale|crop|resize|reframe|rotate|flip|mirror|extend|expand|outpaint|inpaint|remove|erase|delete|replace|swap|add|insert|include|put|make|turn|convert|transform|stylize|style|restyle|colorize|recolor|lighten|darken|brighten|blur|unblur|smooth|animate)\b.*\b(image|images|picture|pictures|photo|photos|pic|pics|visual|visuals|render|renders)\b/i,
+  /\b(retouch|upscale|crop|reframe|rotate|flip|mirror|outpaint|inpaint|colorize|recolor|blur|unblur|stylize|restyle|remix|rework)\b.*\b(it|that|this|these|those|one|ones)\b/i,
+  /\b(?:animate\s+(?:it|that|this|them|these|those)|make\s+(?:it|that|this|them|these|those)\s+move)\b/i,
+  /\bmake\s+(?:it|that|this|them|these|those)\s+(?:brighter|darker|lighter|sharper|blurry|realistic|cartoonish|cinematic|warmer|cooler|more\s+detailed)\b/i,
   /\b(make|turn|change|convert|transform)\s+(it|that|this|one)\s+(into|to|more|less|look|feel|like)\b/i,
   accessoryAwareRegExp("\\b(add|remove|take\\s+out|get\\s+rid\\s+of|cut\\s+out|replace|swap|switch|exchange|change|fix)\\s+(the|her|his|their|its|your|yo|that|this)\\s+(background|outfit|clothes|clothing|shirt|dress|hair|face|eyes|mouth|nose|lips|smile|teeth|skin|body|pose|lighting|color|colour|style|text|caption|watermark|sign|logo|object|person|animal|sky|__ACCESSORIES__)\\b"),
 
   // Follow-up pronouns commonly used after an image response.
   /\b(use|reuse|keep|base|reference|match|copy|continue\s+with|go\s+with|work\s+from|start\s+from)\b.*\b(it|them|that|this|these|those|one|ones|image|picture|photo|pic|reference|asset|attachment|file|visual|render)\b/i,
-  /\b(again|same\s+again|one\s+more|another\s+one|another\s+version|new\s+version|different\s+version|version\s+of\s+that|do\s+it\s+again|try\s+again|run\s+it\s+back|remake\s+that|redo\s+that)\b/i,
+  /^(?:please\s+)?(?:(?:give|send)\s+me\s+)?(?:again|same\s+again|one\s+more(?:\s+(?:one|version|time))?|another\s+one|another\s+version|new\s+version|different\s+version|version\s+of\s+that|do\s+it\s+again|try\s+again|run\s+it\s+back|remake\s+that|redo\s+that)(?:\s+please)?(?:\s+(?:but|with)\b[\s\S]{1,80})?[\s.!?]*$/i,
+  /^(?:can|could)\s+i\s+(?:get|have)\s+(?:another(?:\s+(?:one|version))?|one\s+more(?:\s+(?:one|version))?)(?:\s+please)?[\s.!?]*$/i,
   /\b(keep|preserve|maintain|do\s+not\s+change|don'?t\s+change|leave)\b.*\b(same|skin\s*tone|face|person|character|pose|background|style|color|colour|outfit|lighting|composition|angle|camera|image|picture|photo)\b/i,
 
   // Deictic and UI-location references.
@@ -183,7 +192,8 @@ const MEDIA_REFERENCE_PATTERNS = [
   /\b(use|look\s+at|compare\s+to|match)\b.*\b(reference|original|upload|uploaded|attachment|attached\s+file|source\s+image|input\s+image)\b/i,
 
   // Follow-ups that refer to visual subjects rather than saying "image".
-  /\b(mix|combine|blend|merge|fuse|morph|composite|remix|mash|cross|hybridize|compare)\b.*\b(them|both|their|the\s+two|all\s+of\s+them|these|those|faces?|features?|looks?|appearances?|designs?|characters?|subjects?|people|outfits?)\b/i,
+  /\b(mix|combine|blend|merge|fuse|morph|composite|remix|mash|cross|hybridize)\b.*\b(them|both|their|the\s+two|all\s+of\s+them|these|those|faces?|features?|looks?|appearances?|designs?|characters?|subjects?|people|outfits?)\b/i,
+  /\bcompare\b.*\b(?:faces?|features?|looks?|appearances?|designs?|characters?|subjects?|outfits?|images?|pictures?|photos?|pics?|visuals?|renders?)\b/i,
   /\b(their|both|the\s+two|these|those)\s+(faces?|features?|looks?|appearances?|designs?|characters?|subjects?|outfits?)\b/i,
   /\b(now|next|then)\b.*\b(merge|combine|blend|mix|morph|edit|change|modify|transform|restyle|remake|redo)\b/i,
 
@@ -201,7 +211,7 @@ const MEDIA_REFERENCE_PATTERNS = [
   /\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th))\s+(and\s+(?:the\s+)?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th))\s+)?(one|ones|image|images|picture|pictures|photo|photos|result|results|version|versions|upload|uploads|reference|references)\b/i,
   /\b(images?|pictures?|photos?|pics?|results?|renders?|outputs?|uploads?|references?)\s+(?:number\s+|#\s*)?(?:\d+|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)(?:\s*(?:,|and)\s*(?:the\s+)?(?:\d+|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth))*\b/i,
   /\b(?:put|place|show|arrange)\b.*\b(?:images?|pictures?|photos?|pics?|them|these|those)\b.*\bside[-\s]?by[-\s]?side\b/i,
-  /\b(?:make|try|render|show)\s+(?:it|them|that|this)\s+(?:in|as|with)\s+(?:a\s+)?(?:watercolor|oil\s+painting|sketch|anime|cartoon|photorealistic|realistic|cinematic|comic|illustration|different|new)\b/i,
+  /\b(?:make|try|render|show|redo|remake|recreate)\s+(?:it|them|that|this)\s+(?:in|as|with)\s+(?:a\s+)?(?:watercolor|oil\s+painting|sketch|anime|cartoon|photorealistic|realistic|cinematic|comic|illustration|pixel\s+art|line\s+art|different|new)\b/i,
   /\b(?:do|apply)\s+the\s+same\b.*\b(?:other|next|previous)\s+one\b/i,
   // Concise visual continuations that rely on the immediately preceding visual set.
   /^(?:zoom\s+(?:in|out)(?:\s+(?:a\s+)?(?:bit|little|touch|more|further|farther|closer|tighter))?|crop\s+(?:it\s+)?(?:tighter|closer)|remove\s+(?:the\s+)?background|add\s+(?:a|an|the)\s+.+|put\s+.+\s+on\s+(?:her|him|them|it))[\s.!?]*$/i,
@@ -241,9 +251,32 @@ function matchesAnyPattern(patterns: RegExp[], message: string): boolean {
   );
 }
 
+function isClearlyNonVisualStandaloneRequest(message: string): boolean {
+  const namesAnImage = /\b(?:images?|pictures?|photos?|pics?|visuals?|renders?)\b/i.test(message);
+  if (namesAnImage) return false;
+  return [
+    /\b(?:edit|change|modify|update|revise|rewrite|fix|adjust|improve|make|shorten|lengthen|summarize|summarise)\b[\s\S]{0,60}\b(?:paragraph|sentence|draft|email|message|code|function|document|file|article|essay|plan|subscription|setting|subject|topic|answer|response|wording|grammar|spelling|chart|table|video|clip)\b/i,
+    /\b(?:add|create|set|remove|delete|change|update|put)\b[\s\S]{0,40}\b(?:reminder|alarm|event|appointment|task|todo|note|contact|calendar|list|cart|queue|schedule)\b/i,
+    /\b(?:make|rewrite|edit|change|revise|redo|shorten|lengthen)\s+(?:it|this|that|them|these|those)\s+(?:much\s+|a\s+(?:bit|little)\s+)?(?:shorter|longer|clearer|simpler|more\s+(?:concise|brief|formal|casual|professional|detailed|specific|direct|friendly)|less\s+(?:formal|technical|verbose|wordy))\b/i,
+    /\b(?:remove|delete|drop|take)\s+(?:it|this|that|them|these|those)\s+(?:off|out\s+of|from)\s+(?:the\s+|my\s+|our\s+)?(?:list|cart|plan|schedule|calendar|queue|conversation|chat|message|answer|response|document|draft|code)\b/i,
+    /\b(?:background)\s+(?:information|info|details?|context|history|research|check|checks|screening)\b/i,
+    /\b(?:the\s+)?(?:last|latest|previous|prior|first|second|third|fourth)\s+one\s+(?:you|we|i)\s+(?:recommended|suggested|mentioned|listed|described|explained|said|wrote|discussed|picked|chose)\b/i,
+    /\b(?:this|that|these|those|last|latest|previous|prior|first|second|third|fourth)\s+(?:option|recommendation|suggestion|product|platform|model|plan|price|tier|answer|response|point|item|step|question|topic|idea|example|version\s+number)\b/i
+  ].some((pattern) => pattern.test(message));
+}
+
 export function shouldUseConversationMediaContext(message: string): boolean {
   const normalized = message.replace(/\s+/g, " ").trim();
-  if (!normalized) return false;
+  if (!normalized || isClearlyNonVisualStandaloneRequest(normalized)) return false;
+  // "I prefer the second one" can select an image, product, plan, or any
+  // other list item. It becomes visual only beside an immediately preceding
+  // multi-image result (handled by isImmediateVisualContextFollowUp).
+  if (/^(?:i\s+)?(?:like|prefer|choose|pick)\s+(?:the\s+)?(?:first|second|third|fourth|left|right|top|bottom|middle|last)\s+(?:one|version)?[\s.!?]*$/i.test(normalized)) {
+    return false;
+  }
+  if (/^(?:so\s+)?how\s+(?:does|do)\s+(?:it|this|that|they|these|those)\s+look(?:\s+to\s+you)?[\s.!?]*$/i.test(normalized)) {
+    return false;
+  }
   return matchesAnyPattern(MEDIA_REFERENCE_PATTERNS, normalized);
 }
 
@@ -255,15 +288,20 @@ export function shouldUseConversationMediaContext(message: string): boolean {
  */
 export function shouldBlockForUnavailableHistoricalMedia(message: string): boolean {
   const normalized = stripLeadingFillers(message.replace(/\s+/g, " ").trim());
-  if (!normalized) return false;
+  if (!normalized || isClearlyNonVisualStandaloneRequest(normalized)) return false;
 
   const namesVisualMedia = /\b(?:image|images|picture|pictures|photo|photos|pic|pics|visual|visuals|render|renders|upload|uploads|attachment|attachments)\b/i.test(normalized);
   const pointsBackward = /\b(?:it|its|this|that|these|those|them|one|ones|same|above|below|previous|prior|earlier|last|latest|recent)\b/i.test(normalized);
-  const actsOnOrInspects = /\b(?:take|remove|add|put|change|edit|modify|replace|swap|make|turn|convert|transform|style|restyle|redo|remake|regenerate|use|reuse|keep|fix|adjust|enhance|upscale|crop|zoom|combine|mix|merge|describe|inspect|identify|recognize|read|see|show|look|tell|explain|analyze|analyse|compare|review|check|what|who|where|which|how)\b/i.test(normalized);
+  const actsOnOrInspects = /\b(?:take|remove|add|edit|modify|replace|swap|convert|transform|style|restyle|redo|remake|regenerate|enhance|upscale|crop|zoom|combine|mix|merge|describe|inspect|identify|recognize|read|analyze|analyse|compare|review)\b/i.test(normalized);
+  const terseVisualChange = /\b(?:make|change|turn|put|use|reuse|keep|fix|adjust)\b/i.test(normalized) &&
+    /\b(?:brighter|darker|lighter|sharper|blurry|realistic|cartoonish|background|outfit|pose|lighting|color|colour|crop|image|picture|photo|visual|render)\b/i.test(normalized);
   const referencesDeliveredContent = /\b(?:did\s+you\s+(?:just\s+)?(?:send|make|generate|create|give|show|upload|attach|provide|share)|have\s+you\s+(?:just\s+)?(?:sent|made|generated|created|given|shown|uploaded|attached|provided|shared)|you\s+(?:just|previously|recently)\s+(?:sent|made|generated|created|gave|showed|uploaded|attached|provided|shared))\b/i.test(normalized);
   const ellipticalVisualInspection = /^(?:please\s+)?(?:just\s+|only\s+)?(?:give|tell|show|read|transcribe|extract|identify)?\s*(?:me\s+)?(?:just\s+|only\s+)?(?:the\s+)?(?:title|text|words?|name|label|caption|writing|lettering)(?:\s+(?:only|instead))?[\s.!?]*$/i.test(normalized);
+  const explicitOrdinalSelection = /\b(?:use|choose|pick|select)\s+(?:the\s+)?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th))\b/i.test(normalized) ||
+    /^(?:the\s+)?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th))\s+one[\s.!?]*$/i.test(normalized);
 
-  return namesVisualMedia || referencesDeliveredContent || ellipticalVisualInspection || (pointsBackward && actsOnOrInspects);
+  return namesVisualMedia || referencesDeliveredContent || ellipticalVisualInspection || explicitOrdinalSelection ||
+    (pointsBackward && (actsOnOrInspects || terseVisualChange));
 }
 
 function shouldTrustMediaReferenceHint(
@@ -282,10 +320,14 @@ function shouldTrustMediaReferenceHint(
   if (!hasBackwardPointer) return false;
 
   if (hint === "transform") {
+    if (isClearlyNonVisualStandaloneRequest(normalized) || /\b(?:paragraph|sentence|draft|email|message|code|function|plan|subscription|setting|subject|topic|answer|response|wording|grammar|spelling)\b/i.test(normalized)) {
+      return false;
+    }
     return /\b(?:take|remove|add|put|change|edit|modify|replace|swap|make|turn|convert|transform|style|restyle|redo|remake|regenerate|use|reuse|keep|fix|adjust|enhance|upscale|crop|zoom|combine|mix|merge|do|try)\b/i.test(normalized);
   }
 
-  return /\b(?:what|who|where|which|how|why|describe|inspect|identify|recognize|read|see|show|look|tell|explain|analyze|analyse|compare|review|check|is|are|does|do|can|could)\b/i.test(normalized);
+  return shouldUseConversationMediaContext(normalized) &&
+    /\b(?:what|who|where|which|how|why|describe|inspect|identify|recognize|read|see|show|look|tell|explain|analyze|analyse|compare|review|check|is|are|does|do|can|could)\b/i.test(normalized);
 }
 
 const EXPLICIT_HISTORICAL_MEDIA_PATTERN =
@@ -475,6 +517,8 @@ const ORDINAL_VALUES: Record<string, number> = {
 const ORDINAL_WORD_PATTERN = Object.keys(ORDINAL_VALUES).join("|");
 const VISUAL_ITEM_NOUN_PATTERN =
   String.raw`(?:ones?|images?|pictures?|photos?|pics?|results?|renders?|outputs?|uploads?|references?)`;
+const NUMBERED_VISUAL_ITEM_NOUN_PATTERN =
+  String.raw`(?:images?|pictures?|photos?|pics?|results?|renders?|outputs?|uploads?|references?)`;
 
 function ordinalValue(value: string): number | undefined {
   const normalized = value.toLowerCase();
@@ -498,11 +542,11 @@ function requestedVisualPositions(message: string): number[] {
     "gi"
   );
   const afterNoun = new RegExp(
-    String.raw`\b${VISUAL_ITEM_NOUN_PATTERN}\s*(?:number|#)?\s*(\d+)\b`,
+    String.raw`\b${NUMBERED_VISUAL_ITEM_NOUN_PATTERN}\s*(?:number|#)?\s*(\d+)\b`,
     "gi"
   );
   const afterNounList = new RegExp(
-    String.raw`\b${VISUAL_ITEM_NOUN_PATTERN}\s+((?:(?:the\s+)?(?:${ORDINAL_WORD_PATTERN}|\d+(?:st|nd|rd|th)?))(?:\s*(?:,|and)\s*(?:the\s+)?(?:${ORDINAL_WORD_PATTERN}|\d+(?:st|nd|rd|th)?))*)\b`,
+    String.raw`\b${NUMBERED_VISUAL_ITEM_NOUN_PATTERN}\s+((?:(?:the\s+)?(?:${ORDINAL_WORD_PATTERN}|\d+(?:st|nd|rd|th)?))(?:\s*(?:,|and)\s*(?:the\s+)?(?:${ORDINAL_WORD_PATTERN}|\d+(?:st|nd|rd|th)?))*)\b`,
     "gi"
   );
   const ordinalToken = new RegExp(String.raw`\b(${ORDINAL_WORD_PATTERN}|\d+(?:st|nd|rd|th)?)\b`, "gi");
@@ -730,9 +774,9 @@ function isVisualClarificationReply(message: string): boolean {
   const normalized = message.replace(/\s+/g, " ").trim();
   if (!normalized || normalized.length > 240) return false;
   return [
-    /^(?:use\s+|choose\s+|pick\s+|select\s+|go\s+back\s+to\s+|return\s+to\s+)?(?:the\s+)?(?:last|latest|recent|previous|prior|original|earliest)\b/i,
-    /^(?:use\s+|choose\s+|pick\s+|select\s+)?(?:the\s+)?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th)?)\s+(?:attempt|version|result|output|image|picture|photo|one)\b/i,
-    /^(?:use\s+|choose\s+|pick\s+|select\s+)?(?:the\s+)?(?:uploads?|sources?|references?|generated\s+(?:results?|outputs?)|results?|outputs?)\b/i
+    /^(?:use\s+|choose\s+|pick\s+|select\s+|go\s+back\s+to\s+|return\s+to\s+)?(?:the\s+)?(?:last|latest|recent|previous|prior|original|earliest)(?:\s+(?:one|ones|attempt|version|result|output|image|picture|photo|upload|uploads?))?(?:\s+please)?[\s.!?]*$/i,
+    /^(?:use\s+|choose\s+|pick\s+|select\s+)?(?:the\s+)?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+(?:st|nd|rd|th)?)\s+(?:attempt|version|result|output|image|picture|photo|one)(?:\s+please)?[\s.!?]*$/i,
+    /^(?:use\s+|choose\s+|pick\s+|select\s+)?(?:the\s+)?(?:uploads?|sources?|references?|generated\s+(?:results?|outputs?)|results?|outputs?)(?:\s+please)?[\s.!?]*$/i
   ].some((pattern) => pattern.test(normalized));
 }
 
@@ -772,6 +816,88 @@ function effectiveConversationMediaMessage(
   return `${clarification.originalRequest.trim()}\nVisual selection clarification: ${currentMessage.trim()}`;
 }
 
+function hasExplicitVisualMediaLanguage(message: string): boolean {
+  return /\b(?:images?|pictures?|photos?|pics?|visuals?|renders?|image\s+uploads?|image\s+attachments?|visual\s+sets?)\b/i.test(message);
+}
+
+function isStandaloneVisualDomainDiscussion(message: string): boolean {
+  const discussesToolsOrConcepts = [
+    /\b(?:image|photo|picture|video|visual)\s+(?:generation|generator|model|platform|service|software|tool|app|api|pricing|subscription|plan|compression|format|formats|resolution|resolutions|hosting|storage|search|licensing|license)\b/i,
+    /\b(?:images?|photos?|pictures?|videos?|visuals?)\b[\s\S]{0,80}\b(?:generator|model|platform|service|software|tool|app|api|pricing|subscription|plan|tier|price|cost|free)\b/i,
+    /\b(?:generate|create|edit|store|host|compress|convert)\s+(?:an?\s+)?(?:image|photo|picture|video)s?\b[\s\S]{0,80}\b(?:platform|service|software|tool|app|api|plan|tier|price|pricing|cost|free)\b/i,
+    /\b(?:react|vue|angular|component|page|browser|css|canvas|server)\b[\s\S]{0,60}\brender(?:s|ed|ing)?\b/i
+  ].some((pattern) => pattern.test(message));
+  if (!discussesToolsOrConcepts) return false;
+
+  const directlyPointsToVisual = /\b(?:this|that|these|those|previous|prior|earlier|last|latest|above|attached|uploaded|shown|displayed|generated)\s+(?:image|images|picture|pictures|photo|photos|pic|pics|visual|visuals|render|renders)\b/i.test(message) ||
+    /\b(?:image|images|picture|pictures|photo|photos|pic|pics|visual|visuals|render|renders)\s+(?:you|we)\s+(?:made|generated|created|sent|showed|uploaded|attached|provided|shared)\b/i.test(message);
+  return !directlyPointsToVisual;
+}
+
+function mostRecentConversationTurnHasVisuals(conversation: ConversationWithOutputs): boolean {
+  const lastTurn = conversation.turns?.at(-1);
+  return Boolean(
+    lastTurn &&
+    ((lastTurn.userAssets ?? []).some((asset) => asset.kind === "image") ||
+      lastTurn.outputs.some(isConversationImageCandidate))
+  );
+}
+
+function mostRecentConversationVisualCount(conversation: ConversationWithOutputs): number {
+  const lastTurn = conversation.turns?.at(-1);
+  if (!lastTurn) return 0;
+  return (lastTurn.userAssets ?? []).filter((asset) => asset.kind === "image").length +
+    lastTurn.outputs.filter(isConversationImageCandidate).length;
+}
+
+/**
+ * Some natural follow-ups are only visual when they immediately follow visual
+ * content. Keep them out of the global lexical matcher so identical wording in
+ * an ordinary text thread ("compare them", "which one is better?") remains
+ * text-only.
+ */
+function isImmediateVisualContextFollowUp(
+  conversation: ConversationWithOutputs,
+  message: string
+): boolean {
+  if (!mostRecentConversationTurnHasVisuals(conversation) || isClearlyNonVisualStandaloneRequest(message)) {
+    return false;
+  }
+
+  const normalized = stripLeadingFillers(message.replace(/\s+/g, " ").trim());
+  if (!normalized || normalized.length > 240 || isStandaloneVisualDomainDiscussion(normalized)) return false;
+
+  const visualCount = mostRecentConversationVisualCount(conversation);
+  const comparesRecentVisuals = visualCount >= 2 && [
+    /^(?:(?:can|could|would)\s+you\s+)?(?:compare|contrast)\s+(?:them|these|those|both|the\s+two)(?:\s+for\s+me)?[\s.!?]*$/i,
+    /^(?:what(?:'s|\s+is)|what\s+are)\s+(?:the\s+)?differences?\s+between\s+(?:them|these|those|the\s+two)[\s.!?]*$/i,
+    /^(?:which|what)\s+one\s+(?:looks?|is|seems?|appears?)\s+(?:better|best|more\s+[\w-]+)[\s.!?]*$/i,
+    /^(?:which\s+(?:one|ones)|which)\s+(?:do\s+you\s+prefer|would\s+you\s+(?:choose|pick))[\s.!?]*$/i,
+    /^(?:i\s+)?(?:like|prefer|choose|pick)\s+(?:the\s+)?(?:first|second|third|fourth|left|right|top|bottom|middle|last)\s+(?:one|image|picture|photo|version)?[\s.!?]*$/i,
+    /^(?:are|do)\s+(?:they|these|those)\s+(?:the\s+same|match|look\s+alike|look\s+different)[\s.!?]*$/i
+  ].some((pattern) => pattern.test(normalized));
+
+  if (comparesRecentVisuals) return true;
+
+  return [
+    /^(?:so\s+)?what\s+do\s+you\s+think\s+(?:of|about)\s+(?:it|this|that|them|these|those)[\s.!?]*$/i,
+    /^(?:so\s+)?how\s+(?:does|do)\s+(?:it|this|that|they|these|those)\s+look(?:\s+to\s+you)?[\s.!?]*$/i,
+    /^(?:where|when)\s+(?:was|were|is|are)\s+(?:it|this|that|they|these|those)\s+(?:taken|shot|made|created|captured)[\s.!?]*$/i,
+    /^(?:is|are|does|do)\s+(?:it|this|that|they|these|those)\s+(?:look\s+)?(?:real|fake|edited|photoshopped|ai(?:-generated)?|authentic|natural)[\s.!?]*$/i,
+    /^(?:can|could|would)\s+you\s+(?:remove|erase|delete|crop|rotate|flip|mirror|upscale|sharpen|blur|animate|recolor|retouch)\s+(?:it|this|that|them|these|those)[\s.!?]*$/i,
+    /^(?:(?:can|could|would)\s+you\s+)?make\s+(?:it|this|that|them|these|those)\s+(?:black\s+and\s+white|transparent|square|vertical|horizontal|portrait|landscape|warmer|cooler|brighter|darker|sharper|clearer)[\s.!?]*$/i
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function hasVisualReferenceContinuity(conversation: ConversationWithOutputs, message: string): boolean {
+  if (isStandaloneVisualDomainDiscussion(message)) return false;
+  const lastTurn = conversation.turns?.at(-1);
+  return hasExplicitVisualMediaLanguage(message) ||
+    mostRecentConversationTurnHasVisuals(conversation) ||
+    lastTurn?.visualClarification?.status === "ambiguous" ||
+    conversationImageGroups(conversation).length === 0;
+}
+
 export function shouldPlanHistoricalVisualTransformation(
   conversation: ConversationWithOutputs,
   message: string,
@@ -780,9 +906,12 @@ export function shouldPlanHistoricalVisualTransformation(
   const effectiveMessage = effectiveConversationMediaMessage(conversation, message);
   const requirement = analyzeImageReferenceRequirement(effectiveMessage);
   const explicitlyReferencesHistory = hasExplicitHistoricalReference(effectiveMessage);
+  const referencesMedia = shouldUseConversationMediaContext(effectiveMessage) ||
+    isImmediateVisualContextFollowUp(conversation, effectiveMessage);
   if (
     resetsHistoricalMedia(effectiveMessage) ||
-    !shouldUseConversationMediaContext(effectiveMessage) ||
+    !referencesMedia ||
+    !hasVisualReferenceContinuity(conversation, effectiveMessage) ||
     inferVisualIntent(effectiveMessage) !== "transform" ||
     (currentImageCount > 0 && !explicitlyReferencesHistory) ||
     (requirement.expectsNewUploads && !explicitlyReferencesHistory)
@@ -837,12 +966,16 @@ export async function resolveConversationMediaContext(
 ): Promise<ConversationMediaContextResult> {
   const effectiveMessage = effectiveConversationMediaMessage(conversation, options.message);
   const effectiveRequirement = analyzeImageReferenceRequirement(effectiveMessage);
-  const patternReferenced = shouldUseConversationMediaContext(effectiveMessage);
+  const visualReferenceContinuity = hasVisualReferenceContinuity(conversation, effectiveMessage);
+  const patternReferenced = (
+    shouldUseConversationMediaContext(effectiveMessage) ||
+    isImmediateVisualContextFollowUp(conversation, effectiveMessage)
+  ) && visualReferenceContinuity;
   const patternIntent = inferVisualIntent(effectiveMessage);
   const hint = options.mediaReferenceHint;
   // Patterns are the deterministic base; the router hint only upgrades a
   // pattern miss when the user's words also point back to prior content.
-  const trustedHint = shouldTrustMediaReferenceHint(effectiveMessage, hint);
+  const trustedHint = shouldTrustMediaReferenceHint(effectiveMessage, hint) && visualReferenceContinuity;
   const hintedIntent = trustedHint && hint && hint !== "none" ? hint : undefined;
   const referenced = patternReferenced || trustedHint;
   const intent = patternReferenced ? patternIntent : hintedIntent ?? patternIntent;

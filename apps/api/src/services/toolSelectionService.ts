@@ -7,16 +7,18 @@ import { inferImageOrientationFromMessage } from "../providers/image/fluxImageDi
 
 const WEB_SEARCH_PATTERNS = [
   /\b(search|look up|lookup|browse|google|find online|check online|on the web|from the web|internet|web search)\b/i,
-  /\b(latest|current|currently|today|tonight|right now|live|breaking|recent|recently|newest|most recent|upcoming|this week|this month|this year|last year|as of)\b/i,
+  /\b(latest|breaking|recent|recently|newest|most recent|upcoming|this week|this month|this year|last year|as of)\b/i,
+  /\bcurrent\s+(?:price|pricing|cost|weather|forecast|temperature|status|score|standings|schedule|roster|lineup|president|prime minister|governor|mayor|ceo|cfo|cto|office holder|laws?|regulations?|tax rates?|visa requirements?|travel advisories|version|release|availability|stock|market|rates?)\b/i,
   /\b(news|headline|weather|forecast|temperature|traffic|flight status|delay|closure|outage|recall|alert)\b/i,
-  /\b(score|scores|standings|schedule|fixture|results?|box score|roster|lineup|injury report|depth chart|playoffs?|tournament|draft|trade|free agent)\b/i,
+  /\b(score|scores|standings|schedule|fixture|box score|roster|lineup|injury report|depth chart|playoffs?|tournament|draft|trade|free agent)\b/i,
   /\b(last|previous|most recent)\s+(game|match|race|fight|season|appearance|start|episode|release|event)\b/i,
+  /\b(?:who|which\s+(?:team|player|fighter))\s+won\b[\s\S]{0,80}\b(?:game|match|race|fight|tournament|championship|finals?)\b/i,
   /\b(official event|event results?|top\s*\d+|qualifiers?|finalists?|champion|championship|finals)\b/i,
   /\b(how many|what|who)\b[\s\S]{0,100}\b(points|goals|runs|rebounds|assists|yards|hits|strikeouts|stats?|votes|seats|medals)\b/i,
-  /\b(price|pricing|cost|stock|share price|market cap|market|exchange rate|interest rate|mortgage rate|inflation|cpi|gdp|unemployment|earnings|revenue)\b/i,
+  /\b(price|pricing|cost|free\s+(?:plan|tier|option)|subscription\s+plans?|stock|share price|market cap|market|exchange rate|interest rate|mortgage rate|inflation|cpi|gdp|unemployment|earnings|revenue)\b/i,
   /\b(president|prime minister|governor|mayor|ceo|cfo|cto|chairperson|senator|representative|office holder|election|polls?|approval rating)\b/i,
   /\b(law|laws|legal requirement|regulation|regulations|rule change|policy change|tax rate|visa requirement|travel advisory|entry requirement)\b/i,
-  /\b(release date|released|launch date|announcement|announced|available|availability|in stock|sold out|specs?|version|update|changelog|supported|compatibility)\b/i,
+  /\b(release date|released|launch date|announcement|announced|availability|in stock|sold out|specs?|software update|product update|changelog|supported|compatibility)\b/i,
   /\b(first[- ]?week sales|album sales|sales numbers|box office|chart position|discography|ranking|ranked|winner|won|record holder)\b/i,
   /\b(recommend|recommendation|best|top rated|reviews?|compare prices|near me|nearby|restaurant|hotel|flight|vacation|trip|travel plan)\b/i,
   /\b(verify|confirm|fact[- ]?check|citation|citations|cite|source|sources|reference|references|evidence|proof)\b/i,
@@ -24,11 +26,13 @@ const WEB_SEARCH_PATTERNS = [
 ];
 
 const ANALYSIS_PATTERNS = [
-  /\b(calculate|compute|solve|evaluate|estimate|measure|quantify|count|total|sum|average|mean|median|mode|percent|percentage|ratio|variance|standard deviation|correlation|regression)\b/i,
+  /\b(calculate|compute|solve|evaluate|estimate|measure|quantify|sum|average|mean|median|percent|percentage|ratio|variance|standard deviation|correlation|regression)\b/i,
+  /\b(?:calculate|compute|find|determine|report)\s+(?:the\s+)?(?:count|total|mode)\b/i,
   /\b(growth|conversion|success|failure|error|response|retention|churn)\s+rate\b/i,
   /\b(analy[sz]e|analysis|inspect data|explore data|data set|dataset|statistics|statistical|outlier|forecast|projection|simulation)\b/i,
   /\b(trend|pattern|model|scenario)\b[\s\S]{0,60}\b(data|dataset|numbers?|financial|statistical|forecast|projection)\b/i,
-  /\b(chart|graph|plot|visuali[sz]e|dashboard|histogram|scatter plot|pie chart|bar chart|line chart|heatmap|pivot|table)\b/i,
+  /\b(chart|graph|visuali[sz]e|dashboard|histogram|scatter plot|pie chart|bar chart|line chart|heatmap|pivot table|data table)\b/i,
+  /\bplot\s+(?:the|these|those|my|our)\s+(?:data|values?|numbers?|points?|results?|series|measurements?)\b/i,
   /\b(python|code interpreter|run code|execute code|notebook|dataframe|pandas|numpy)\b/i,
   /\b(sort|filter|group|aggregate|merge|join|deduplicate|clean|normalize|transform|convert)\b[\s\S]{0,80}\b(data|rows?|columns?|csv|spreadsheet|workbook|json|file)\b/i,
   /\b(csv|tsv|xlsx|excel|spreadsheet|workbook)\b[\s\S]{0,80}\b(analy[sz]e|calculate|chart|graph|summari[sz]e|compare|transform|clean)\b/i
@@ -144,7 +148,7 @@ function deterministicDecision(request: ChatRequest): RouterDecision {
     imageGeneration: matchesAny(request.message, IMAGE_GENERATION_PATTERNS) || (hasImages && matchesAny(request.message, IMAGE_EDIT_PATTERNS)),
     videoAnalysis: extractYouTubeVideoUrls(request.message).length > 0 && matchesAny(request.message, NATIVE_VIDEO_ANALYSIS_PATTERNS),
     videoAnalysisMode: "explicit",
-    background: /\b(in the background|background task|take your time|long[- ]running|large dataset|big dataset)\b/i.test(request.message),
+    background: /\b(background task|run (?:it|this|that) in the background|process (?:it|this|that) in the background|take your time|long[- ]running|large dataset|big dataset)\b/i.test(request.message),
     mediaReference: shouldUseConversationMediaContext(request.message)
       ? inferVisualIntent(request.message)
       : "none",

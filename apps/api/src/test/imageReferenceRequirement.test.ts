@@ -94,12 +94,27 @@ describe("image reference requirements", () => {
 
   it("requires a missing original upload without confusing it with text-to-image generation", () => {
     expect(analyzeImageReferenceRequirement(
-      "Use the original upload and make it darker."
+      "Use the original image upload and make it darker."
     )).toEqual({
       required: true,
       minimumImages: 1,
       expectsNewUploads: false
     });
+  });
+
+  it("does not assume generic references, attachments, or uploads are images", () => {
+    for (const prompt of [
+      "Compare these references and summarize the strongest source.",
+      "Review the attached contract.",
+      "Use the original upload and make the paragraph clearer.",
+      "Rank these attachments by file size."
+    ]) {
+      expect(analyzeImageReferenceRequirement(prompt), prompt).toEqual({
+        required: false,
+        minimumImages: 0,
+        expectsNewUploads: false
+      });
+    }
   });
 
   it("does not treat ordinary text-to-image counts as missing references", () => {
