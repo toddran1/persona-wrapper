@@ -32,8 +32,27 @@ export const bamBamPersona: PersonaDefinitionInput = {
   visualReference360FaceImage:
     "/apps/web/public/personas/bam-bam/bambam_portait_360_1.png",
   visualStage: {
-    loops: undefined,
-    transitions: undefined,
+    loops: {
+      idle: [
+        "/personas/bam-bam/videos/loops/bam-idle-10s-1.mp4",
+        "/personas/bam-bam/videos/loops/bam-idle-10s-2.mp4",
+        "/personas/bam-bam/videos/loops/bam-idle-10s-3.mp4"
+      ],
+      thinking: [
+        "/personas/bam-bam/videos/loops/bam-thinking-10s-1.mp4"
+      ],
+      speaking: [
+        "/personas/bam-bam/videos/loops/bam-speaking-10s-1.mp4",
+        "/personas/bam-bam/videos/loops/bam-speaking-10s-2.mp4"
+      ],
+    },
+    transitions: {
+      "idle-thinking": "/personas/bam-bam/videos/transitions/bam-idle-to-thinking-1s-1st.mp4",
+      "idle-speaking": "/personas/bam-bam/videos/transitions/bam-idle-to-speaking-1s-1st.mp4",
+      "thinking-speaking": "/personas/bam-bam/videos/transitions/bam-thinking-to-speaking-1s-1st.mp4",
+      "thinking-idle": "/personas/bam-bam/videos/transitions/bam-thinking-to-idle-1s-1st.mp4",
+      "speaking-idle": "/personas/bam-bam/videos/transitions/bam-speaking-to-idle-1s-1st.mp4"
+    },
     fallbackImages: {
       idle: "/personas/bam-bam/bambam_idle_2.png",
       thinking: "/personas/bam-bam/bambam_thinking_2.png",
