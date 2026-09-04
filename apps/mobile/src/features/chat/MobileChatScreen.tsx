@@ -2715,14 +2715,12 @@ export function MobileChatScreen() {
       }
       const detail = await queryClient.fetchQuery(personaQueryOptions(personaId, authUser.id));
       if (selectionGeneration !== selectionGenerationRef.current) return;
+      clearVisualStateTimer();
+      setPersonaVisualState("idle");
       activePersonaIdRef.current = detail.id;
       setPersona(detail);
       setProvider(detail.supportedProviders.includes(provider) ? provider : detail.supportedProviders[0] ?? "openai");
       void setSelectedPersonaId(detail.id).catch(() => undefined);
-      if (activeChatPersonaIdRef.current) {
-        clearVisualStateTimer();
-        setPersonaVisualState(activeChatPersonaIdRef.current === detail.id ? "thinking" : "idle");
-      }
       closeDrawer();
     } catch (selectError) {
       if (selectionGeneration !== selectionGenerationRef.current) return;
@@ -3683,6 +3681,7 @@ export function MobileChatScreen() {
 
           {activePersona?.visualStage ? (
             <PersonaVisualStage
+              key={activePersona.id}
               expanded={personaCardExpanded}
               hidden={personaCardHidden}
               landscape={landscapeLayout}

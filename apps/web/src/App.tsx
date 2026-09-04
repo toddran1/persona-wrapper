@@ -856,8 +856,8 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
 
     if (loading) {
       if (
-        activeRequestPersonaIdRef.current
-        && activeRequestPersonaIdRef.current !== selectedPersonaId
+        !activeRequestPersonaIdRef.current
+        || activeRequestPersonaIdRef.current !== selectedPersonaId
       ) {
         completedTurnCountRef.current = renderedTurns.length;
         setNonAudioVisualState("idle");
@@ -1991,13 +1991,15 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
     [personas]
   );
   const hasConversationContent = renderedTurns.length > 0 || pendingPrompt !== undefined || loading;
+  const selectedPersonaRequestLoading = loading
+    && activeRequestPersonaIdRef.current === selectedPersonaId;
   const personaVisualState = audioEnabled
     ? personaAudioPlaying
       ? "speaking"
-      : loading && !suppressAudioVisualForCurrentTurnRef.current
+      : selectedPersonaRequestLoading && !suppressAudioVisualForCurrentTurnRef.current
         ? "thinking"
         : "idle"
-    : loading && !suppressAudioVisualForCurrentTurnRef.current
+    : selectedPersonaRequestLoading && !suppressAudioVisualForCurrentTurnRef.current
       ? "thinking"
       : nonAudioVisualState;
   const themeStyle = activeTheme
@@ -2248,6 +2250,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
             <div className={`persona-stage-slot${personaCardVisible ? "" : " persona-stage-slot-hidden"}`}>
               {activePersona?.visualStage ? (
                 <PersonaVisualStage
+                  key={activePersona.id}
                   state={personaVisualState}
                   personaName={activePersona.name}
                   profile={activePersona.visualStage}
