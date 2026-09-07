@@ -84,7 +84,9 @@ also has a high provider-safe request ceiling, and reward records are retained
 for 400 days before scheduled cleanup. The endpoint returns a no-reward `200`
 response for AdMob's queryless URL-readiness probe. Signed console callbacks
 without the optional testing identity fields are verified and acknowledged but
-never enter the reward transaction.
+never enter the reward transaction. Invalid 400-class callbacks are also
+acknowledged without a grant; temporary key-service failures remain retryable
+non-200 responses.
 
 ## app-ads.txt
 
