@@ -404,6 +404,8 @@ export function MobileChatScreen() {
   const selectionGenerationRef = useRef(0);
   const conversationListGenerationRef = useRef(0);
   const appStateRef = useRef(AppState.currentState);
+  const pendingRewardSessionRef = useRef<{ sessionId: string; accountId: string } | undefined>(undefined);
+  const rewardPollInFlightRef = useRef(false);
   const sessionValidationInFlightRef = useRef(false);
   const appDataReloadInFlightRef = useRef<Promise<void> | undefined>(undefined);
   const userCacheRestoreRef = useRef<Map<string, Promise<void>>>(new Map());
@@ -541,6 +543,8 @@ export function MobileChatScreen() {
     setRewardAdBusy(false);
     setRewardAdError(undefined);
     setRewardAdNotice(undefined);
+    pendingRewardSessionRef.current = undefined;
+    rewardPollInFlightRef.current = false;
   }, [authUser?.id]);
 
   useEffect(() => {
@@ -944,7 +948,10 @@ export function MobileChatScreen() {
     if (panel === "sessions") void refreshActiveSessions();
     if (panel === "security") void refreshConnectedAccounts();
     if (panel === "memory") void refreshMemorySettings();
-    if (panel === "plan") void refreshBilling();
+    if (panel === "plan") {
+      void refreshBilling();
+      void resumePendingAdReward();
+    }
     if (panel === "provider") void refreshPlanUsage();
   }
 
@@ -983,12 +990,14 @@ export function MobileChatScreen() {
         const reward = await api.getAdRewardSession(sessionId);
         if (currentAccountIdRef.current !== accountId) return;
         if (reward.status === "granted") {
+          if (pendingRewardSessionRef.current?.sessionId === sessionId) pendingRewardSessionRef.current = undefined;
           await refreshPlanUsage();
           setRewardAdNotice(`${reward.rewardAmount} media credit added.`);
           setRewardAdBusy(false);
           return;
         }
         if (reward.status === "rejected" || reward.status === "expired") {
+          if (pendingRewardSessionRef.current?.sessionId === sessionId) pendingRewardSessionRef.current = undefined;
           setRewardAdError("The ad could not be verified, so no credit was added.");
           setRewardAdBusy(false);
           return;
@@ -1003,8 +1012,20 @@ export function MobileChatScreen() {
       }
     }
     if (currentAccountIdRef.current === accountId) {
-      setRewardAdNotice("Google is still verifying the reward. Your balance will update when verification finishes.");
+      setRewardAdNotice("Google is still verifying the reward. We’ll check again when you reopen Plan & usage or return to the app.");
       setRewardAdBusy(false);
+    }
+  }
+
+  async function resumePendingAdReward(): Promise<void> {
+    const pending = pendingRewardSessionRef.current;
+    if (!pending || rewardPollInFlightRef.current || currentAccountIdRef.current !== pending.accountId) return;
+    rewardPollInFlightRef.current = true;
+    setRewardAdBusy(true);
+    try {
+      await pollAdRewardSession(pending.sessionId, pending.accountId);
+    } finally {
+      rewardPollInFlightRef.current = false;
     }
   }
 
@@ -1027,8 +1048,9 @@ export function MobileChatScreen() {
         onLoaded: () => setRewardAdNotice("Ad ready."),
         onEarned: () => {
           earned = true;
+          pendingRewardSessionRef.current = { sessionId: session.sessionId, accountId };
           setRewardAdNotice("Verifying your media credit…");
-          void pollAdRewardSession(session.sessionId, accountId);
+          void resumePendingAdReward();
         },
         onClosed: () => {
           if (!earned && currentAccountIdRef.current === accountId) {
@@ -1657,6 +1679,7 @@ export function MobileChatScreen() {
               return;
             }
             void reconcilePendingBackgroundTurn();
+            void resumePendingAdReward();
             // Cross-session sync: pick up messages and chats created on other
             // devices while this app was backgrounded.
             void refreshConversations(result.user.id);

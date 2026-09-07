@@ -20,10 +20,12 @@ const TEST_REWARDED_UNITS = [
   "ca-app-pub-3940256099942544/1712485313"
 ];
 const KEY_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const KEY_STALE_FALLBACK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const KEY_REFRESH_BACKOFF_MS = 60 * 1000;
 let cachedKeys = new Map<number, string>();
 let cachedKeysAt = 0;
 let lastKeyFetchAttemptAt = 0;
+let keyRefreshPromise: Promise<Map<number, string>> | undefined;
 
 function adUnitSuffix(value: string): string {
   return value.split("/").at(-1) ?? value;
@@ -40,7 +42,6 @@ function expectedRewardedAdUnits(): Set<string> {
 }
 
 async function fetchVerificationKeys(): Promise<Map<number, string>> {
-  lastKeyFetchAttemptAt = Date.now();
   let response: Response;
   try {
     response = await fetch(env.ADMOB_SSV_PUBLIC_KEYS_URL, {
@@ -51,7 +52,12 @@ async function fetchVerificationKeys(): Promise<Map<number, string>> {
     throw new HttpError("AdMob verification keys are temporarily unavailable.", 503);
   }
   if (!response.ok) throw new HttpError("AdMob verification keys are temporarily unavailable.", 503);
-  const payload = await response.json() as VerificationKeyResponse;
+  let payload: VerificationKeyResponse;
+  try {
+    payload = await response.json() as VerificationKeyResponse;
+  } catch {
+    throw new HttpError("AdMob verification keys are temporarily unavailable.", 503);
+  }
   const keys = new Map<number, string>();
   for (const candidate of payload.keys ?? []) {
     if (typeof candidate.keyId === "number" && Number.isSafeInteger(candidate.keyId) && typeof candidate.pem === "string") {
@@ -64,17 +70,37 @@ async function fetchVerificationKeys(): Promise<Map<number, string>> {
   return keys;
 }
 
+async function refreshVerificationKeys(now: number): Promise<Map<number, string> | undefined> {
+  if (keyRefreshPromise) return keyRefreshPromise;
+  if (lastKeyFetchAttemptAt > 0 && now - lastKeyFetchAttemptAt < KEY_REFRESH_BACKOFF_MS) return undefined;
+  lastKeyFetchAttemptAt = now;
+  keyRefreshPromise = fetchVerificationKeys().finally(() => {
+    keyRefreshPromise = undefined;
+  });
+  return keyRefreshPromise;
+}
+
 async function verificationKey(keyId: number): Promise<string> {
   const now = Date.now();
   const cacheFresh = cachedKeys.size > 0 && now - cachedKeysAt < KEY_CACHE_TTL_MS;
-  const cached = cacheFresh ? cachedKeys.get(keyId) : undefined;
-  if (cached) return cached;
-  if (!cacheFresh || now - lastKeyFetchAttemptAt >= KEY_REFRESH_BACKOFF_MS) {
-    const refreshed = await fetchVerificationKeys();
-    const key = refreshed.get(keyId);
-    if (key) return key;
+  const cached = now - cachedKeysAt <= KEY_STALE_FALLBACK_MAX_AGE_MS ? cachedKeys.get(keyId) : undefined;
+  if (cacheFresh && cached) return cached;
+  try {
+    const refreshed = await refreshVerificationKeys(now);
+    if (refreshed) {
+      const key = refreshed.get(keyId);
+      if (key) return key;
+      throw new HttpError("AdMob callback signing key is not recognized.", 400);
+    }
+  } catch (error) {
+    // A previously trusted key remains safer than dropping valid callbacks
+    // during a transient Google key-service outage. The refresh backoff still
+    // prevents an untrusted public request from amplifying that outage.
+    if (cached) return cached;
+    throw error;
   }
-  throw new HttpError("AdMob callback signing key is not recognized.", 400);
+  if (cached) return cached;
+  throw new HttpError("AdMob verification keys are temporarily unavailable.", 503);
 }
 
 function oneRequired(params: URLSearchParams, name: string): string {
@@ -152,4 +178,5 @@ export function resetAdMobSsvKeyCacheForTests(): void {
   cachedKeys = new Map();
   cachedKeysAt = 0;
   lastKeyFetchAttemptAt = 0;
+  keyRefreshPromise = undefined;
 }

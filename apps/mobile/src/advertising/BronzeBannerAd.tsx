@@ -6,6 +6,8 @@ import { getBannerAdUnitId } from "./config";
 import { initializeMobileAds } from "./mobileAds";
 import type { AdvertisingAccountContext } from "./types";
 
+const BANNER_RETRY_DELAY_MS = 60_000;
+
 export type BronzeBannerAdProps = AdvertisingAccountContext & {
   borderColor: string;
   labelColor: string;
@@ -30,7 +32,17 @@ export function BronzeBannerAd(props: BronzeBannerAdProps) {
       if (!cancelled) setReady(initialized);
     });
     return () => { cancelled = true; };
-  }, [adUnitId, eligible, props.authenticated, props.billingCatalog]);
+  }, [adUnitId, eligible]);
+
+  useEffect(() => {
+    if (!failed || !eligible || !adUnitId) return;
+    const retryTimer = setTimeout(() => setFailed(false), BANNER_RETRY_DELAY_MS);
+    return () => clearTimeout(retryTimer);
+  }, [adUnitId, eligible, failed]);
+
+  useEffect(() => {
+    if (!eligible || !adUnitId || !ready || failed) props.onHeightChange?.(0);
+  }, [adUnitId, eligible, failed, props.onHeightChange, ready]);
 
   useEffect(() => () => props.onHeightChange?.(0), [props.onHeightChange]);
 

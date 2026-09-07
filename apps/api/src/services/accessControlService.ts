@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { PlanId } from "@persona/shared";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
-import { getDatabase } from "../db/client.js";
+import { getDatabase, type AppDatabase } from "../db/client.js";
 import { billingSubscriptions, userPlanAssignments, users } from "../db/schema.js";
 import { HttpError } from "../utils/httpError.js";
 import { getPlanDefinition, type PlanDefinition } from "./planCatalog.js";
@@ -117,8 +117,12 @@ function sourceIsValid(source: string): source is PlanOverrideSource {
 }
 
 export class AccessControlService {
-  async getEffectiveAccess(userId: string): Promise<EffectiveAccess> {
-    const db = getDatabase();
+  async getEffectiveAccess(
+    userId: string,
+    databaseOverride?: Pick<AppDatabase, "select">,
+    now = new Date()
+  ): Promise<EffectiveAccess> {
+    const db = databaseOverride ?? getDatabase();
     if (!db) return { plan: getPlanDefinition(undefined), isAdmin: false };
 
     const [user] = await db.select({
@@ -133,7 +137,6 @@ export class AccessControlService {
       return { plan: getPlanDefinition("gold"), isAdmin: true };
     }
 
-    const now = new Date();
     const assignments = await db.select({
       id: userPlanAssignments.id,
       planId: userPlanAssignments.planId,
@@ -200,25 +203,28 @@ export class AccessControlService {
 
     const db = getDatabase();
     if (!db) throw new HttpError("Plan overrides require database-backed storage.", 503);
-    const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).limit(1);
-    if (!user) throw new HttpError("User not found.", 404);
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`account-access:${input.userId}`}, 0))`);
+      const [user] = await tx.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).limit(1);
+      if (!user) throw new HttpError("User not found.", 404);
 
-    const id = `plan_assignment_${randomUUID()}`;
-    const plan = getPlanDefinition(input.planId);
-    await db.insert(userPlanAssignments).values({
-      id,
-      userId: input.userId,
-      planId: plan.id,
-      planVersion: plan.version,
-      source: input.source,
-      effectiveAt,
-      expiresAt: input.expiresAt,
-      metadata: {
-        reason,
-        ...(input.grantedByUserId ? { grantedByUserId: input.grantedByUserId } : {})
-      }
+      const id = `plan_assignment_${randomUUID()}`;
+      const plan = getPlanDefinition(input.planId);
+      await tx.insert(userPlanAssignments).values({
+        id,
+        userId: input.userId,
+        planId: plan.id,
+        planVersion: plan.version,
+        source: input.source,
+        effectiveAt,
+        expiresAt: input.expiresAt,
+        metadata: {
+          reason,
+          ...(input.grantedByUserId ? { grantedByUserId: input.grantedByUserId } : {})
+        }
+      });
+      return id;
     });
-    return id;
   }
 
   async revokePlanOverride(input: {
@@ -231,29 +237,35 @@ export class AccessControlService {
     const db = getDatabase();
     if (!db) throw new HttpError("Plan overrides require database-backed storage.", 503);
 
-    const [assignment] = await db.select({
-      id: userPlanAssignments.id,
-      source: userPlanAssignments.source,
-      status: userPlanAssignments.status,
-      metadata: userPlanAssignments.metadata
-    }).from(userPlanAssignments).where(eq(userPlanAssignments.id, input.assignmentId)).limit(1);
-    if (!assignment || assignment.status !== "active" || !sourceIsValid(assignment.source)) {
-      throw new HttpError("Active plan override not found.", 404);
-    }
-    const metadata = assignment.metadata && typeof assignment.metadata === "object"
-      ? assignment.metadata
-      : {};
-
-    await db.update(userPlanAssignments).set({
-      status: "revoked",
-      updatedAt: new Date(),
-      metadata: {
-        ...metadata,
-        revokedReason: reason,
-        revokedAt: new Date().toISOString(),
-        ...(input.revokedByUserId ? { revokedByUserId: input.revokedByUserId } : {})
+    await db.transaction(async (tx) => {
+      const [candidate] = await tx.select({ userId: userPlanAssignments.userId })
+        .from(userPlanAssignments).where(eq(userPlanAssignments.id, input.assignmentId)).limit(1);
+      if (!candidate) throw new HttpError("Active plan override not found.", 404);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`account-access:${candidate.userId}`}, 0))`);
+      const [assignment] = await tx.select({
+        id: userPlanAssignments.id,
+        source: userPlanAssignments.source,
+        status: userPlanAssignments.status,
+        metadata: userPlanAssignments.metadata
+      }).from(userPlanAssignments).where(eq(userPlanAssignments.id, input.assignmentId)).limit(1);
+      if (!assignment || assignment.status !== "active" || !sourceIsValid(assignment.source)) {
+        throw new HttpError("Active plan override not found.", 404);
       }
-    }).where(eq(userPlanAssignments.id, input.assignmentId));
+      const metadata = assignment.metadata && typeof assignment.metadata === "object"
+        ? assignment.metadata
+        : {};
+
+      await tx.update(userPlanAssignments).set({
+        status: "revoked",
+        updatedAt: new Date(),
+        metadata: {
+          ...metadata,
+          revokedReason: reason,
+          revokedAt: new Date().toISOString(),
+          ...(input.revokedByUserId ? { revokedByUserId: input.revokedByUserId } : {})
+        }
+      }).where(eq(userPlanAssignments.id, input.assignmentId));
+    });
   }
 
   /** Admin tooling: resolve a user by id/email/username and list their plan assignments. */

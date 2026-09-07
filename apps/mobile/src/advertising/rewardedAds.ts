@@ -23,13 +23,27 @@ type ActiveRewardedAd = {
   state: "loading" | "loaded" | "showing";
   earnedDelivered: boolean;
   closedDelivered: boolean;
+  loadSettled: boolean;
+  loadTimeout: ReturnType<typeof setTimeout> | undefined;
+  settleLoad: ((loaded: boolean) => void) | undefined;
   unsubscribers: Array<() => void>;
 };
 
 let activeRewardedAd: ActiveRewardedAd | undefined;
+const REWARDED_AD_LOAD_TIMEOUT_MS = 20_000;
+
+function settleRewardedAdLoad(session: ActiveRewardedAd, loaded: boolean): void {
+  if (session.loadSettled) return;
+  session.loadSettled = true;
+  if (session.loadTimeout) clearTimeout(session.loadTimeout);
+  session.loadTimeout = undefined;
+  session.settleLoad?.(loaded);
+  session.settleLoad = undefined;
+}
 
 function clearActiveRewardedAd(session: ActiveRewardedAd): void {
   if (activeRewardedAd !== session) return;
+  settleRewardedAdLoad(session, false);
   for (const unsubscribe of session.unsubscribers) unsubscribe();
   activeRewardedAd = undefined;
 }
@@ -61,17 +75,21 @@ export async function loadRewardedAd(
     state: "loading",
     earnedDelivered: false,
     closedDelivered: false,
+    loadSettled: false,
+    loadTimeout: undefined,
+    settleLoad: undefined,
     unsubscribers: []
   };
   activeRewardedAd = session;
 
   return new Promise((resolve) => {
+    session.settleLoad = resolve;
     session.unsubscribers.push(
       ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
         if (activeRewardedAd !== session || session.state !== "loading") return;
         session.state = "loaded";
         callbacks.onLoaded?.();
-        resolve(true);
+        settleRewardedAdLoad(session, true);
       }),
       ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, (reward) => {
         if (activeRewardedAd !== session || session.earnedDelivered) return;
@@ -89,11 +107,22 @@ export async function loadRewardedAd(
         if (activeRewardedAd !== session) return;
         if (session.state === "showing") callbacks.onShowError?.(error);
         else callbacks.onLoadError?.(error);
-        resolve(false);
+        settleRewardedAdLoad(session, false);
         clearActiveRewardedAd(session);
       })
     );
-    ad.load();
+    session.loadTimeout = setTimeout(() => {
+      if (activeRewardedAd !== session || session.state !== "loading") return;
+      callbacks.onLoadError?.(new Error("Rewarded ad loading timed out."));
+      clearActiveRewardedAd(session);
+    }, REWARDED_AD_LOAD_TIMEOUT_MS);
+    try {
+      ad.load();
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error("Rewarded ad could not be loaded.");
+      callbacks.onLoadError?.(normalized);
+      clearActiveRewardedAd(session);
+    }
   });
 }
 

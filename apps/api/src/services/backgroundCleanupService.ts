@@ -9,6 +9,7 @@ import { jobQueueService } from "./jobQueueService.js";
 import { usageControlService } from "./usageControlService.js";
 import { dataTransferJobService } from "./dataTransferJobService.js";
 import { customerUsageService } from "./customerUsageService.js";
+import { cleanupExpiredAdRewardData } from "./adRewardVerificationService.js";
 
 const CLEANUP_QUEUE = "storage-cleanup";
 
@@ -51,6 +52,7 @@ export class BackgroundCleanupService {
         ["usage reservations", usageControlService.cleanupExpiredNow()],
         ["pending customer usage settlements", customerUsageService.drainPendingSettlements()],
         ["customer usage reservations", customerUsageService.cleanupExpiredNow()],
+        ["ad reward data", cleanupExpiredAdRewardData()],
         ["scheduled accounts", accountDeletionService.purgeDueAccounts()],
         ["data transfers", dataTransferJobService.cleanupExpiredNow()]
       ] as const;

@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { and, eq, lte, or } from "drizzle-orm";
+import { and, eq, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
@@ -342,6 +342,7 @@ export class RevenueCatBillingService {
     );
 
     await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`account-access:${userId}`}, 0))`);
       await tx.insert(userPlanAssignments).values({
         id: assignmentId, userId, planId, planVersion: plan.version,
         status: outcome.accessEnded ? "expired" : "active", source: "subscription",

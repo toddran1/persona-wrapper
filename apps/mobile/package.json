@@ -7,6 +7,7 @@
     "dev": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "test": "vitest run",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint app src app.config.ts",
@@ -68,6 +69,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.4",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.4"
   }
 }

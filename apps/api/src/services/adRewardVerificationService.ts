@@ -5,7 +5,7 @@ import type {
   AdRewardSessionStatusResponse
 } from "@persona/shared";
 import { isPlanAdSupported } from "@persona/shared";
-import { and, eq, gte, gt, sql } from "drizzle-orm";
+import { and, eq, gte, gt, lt, lte, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { getDatabase } from "../db/client.js";
 import {
@@ -19,6 +19,7 @@ import type { VerifiedAdMobCallback } from "./adMobSsvVerifier.js";
 import { adRewardPolicy } from "./adRewardPolicy.js";
 
 const REWARD_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const REWARD_DATA_RETENTION_MS = 400 * 24 * 60 * 60 * 1000;
 
 function utcDayStart(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -39,14 +40,6 @@ function remainingToday(grantedToday: number): number {
   return Math.max(0, adRewardPolicy.maxRewardedAdsPerDay - grantedToday);
 }
 
-async function assertRewardAccess(userId: string) {
-  const access = await accessControlService.getEffectiveAccess(userId);
-  if (access.isAdmin || !isPlanAdSupported(access.plan.id)) {
-    throw new HttpError("Rewarded ads are available on the Bronze plan only.", 403);
-  }
-  return access;
-}
-
 function assertRewardConfiguration(): void {
   if (
     env.NODE_ENV === "production"
@@ -62,12 +55,16 @@ export async function createAdRewardSession(
   now = new Date()
 ): Promise<AdRewardSessionResponse> {
   assertRewardConfiguration();
-  await assertRewardAccess(userId);
   const db = getDatabase();
   if (!db) throw new HttpError("Rewarded ads require persistent storage.", 503);
 
   return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`account-access:${userId}`}, 0))`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`ad-reward:${userId}`}, 0))`);
+    const access = await accessControlService.getEffectiveAccess(userId, tx, now);
+    if (access.isAdmin || !isPlanAdSupported(access.plan.id)) {
+      throw new HttpError("Rewarded ads are available on the Bronze plan only.", 403);
+    }
     const [grants] = await tx.select({ count: sql<number>`count(*)::int` })
       .from(adRewardEvents)
       .where(and(
@@ -81,17 +78,24 @@ export async function createAdRewardSession(
       throw new HttpError("You have reached today’s rewarded-ad limit.", 409);
     }
 
-    const [existing] = await tx.select({ id: adRewardSessions.id, expiresAt: adRewardSessions.expiresAt })
+    await tx.update(adRewardSessions).set({ status: "expired", consumedAt: now }).where(and(
+      eq(adRewardSessions.userId, userId),
+      eq(adRewardSessions.status, "pending"),
+      lte(adRewardSessions.expiresAt, now)
+    ));
+    const [pending] = await tx.select({ count: sql<number>`count(*)::int` })
       .from(adRewardSessions)
       .where(and(
         eq(adRewardSessions.userId, userId),
         eq(adRewardSessions.status, "pending"),
         gt(adRewardSessions.expiresAt, now)
-      ))
-      .limit(1);
-    const sessionId = existing?.id ?? `ad_reward_session_${randomUUID()}`;
-    const expiresAt = existing?.expiresAt ?? new Date(now.getTime() + REWARD_SESSION_TTL_MS);
-    if (!existing) await tx.insert(adRewardSessions).values({ id: sessionId, userId, expiresAt });
+      ));
+    if (Number(pending?.count ?? 0) >= remainingToday(grantedToday)) {
+      throw new HttpError("Your existing rewarded ads are still awaiting verification.", 409);
+    }
+    const sessionId = `ad_reward_session_${randomUUID()}`;
+    const expiresAt = new Date(now.getTime() + REWARD_SESSION_TTL_MS);
+    await tx.insert(adRewardSessions).values({ id: sessionId, userId, expiresAt });
 
     return {
       sessionId,
@@ -149,10 +153,11 @@ export async function applyVerifiedAdMobReward(
 ): Promise<AdRewardGrantResult> {
   const db = getDatabase();
   if (!db) throw new HttpError("Rewarded ads require persistent storage.", 503);
-  const access = await accessControlService.getEffectiveAccess(callback.userId);
 
   return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`account-access:${callback.userId}`}, 0))`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`ad-reward:${callback.userId}`}, 0))`);
+    const access = await accessControlService.getEffectiveAccess(callback.userId, tx, now);
     const [session] = await tx.select().from(adRewardSessions).where(and(
       eq(adRewardSessions.id, callback.customData),
       eq(adRewardSessions.userId, callback.userId)
@@ -238,4 +243,16 @@ export async function applyVerifiedAdMobReward(
       .where(eq(adRewardEvents.id, event.id));
     return "granted";
   });
+}
+
+export async function cleanupExpiredAdRewardData(now = new Date()): Promise<void> {
+  const db = getDatabase();
+  if (!db) return;
+  await db.update(adRewardSessions).set({ status: "expired", consumedAt: now }).where(and(
+    eq(adRewardSessions.status, "pending"),
+    lte(adRewardSessions.expiresAt, now)
+  ));
+  const retentionCutoff = new Date(now.getTime() - REWARD_DATA_RETENTION_MS);
+  await db.delete(adRewardSessions).where(lt(adRewardSessions.expiresAt, retentionCutoff));
+  await db.delete(adRewardEvents).where(lt(adRewardEvents.createdAt, retentionCutoff));
 }

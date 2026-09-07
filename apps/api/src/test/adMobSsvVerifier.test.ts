@@ -20,6 +20,7 @@ function signedQuery(input: { privateKey: ReturnType<typeof generateKeyPairSync>
 
 describe("AdMob SSV verification", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     resetAdMobSsvKeyCacheForTests();
   });
@@ -50,5 +51,53 @@ describe("AdMob SSV verification", () => {
     const tampered = signedQuery({ privateKey, now }).replace("reward_amount=1", "reward_amount=9");
 
     await expect(verifyAdMobSsvQuery(tampered, now)).rejects.toThrow("signature is invalid");
+  });
+
+  it("coalesces concurrent signing-key refreshes", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      keys: [{ keyId: 7, pem: publicKey.export({ type: "spki", format: "pem" }).toString() }]
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const now = new Date("2026-09-06T12:00:00.000Z");
+    const query = signedQuery({ privateKey, now });
+
+    await Promise.all([
+      verifyAdMobSsvQuery(query, now),
+      verifyAdMobSsvQuery(query, now)
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a previously trusted stale key during a refresh outage and honors backoff", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    const now = new Date("2026-09-06T12:00:00.000Z");
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now.getTime());
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        keys: [{ keyId: 7, pem: publicKey.export({ type: "spki", format: "pem" }).toString() }]
+      }), { status: 200 }))
+      .mockRejectedValue(new Error("key service unavailable"));
+    vi.stubGlobal("fetch", fetchMock);
+    const query = signedQuery({ privateKey, now });
+    await verifyAdMobSsvQuery(query, now);
+
+    nowSpy.mockReturnValue(now.getTime() + 13 * 60 * 60 * 1000);
+    await expect(verifyAdMobSsvQuery(query, now)).resolves.toMatchObject({ keyId: "7" });
+    nowSpy.mockReturnValue(now.getTime() + 13 * 60 * 60 * 1000 + 1_000);
+    await expect(verifyAdMobSsvQuery(query, now)).resolves.toMatchObject({ keyId: "7" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps malformed signing-key responses to a retryable service error", async () => {
+    const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not-json", { status: 200 })));
+    const now = new Date("2026-09-06T12:00:00.000Z");
+
+    await expect(verifyAdMobSsvQuery(signedQuery({ privateKey, now }), now)).rejects.toMatchObject({
+      statusCode: 503
+    });
   });
 });

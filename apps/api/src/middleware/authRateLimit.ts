@@ -17,6 +17,7 @@ const oauthPollAttempts = new Map<string, RateLimitEntry>();
 const dataTransferAttempts = new Map<string, RateLimitEntry>();
 const safetyReportAttempts = new Map<string, RateLimitEntry>();
 const billingManagementAttempts = new Map<string, RateLimitEntry>();
+const adMobSsvAttempts = new Map<string, RateLimitEntry>();
 const MAX_TRACKED_CLIENTS = 10_000;
 
 function pruneExpired(now: number): void {
@@ -241,6 +242,29 @@ export function billingManagementRateLimit(request: Request, response: Response,
     : { ...current, count: current.count + 1 };
   billingManagementAttempts.set(key, entry);
   finishRateLimit(entry, limit, response, next, message);
+}
+
+export function adMobSsvRateLimit(request: Request, response: Response, next: NextFunction): void {
+  const now = Date.now();
+  const identity = request.ip || request.socket.remoteAddress || "unknown";
+  const limit = 600;
+  const windowMs = 60 * 1000;
+  pruneMap(adMobSsvAttempts, now);
+  const current = adMobSsvAttempts.get(identity);
+  const entry = !current || current.resetAt <= now
+    ? { count: 1, resetAt: now + windowMs }
+    : { ...current, count: current.count + 1 };
+  adMobSsvAttempts.set(identity, entry);
+  if (entry.count > limit) {
+    response.setHeader("Retry-After", String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000))));
+    response.status(429).json({
+      error: "Too many AdMob verification callbacks.",
+      code: "RATE_LIMITED",
+      requestId: response.locals.requestId
+    });
+    return;
+  }
+  next();
 }
 
 function pruneMap(entries: Map<string, RateLimitEntry>, now: number): void {

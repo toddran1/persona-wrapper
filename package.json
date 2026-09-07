@@ -22,7 +22,7 @@
     "build": "npm run build -w @persona/shared && npm run build -w @persona/api && npm run build -w @persona/web && npm run build -w @persona/mobile",
     "typecheck": "npm run build -w @persona/shared && npm run typecheck -w @persona/api && npm run typecheck -w @persona/web && npm run typecheck -w @persona/mobile",
     "lint": "biome lint .",
-    "test": "npm run build -w @persona/shared && npm run test -w @persona/api && npm run test -w @persona/web",
+    "test": "npm run build -w @persona/shared && npm run test -w @persona/api && npm run test -w @persona/web && npm run test -w @persona/mobile",
     "check": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "engines": {

@@ -54,7 +54,9 @@ placing ads.
 The client earned event is presentation-only and never mutates credits. The
 production flow is:
 
-1. The authenticated app creates a 24-hour, single-use reward session.
+1. The authenticated app creates a distinct 24-hour, single-use reward session
+   for each ad attempt. Outstanding sessions are capped by the remaining daily
+   reward allowance.
 2. That session ID is sent to AdMob as signed callback custom data.
 3. AdMob calls `GET /api/advertising/admob/ssv` after the completed ad.
 4. The API verifies Google's signature using the current Google AdMob public
@@ -73,7 +75,11 @@ values so the callback can reject rewards from any other placement:
 
 Configure each rewarded unit's SSV callback URL in AdMob as
 `https://<api-domain>/api/advertising/admob/ssv`. Google verification keys are
-cached for 12 hours and refreshed when an unknown key ID arrives.
+cached for 12 hours and refreshed when an unknown key ID arrives. Refreshes are
+coalesced and backed off during outages; a previously trusted stale key remains
+usable while Google temporarily cannot serve the key list. The public callback
+also has a high provider-safe request ceiling, and reward records are retained
+for 400 days before scheduled cleanup.
 
 ## app-ads.txt
 

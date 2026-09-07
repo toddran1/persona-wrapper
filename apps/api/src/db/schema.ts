@@ -431,6 +431,9 @@ export const adRewardEvents = pgTable("ad_reward_events", {
     .on(table.provider, table.transactionId),
   userCreatedAtIdx: index("ad_reward_events_user_created_at_idx").on(table.userId, table.createdAt),
   statusCreatedAtIdx: index("ad_reward_events_status_created_at_idx").on(table.status, table.createdAt),
+  userGrantDayIdx: index("ad_reward_events_user_provider_status_granted_at_idx")
+    .on(table.userId, table.provider, table.status, table.grantedAt),
+  statusCheck: check("ad_reward_events_status_check", sql`${table.status} in ('verified_pending_grant', 'verified_processing', 'granted', 'rejected')`),
   rewardAmountPositiveCheck: check("ad_reward_events_reward_amount_positive_check", sql`${table.rewardAmount} > 0`)
 }));
 
@@ -443,7 +446,10 @@ export const adRewardSessions = pgTable("ad_reward_sessions", {
   consumedAt: timestamp("consumed_at", { withTimezone: true })
 }, (table) => ({
   userStatusIdx: index("ad_reward_sessions_user_status_idx").on(table.userId, table.status),
-  expiresAtIdx: index("ad_reward_sessions_expires_at_idx").on(table.expiresAt)
+  userStatusExpiresAtIdx: index("ad_reward_sessions_user_status_expires_at_idx")
+    .on(table.userId, table.status, table.expiresAt),
+  expiresAtIdx: index("ad_reward_sessions_expires_at_idx").on(table.expiresAt),
+  statusCheck: check("ad_reward_sessions_status_check", sql`${table.status} in ('pending', 'granted', 'rejected', 'expired')`)
 }));
 
 /**

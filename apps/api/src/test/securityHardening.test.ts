@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { describe, expect, it, vi } from "vitest";
 import { env } from "../config/env.js";
-import { authRateLimit, billingManagementRateLimit, signupAbuseRateLimit } from "../middleware/authRateLimit.js";
+import { adMobSsvRateLimit, authRateLimit, billingManagementRateLimit, signupAbuseRateLimit } from "../middleware/authRateLimit.js";
 import { forwardExpressClientIp } from "../middleware/proxyClientIp.js";
 import { authCookieAttributes } from "../utils/authCookieConfig.js";
 import { contentDisposition } from "../utils/httpHeaders.js";
@@ -71,6 +71,31 @@ describe("security hardening", () => {
     }
 
     expect(next).toHaveBeenCalledTimes(20);
+  });
+
+  it("protects the public AdMob verification callback from request floods", () => {
+    const next = vi.fn();
+    const request = {
+      ip: `203.0.113.${Math.floor(Math.random() * 100) + 100}`,
+      socket: {}
+    } as unknown as Request;
+    let finalResponse: Response | undefined;
+    for (let index = 0; index <= 600; index += 1) {
+      finalResponse = {
+        locals: { requestId: "request-admob-limit" },
+        setHeader: vi.fn(),
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn()
+      } as unknown as Response;
+      adMobSsvRateLimit(request, finalResponse, next as unknown as NextFunction);
+    }
+
+    expect(next).toHaveBeenCalledTimes(600);
+    expect(finalResponse?.status).toHaveBeenCalledWith(429);
+    expect(finalResponse?.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: "RATE_LIMITED",
+      requestId: "request-admob-limit"
+    }));
   });
 
   it("uses cross-site compatible cookies in production", () => {

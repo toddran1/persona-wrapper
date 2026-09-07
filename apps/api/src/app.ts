@@ -11,7 +11,7 @@ import { createExpressEndpoints } from "@ts-rest/express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { authenticateRequest, requireCurrentPolicyConsent, requireVerifiedEmail } from "./middleware/authMiddleware.js";
-import { authRateLimit, billingManagementRateLimit, dataTransferRateLimit, safetyReportRateLimit, signupAbuseRateLimit } from "./middleware/authRateLimit.js";
+import { adMobSsvRateLimit, authRateLimit, billingManagementRateLimit, dataTransferRateLimit, safetyReportRateLimit, signupAbuseRateLimit } from "./middleware/authRateLimit.js";
 import { forwardExpressClientIp } from "./middleware/proxyClientIp.js";
 import { chatRouter } from "./routes/chat.routes.js";
 import { apiContractRouter } from "./routes/contract.routes.js";
@@ -265,7 +265,7 @@ export function createApp() {
   );
   // Google signs this server-to-server callback. It must remain outside user
   // authentication because AdMob, not the signed-in device, calls it.
-  app.get("/api/advertising/admob/ssv", (request, response, next) => {
+  app.get("/api/advertising/admob/ssv", adMobSsvRateLimit, (request, response, next) => {
     void getAdMobSsvCallback(request, response).catch(next);
   });
   app.use(

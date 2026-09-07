@@ -7,11 +7,11 @@ type AdsByGoogleWindow = Window & {
 /** Initializes one mounted slot at most once and tolerates blocked AdSense scripts. */
 export function initializeAdsenseSlot(slot: HTMLElement): boolean {
   if (typeof window === "undefined" || initializedSlots.has(slot)) return false;
-  initializedSlots.add(slot);
   try {
     const adsWindow = window as AdsByGoogleWindow;
     adsWindow.adsbygoogle = adsWindow.adsbygoogle ?? [];
     adsWindow.adsbygoogle.push({});
+    initializedSlots.add(slot);
     return true;
   } catch (error) {
     console.warn("AdSense slot initialization was blocked or unavailable.", error);
