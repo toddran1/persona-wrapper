@@ -1,11 +1,13 @@
 import type { ExpoConfig } from "expo/config";
 
 const appEnvironment = process.env.EXPO_PUBLIC_APP_ENV?.trim() || "development";
+const adsMode = process.env.EXPO_PUBLIC_ADS_MODE?.trim() || "test";
 const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() || "http://localhost:4000";
 const webAppUrl = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "http://localhost:5173";
 const GOOGLE_TEST_ANDROID_APP_ID = "ca-app-pub-3940256099942544~3347511713";
 const GOOGLE_TEST_IOS_APP_ID = "ca-app-pub-3940256099942544~1458002511";
 const ADMOB_APP_ID_PATTERN = /^ca-app-pub-\d{16}~\d{10}$/;
+const ADMOB_AD_UNIT_ID_PATTERN = /^ca-app-pub-\d{16}\/\d{10}$/;
 // Keep aligned with Google's current iOS third-party buyer list. These enable
 // privacy-preserving install attribution through SKAdNetwork without IDFA.
 const ADMOB_SK_AD_NETWORK_ITEMS = [
@@ -66,6 +68,12 @@ const admobAndroidAppId = appEnvironment === "production"
 const admobIosAppId = appEnvironment === "production"
   ? process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID?.trim()
   : GOOGLE_TEST_IOS_APP_ID;
+if (adsMode !== "test" && adsMode !== "production") {
+  throw new Error("EXPO_PUBLIC_ADS_MODE must be either test or production.");
+}
+if (adsMode === "production" && appEnvironment !== "production") {
+  throw new Error("Production ads are only allowed when EXPO_PUBLIC_APP_ENV=production.");
+}
 if (appEnvironment === "production") {
   const required = [
     ["EXPO_PUBLIC_API_URL", apiUrl],
@@ -81,6 +89,20 @@ if (appEnvironment === "production") {
   ].filter(([, value]) => value && !ADMOB_APP_ID_PATTERN.test(value)).map(([name]) => name);
   if (invalidAppIds.length > 0) {
     throw new Error(`Invalid AdMob app ID format: ${invalidAppIds.join(", ")}. App IDs must use ca-app-pub-…~… format.`);
+  }
+  if (adsMode === "production") {
+    const requiredAdUnits = [
+      ["EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID", process.env.EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID?.trim()],
+      ["EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID?.trim()],
+      ["EXPO_PUBLIC_ADMOB_IOS_BANNER_ID", process.env.EXPO_PUBLIC_ADMOB_IOS_BANNER_ID?.trim()],
+      ["EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID?.trim()]
+    ] as const;
+    const invalidAdUnits = requiredAdUnits
+      .filter(([, value]) => !value || !ADMOB_AD_UNIT_ID_PATTERN.test(value))
+      .map(([name]) => name);
+    if (invalidAdUnits.length > 0) {
+      throw new Error(`Production ads require valid AdMob ad-unit IDs: ${invalidAdUnits.join(", ")}.`);
+    }
   }
   if ([apiUrl, webAppUrl].some((value) => /(?:localhost|127\.0\.0\.1)/i.test(value))) {
     throw new Error("Production mobile builds cannot use localhost API or web URLs.");
@@ -220,6 +242,7 @@ const config: ExpoConfig = {
   },
   extra: {
     appEnvironment,
+    adsMode,
     apiUrl,
     webAppUrl,
     eas: {

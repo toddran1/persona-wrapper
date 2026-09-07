@@ -1,11 +1,11 @@
 import { Platform } from "react-native";
 import { TestIds } from "react-native-google-mobile-ads";
 
-const appEnvironment = process.env.EXPO_PUBLIC_APP_ENV?.trim() || "development";
+const adsMode = process.env.EXPO_PUBLIC_ADS_MODE?.trim() || "test";
 const reportedMissingConfig = new Set<string>();
 const ADMOB_AD_UNIT_ID_PATTERN = /^ca-app-pub-\d{16}\/\d{10}$/;
 
-export const isProductionAdsEnvironment = appEnvironment === "production";
+export const isProductionAdsEnvironment = adsMode === "production";
 
 function unavailable(name: string): undefined {
   if (!reportedMissingConfig.has(name)) {

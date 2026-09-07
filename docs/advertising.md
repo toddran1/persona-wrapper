@@ -31,9 +31,13 @@ Placements use:
 AdMob app IDs use `ca-app-pub-…~…`; banner and rewarded ad-unit IDs use
 `ca-app-pub-…/…`. They are different values and are validated separately.
 
-Development and preview builds always use Google's official test identifiers.
-Production builds require native app IDs; missing production placement IDs
-disable only the unavailable placement.
+`EXPO_PUBLIC_ADS_MODE` independently controls which placement identifiers the
+app requests. `development`, `preview`, `play-internal`, and `testflight` EAS
+profiles set it to `test` and always use Google's official test banner and
+rewarded identifiers. Only the public `production` profile sets it to
+`production`. Production-ad builds fail during Expo configuration if any live
+placement ID is missing or malformed, and production ads are rejected outside
+the production app environment.
 
 The mobile banner appears only after the conversation has at least one
 assistant response. It occupies a stable sponsored strip directly above the
