@@ -47,7 +47,9 @@ catalog is loaded and Google UMP says ads may be requested. Requests are
 non-personalized. Android `AD_ID` remains blocked deliberately because this
 foundation does not access the advertising identifier. ATT is not requested.
 Configure the consent messages in AdMob's Privacy & messaging console before
-placing ads.
+placing ads. Eligible Bronze accounts refresh UMP consent once per app launch,
+and **Settings → About → Privacy choices** opens Google's privacy-options form
+when the SDK says an entry point is required.
 
 ## Rewarded server-side verification
 
@@ -79,13 +81,14 @@ cached for 12 hours and refreshed when an unknown key ID arrives. Refreshes are
 coalesced and backed off during outages; a previously trusted stale key remains
 usable while Google temporarily cannot serve the key list. The public callback
 also has a high provider-safe request ceiling, and reward records are retained
-for 400 days before scheduled cleanup.
+for 400 days before scheduled cleanup. The endpoint returns a no-reward `200`
+response for AdMob's queryless URL-readiness probe. Signed console callbacks
+without the optional testing identity fields are verified and acknowledged but
+never enter the reward transaction.
 
 ## app-ads.txt
 
-Do not publish `app-ads.txt` until the AdMob account supplies the exact
-authorized-seller record and the developer domain is associated with both app
-store listings. Once available, publish that record at:
+The AdMob authorized-seller record is published at:
 
 `https://<developer-domain>/app-ads.txt`
 

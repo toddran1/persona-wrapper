@@ -4,16 +4,19 @@ import { HttpError } from "../utils/httpError.js";
 
 type VerificationKeyResponse = { keys?: Array<{ keyId?: unknown; pem?: unknown }> };
 
-export type VerifiedAdMobCallback = {
+type VerifiedAdMobCallbackFields = {
   adUnit: string;
-  customData: string;
   keyId: string;
   rewardAmount: number;
   rewardItem: string;
   timestamp: Date;
   transactionId: string;
-  userId: string;
 };
+
+export type VerifiedAdMobCallback = VerifiedAdMobCallbackFields & (
+  | { kind: "reward"; customData: string; userId: string }
+  | { kind: "unattributed"; customData?: string; userId?: string }
+);
 
 const TEST_REWARDED_UNITS = [
   "ca-app-pub-3940256099942544/5224354917",
@@ -109,6 +112,14 @@ function oneRequired(params: URLSearchParams, name: string): string {
   return values[0];
 }
 
+function oneOptional(params: URLSearchParams, name: string): string | undefined {
+  const values = params.getAll(name);
+  if (values.length > 1 || (values.length === 1 && !values[0])) {
+    throw new HttpError(`Invalid AdMob callback parameter: ${name}.`, 400);
+  }
+  return values[0];
+}
+
 function decodeRawValue(value: string): string {
   try {
     return decodeURIComponent(value.replace(/\+/g, "%20"));
@@ -162,16 +173,19 @@ export async function verifyAdMobSsvQuery(rawQuery: string, now = new Date()): P
     throw new HttpError("AdMob callback timestamp is outside the accepted window.", 400);
   }
 
-  return {
+  const customData = oneOptional(params, "custom_data");
+  const userId = oneOptional(params, "user_id");
+  const callback = {
     adUnit,
-    customData: oneRequired(params, "custom_data"),
     keyId: keyIdValue,
     rewardAmount,
     rewardItem: oneRequired(params, "reward_item"),
     timestamp: new Date(timestampMs),
-    transactionId: oneRequired(params, "transaction_id"),
-    userId: oneRequired(params, "user_id")
+    transactionId: oneRequired(params, "transaction_id")
   };
+  return customData && userId
+    ? { ...callback, kind: "reward", customData, userId }
+    : { ...callback, kind: "unattributed", ...(customData ? { customData } : {}), ...(userId ? { userId } : {}) };
 }
 
 export function resetAdMobSsvKeyCacheForTests(): void {

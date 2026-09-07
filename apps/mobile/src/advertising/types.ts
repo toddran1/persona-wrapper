@@ -7,5 +7,6 @@ export type AdvertisingAccountContext = {
 
 export type AdvertisingConsentResult = {
   canRequestAds: boolean;
+  privacyOptionsRequired: boolean;
   source: "current" | "cached" | "unavailable";
 };

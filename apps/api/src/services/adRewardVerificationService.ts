@@ -148,7 +148,7 @@ export async function getAdRewardSessionStatus(
 export type AdRewardGrantResult = "granted" | "duplicate" | "rejected";
 
 export async function applyVerifiedAdMobReward(
-  callback: VerifiedAdMobCallback,
+  callback: Extract<VerifiedAdMobCallback, { kind: "reward" }>,
   now = new Date()
 ): Promise<AdRewardGrantResult> {
   const db = getDatabase();

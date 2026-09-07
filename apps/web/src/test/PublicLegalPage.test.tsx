@@ -70,6 +70,7 @@ describe("PublicLegalPage", () => {
     expect(screen.getByText("Bronze and Silver image generation is limited to no more than medium", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("does not guarantee high quality", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("Deleting an account does not itself cancel a third-party subscription.", { exact: false })).toBeInTheDocument();
+    expect(screen.getByText("Eligible Bronze users may voluntarily watch a rewarded advertisement", { exact: false })).toBeInTheDocument();
   });
 
   it("explains service shutdown, billing, credits, exports, and account-data handling", () => {
@@ -96,12 +97,13 @@ describe("PublicLegalPage", () => {
 
   it("discloses storage, telemetry, and configured service providers", () => {
     render(<PublicLegalPage path="/privacy" />);
-    expect(screen.getByRole("heading", { name: "4. Cookies, device storage, and telemetry" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "4. Cookies, device storage, advertising, and telemetry" })).toBeInTheDocument();
     expect(screen.getByText("may ask for operating-system or browser foreground-location permission", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("We do not request background or continuous location access.", { exact: false })).toBeInTheDocument();
-    for (const provider of ["OpenAI:", "Google Gemini:", "Fish Audio:", "ElevenLabs:", "Cloudflare R2:", "Render:", "Google, Facebook, and Apple OAuth:", "Google Gmail SMTP:", "RevenueCat, Apple, and Google Play:", "Configured OpenTelemetry providers:"]) {
+    for (const provider of ["OpenAI:", "Google Gemini:", "Google AdMob:", "Fish Audio:", "ElevenLabs:", "Cloudflare R2:", "Render:", "Google, Facebook, and Apple OAuth:", "Google Gmail SMTP:", "RevenueCat, Apple, and Google Play:", "Configured OpenTelemetry providers:"]) {
       expect(screen.getByText(provider, { exact: false })).toBeInTheDocument();
     }
+    expect(screen.getByText("We do not send private conversation content", { exact: false })).toBeInTheDocument();
   });
 
   it("discloses plan metering, pseudonymous abuse signals, and usage retention", () => {

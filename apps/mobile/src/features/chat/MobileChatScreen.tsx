@@ -90,11 +90,12 @@ import {
   turnsFromConversationTurns
 } from "./mobileChatUtils";
 import { getClientContextForMessage } from "./mobileClientContext";
-import { NEUTRAL_PERSONA_ID, PASSWORD_MIN_LENGTH, stripGeneratedFileDownloadPrompt } from "@persona/shared";
+import { isPlanAdSupported, NEUTRAL_PERSONA_ID, PASSWORD_MIN_LENGTH, stripGeneratedFileDownloadPrompt } from "@persona/shared";
 import type { ResponseFeedbackCategory } from "@persona/shared";
 import type { MobilePickedFile, RenderedTurn } from "./types";
 import { BronzeBannerAd } from "../../advertising/BronzeBannerAd";
 import { cancelRewardedAd, loadRewardedAd, showRewardedAd } from "../../advertising/rewardedAds";
+import { resolveAdvertisingConsent, showAdvertisingPrivacyOptions } from "../../advertising/privacy";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 // Keep polling longer than the server's 20-minute execution window. If the
@@ -367,6 +368,9 @@ export function MobileChatScreen() {
   const [rewardAdBusy, setRewardAdBusy] = useState(false);
   const [rewardAdError, setRewardAdError] = useState<string | undefined>();
   const [rewardAdNotice, setRewardAdNotice] = useState<string | undefined>();
+  const [adPrivacyOptionsRequired, setAdPrivacyOptionsRequired] = useState(false);
+  const [adPrivacyOptionsBusy, setAdPrivacyOptionsBusy] = useState(false);
+  const [adConsentCanRequestAds, setAdConsentCanRequestAds] = useState<boolean | undefined>();
   const [freeDowngradeVisible, setFreeDowngradeVisible] = useState(false);
   const [freeDowngradeConfirmation, setFreeDowngradeConfirmation] = useState("");
   const drawerX = useSharedValue(-drawerWidth);
@@ -560,6 +564,34 @@ export function MobileChatScreen() {
         // Fail closed: without authoritative plan data, no ad component mounts.
       });
   }, [authUser?.id, setBillingCatalog]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!authUser?.id || !billingCatalog || !isPlanAdSupported(billingCatalog.currentPlanId)) {
+      setAdPrivacyOptionsRequired(false);
+      setAdPrivacyOptionsBusy(false);
+      setAdConsentCanRequestAds(undefined);
+      return () => { cancelled = true; };
+    }
+
+    // Refresh Google's UMP state once per app process after the authoritative
+    // catalog confirms this is an ad-supported account. Paid accounts never
+    // touch the advertising consent or Mobile Ads SDKs.
+    void resolveAdvertisingConsent()
+      .then((consent) => {
+        if (!cancelled) {
+          setAdPrivacyOptionsRequired(consent.privacyOptionsRequired);
+          setAdConsentCanRequestAds(consent.canRequestAds);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAdPrivacyOptionsRequired(false);
+          setAdConsentCanRequestAds(false);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [authUser?.id, billingCatalog]);
 
   useEffect(() => {
     // Store products and purchase feedback are account-scoped even though
@@ -1029,9 +1061,24 @@ export function MobileChatScreen() {
     }
   }
 
+  async function openAdvertisingPrivacyOptions(): Promise<void> {
+    if (adPrivacyOptionsBusy || !adPrivacyOptionsRequired) return;
+    setAdPrivacyOptionsBusy(true);
+    try {
+      const consent = await showAdvertisingPrivacyOptions();
+      setAdPrivacyOptionsRequired(consent.privacyOptionsRequired);
+      setAdConsentCanRequestAds(consent.canRequestAds);
+    } catch (privacyError) {
+      console.warn("Google advertising privacy options could not be opened.", privacyError);
+      Alert.alert("Privacy choices unavailable", "Please check your connection and try again.");
+    } finally {
+      setAdPrivacyOptionsBusy(false);
+    }
+  }
+
   async function watchRewardedAd(): Promise<void> {
     const accountId = authUser?.id;
-    if (!accountId || rewardAdBusy || billingCatalog?.currentPlanId !== "bronze") return;
+    if (!accountId || rewardAdBusy || adConsentCanRequestAds === false || billingCatalog?.currentPlanId !== "bronze") return;
     setRewardAdBusy(true);
     setRewardAdError(undefined);
     setRewardAdNotice("Preparing a short ad…");
@@ -3966,7 +4013,7 @@ export function MobileChatScreen() {
 
           {turns.some((turn) => Boolean(turn.assistantMessageId || turn.assistantText.trim())) ? (
             <BronzeBannerAd
-              authenticated={Boolean(authUser)}
+              authenticated={Boolean(authUser) && adConsentCanRequestAds !== false}
               {...(billingCatalog ? { billingCatalog } : {})}
               borderColor={theme.border}
               labelColor={theme.muted}
@@ -4809,6 +4856,23 @@ export function MobileChatScreen() {
                   <Ionicons name="open-outline" size={18} color={theme.muted} />
                 </Pressable>
               ))}
+              {adPrivacyOptionsRequired ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: adPrivacyOptionsBusy }}
+                  disabled={adPrivacyOptionsBusy}
+                  onPress={() => void openAdvertisingPrivacyOptions()}
+                  style={[styles.settingsRow, { backgroundColor: "rgba(255,255,255,0.09)", opacity: adPrivacyOptionsBusy ? 0.55 : 1 }]}
+                  testID="mobile-ad-privacy-options"
+                >
+                  <Ionicons name="options-outline" size={22} color={theme.text} />
+                  <View style={styles.settingsRowCopy}>
+                    <Text style={[styles.settingsRowText, { color: theme.text }]}>Privacy choices</Text>
+                    <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Review choices for ads shown on the Bronze plan</Text>
+                  </View>
+                  {adPrivacyOptionsBusy ? <ActivityIndicator size="small" color={theme.accent2} /> : <Ionicons name="chevron-forward" size={18} color={theme.muted} />}
+                </Pressable>
+              ) : null}
               <View
                 accessible
                 accessibilityRole="text"

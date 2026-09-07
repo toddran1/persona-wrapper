@@ -17,8 +17,21 @@ export async function getAdRewardSession(request: Request, response: Response): 
 
 export async function getAdMobSsvCallback(request: Request, response: Response): Promise<void> {
   const queryIndex = request.originalUrl.indexOf("?");
-  if (queryIndex < 0) throw new HttpError("AdMob callback query is required.", 400);
-  const callback = await verifyAdMobSsvQuery(request.originalUrl.slice(queryIndex + 1));
+  const rawQuery = queryIndex < 0 ? "" : request.originalUrl.slice(queryIndex + 1);
+  if (!rawQuery) {
+    // AdMob's console first probes the configured URL without a completed ad.
+    // This confirms reachability only and must never create a reward.
+    response.status(200).json({ status: "ready" });
+    return;
+  }
+  const callback = await verifyAdMobSsvQuery(rawQuery);
+  if (callback.kind === "unattributed") {
+    // The console's signed test callback may omit its optional testing user ID
+    // and custom data. Acknowledge it after signature validation, but never
+    // pass it into the reward/session transaction.
+    response.status(200).json({ status: "verified" });
+    return;
+  }
   const status = await applyVerifiedAdMobReward(callback);
   response.status(200).json({ status });
 }

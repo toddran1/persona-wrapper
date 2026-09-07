@@ -12,9 +12,10 @@ export async function initializeMobileAds(context: AdvertisingAccountContext): P
     || !isPlanAdSupported(context.billingCatalog.currentPlanId)
   ) return false;
 
+  const consent = await resolveAdvertisingConsent();
+  if (!consent.canRequestAds) return false;
+
   initializationPromise ??= (async () => {
-    const consent = await resolveAdvertisingConsent();
-    if (!consent.canRequestAds) return false;
     try {
       await mobileAds().initialize();
       return true;
