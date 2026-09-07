@@ -3,13 +3,31 @@ import type { ExpoConfig } from "expo/config";
 const appEnvironment = process.env.EXPO_PUBLIC_APP_ENV?.trim() || "development";
 const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() || "http://localhost:4000";
 const webAppUrl = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "http://localhost:5173";
+const GOOGLE_TEST_ANDROID_APP_ID = "ca-app-pub-3940256099942544~3347511713";
+const GOOGLE_TEST_IOS_APP_ID = "ca-app-pub-3940256099942544~1458002511";
+const ADMOB_APP_ID_PATTERN = /^ca-app-pub-\d{16}~\d{10}$/;
+const admobAndroidAppId = appEnvironment === "production"
+  ? process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID?.trim()
+  : GOOGLE_TEST_ANDROID_APP_ID;
+const admobIosAppId = appEnvironment === "production"
+  ? process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID?.trim()
+  : GOOGLE_TEST_IOS_APP_ID;
 if (appEnvironment === "production") {
   const required = [
     ["EXPO_PUBLIC_API_URL", apiUrl],
-    ["EXPO_PUBLIC_WEB_APP_URL", webAppUrl]
+    ["EXPO_PUBLIC_WEB_APP_URL", webAppUrl],
+    ["EXPO_PUBLIC_ADMOB_ANDROID_APP_ID", admobAndroidAppId],
+    ["EXPO_PUBLIC_ADMOB_IOS_APP_ID", admobIosAppId]
   ] as const;
   const missing = required.filter(([, value]) => !value).map(([name]) => name);
   if (missing.length > 0) throw new Error(`Store mobile configuration is missing: ${missing.join(", ")}`);
+  const invalidAppIds = [
+    ["EXPO_PUBLIC_ADMOB_ANDROID_APP_ID", admobAndroidAppId],
+    ["EXPO_PUBLIC_ADMOB_IOS_APP_ID", admobIosAppId]
+  ].filter(([, value]) => value && !ADMOB_APP_ID_PATTERN.test(value)).map(([name]) => name);
+  if (invalidAppIds.length > 0) {
+    throw new Error(`Invalid AdMob app ID format: ${invalidAppIds.join(", ")}. App IDs must use ca-app-pub-…~… format.`);
+  }
   if ([apiUrl, webAppUrl].some((value) => /(?:localhost|127\.0\.0\.1)/i.test(value))) {
     throw new Error("Production mobile builds cannot use localhost API or web URLs.");
   }
@@ -50,6 +68,8 @@ const config: ExpoConfig = {
     icon: "./assets/branding/FTB_Logo_120x120.png",
     softwareKeyboardLayoutMode: "resize",
     blockedPermissions: [
+      // Contextual/non-personalized ads do not need the advertising identifier.
+      // Keep AD_ID blocked until a consent-reviewed personalization design requires it.
       "com.google.android.gms.permission.AD_ID",
       "android.permission.READ_EXTERNAL_STORAGE",
       "android.permission.READ_MEDIA_AUDIO",
@@ -63,6 +83,22 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    [
+      "react-native-google-mobile-ads",
+      {
+        androidAppId: admobAndroidAppId,
+        iosAppId: admobIosAppId,
+        delayAppMeasurementInit: true
+      }
+    ],
+    [
+      "expo-build-properties",
+      {
+        android: {
+          extraProguardRules: "-keep class com.google.android.gms.internal.consent_sdk.** { *; }"
+        }
+      }
+    ],
     ["expo-screen-orientation", { initialOrientation: "DEFAULT" }],
     ["expo-localization", { supportedLocales: ["en"] }],
     "./plugins/withQuotedExpoConstantsScript",

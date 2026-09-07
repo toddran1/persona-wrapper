@@ -259,7 +259,8 @@ export class CustomerUsageService {
         const [balance] = await tx.select({
           used: customerUsageBalances.usedQuantity,
           reserved: customerUsageBalances.reservedQuantity,
-          rollover: customerUsageBalances.rolloverQuantity
+          rollover: customerUsageBalances.rolloverQuantity,
+          bonus: customerUsageBalances.bonusQuantity
         }).from(customerUsageBalances).where(and(
           eq(customerUsageBalances.userId, userId),
           eq(customerUsageBalances.meterKey, meter),
@@ -269,7 +270,7 @@ export class CustomerUsageService {
         const rollover = baseLimit !== null && plan.id !== "bronze" && !access.isAdmin && ROLLOVER_METER_SET.has(meter)
           ? Number(balance?.rollover ?? 0)
           : 0;
-        const limit = baseLimit === null ? null : baseLimit + rollover;
+        const limit = baseLimit === null ? null : baseLimit + rollover + Number(balance?.bonus ?? 0);
         if (
           enforceUsage
           && limit !== null
@@ -584,7 +585,8 @@ export class CustomerUsageService {
           meterKey: customerUsageBalances.meterKey,
           used: customerUsageBalances.usedQuantity,
           reserved: customerUsageBalances.reservedQuantity,
-          rollover: customerUsageBalances.rolloverQuantity
+          rollover: customerUsageBalances.rolloverQuantity,
+          bonus: customerUsageBalances.bonusQuantity
         }).from(customerUsageBalances).where(and(
           eq(customerUsageBalances.userId, userId),
           eq(customerUsageBalances.periodStart, period.start)
@@ -599,7 +601,7 @@ export class CustomerUsageService {
     const totalUsageRollover = plan.id === "bronze" || access.isAdmin
       ? 0
       : Number(totalUsagePersisted?.rollover ?? 0);
-    const totalUsageLimit = totalUsageBaseLimit + totalUsageRollover;
+    const totalUsageLimit = totalUsageBaseLimit + totalUsageRollover + Number(totalUsagePersisted?.bonus ?? 0);
     const totalUsageUsed = Number(totalUsagePersisted?.used ?? totalUsageLocal?.used ?? 0);
     const totalUsageReserved = Number(totalUsagePersisted?.reserved ?? totalUsageLocal?.reserved ?? 0);
     const totalUsageRemaining = Math.max(0, totalUsageLimit - totalUsageUsed - totalUsageReserved);
@@ -636,7 +638,8 @@ export class CustomerUsageService {
         const rollover = baseLimit === null || plan.id === "bronze" || access.isAdmin
           ? 0
           : Number(row?.rollover ?? 0);
-        const limit = baseLimit === null ? null : baseLimit + rollover;
+        const bonus = Number(row?.bonus ?? 0);
+        const limit = baseLimit === null ? null : baseLimit + rollover + bonus;
         return {
           key,
           label,

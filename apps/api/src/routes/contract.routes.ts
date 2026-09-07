@@ -8,6 +8,7 @@ import { initServer } from "@ts-rest/express";
 import type { Request, Response } from "express";
 import { acceptPolicies, clearAccountMemory, deleteAccount, getAccountUsage, getCurrentPolicies, getMemorySettings, getOAuthProviders, restoreAccount, updateMemorySettings, updateProfile } from "../controllers/account.controller.js";
 import { grantPlanOverride, listPlanOverrides, listReviewSubmissions, revokePlanOverride } from "../controllers/admin.controller.js";
+import { getAdRewardSession, postAdRewardSession } from "../controllers/advertising.controller.js";
 import { getAccountBillingCatalog, postAccountBillingManagement } from "../controllers/billing.controller.js";
 import {
   cancelChatJob,
@@ -125,6 +126,10 @@ export const apiContractRouter = server.router(apiContract, {
       status: 200,
       body: getMobileUpdatePolicy(query.platform, query.build)
     })
+  },
+  advertising: {
+    createRewardSession: captured(postAdRewardSession),
+    getRewardSession: captured(getAdRewardSession)
   },
   admin: {
     planOverrides: captured(listPlanOverrides),

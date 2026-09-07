@@ -35,7 +35,13 @@
         "EXPO_PUBLIC_APP_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api.onrender.com",
         "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com",
-        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com"
+        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com",
+        "EXPO_PUBLIC_ADMOB_ANDROID_APP_ID": "ca-app-pub-1555286261518615~2589155767",
+        "EXPO_PUBLIC_ADMOB_IOS_APP_ID": "ca-app-pub-1555286261518615~3228480284",
+        "EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID": "ca-app-pub-1555286261518615/2899664457",
+        "EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID": "ca-app-pub-1555286261518615/4021174432",
+        "EXPO_PUBLIC_ADMOB_IOS_BANNER_ID": "ca-app-pub-1555286261518615/6700821437",
+        "EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID": "ca-app-pub-1555286261518615/6468992341"
       }
     },
     "testflight": {
@@ -45,7 +51,13 @@
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api.onrender.com",
-        "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com"
+        "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com",
+        "EXPO_PUBLIC_ADMOB_ANDROID_APP_ID": "ca-app-pub-1555286261518615~2589155767",
+        "EXPO_PUBLIC_ADMOB_IOS_APP_ID": "ca-app-pub-1555286261518615~3228480284",
+        "EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID": "ca-app-pub-1555286261518615/2899664457",
+        "EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID": "ca-app-pub-1555286261518615/4021174432",
+        "EXPO_PUBLIC_ADMOB_IOS_BANNER_ID": "ca-app-pub-1555286261518615/6700821437",
+        "EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID": "ca-app-pub-1555286261518615/6468992341"
       }
     },
     "production": {
@@ -56,7 +68,13 @@
         "EXPO_PUBLIC_APP_ENV": "production",
         "EXPO_PUBLIC_API_URL": "https://for-the-baddiez-api.onrender.com",
         "EXPO_PUBLIC_WEB_APP_URL": "https://for-the-baddiez-web.onrender.com",
-        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com"
+        "EXPO_PUBLIC_ANDROID_APP_LINK_HOST": "for-the-baddiez-web.onrender.com",
+        "EXPO_PUBLIC_ADMOB_ANDROID_APP_ID": "ca-app-pub-1555286261518615~2589155767",
+        "EXPO_PUBLIC_ADMOB_IOS_APP_ID": "ca-app-pub-1555286261518615~3228480284",
+        "EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID": "ca-app-pub-1555286261518615/2899664457",
+        "EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID": "ca-app-pub-1555286261518615/4021174432",
+        "EXPO_PUBLIC_ADMOB_IOS_BANNER_ID": "ca-app-pub-1555286261518615/6700821437",
+        "EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID": "ca-app-pub-1555286261518615/6468992341"
       }
     }
   },

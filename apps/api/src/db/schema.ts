@@ -363,6 +363,7 @@ export const customerUsageBalances = pgTable("customer_usage_balances", {
   planId: text("plan_id"),
   baseLimitQuantity: integer("base_limit_quantity").notNull().default(0),
   rolloverQuantity: integer("rollover_quantity").notNull().default(0),
+  bonusQuantity: integer("bonus_quantity").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => ({
   userMeterPeriodUnique: uniqueIndex("customer_usage_balances_user_meter_period_unique")
@@ -375,6 +376,10 @@ export const customerUsageBalances = pgTable("customer_usage_balances", {
   rolloverRangeCheck: check(
     "customer_usage_balances_rollover_range_check",
     sql`${table.rolloverQuantity} >= 0 and ${table.rolloverQuantity} <= ${table.baseLimitQuantity}`
+  ),
+  bonusNonnegativeCheck: check(
+    "customer_usage_balances_bonus_nonnegative_check",
+    sql`${table.bonusQuantity} >= 0`
   )
 }));
 
@@ -407,6 +412,38 @@ export const customerUsageEvents = pgTable("customer_usage_events", {
     .on(table.userId, table.periodStart, table.meterKey),
   statusCreatedIdx: index("customer_usage_events_status_created_idx")
     .on(table.status, table.createdAt)
+}));
+
+export const adRewardEvents = pgTable("ad_reward_events", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  transactionId: text("transaction_id").notNull(),
+  rewardType: text("reward_type").notNull(),
+  rewardAmount: integer("reward_amount").notNull(),
+  status: text("status").notNull().default("verified_pending_grant"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  grantedAt: timestamp("granted_at", { withTimezone: true })
+}, (table) => ({
+  providerTransactionUnique: uniqueIndex("ad_reward_events_provider_transaction_unique")
+    .on(table.provider, table.transactionId),
+  userCreatedAtIdx: index("ad_reward_events_user_created_at_idx").on(table.userId, table.createdAt),
+  statusCreatedAtIdx: index("ad_reward_events_status_created_at_idx").on(table.status, table.createdAt),
+  rewardAmountPositiveCheck: check("ad_reward_events_reward_amount_positive_check", sql`${table.rewardAmount} > 0`)
+}));
+
+export const adRewardSessions = pgTable("ad_reward_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true })
+}, (table) => ({
+  userStatusIdx: index("ad_reward_sessions_user_status_idx").on(table.userId, table.status),
+  expiresAtIdx: index("ad_reward_sessions_expires_at_idx").on(table.expiresAt)
 }));
 
 /**

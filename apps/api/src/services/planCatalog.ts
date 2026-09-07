@@ -79,7 +79,7 @@ export const planCatalog: Record<PlanId, PlanDefinition> = {
     id: "gold",
     version: CURRENT_PLAN_VERSION,
     displayName: "Gold",
-    description: "The full persona library and the most generous media limits.",
+    description: "The full persona library, the most generous media limits, and no ads.",
     monthlyPriceCents: 1199,
     adsEnabled: false,
     priorityQueue: true,

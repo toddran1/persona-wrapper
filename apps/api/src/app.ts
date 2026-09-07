@@ -23,6 +23,7 @@ import { getGeneratedMedia } from "./controllers/generatedMedia.controller.js";
 import { getOpenAIArtifact } from "./controllers/openAIArtifact.controller.js";
 import { downloadDataExport, postDataImportUpload } from "./controllers/dataTransfer.controller.js";
 import { postRevenueCatWebhook } from "./controllers/billing.controller.js";
+import { getAdMobSsvCallback } from "./controllers/advertising.controller.js";
 import { env } from "./config/env.js";
 import { customerUsageService } from "./services/customerUsageService.js";
 import { storageService } from "./services/storageService.js";
@@ -262,6 +263,11 @@ export function createApp() {
     express.json({ limit: "256kb" }),
     postRevenueCatWebhook
   );
+  // Google signs this server-to-server callback. It must remain outside user
+  // authentication because AdMob, not the signed-in device, calls it.
+  app.get("/api/advertising/admob/ssv", (request, response, next) => {
+    void getAdMobSsvCallback(request, response).catch(next);
+  });
   app.use(
     "/api/data",
     authenticateRequest,
@@ -319,6 +325,7 @@ export function createApp() {
   // whenever the sign-in screen mounts.
   app.post("/api/account/restore", authRateLimit);
   app.post("/api/account/billing/management", billingManagementRateLimit);
+  app.post("/api/advertising/rewards/sessions", authRateLimit);
   app.delete("/api/account", authRateLimit);
   app.post("/api/data/jobs/export", dataTransferRateLimit);
   app.post("/api/data/jobs/import/presign", dataTransferRateLimit);

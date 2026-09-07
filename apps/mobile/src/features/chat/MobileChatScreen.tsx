@@ -93,6 +93,8 @@ import { getClientContextForMessage } from "./mobileClientContext";
 import { NEUTRAL_PERSONA_ID, PASSWORD_MIN_LENGTH, stripGeneratedFileDownloadPrompt } from "@persona/shared";
 import type { ResponseFeedbackCategory } from "@persona/shared";
 import type { MobilePickedFile, RenderedTurn } from "./types";
+import { BronzeBannerAd } from "../../advertising/BronzeBannerAd";
+import { cancelRewardedAd, loadRewardedAd, showRewardedAd } from "../../advertising/rewardedAds";
 
 const BackgroundGradient = LinearGradient as unknown as ComponentType<LinearGradientProps>;
 // Keep polling longer than the server's 20-minute execution window. If the
@@ -104,6 +106,8 @@ const DEFAULT_RESPONSE_FOCUS_OFFSET = 132;
 const DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET = 236;
 const DOCKED_PERSONA_RESPONSE_FOCUS_OFFSET_LANDSCAPE = 220;
 const PERSONA_RESPONSE_FOCUS_GAP = 12;
+const REWARD_STATUS_POLL_INTERVAL_MS = 1_500;
+const REWARD_STATUS_POLL_ATTEMPTS = 12;
 const PUBLIC_WEB_BASE_URL = (process.env.EXPO_PUBLIC_WEB_APP_URL || "http://localhost:5173").replace(/\/$/, "");
 const MOBILE_APP_VERSION = Constants.expoConfig?.version?.trim()
   || Constants.nativeAppVersion?.trim()
@@ -342,6 +346,7 @@ export function MobileChatScreen() {
   const [responseFocusTurnId, setResponseFocusTurnId] = useState<string | undefined>();
   const [responseFocusLayoutVersion, setResponseFocusLayoutVersion] = useState(0);
   const [composerHeight, setComposerHeight] = useState(62);
+  const [bannerHeight, setBannerHeight] = useState(0);
   const [personaVisualState, setPersonaVisualState] = useState<PersonaVisualState>("idle");
   const [personaCardExpanded, setPersonaCardExpanded] = useState(false);
   const [personaCardHidden, setPersonaCardHidden] = useState(false);
@@ -359,6 +364,9 @@ export function MobileChatScreen() {
   const [billingBusyProductId, setBillingBusyProductId] = useState<string | undefined>();
   const [billingError, setBillingError] = useState<string | undefined>();
   const [billingNotice, setBillingNotice] = useState<string | undefined>();
+  const [rewardAdBusy, setRewardAdBusy] = useState(false);
+  const [rewardAdError, setRewardAdError] = useState<string | undefined>();
+  const [rewardAdNotice, setRewardAdNotice] = useState<string | undefined>();
   const [freeDowngradeVisible, setFreeDowngradeVisible] = useState(false);
   const [freeDowngradeConfirmation, setFreeDowngradeConfirmation] = useState("");
   const drawerX = useSharedValue(-drawerWidth);
@@ -527,6 +535,27 @@ export function MobileChatScreen() {
         : "Current plan";
   const currentAccountIdRef = useRef(authUser?.id);
   currentAccountIdRef.current = authUser?.id;
+
+  useEffect(() => {
+    cancelRewardedAd();
+    setRewardAdBusy(false);
+    setRewardAdError(undefined);
+    setRewardAdNotice(undefined);
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    const accountId = authUser?.id;
+    if (!accountId) return;
+    // Ad eligibility must come from the server-owned billing catalog. Load it
+    // for the chat surface without initializing the native ad SDK for paid users.
+    void api.getBillingCatalog()
+      .then((catalog) => {
+        if (currentAccountIdRef.current === accountId) setBillingCatalog(catalog);
+      })
+      .catch(() => {
+        // Fail closed: without authoritative plan data, no ad component mounts.
+      });
+  }, [authUser?.id, setBillingCatalog]);
 
   useEffect(() => {
     // Store products and purchase feedback are account-scoped even though
@@ -941,6 +970,104 @@ export function MobileChatScreen() {
       }
     } finally {
       if (currentAccountIdRef.current === requestedAccountId) setPlanUsageLoading(false);
+    }
+  }
+
+  async function pollAdRewardSession(sessionId: string, accountId: string): Promise<void> {
+    for (let attempt = 0; attempt < REWARD_STATUS_POLL_ATTEMPTS; attempt += 1) {
+      if (currentAccountIdRef.current !== accountId) return;
+      if (attempt > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, REWARD_STATUS_POLL_INTERVAL_MS));
+      }
+      try {
+        const reward = await api.getAdRewardSession(sessionId);
+        if (currentAccountIdRef.current !== accountId) return;
+        if (reward.status === "granted") {
+          await refreshPlanUsage();
+          setRewardAdNotice(`${reward.rewardAmount} media credit added.`);
+          setRewardAdBusy(false);
+          return;
+        }
+        if (reward.status === "rejected" || reward.status === "expired") {
+          setRewardAdError("The ad could not be verified, so no credit was added.");
+          setRewardAdBusy(false);
+          return;
+        }
+      } catch (rewardError) {
+        if (attempt === REWARD_STATUS_POLL_ATTEMPTS - 1) {
+          setRewardAdError(rewardError instanceof Error ? rewardError.message : "Could not verify the ad reward.");
+          setRewardAdNotice(undefined);
+          setRewardAdBusy(false);
+          return;
+        }
+      }
+    }
+    if (currentAccountIdRef.current === accountId) {
+      setRewardAdNotice("Google is still verifying the reward. Your balance will update when verification finishes.");
+      setRewardAdBusy(false);
+    }
+  }
+
+  async function watchRewardedAd(): Promise<void> {
+    const accountId = authUser?.id;
+    if (!accountId || rewardAdBusy || billingCatalog?.currentPlanId !== "bronze") return;
+    setRewardAdBusy(true);
+    setRewardAdError(undefined);
+    setRewardAdNotice("Preparing a short ad…");
+    try {
+      const session = await api.createAdRewardSession();
+      if (currentAccountIdRef.current !== accountId) return;
+      let earned = false;
+      const loaded = await loadRewardedAd({
+        authenticated: true,
+        billingCatalog,
+        ssvUserId: session.ssvUserId,
+        ssvCustomData: session.ssvCustomData
+      }, {
+        onLoaded: () => setRewardAdNotice("Ad ready."),
+        onEarned: () => {
+          earned = true;
+          setRewardAdNotice("Verifying your media credit…");
+          void pollAdRewardSession(session.sessionId, accountId);
+        },
+        onClosed: () => {
+          if (!earned && currentAccountIdRef.current === accountId) {
+            setRewardAdError("Watch the full ad to earn a media credit.");
+            setRewardAdNotice(undefined);
+            setRewardAdBusy(false);
+          }
+        },
+        onLoadError: () => {
+          setRewardAdError("An ad is not available right now. Please try again later.");
+          setRewardAdNotice(undefined);
+          setRewardAdBusy(false);
+        },
+        onShowError: () => {
+          setRewardAdError("The ad could not be shown. Please try again later.");
+          setRewardAdNotice(undefined);
+          setRewardAdBusy(false);
+        }
+      });
+      if (!loaded || currentAccountIdRef.current !== accountId) {
+        if (currentAccountIdRef.current === accountId) {
+          setRewardAdError("An ad is not available right now. Please try again later.");
+          setRewardAdNotice(undefined);
+          setRewardAdBusy(false);
+        }
+        return;
+      }
+      const shown = await showRewardedAd({ authenticated: true, billingCatalog });
+      if (!shown && currentAccountIdRef.current === accountId) {
+        setRewardAdError("The ad could not be shown. Please try again later.");
+        setRewardAdNotice(undefined);
+        setRewardAdBusy(false);
+      }
+    } catch (rewardError) {
+      if (currentAccountIdRef.current === accountId) {
+        setRewardAdError(rewardError instanceof Error ? rewardError.message : "Could not start the rewarded ad.");
+        setRewardAdNotice(undefined);
+        setRewardAdBusy(false);
+      }
     }
   }
 
@@ -3806,12 +3933,22 @@ export function MobileChatScreen() {
               onPress={scrollConversationToBottom}
               style={[
                 styles.scrollToBottomButton,
-                { bottom: composerHeight + Math.max(insets.bottom, 8) + 12 },
+                { bottom: composerHeight + bannerHeight + Math.max(insets.bottom, 8) + 12 },
                 { backgroundColor: "rgba(255,255,255,0.13)", borderColor: theme.border }
               ]}
             >
               <Ionicons name="arrow-down" size={22} color={theme.text} />
             </Pressable>
+          ) : null}
+
+          {turns.some((turn) => Boolean(turn.assistantMessageId || turn.assistantText.trim())) ? (
+            <BronzeBannerAd
+              authenticated={Boolean(authUser)}
+              {...(billingCatalog ? { billingCatalog } : {})}
+              borderColor={theme.border}
+              labelColor={theme.muted}
+              onHeightChange={setBannerHeight}
+            />
           ) : null}
 
           <View>
@@ -4409,6 +4546,32 @@ export function MobileChatScreen() {
                         {meter.rollover > 0 ? (
                           <Text style={[styles.settingsRolloverNote, { color: theme.accent2, borderColor: theme.border }]}>+{formatAmount(meter.rollover)} carried from last month · use by {new Date(meter.periodEnd).toLocaleDateString([], { month: "short", day: "numeric", timeZone: "UTC" })}</Text>
                         ) : null}
+                        {meter.key === "credits"
+                          && billingCatalog?.currentPlanId === "bronze"
+                          && remaining !== null
+                          && remaining <= 2
+                          && planUsage.totalUsage.remainingMicroUsd > 0 ? (
+                            <View style={[styles.rewardAdOffer, { borderColor: theme.border, backgroundColor: "rgba(214,181,94,0.08)" }]}>
+                              <View style={styles.rewardAdCopy}>
+                                <Text style={[styles.rewardAdTitle, { color: theme.text }]}>Need one more media credit?</Text>
+                                <Text style={[styles.settingsRowHint, { color: theme.muted }]}>Watch an optional ad. Limit 3 rewards per day.</Text>
+                              </View>
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel="Watch an ad for one media credit"
+                                accessibilityState={{ disabled: rewardAdBusy }}
+                                disabled={rewardAdBusy}
+                                onPress={() => void watchRewardedAd()}
+                                style={[styles.rewardAdButton, { backgroundColor: theme.accent2, opacity: rewardAdBusy ? 0.55 : 1 }]}
+                              >
+                                {rewardAdBusy
+                                  ? <ActivityIndicator color={theme.background} />
+                                  : <><Ionicons name="play" size={15} color={theme.background} /><Text style={[styles.rewardAdButtonText, { color: theme.background }]}>Watch ad</Text></>}
+                              </Pressable>
+                            </View>
+                          ) : null}
+                        {meter.key === "credits" && rewardAdError ? <Text accessibilityRole="alert" style={[styles.settingsRowHint, { color: theme.danger }]}>{rewardAdError}</Text> : null}
+                        {meter.key === "credits" && rewardAdNotice ? <Text accessibilityLiveRegion="polite" style={[styles.settingsRowHint, { color: theme.accent2 }]}>{rewardAdNotice}</Text> : null}
                         {limit !== null ? (
                           <View
                             accessible
@@ -6188,6 +6351,36 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     paddingHorizontal: 9,
     paddingVertical: 5
+  },
+  rewardAdButton: {
+    alignItems: "center",
+    borderRadius: 999,
+    flexDirection: "row",
+    gap: 6,
+    justifyContent: "center",
+    minHeight: 40,
+    paddingHorizontal: 14
+  },
+  rewardAdButtonText: {
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  rewardAdCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0
+  },
+  rewardAdOffer: {
+    alignItems: "center",
+    borderRadius: 13,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 12
+  },
+  rewardAdTitle: {
+    fontSize: 14,
+    fontWeight: "900"
   },
   settingsReleaseBuild: {
     fontSize: 11,

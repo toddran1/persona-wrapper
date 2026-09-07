@@ -563,6 +563,11 @@ export type MemorySettings = z.infer<typeof memorySettingsSchema>;
 export const planIdSchema = z.enum(["bronze", "silver", "gold"]);
 export type PlanId = z.infer<typeof planIdSchema>;
 
+/** Billing-catalog plan IDs are the sole authority for advertising eligibility. */
+export function isPlanAdSupported(planId: PlanId): boolean {
+  return planId === "bronze";
+}
+
 export const customerUsageMeterSchema = z.enum([
   "total_usage_microusd",
   "credits",
@@ -1637,6 +1642,27 @@ export const mobileUpdatePolicySchema = z.object({
 });
 export type MobileUpdatePolicy = z.infer<typeof mobileUpdatePolicySchema>;
 
+export const adRewardSessionStatusSchema = z.enum(["pending", "granted", "rejected", "expired"]);
+export type AdRewardSessionStatus = z.infer<typeof adRewardSessionStatusSchema>;
+
+export const adRewardSessionResponseSchema = z.object({
+  sessionId: z.string().min(1),
+  ssvUserId: z.string().min(1),
+  ssvCustomData: z.string().min(1),
+  expiresAt: z.string().datetime(),
+  remainingToday: z.number().int().nonnegative(),
+  rewardAmount: z.number().int().positive()
+}).strict();
+export type AdRewardSessionResponse = z.infer<typeof adRewardSessionResponseSchema>;
+
+export const adRewardSessionStatusResponseSchema = z.object({
+  sessionId: z.string().min(1),
+  status: adRewardSessionStatusSchema,
+  rewardAmount: z.number().int().positive(),
+  remainingToday: z.number().int().nonnegative()
+}).strict();
+export type AdRewardSessionStatusResponse = z.infer<typeof adRewardSessionStatusResponseSchema>;
+
 /** Shared runtime contract for the endpoints used by both first-party clients. */
 export const apiContract = contract.router({
   mobile: contract.router({
@@ -1647,6 +1673,32 @@ export const apiContract = contract.router({
       responses: {
         200: mobileUpdatePolicySchema,
         400: apiErrorSchema
+      }
+    }
+  }),
+  advertising: contract.router({
+    createRewardSession: {
+      method: "POST",
+      path: "/api/advertising/rewards/sessions",
+      body: z.object({}).strict(),
+      responses: {
+        201: adRewardSessionResponseSchema,
+        401: apiErrorSchema,
+        403: apiErrorSchema,
+        409: apiErrorSchema,
+        429: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    },
+    getRewardSession: {
+      method: "GET",
+      path: "/api/advertising/rewards/sessions/:sessionId",
+      pathParams: z.object({ sessionId: z.string().min(1).max(128) }),
+      responses: {
+        200: adRewardSessionStatusResponseSchema,
+        401: apiErrorSchema,
+        404: apiErrorSchema,
+        503: apiErrorSchema
       }
     }
   }),

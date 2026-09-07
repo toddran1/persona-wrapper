@@ -126,6 +126,12 @@ services:
         sync: false
       - key: REVENUECAT_WEB_GOLD_PACKAGE_ID
         sync: false
+      # Must match the rewarded units compiled into the mobile apps. The API
+      # rejects signed rewards originating from any other AdMob placement.
+      - key: ADMOB_ANDROID_REWARDED_AD_UNIT_ID
+        value: ca-app-pub-1555286261518615/4021174432
+      - key: ADMOB_IOS_REWARDED_AD_UNIT_ID
+        value: ca-app-pub-1555286261518615/6468992341
       - key: CUSTOMER_USAGE_AUDIO_COST_PER_MINUTE_USD
         value: "0.021"
       - key: CUSTOMER_USAGE_IMAGE_INPUT_COST_USD
@@ -455,6 +461,10 @@ services:
         sync: false
       - key: REVENUECAT_WEB_GOLD_PACKAGE_ID
         sync: false
+      - key: ADMOB_ANDROID_REWARDED_AD_UNIT_ID
+        value: ca-app-pub-1555286261518615/4021174432
+      - key: ADMOB_IOS_REWARDED_AD_UNIT_ID
+        value: ca-app-pub-1555286261518615/6468992341
       - key: EXPO_PUBLIC_REVENUECAT_IOS_API_KEY
         sync: false
       - key: EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY

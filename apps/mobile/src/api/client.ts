@@ -11,6 +11,8 @@ import type {
   AuthUser,
   AuthSession,
   AccountDeletionResponse,
+  AdRewardSessionResponse,
+  AdRewardSessionStatusResponse,
   ChatJobResponse,
   ChatResponse,
   ClientContext,
@@ -922,6 +924,16 @@ export const api = {
     const response = await contractClient.account.billingManagement({ body: {} });
     if (response.status !== 200) throw contractError(response.body, "Could not open subscription management.");
     return response.body.managementUrl;
+  },
+  createAdRewardSession: async (): Promise<AdRewardSessionResponse> => {
+    const response = await contractClient.advertising.createRewardSession({ body: {} });
+    if (response.status !== 201) throw contractError(response.body, "Could not start the rewarded ad.");
+    return response.body;
+  },
+  getAdRewardSession: async (sessionId: string): Promise<AdRewardSessionStatusResponse> => {
+    const response = await contractClient.advertising.getRewardSession({ params: { sessionId } });
+    if (response.status !== 200) throw contractError(response.body, "Could not verify the ad reward.");
+    return response.body;
   },
   updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {
     const response = await contractClient.account.updateProfile({ body: payload });

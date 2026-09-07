@@ -48,7 +48,7 @@ const PLAN_PRESENTATION: Record<PlanId, {
   gold: {
     eyebrow: "All access",
     description: "The full persona library with the most generous creative limits.",
-    features: ["180 monthly media credits", "180 audio minutes", "One-month usage rollover", "All personas", "Priority media queue"]
+    features: ["180 monthly media credits", "180 audio minutes", "One-month usage rollover", "All personas", "Priority media queue", "No ads"]
   }
 };
 

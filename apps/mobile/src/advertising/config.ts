@@ -1,0 +1,46 @@
+import { Platform } from "react-native";
+import { TestIds } from "react-native-google-mobile-ads";
+
+const appEnvironment = process.env.EXPO_PUBLIC_APP_ENV?.trim() || "development";
+const reportedMissingConfig = new Set<string>();
+const ADMOB_AD_UNIT_ID_PATTERN = /^ca-app-pub-\d{16}\/\d{10}$/;
+
+export const isProductionAdsEnvironment = appEnvironment === "production";
+
+function unavailable(name: string): undefined {
+  if (!reportedMissingConfig.has(name)) {
+    reportedMissingConfig.add(name);
+    console.warn(`${name} is not configured; mobile ads are disabled for this placement.`);
+  }
+  return undefined;
+}
+
+function configuredAdUnitId(name: string, value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (normalized && ADMOB_AD_UNIT_ID_PATTERN.test(normalized)) return normalized;
+  return unavailable(normalized
+    ? `${name} has an invalid format (ad unit IDs use ca-app-pub-…/…)`
+    : name);
+}
+
+export function getBannerAdUnitId(): string | undefined {
+  if (!isProductionAdsEnvironment) return TestIds.BANNER;
+  if (Platform.OS === "android") {
+    return configuredAdUnitId("EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID", process.env.EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID);
+  }
+  if (Platform.OS === "ios") {
+    return configuredAdUnitId("EXPO_PUBLIC_ADMOB_IOS_BANNER_ID", process.env.EXPO_PUBLIC_ADMOB_IOS_BANNER_ID);
+  }
+  return undefined;
+}
+
+export function getRewardedAdUnitId(): string | undefined {
+  if (!isProductionAdsEnvironment) return TestIds.REWARDED;
+  if (Platform.OS === "android") {
+    return configuredAdUnitId("EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID);
+  }
+  if (Platform.OS === "ios") {
+    return configuredAdUnitId("EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID);
+  }
+  return undefined;
+}
