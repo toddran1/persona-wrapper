@@ -2,8 +2,8 @@ import { requestMayNeedLocation, type ClientContext } from "@persona/shared";
 import * as Location from "expo-location";
 import { getClientContext } from "./mobileChatUtils";
 
-const LOCATION_CACHE_MS = 10 * 60 * 1000;
-const LOCATION_TIMEOUT_MS = 8_000;
+const LOCATION_CACHE_MS = 30 * 60 * 1000;
+const LOCATION_ACQUISITION_TIMEOUT_MS = 15_000;
 let cachedLocation: { location: NonNullable<ClientContext["location"]>; capturedAt: number } | undefined;
 
 function roundCoordinate(value: number): number {
@@ -24,12 +24,17 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSi
   throwIfAborted(signal);
   return new Promise((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout>;
+    let settled = false;
     const onAbort = () => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       reject(abortError());
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     const finish = (value: T | undefined) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       resolve(value);
@@ -42,12 +47,21 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, signal?: AbortSi
   });
 }
 
+async function acquireCurrentPosition(signal?: AbortSignal): Promise<Location.LocationObject | undefined> {
+  return withTimeout(
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+    LOCATION_ACQUISITION_TIMEOUT_MS,
+    signal
+  );
+}
+
 async function currentDeviceLocation(signal?: AbortSignal): Promise<ClientContext["location"] | undefined> {
   try {
     throwIfAborted(signal);
     const existing = await Location.getForegroundPermissionsAsync();
     throwIfAborted(signal);
     const permission = existing.granted ? existing : await Location.requestForegroundPermissionsAsync();
+    const permissionWasJustGranted = !existing.granted && permission.granted;
     throwIfAborted(signal);
     if (!permission.granted) return undefined;
     if (cachedLocation && Date.now() - cachedLocation.capturedAt < LOCATION_CACHE_MS) {
@@ -59,11 +73,14 @@ async function currentDeviceLocation(signal?: AbortSignal): Promise<ClientContex
       requiredAccuracy: 5_000
     }).catch(() => null);
     throwIfAborted(signal);
-    const position = lastKnown ?? await withTimeout(
-      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-      LOCATION_TIMEOUT_MS,
-      signal
-    );
+    let position = lastKnown ?? await acquireCurrentPosition(signal);
+    throwIfAborted(signal);
+    // A newly granted foreground permission can race the platform location
+    // provider becoming ready. Give that first approved request one additional
+    // acquisition attempt instead of submitting the chat without coordinates.
+    if (!position && permissionWasJustGranted) {
+      position = await acquireCurrentPosition(signal);
+    }
     if (!position) return undefined;
 
     const latitude = roundCoordinate(position.coords.latitude);
@@ -83,6 +100,10 @@ async function currentDeviceLocation(signal?: AbortSignal): Promise<ClientContex
     if (error instanceof Error && error.name === "AbortError") throw error;
     return undefined;
   }
+}
+
+export function resetMobileLocationCacheForTests(): void {
+  cachedLocation = undefined;
 }
 
 export async function getClientContextForMessage(message: string, signal?: AbortSignal): Promise<ClientContext> {
