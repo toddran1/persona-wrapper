@@ -7,9 +7,12 @@ initialize, preload, or request ads.
 ## Web
 
 The AdSense verification loader remains static in `apps/web/index.html` while
-the site is reviewed. `BronzeBannerAd` is ready for a future placement and only
-mounts an AdSense slot when `VITE_ADSENSE_BRONZE_AD_SLOT` is configured. After
-approval, the loader can be moved behind the same Bronze gate.
+the site is reviewed. `BronzeBannerAd` is placed at the bottom of the
+conversation sidebar and only mounts an AdSense slot after the authenticated
+account's authoritative billing catalog confirms Bronze and
+`VITE_ADSENSE_BRONZE_AD_SLOT` is configured. If the catalog request fails, the
+ad remains unmounted. After approval, the loader can be moved behind the same
+Bronze gate.
 
 Web seller authorization is published at `/ads.txt` from
 `apps/web/public/ads.txt`.

@@ -1,5 +1,5 @@
 import { NEUTRAL_PERSONA_ID } from "@persona/shared";
-import type { AuthUser, ChatJobResponse, ChatResponse, ContentBlock, ConversationSummary, ConversationTurn, CurrentPoliciesResponse, DataTransferJob, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, PolicyVersions, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
+import type { AuthUser, BillingCatalogResponse, ChatJobResponse, ChatResponse, ContentBlock, ConversationSummary, ConversationTurn, CurrentPoliciesResponse, DataTransferJob, ForTheBaddiezArchive, OAuthProvider, OAuthProviderStatus, PersonaDefinition, PersonaSummary, PolicyVersions, ProviderId, ToolOptions, UploadedAsset } from "@persona/shared";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
@@ -363,15 +363,21 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
   // Current plan id gates the composer's provider dropdown options (the
   // server enforces the same gates). Silently absent until/unless it loads.
   const [composerPlanId, setComposerPlanId] = useState<string | undefined>();
+  const [billingCatalogSnapshot, setBillingCatalogSnapshot] = useState<BillingCatalogResponse | undefined>();
   useEffect(() => {
     if (!authUser) {
       setComposerPlanId(undefined);
+      setBillingCatalogSnapshot(undefined);
       return;
     }
     let cancelled = false;
-    api.getPlanUsage()
-      .then((usage) => { if (!cancelled) setComposerPlanId(usage.plan.id); })
-      .catch(() => { /* Option filtering fails closed; the server still enforces. */ });
+    api.getBillingCatalog()
+      .then((catalog) => {
+        if (cancelled) return;
+        setComposerPlanId(catalog.currentPlanId);
+        setBillingCatalogSnapshot(catalog);
+      })
+      .catch(() => { /* Provider filtering and ad eligibility both fail closed. */ });
     return () => { cancelled = true; };
   }, [authUser?.id]);
   const [currentPolicies, setCurrentPolicies] = useState<CurrentPoliciesResponse>();
@@ -2121,6 +2127,7 @@ export function App({ reviewPage = false }: { reviewPage?: boolean }) {
           oauthReturnNotice={oauthReturn?.status === "success" ? oauthReturn.message : undefined}
           oauthProviders={oauthProviders}
           currentPolicies={currentPolicies}
+          {...(billingCatalogSnapshot ? { billingCatalogSnapshot } : {})}
           conversations={conversationList}
           activeConversationId={conversationId}
           loading={conversationListLoading}

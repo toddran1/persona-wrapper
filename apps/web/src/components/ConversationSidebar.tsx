@@ -19,6 +19,7 @@ import { billingLifecyclePresentation, billingStoreDisplayName, clampFiniteNumbe
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import webPackage from "../../package.json";
+import { BronzeBannerAd } from "../advertising/BronzeBannerAd.js";
 import { clearPendingBillingCheckout, savePendingBillingCheckout } from "../lib/pendingBillingCheckout.js";
 import { PasswordInput } from "./PasswordInput.js";
 
@@ -115,6 +116,7 @@ export function ConversationSidebar({
   oauthReturnNotice,
   oauthProviders = [],
   currentPolicies,
+  billingCatalogSnapshot,
   conversations,
   activeConversationId,
   loading = false,
@@ -165,6 +167,7 @@ export function ConversationSidebar({
   oauthReturnNotice?: string | undefined;
   oauthProviders?: OAuthProviderStatus[];
   currentPolicies?: CurrentPoliciesResponse | undefined;
+  billingCatalogSnapshot?: BillingCatalogResponse | undefined;
   conversations: ConversationSummary[];
   activeConversationId?: string | undefined;
   loading?: boolean;
@@ -247,7 +250,7 @@ export function ConversationSidebar({
   const [memoryNotice, setMemoryNotice] = useState<string | undefined>();
   const [memoryConfirmation, setMemoryConfirmation] = useState<"chat" | "all" | undefined>();
   const [planUsage, setPlanUsage] = useState<PlanUsageSummary | undefined>();
-  const [billingCatalog, setBillingCatalog] = useState<BillingCatalogResponse | undefined>();
+  const [billingCatalog, setBillingCatalog] = useState<BillingCatalogResponse | undefined>(billingCatalogSnapshot);
   const [planNotice, setPlanNotice] = useState<string | undefined>();
   const [billingCheckout, setBillingCheckout] = useState<{
     planId: PlanId;
@@ -414,6 +417,10 @@ export function ConversationSidebar({
     setBirthMonth(authUser?.birthday?.month.toString() ?? "");
     setBirthDay(authUser?.birthday?.day.toString() ?? "");
   }, [authUser?.id, authUser?.username, authUser?.preferredName, authUser?.gender, authUser?.birthday?.month, authUser?.birthday?.day, authUser?.conciseAudioResponses]);
+
+  useEffect(() => {
+    if (billingCatalogSnapshot) setBillingCatalog(billingCatalogSnapshot);
+  }, [billingCatalogSnapshot]);
 
   useEffect(() => {
     if (!profileNotice) return;
@@ -1792,6 +1799,12 @@ export function ConversationSidebar({
           </button>
         ) : null}
       </div>
+
+      <BronzeBannerAd
+        authenticated={Boolean(authUser)}
+        {...(billingCatalog ? { billingCatalog } : {})}
+        className="conversation-sidebar-ad"
+      />
 
       {authUser ? (
         <div className="conversation-account-footer">

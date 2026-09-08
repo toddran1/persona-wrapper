@@ -752,6 +752,20 @@ textarea {
   padding-top: 10px;
 }
 
+.conversation-sidebar-ad {
+  display: grid;
+  flex: 0 0 auto;
+  min-height: 90px;
+  overflow: hidden;
+  padding: 8px 0;
+  border-block: 1px solid rgba(214, 181, 94, 0.12);
+}
+
+.conversation-sidebar-ad .adsbygoogle {
+  width: 100%;
+  min-height: 72px;
+}
+
 .conversation-account-button {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
