@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Request, Response } from "express";
-import { grantPlanOverride, listPlanOverrides, listReviewSubmissions, revokePlanOverride } from "../controllers/admin.controller.js";
+import { getAccountInvestigation, getOperationsOverview, grantPlanOverride, listPlanOverrides, listReviewSubmissions, resolveSafetyReport, revokePlanOverride, updateAccountStatus } from "../controllers/admin.controller.js";
 
 const response = {} as Response;
 
@@ -18,6 +18,10 @@ describe("admin plan override endpoints", () => {
       .rejects.toMatchObject({ statusCode: 401 });
     await expect(listReviewSubmissions(requestWith(undefined, undefined, { limit: "20" }), response))
       .rejects.toMatchObject({ statusCode: 401 });
+    await expect(getOperationsOverview(requestWith(undefined, undefined, { days: "30" }), response)).rejects.toMatchObject({ statusCode: 401 });
+    await expect(getAccountInvestigation(requestWith(undefined, undefined, { user: "a@b.c" }), response)).rejects.toMatchObject({ statusCode: 401 });
+    await expect(resolveSafetyReport(requestWith(undefined, {}), response)).rejects.toMatchObject({ statusCode: 401 });
+    await expect(updateAccountStatus(requestWith(undefined, {}), response)).rejects.toMatchObject({ statusCode: 401 });
   });
 
   it("rejects authenticated non-admin users before touching storage", async () => {
@@ -32,6 +36,10 @@ describe("admin plan override endpoints", () => {
     }), response)).rejects.toMatchObject({ statusCode: 403 });
     await expect(listReviewSubmissions(requestWith(auth, undefined, { limit: "20" })))
       .rejects.toMatchObject({ statusCode: 403, message: "Admin access required." });
+    await expect(getOperationsOverview(requestWith(auth, undefined, { days: "30" }), response)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(getAccountInvestigation(requestWith(auth, undefined, { user: "a@b.c" }), response)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(resolveSafetyReport(requestWith(auth, { reportId: "report_1", status: "resolved", resolution: "Done" }), response)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(updateAccountStatus(requestWith(auth, { user: "user_2", status: "suspended", reason: "Abuse" }), response)).rejects.toMatchObject({ statusCode: 403 });
   });
 
   it("rejects malformed grant bodies for admins before storage access", async () => {

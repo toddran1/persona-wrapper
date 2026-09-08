@@ -3,17 +3,27 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminPage } from "../components/AdminPage.js";
 
-const { getCurrentUser, adminLookupPlanOverrides, adminGrantPlanOverride, adminRevokePlanOverride, adminReviewSubmissions } = vi.hoisted(() => ({
+const { getCurrentUser, adminLookupPlanOverrides, adminGrantPlanOverride, adminRevokePlanOverride, adminReviewSubmissions, adminOperationsOverview, adminResolveSafetyReport, adminInvestigateAccount, adminUpdateAccountStatus } = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   adminLookupPlanOverrides: vi.fn(),
   adminGrantPlanOverride: vi.fn(),
   adminRevokePlanOverride: vi.fn(),
-  adminReviewSubmissions: vi.fn()
+  adminReviewSubmissions: vi.fn(),
+  adminOperationsOverview: vi.fn(),
+  adminResolveSafetyReport: vi.fn(),
+  adminInvestigateAccount: vi.fn(),
+  adminUpdateAccountStatus: vi.fn()
 }));
 
 vi.mock("../lib/api.js", () => ({
-  api: { getCurrentUser, adminLookupPlanOverrides, adminGrantPlanOverride, adminRevokePlanOverride, adminReviewSubmissions }
+  api: { getCurrentUser, adminLookupPlanOverrides, adminGrantPlanOverride, adminRevokePlanOverride, adminReviewSubmissions, adminOperationsOverview, adminResolveSafetyReport, adminInvestigateAccount, adminUpdateAccountStatus }
 }));
+
+const operationsResult = {
+  periodDays: 30,
+  metrics: { rewardedAdsWatched: 8, creditsGranted: 8, adRevenueMicroUsd: 126_000, actualAiCostMicroUsd: 51_000, grossMarginMicroUsd: 75_000, otherRevenueCurrencies: [], openSafetyReports: 1, failedJobs: 0, usageAnomalies: 0, storageCleanupFailures: 0 },
+  failedJobs: [], usageAnomalies: [], storageCleanupFailures: [], subscriptions: [], auditHistory: []
+};
 
 const lookupResult = {
   user: { id: "user_1", email: "tester@example.com", username: "tester" },
@@ -37,6 +47,7 @@ describe("AdminPage", () => {
     vi.clearAllMocks();
     getCurrentUser.mockResolvedValue({ user: { id: "admin_1", email: "admin@example.com" } });
     adminReviewSubmissions.mockResolvedValue([]);
+    adminOperationsOverview.mockResolvedValue(operationsResult);
   });
 
   it("asks non-signed-in visitors to sign in", async () => {
@@ -127,6 +138,9 @@ describe("AdminPage", () => {
         userEmail: "tester@example.com",
         username: "tester",
         clientType: "web",
+        status: "open",
+        resolution: null,
+        resolvedAt: null,
         createdAt: "2026-08-24T12:00:00.000Z"
       },
       {
@@ -140,6 +154,9 @@ describe("AdminPage", () => {
         userEmail: "another@example.com",
         username: "another",
         clientType: "mobile",
+        status: null,
+        resolution: null,
+        resolvedAt: null,
         createdAt: "2026-08-24T11:00:00.000Z"
       }
     ]);
@@ -149,5 +166,16 @@ describe("AdminPage", () => {
     expect(screen.getByText("Feedback")).toBeInTheDocument();
     expect(screen.getByText("Unsafe response excerpt")).toBeInTheDocument();
     expect(screen.getByText("Helpful response excerpt")).toBeInTheDocument();
+  });
+
+  it("shows rewarded-ad economics and resolves a safety report with an audit note", async () => {
+    adminReviewSubmissions.mockResolvedValue([{ id: "report_1", kind: "unsafe_output", category: "other", outputExcerpt: "Report", details: null, conversationId: null, userId: "user_1", userEmail: null, username: null, clientType: "web", status: "open", resolution: null, resolvedAt: null, createdAt: "2026-09-01T00:00:00.000Z" }]);
+    adminResolveSafetyReport.mockResolvedValue(undefined);
+    render(<AdminPage />);
+
+    expect(await screen.findByText("Rewarded ads watched")).toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText("Required resolution note"), "Reviewed and handled");
+    await userEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    await waitFor(() => expect(adminResolveSafetyReport).toHaveBeenCalledWith({ reportId: "report_1", status: "resolved", resolution: "Reviewed and handled" }));
   });
 });

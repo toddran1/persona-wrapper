@@ -1099,6 +1099,22 @@ export function MobileChatScreen() {
           setRewardAdNotice("Verifying your media credit…");
           void resumePendingAdReward();
         },
+        onPaid: (event) => {
+          const precision = event.precision === 3
+            ? "precise"
+            : event.precision === 2
+              ? "publisher_provided"
+              : event.precision === 1
+                ? "estimated"
+                : "unknown";
+          void api.recordAdImpressionRevenue(session.sessionId, {
+            value: event.value,
+            currency: event.currency,
+            precision
+          }).catch((revenueError) => {
+            console.warn("Ad impression revenue could not be recorded.", revenueError);
+          });
+        },
         onClosed: () => {
           if (!earned && currentAccountIdRef.current === accountId) {
             setRewardAdError("Watch the full ad to earn a media credit.");

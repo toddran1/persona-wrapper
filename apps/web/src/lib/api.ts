@@ -5,8 +5,12 @@ import type {
   AccountDeletionResponse,
   ActiveSession,
   AdminGrantPlanOverrideRequest,
+  AdminAccountInvestigation,
+  AdminOperationsOverview,
   AdminPlanOverrideLookup,
+  AdminResolveSafetyReportRequest,
   AdminRevokePlanOverrideRequest,
+  AdminUpdateAccountStatusRequest,
   ChatResponse,
   ChatJobResponse,
   ClientContext,
@@ -768,6 +772,25 @@ export const api = {
     const response = await contractClient.admin.reviewSubmissions({ query: { limit } });
     if (response.status !== 200) throw contractError(response.body, "Could not load review submissions.");
     return response.body.submissions;
+  },
+  adminResolveSafetyReport: async (payload: AdminResolveSafetyReportRequest): Promise<void> => {
+    const response = await contractClient.admin.resolveSafetyReport({ body: payload });
+    if (response.status !== 200) throw contractError(response.body, "Could not resolve the safety report.");
+  },
+  adminOperationsOverview: async (days = 30): Promise<AdminOperationsOverview> => {
+    const response = await contractClient.admin.operationsOverview({ query: { days } });
+    if (response.status !== 200) throw contractError(response.body, "Could not load operations monitoring.");
+    return response.body;
+  },
+  adminInvestigateAccount: async (user: string): Promise<AdminAccountInvestigation> => {
+    const response = await contractClient.admin.investigateAccount({ query: { user } });
+    if (response.status !== 200) throw contractError(response.body, "Could not investigate the account.");
+    return response.body;
+  },
+  adminUpdateAccountStatus: async (payload: AdminUpdateAccountStatusRequest): Promise<AdminAccountInvestigation> => {
+    const response = await contractClient.admin.updateAccountStatus({ body: payload });
+    if (response.status !== 200) throw contractError(response.body, "Could not update the account status.");
+    return response.body;
   },
   updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {
     const response = await contractClient.account.updateProfile({ body: payload });

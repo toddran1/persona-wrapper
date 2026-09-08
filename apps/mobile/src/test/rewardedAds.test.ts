@@ -9,7 +9,7 @@ const adRuntime = vi.hoisted(() => ({
 }));
 
 vi.mock("react-native-google-mobile-ads", () => ({
-  AdEventType: { CLOSED: "closed", ERROR: "error" },
+  AdEventType: { CLOSED: "closed", ERROR: "error", PAID: "paid" },
   RewardedAdEventType: { LOADED: "rewarded_loaded", EARNED_REWARD: "earned_reward" },
   RewardedAd: {
     createForAdRequest: vi.fn(() => {
@@ -80,5 +80,17 @@ describe("rewarded ad lifecycle", () => {
     expect(onLoadError).toHaveBeenCalledWith(expect.objectContaining({
       message: "Rewarded ad loading timed out."
     }));
+  });
+
+  it("forwards impression-level paid events while the rewarded ad is active", async () => {
+    const onPaid = vi.fn();
+    const loading = loadRewardedAd(context, { onPaid });
+    await waitForAdCreation();
+    const instance = adRuntime.instances[0];
+    instance?.listeners.get("paid")?.[0]?.({ currency: "USD", precision: 3, value: 0.0123 });
+
+    expect(onPaid).toHaveBeenCalledWith({ currency: "USD", precision: 3, value: 0.0123 });
+    cancelRewardedAd();
+    await expect(loading).resolves.toBe(false);
   });
 });

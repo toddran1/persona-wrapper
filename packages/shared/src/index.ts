@@ -1561,9 +1561,89 @@ export const adminReviewSubmissionSchema = z.object({
   userEmail: z.string().nullable(),
   username: z.string().nullable(),
   clientType: z.string().nullable(),
+  status: z.enum(["open", "resolved", "dismissed"]).nullable(),
+  resolution: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
   createdAt: z.string()
 });
 export type AdminReviewSubmission = z.infer<typeof adminReviewSubmissionSchema>;
+
+export const adminResolveSafetyReportSchema = z.object({
+  reportId: z.string().trim().min(1).max(128),
+  status: z.enum(["resolved", "dismissed"]),
+  resolution: z.string().trim().min(1).max(2000)
+});
+export type AdminResolveSafetyReportRequest = z.infer<typeof adminResolveSafetyReportSchema>;
+
+export const adminAccountStatusSchema = z.enum(["active", "suspended"]);
+export const adminUpdateAccountStatusSchema = z.object({
+  user: z.string().trim().min(1).max(320),
+  status: adminAccountStatusSchema,
+  reason: z.string().trim().min(1).max(1000)
+});
+export type AdminUpdateAccountStatusRequest = z.infer<typeof adminUpdateAccountStatusSchema>;
+
+export const adminAccountInvestigationSchema = z.object({
+  user: z.object({
+    id: z.string(),
+    email: z.string().nullable(),
+    username: z.string().nullable(),
+    status: z.string(),
+    role: z.string(),
+    deletionRequestedAt: z.string().nullable(),
+    deletionScheduledFor: z.string().nullable(),
+    createdAt: z.string()
+  }),
+  effectivePlanId: z.string(),
+  subscription: z.object({
+    provider: z.string(),
+    planId: z.string(),
+    status: z.string(),
+    store: z.string().nullable(),
+    currentPeriodEndsAt: z.string().nullable(),
+    cancelReason: z.string().nullable(),
+    expirationReason: z.string().nullable()
+  }).nullable(),
+  openSafetyReports: z.number().int().nonnegative(),
+  failedJobs: z.number().int().nonnegative(),
+  usageCostMicroUsd: z.number().int().nonnegative()
+});
+export type AdminAccountInvestigation = z.infer<typeof adminAccountInvestigationSchema>;
+
+export const adminOperationsOverviewSchema = z.object({
+  periodDays: z.number().int().min(1).max(90),
+  metrics: z.object({
+    rewardedAdsWatched: z.number().int().nonnegative(),
+    creditsGranted: z.number().int().nonnegative(),
+    adRevenueMicroUsd: z.number().int().nonnegative(),
+    actualAiCostMicroUsd: z.number().int().nonnegative(),
+    grossMarginMicroUsd: z.number().int(),
+    otherRevenueCurrencies: z.array(z.object({ currency: z.string(), valueMicro: z.number().int().nonnegative() })),
+    openSafetyReports: z.number().int().nonnegative(),
+    failedJobs: z.number().int().nonnegative(),
+    usageAnomalies: z.number().int().nonnegative(),
+    storageCleanupFailures: z.number().int().nonnegative()
+  }),
+  failedJobs: z.array(z.object({
+    id: z.string(), kind: z.string(), ownerId: z.string().nullable(), provider: z.string().nullable(),
+    failureReason: z.string().nullable(), error: z.string().nullable(), updatedAt: z.string()
+  })),
+  usageAnomalies: z.array(z.object({
+    userId: z.string(), costMicroUsd: z.number().int().nonnegative(), eventCount: z.number().int().nonnegative()
+  })),
+  storageCleanupFailures: z.array(z.object({
+    id: z.string(), component: z.string(), message: z.string(), createdAt: z.string()
+  })),
+  subscriptions: z.array(z.object({
+    id: z.string(), userId: z.string(), planId: z.string(), status: z.string(), store: z.string().nullable(),
+    currentPeriodEndsAt: z.string().nullable(), cancelReason: z.string().nullable(), updatedAt: z.string()
+  })),
+  auditHistory: z.array(z.object({
+    id: z.string(), actorUserId: z.string().nullable(), action: z.string(), targetType: z.string(),
+    targetId: z.string().nullable(), reason: z.string().nullable(), createdAt: z.string()
+  }))
+});
+export type AdminOperationsOverview = z.infer<typeof adminOperationsOverviewSchema>;
 
 const contract = initContract();
 export const apiErrorSchema = z.object({
@@ -1663,6 +1743,14 @@ export const adRewardSessionStatusResponseSchema = z.object({
 }).strict();
 export type AdRewardSessionStatusResponse = z.infer<typeof adRewardSessionStatusResponseSchema>;
 
+export const adImpressionRevenueRequestSchema = z.object({
+  value: z.number().finite().nonnegative().max(10),
+  currency: z.string().trim().regex(/^[A-Za-z]{3}$/).transform((value) => value.toUpperCase()),
+  precision: z.enum(["unknown", "estimated", "publisher_provided", "precise"]),
+  adUnitId: z.string().trim().max(256).optional()
+}).strict();
+export type AdImpressionRevenueRequest = z.infer<typeof adImpressionRevenueRequestSchema>;
+
 /** Shared runtime contract for the endpoints used by both first-party clients. */
 export const apiContract = contract.router({
   mobile: contract.router({
@@ -1696,6 +1784,19 @@ export const apiContract = contract.router({
       pathParams: z.object({ sessionId: z.string().min(1).max(128) }),
       responses: {
         200: adRewardSessionStatusResponseSchema,
+        401: apiErrorSchema,
+        404: apiErrorSchema,
+        503: apiErrorSchema
+      }
+    },
+    recordImpressionRevenue: {
+      method: "POST",
+      path: "/api/advertising/rewards/sessions/:sessionId/revenue",
+      pathParams: z.object({ sessionId: z.string().min(1).max(128) }),
+      body: adImpressionRevenueRequestSchema,
+      responses: {
+        202: z.object({ status: z.enum(["recorded", "duplicate"]) }),
+        400: apiErrorSchema,
         401: apiErrorSchema,
         404: apiErrorSchema,
         503: apiErrorSchema
@@ -1752,6 +1853,30 @@ export const apiContract = contract.router({
         403: apiErrorSchema,
         503: apiErrorSchema
       }
+    },
+    resolveSafetyReport: {
+      method: "POST",
+      path: "/api/admin/review-submissions/resolve",
+      body: adminResolveSafetyReportSchema,
+      responses: { 200: z.object({ status: z.literal("ok") }), 400: apiErrorSchema, 401: apiErrorSchema, 403: apiErrorSchema, 404: apiErrorSchema, 503: apiErrorSchema }
+    },
+    operationsOverview: {
+      method: "GET",
+      path: "/api/admin/operations",
+      query: z.object({ days: z.coerce.number().int().min(1).max(90).optional() }),
+      responses: { 200: adminOperationsOverviewSchema, 401: apiErrorSchema, 403: apiErrorSchema, 503: apiErrorSchema }
+    },
+    investigateAccount: {
+      method: "GET",
+      path: "/api/admin/accounts",
+      query: z.object({ user: z.string().trim().min(1).max(320) }),
+      responses: { 200: adminAccountInvestigationSchema, 401: apiErrorSchema, 403: apiErrorSchema, 404: apiErrorSchema, 503: apiErrorSchema }
+    },
+    updateAccountStatus: {
+      method: "POST",
+      path: "/api/admin/accounts/status",
+      body: adminUpdateAccountStatusSchema,
+      responses: { 200: adminAccountInvestigationSchema, 400: apiErrorSchema, 401: apiErrorSchema, 403: apiErrorSchema, 404: apiErrorSchema, 409: apiErrorSchema, 503: apiErrorSchema }
     }
   }),
   personas: contract.router({

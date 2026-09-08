@@ -133,13 +133,49 @@ export const unsafeOutputReports = pgTable("unsafe_output_reports", {
   category: text("category").notNull(),
   outputExcerpt: text("output_excerpt").notNull(),
   details: text("details"),
+  status: text("status").notNull().default("open"),
+  resolution: text("resolution"),
+  resolvedByUserId: text("resolved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 }, (table) => ({
   userIdIdx: index("unsafe_output_reports_user_id_idx").on(table.userId),
   conversationIdIdx: index("unsafe_output_reports_conversation_id_idx").on(table.conversationId),
   categoryIdx: index("unsafe_output_reports_category_idx").on(table.category),
-  createdAtIdx: index("unsafe_output_reports_created_at_idx").on(table.createdAt)
+  createdAtIdx: index("unsafe_output_reports_created_at_idx").on(table.createdAt),
+  statusCreatedAtIdx: index("unsafe_output_reports_status_created_at_idx").on(table.status, table.createdAt),
+  statusCheck: check("unsafe_output_reports_status_check", sql`${table.status} in ('open', 'resolved', 'dismissed')`)
+}));
+
+export const adminAuditEvents = pgTable("admin_audit_events", {
+  id: text("id").primaryKey(),
+  actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id"),
+  reason: text("reason"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  actorCreatedAtIdx: index("admin_audit_events_actor_created_at_idx").on(table.actorUserId, table.createdAt),
+  actionCreatedAtIdx: index("admin_audit_events_action_created_at_idx").on(table.action, table.createdAt),
+  targetIdx: index("admin_audit_events_target_idx").on(table.targetType, table.targetId)
+}));
+
+export const operationalEvents = pgTable("operational_events", {
+  id: text("id").primaryKey(),
+  kind: text("kind").notNull(),
+  component: text("component").notNull(),
+  status: text("status").notNull().default("failed"),
+  message: text("message").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true })
+}, (table) => ({
+  kindStatusCreatedIdx: index("operational_events_kind_status_created_idx").on(table.kind, table.status, table.createdAt),
+  statusCheck: check("operational_events_status_check", sql`${table.status} in ('failed', 'resolved')`)
 }));
 
 export const responseFeedback = pgTable("response_feedback", {
@@ -450,6 +486,26 @@ export const adRewardSessions = pgTable("ad_reward_sessions", {
     .on(table.userId, table.status, table.expiresAt),
   expiresAtIdx: index("ad_reward_sessions_expires_at_idx").on(table.expiresAt),
   statusCheck: check("ad_reward_sessions_status_check", sql`${table.status} in ('pending', 'granted', 'rejected', 'expired')`)
+}));
+
+export const adImpressionRevenueEvents = pgTable("ad_impression_revenue_events", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  rewardSessionId: text("reward_session_id").notNull().references(() => adRewardSessions.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().default("admob"),
+  adFormat: text("ad_format").notNull().default("rewarded"),
+  adUnitId: text("ad_unit_id"),
+  valueMicro: integer("value_micro").notNull(),
+  currency: text("currency").notNull(),
+  precision: text("precision").notNull(),
+  source: text("source").notNull().default("client_ilar"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+}, (table) => ({
+  providerSessionUnique: uniqueIndex("ad_impression_revenue_provider_session_unique")
+    .on(table.provider, table.rewardSessionId),
+  currencyCreatedAtIdx: index("ad_impression_revenue_currency_created_at_idx").on(table.currency, table.createdAt),
+  valueCheck: check("ad_impression_revenue_value_check", sql`${table.valueMicro} >= 0 and ${table.valueMicro} <= 1000000000`)
 }));
 
 /**

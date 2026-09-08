@@ -1,4 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import { env } from "../config/env.js";
+import { getDatabase } from "../db/client.js";
+import { operationalEvents } from "../db/schema.js";
 import { logger } from "../utils/logger.js";
 import { generatedAudioService } from "./generatedAudioService.js";
 import { generatedMediaService } from "./generatedMediaService.js";
@@ -57,14 +61,45 @@ export class BackgroundCleanupService {
         ["data transfers", dataTransferJobService.cleanupExpiredNow()]
       ] as const;
       const results = await Promise.allSettled(tasks.map(([, task]) => task));
-      results.forEach((result, index) => {
+      await Promise.all(results.map(async (result, index) => {
+        const task = tasks[index]?.[0] ?? "unknown";
+        const database = getDatabase();
         if (result.status === "rejected") {
+          const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
           logger.warn("Storage cleanup task failed", {
-            task: tasks[index]?.[0] ?? "unknown",
-            error: result.reason instanceof Error ? result.reason.message : String(result.reason)
+            task,
+            error: message
           });
+          if (database) {
+            try {
+              await database.insert(operationalEvents).values({
+                id: `op_${randomUUID()}`,
+                kind: "storage_cleanup",
+                component: task,
+                message: message.slice(0, 4000)
+              });
+            } catch (persistenceError) {
+              logger.warn("Could not persist storage cleanup failure", {
+                task,
+                error: persistenceError instanceof Error ? persistenceError.message : String(persistenceError)
+              });
+            }
+          }
+        } else if (database) {
+          try {
+            await database.update(operationalEvents).set({ status: "resolved", resolvedAt: new Date() }).where(and(
+              eq(operationalEvents.kind, "storage_cleanup"),
+              eq(operationalEvents.component, task),
+              eq(operationalEvents.status, "failed")
+            ));
+          } catch (persistenceError) {
+            logger.warn("Could not resolve persisted storage cleanup failures", {
+              task,
+              error: persistenceError instanceof Error ? persistenceError.message : String(persistenceError)
+            });
+          }
         }
-      });
+      }));
     } finally {
       this.running = false;
     }

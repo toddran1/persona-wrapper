@@ -13,6 +13,7 @@ import type {
   AccountDeletionResponse,
   AdRewardSessionResponse,
   AdRewardSessionStatusResponse,
+  AdImpressionRevenueRequest,
   ChatJobResponse,
   ChatResponse,
   ClientContext,
@@ -934,6 +935,10 @@ export const api = {
     const response = await contractClient.advertising.getRewardSession({ params: { sessionId } });
     if (response.status !== 200) throw contractError(response.body, "Could not verify the ad reward.");
     return response.body;
+  },
+  recordAdImpressionRevenue: async (sessionId: string, payload: AdImpressionRevenueRequest): Promise<void> => {
+    const response = await contractClient.advertising.recordImpressionRevenue({ params: { sessionId }, body: payload });
+    if (response.status !== 202) throw contractError(response.body, "Could not record ad revenue.");
   },
   updateProfile: async (payload: UpdateUserProfileRequest): Promise<AuthUser> => {
     const response = await contractClient.account.updateProfile({ body: payload });

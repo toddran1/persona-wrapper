@@ -6865,12 +6865,12 @@ button:disabled {
   box-shadow: 0 0 0 2px #dab353;
 }
 
-/* Admin plan-override page (web-only internal tool) */
+/* Restricted internal operations console */
 .admin-page {
   display: grid;
   gap: 18px;
   margin: 0 auto;
-  max-width: 720px;
+  max-width: 1120px;
   padding: 32px 18px 64px;
   color: var(--text);
 }
@@ -6892,7 +6892,7 @@ button:disabled {
 }
 
 .admin-lookup-form {
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
 }
 
 .admin-grant-form {
@@ -7037,6 +7037,90 @@ button:disabled {
 .admin-review-details {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.admin-metric-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.admin-metric-grid article,
+.admin-account-result {
+  background: color-mix(in srgb, var(--theme-accent, #dab353) 7%, transparent);
+  border: 1px solid var(--theme-border);
+  border-radius: 12px;
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+}
+
+.admin-metric-grid span,
+.admin-operations-columns small {
+  color: var(--muted);
+}
+
+.admin-metric-grid strong {
+  font-size: 1.35rem;
+}
+
+.admin-operations-columns {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.admin-operations-columns section {
+  border-top: 1px solid var(--theme-border);
+  min-width: 0;
+}
+
+.admin-operations-columns ul {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 0;
+}
+
+.admin-operations-columns li {
+  border: 1px solid var(--theme-border);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+  padding: 10px;
+}
+
+.admin-operations-columns small {
+  display: block;
+  margin-top: 4px;
+}
+
+.admin-resolution-form {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-resolution-form input {
+  flex: 1 1 260px;
+}
+
+.admin-account-result {
+  margin-top: 14px;
+}
+
+.admin-account-result h3,
+.admin-account-result p {
+  margin: 0;
+}
+
+@media (max-width: 620px) {
+  .admin-lookup-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .admin-review-row blockquote {

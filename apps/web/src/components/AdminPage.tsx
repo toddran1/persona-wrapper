@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { AdminPlanOverrideLookup, AdminReviewSubmission } from "@persona/shared";
+import type { AdminAccountInvestigation, AdminOperationsOverview, AdminPlanOverrideLookup, AdminReviewSubmission } from "@persona/shared";
 import { api } from "../lib/api.js";
 
 const PLAN_OPTIONS = [
@@ -21,6 +21,10 @@ function formatDate(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function formatUsd(microUsd: number): string {
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(microUsd / 1_000_000);
+}
+
 export function AdminPage() {
   const [sessionChecked, setSessionChecked] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -38,6 +42,14 @@ export function AdminPage() {
   const [reviewSubmissions, setReviewSubmissions] = useState<AdminReviewSubmission[]>([]);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | undefined>();
+  const [operations, setOperations] = useState<AdminOperationsOverview | undefined>();
+  const [operationsLoading, setOperationsLoading] = useState(false);
+  const [operationsError, setOperationsError] = useState<string | undefined>();
+  const [resolutionNotes, setResolutionNotes] = useState<Record<string, string>>({});
+  const [resolvingId, setResolvingId] = useState<string | undefined>();
+  const [account, setAccount] = useState<AdminAccountInvestigation | undefined>();
+  const [accountReason, setAccountReason] = useState("");
+  const [accountBusy, setAccountBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,9 +72,63 @@ export function AdminPage() {
     }
   }
 
+  async function refreshOperations(): Promise<void> {
+    setOperationsLoading(true);
+    setOperationsError(undefined);
+    try {
+      setOperations(await api.adminOperationsOverview(30));
+    } catch (failure) {
+      setOperationsError(failure instanceof Error ? failure.message : "Could not load operations monitoring.");
+    } finally {
+      setOperationsLoading(false);
+    }
+  }
+
   useEffect(() => {
-    if (sessionChecked && signedIn) void refreshReviewSubmissions();
+    if (sessionChecked && signedIn) {
+      void refreshReviewSubmissions();
+      void refreshOperations();
+    }
   }, [sessionChecked, signedIn]);
+
+  async function handleSafetyResolution(reportId: string, status: "resolved" | "dismissed"): Promise<void> {
+    const resolution = resolutionNotes[reportId]?.trim();
+    if (!resolution || resolvingId) return;
+    setResolvingId(reportId);
+    setReviewError(undefined);
+    try {
+      await api.adminResolveSafetyReport({ reportId, status, resolution });
+      setResolutionNotes((current) => ({ ...current, [reportId]: "" }));
+      await Promise.all([refreshReviewSubmissions(), refreshOperations()]);
+    } catch (failure) {
+      setReviewError(failure instanceof Error ? failure.message : "Could not resolve the safety report.");
+    } finally {
+      setResolvingId(undefined);
+    }
+  }
+
+  async function handleAccountLookup(): Promise<void> {
+    const user = identifier.trim();
+    if (!user || accountBusy) return;
+    setAccountBusy(true);
+    setError(undefined);
+    try { setAccount(await api.adminInvestigateAccount(user)); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : "Could not investigate the account."); }
+    finally { setAccountBusy(false); }
+  }
+
+  async function handleAccountStatus(status: "active" | "suspended"): Promise<void> {
+    if (!account || !accountReason.trim() || accountBusy) return;
+    setAccountBusy(true);
+    setError(undefined);
+    try {
+      setAccount(await api.adminUpdateAccountStatus({ user: account.user.id, status, reason: accountReason.trim() }));
+      setAccountReason("");
+      setNotice(status === "suspended" ? "Account suspended and active sessions revoked." : "Account reinstated.");
+      await refreshOperations();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not update the account."); }
+    finally { setAccountBusy(false); }
+  }
 
   async function run(action: () => Promise<AdminPlanOverrideLookup>): Promise<void> {
     if (busy) return;
@@ -127,8 +193,40 @@ export function AdminPage() {
     <main className="admin-page">
       <header className="admin-page-header">
         <h1>Admin</h1>
-        <p>Review user submissions and manage promotional, tester, customer-support, or grandfathered plan access.</p>
+        <p>Monitor ad economics and operations, review safety reports, investigate accounts, and manage access.</p>
       </header>
+
+      <section className="admin-review-queue" aria-labelledby="admin-operations-heading">
+        <div className="admin-review-heading">
+          <div><p className="admin-review-eyebrow">LAST 30 DAYS</p><h2 id="admin-operations-heading">Operations overview</h2></div>
+          <button type="button" disabled={operationsLoading} onClick={() => void refreshOperations()}>{operationsLoading ? "Refreshing…" : "Refresh"}</button>
+        </div>
+        {operationsError ? <div className="composer-attachment-error" role="alert">{operationsError}</div> : null}
+        {operations ? (
+          <>
+            <div className="admin-metric-grid">
+              <article><span>Rewarded ads watched</span><strong>{operations.metrics.rewardedAdsWatched.toLocaleString()}</strong></article>
+              <article><span>Ad revenue (USD)</span><strong>{formatUsd(operations.metrics.adRevenueMicroUsd)}</strong></article>
+              <article><span>Credits granted</span><strong>{operations.metrics.creditsGranted.toLocaleString()}</strong></article>
+              <article><span>Actual Bronze AI cost</span><strong>{formatUsd(operations.metrics.actualAiCostMicroUsd)}</strong></article>
+              <article><span>Rewarded-ad gross margin</span><strong>{formatUsd(operations.metrics.grossMarginMicroUsd)}</strong></article>
+              <article><span>Open safety reports</span><strong>{operations.metrics.openSafetyReports}</strong></article>
+              <article><span>Failed background jobs</span><strong>{operations.metrics.failedJobs}</strong></article>
+              <article><span>Spend anomalies</span><strong>{operations.metrics.usageAnomalies}</strong></article>
+              <article><span>Cleanup failures</span><strong>{operations.metrics.storageCleanupFailures}</strong></article>
+            </div>
+            <p className="admin-page-note">iLAR is client-reported, deduplicated by reward session, and counted only after Google’s signed reward verification succeeds. “Ad revenue less AI cost” subtracts all settled Bronze-plan AI cost in this period; it is a conservative operating indicator, not accounting profit.</p>
+            {operations.metrics.otherRevenueCurrencies.length ? <p className="admin-page-note">Revenue excluded from USD total: {operations.metrics.otherRevenueCurrencies.map((item) => `${item.currency} ${(item.valueMicro / 1_000_000).toFixed(2)}`).join(", ")}.</p> : null}
+            <div className="admin-operations-columns">
+              <section><h3>Failed jobs</h3>{operations.failedJobs.length ? <ul>{operations.failedJobs.map((job) => <li key={job.id}><strong>{job.kind}</strong> · {job.failureReason ?? "provider failure"}<small>{formatDate(job.updatedAt)} · {job.ownerId ?? "system"}<br />{job.error?.slice(0, 240)}</small></li>)}</ul> : <p className="admin-page-note">No failed jobs in this period.</p>}</section>
+              <section><h3>Usage/spend anomalies</h3>{operations.usageAnomalies.length ? <ul>{operations.usageAnomalies.map((item) => <li key={item.userId}><strong>{formatUsd(item.costMicroUsd)}</strong> · {item.eventCount} events<small>{item.userId}</small></li>)}</ul> : <p className="admin-page-note">No user reached the $5 review threshold.</p>}</section>
+              <section><h3>Storage cleanup failures</h3>{operations.storageCleanupFailures.length ? <ul>{operations.storageCleanupFailures.map((item) => <li key={item.id}><strong>{item.component}</strong><small>{formatDate(item.createdAt)} · {item.message}</small></li>)}</ul> : <p className="admin-page-note">No unresolved cleanup failures.</p>}</section>
+              <section><h3>Subscriptions</h3><p className="admin-page-note">Read-only monitoring. Refund actions will be added with a provider-backed workflow.</p>{operations.subscriptions.length ? <ul>{operations.subscriptions.map((item) => <li key={item.id}><strong>{item.planId} · {item.status}</strong><small>{item.store ?? "unknown store"} · period ends {formatDate(item.currentPeriodEndsAt)}<br />{item.userId}</small></li>)}</ul> : <p className="admin-page-note">No subscriptions recorded.</p>}</section>
+              <section><h3>Operator audit history</h3>{operations.auditHistory.length ? <ul>{operations.auditHistory.map((item) => <li key={item.id}><strong>{item.action}</strong> · {item.targetType}<small>{formatDate(item.createdAt)} · {item.targetId ?? "—"}<br />{item.reason ?? "No reason recorded"}</small></li>)}</ul> : <p className="admin-page-note">No operator actions recorded.</p>}</section>
+            </div>
+          </>
+        ) : null}
+      </section>
 
       <section className="admin-review-queue" aria-labelledby="admin-review-heading">
         <div className="admin-review-heading">
@@ -153,6 +251,13 @@ export function AdminPage() {
                 <blockquote>{submission.outputExcerpt}</blockquote>
                 {submission.details ? <p className="admin-review-details">{submission.details}</p> : null}
                 <small className="admin-review-conversation">Conversation: {submission.conversationId ?? "unavailable"}</small>
+                {submission.kind === "unsafe_output" ? (
+                  submission.status === "open" ? <div className="admin-resolution-form">
+                    <input value={resolutionNotes[submission.id] ?? ""} onChange={(event) => setResolutionNotes((current) => ({ ...current, [submission.id]: event.target.value }))} placeholder="Required resolution note" />
+                    <button type="button" disabled={resolvingId === submission.id || !(resolutionNotes[submission.id]?.trim())} onClick={() => void handleSafetyResolution(submission.id, "resolved")}>Resolve</button>
+                    <button type="button" disabled={resolvingId === submission.id || !(resolutionNotes[submission.id]?.trim())} onClick={() => void handleSafetyResolution(submission.id, "dismissed")}>Dismiss</button>
+                  </div> : <small className="admin-review-conversation">{submission.status}: {submission.resolution} · {formatDate(submission.resolvedAt)}</small>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -160,7 +265,7 @@ export function AdminPage() {
       </section>
 
       <section className="admin-plan-section" aria-labelledby="admin-plan-heading">
-        <h2 id="admin-plan-heading">Plan overrides</h2>
+        <h2 id="admin-plan-heading">Account investigation &amp; access</h2>
         <p className="admin-page-note">Overrides never downgrade a paid subscription.</p>
 
       <form className="admin-lookup-form" onSubmit={handleLookup}>
@@ -174,10 +279,19 @@ export function AdminPage() {
           />
         </label>
         <button type="submit" disabled={busy || !identifier.trim()}>Look up</button>
+        <button type="button" disabled={accountBusy || !identifier.trim()} onClick={() => void handleAccountLookup()}>Investigate</button>
       </form>
 
       {error ? <div className="composer-attachment-error" role="alert">{error}</div> : null}
       {notice ? <div className="settings-notice" role="status">{notice}</div> : null}
+
+      {account ? <section className="admin-account-result">
+        <h3>{account.user.email ?? account.user.username ?? account.user.id} <span className="admin-badge">{account.user.status}</span></h3>
+        <p>Plan: <strong>{account.effectivePlanId}</strong> · Joined {formatDate(account.user.createdAt)} · Open safety reports: {account.openSafetyReports} · Failed jobs: {account.failedJobs} · Lifetime settled AI cost: {formatUsd(account.usageCostMicroUsd)}</p>
+        <p>Deletion requested: {formatDate(account.user.deletionRequestedAt)} · Scheduled: {formatDate(account.user.deletionScheduledFor)}</p>
+        <p>Subscription: {account.subscription ? `${account.subscription.planId} · ${account.subscription.status} · ${account.subscription.store ?? "unknown store"}` : "none"}</p>
+        <div className="admin-resolution-form"><input value={accountReason} onChange={(event) => setAccountReason(event.target.value)} placeholder="Required operator reason" />{account.user.status === "active" ? <button type="button" disabled={accountBusy || !accountReason.trim()} onClick={() => void handleAccountStatus("suspended")}>Suspend user</button> : account.user.status === "suspended" ? <button type="button" disabled={accountBusy || !accountReason.trim()} onClick={() => void handleAccountStatus("active")}>Reinstate user</button> : <span>Pending-deletion accounts must use the existing restore/purge workflow.</span>}</div>
+      </section> : null}
 
       {lookup ? (
         <section className="admin-lookup-result">

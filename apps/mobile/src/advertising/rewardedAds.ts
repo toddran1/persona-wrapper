@@ -3,6 +3,7 @@ import {
   AdEventType,
   RewardedAd,
   RewardedAdEventType,
+  type PaidEvent,
   type RewardedAdReward
 } from "react-native-google-mobile-ads";
 import { getRewardedAdUnitId } from "./config";
@@ -13,6 +14,7 @@ export type RewardedAdCallbacks = {
   onLoaded?: () => void;
   onClosed?: () => void;
   onEarned?: (reward: RewardedAdReward) => void;
+  onPaid?: (event: PaidEvent) => void;
   onLoadError?: (error: Error) => void;
   onShowError?: (error: Error) => void;
 };
@@ -96,6 +98,12 @@ export async function loadRewardedAd(
         session.earnedDelivered = true;
         // UI feedback only. Permanent credit grants require verified AdMob SSV.
         callbacks.onEarned?.(reward);
+      }),
+      // The SDK emits PaidEvent here, although its generic listener declaration
+      // currently types all non-error AdEventType payloads as undefined.
+      ad.addAdEventListener(AdEventType.PAID, (event: PaidEvent | undefined) => {
+        if (activeRewardedAd !== session || !event) return;
+        callbacks.onPaid?.(event);
       }),
       ad.addAdEventListener(AdEventType.CLOSED, () => {
         if (activeRewardedAd !== session || session.closedDelivered) return;

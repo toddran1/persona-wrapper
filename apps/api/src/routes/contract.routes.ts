@@ -7,8 +7,8 @@ import {
 import { initServer } from "@ts-rest/express";
 import type { Request, Response } from "express";
 import { acceptPolicies, clearAccountMemory, deleteAccount, getAccountUsage, getCurrentPolicies, getMemorySettings, getOAuthProviders, restoreAccount, updateMemorySettings, updateProfile } from "../controllers/account.controller.js";
-import { grantPlanOverride, listPlanOverrides, listReviewSubmissions, revokePlanOverride } from "../controllers/admin.controller.js";
-import { getAdRewardSession, postAdRewardSession } from "../controllers/advertising.controller.js";
+import { getAccountInvestigation, getOperationsOverview, grantPlanOverride, listPlanOverrides, listReviewSubmissions, resolveSafetyReport, revokePlanOverride, updateAccountStatus } from "../controllers/admin.controller.js";
+import { getAdRewardSession, postAdImpressionRevenue, postAdRewardSession } from "../controllers/advertising.controller.js";
 import { getAccountBillingCatalog, postAccountBillingManagement } from "../controllers/billing.controller.js";
 import {
   cancelChatJob,
@@ -129,13 +129,18 @@ export const apiContractRouter = server.router(apiContract, {
   },
   advertising: {
     createRewardSession: captured(postAdRewardSession),
-    getRewardSession: captured(getAdRewardSession)
+    getRewardSession: captured(getAdRewardSession),
+    recordImpressionRevenue: captured(postAdImpressionRevenue)
   },
   admin: {
     planOverrides: captured(listPlanOverrides),
     grantPlanOverride: captured(grantPlanOverride),
     revokePlanOverride: captured(revokePlanOverride),
-    reviewSubmissions: captured(listReviewSubmissions)
+    reviewSubmissions: captured(listReviewSubmissions),
+    resolveSafetyReport: captured(resolveSafetyReport),
+    operationsOverview: captured(getOperationsOverview),
+    investigateAccount: captured(getAccountInvestigation),
+    updateAccountStatus: captured(updateAccountStatus)
   },
   personas: {
     list: async ({ req }) => {
