@@ -20,7 +20,7 @@ export function BronzeBannerAd({ authenticated, billingCatalog, className }: Bro
     && Boolean(slotId);
 
   useEffect(() => {
-    if (eligible && slotRef.current) initializeAdsenseSlot(slotRef.current);
+    if (eligible && slotRef.current) initializeAdsenseSlot(slotRef.current, ADSENSE_PUBLISHER_ID);
   }, [eligible]);
 
   if (!eligible || !slotId) return null;

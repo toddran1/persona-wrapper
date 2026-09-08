@@ -16,6 +16,8 @@ describe("BronzeBannerAd", () => {
 
   afterEach(() => {
     Reflect.deleteProperty(window, "adsbygoogle");
+    Reflect.deleteProperty(window, "googlefc");
+    document.getElementById("forthebaddiez-adsense-loader")?.remove();
     vi.unstubAllEnvs();
   });
 
@@ -25,6 +27,7 @@ describe("BronzeBannerAd", () => {
     const region = screen.getByRole("complementary", { name: "Sponsored content" });
     expect(region.querySelector("ins")).toHaveAttribute("data-ad-slot", "6015183891");
     expect(adsWindow.adsbygoogle).toHaveLength(1);
+    expect(document.getElementById("forthebaddiez-adsense-loader")).toBeInstanceOf(HTMLScriptElement);
   });
 
   it.each(["silver", "gold"] as const)("does not mount for the %s plan", (currentPlanId) => {
@@ -37,6 +40,7 @@ describe("BronzeBannerAd", () => {
 
     expect(container).toBeEmptyDOMElement();
     expect(adsWindow.adsbygoogle).toHaveLength(0);
+    expect(document.getElementById("forthebaddiez-adsense-loader")).toBeNull();
   });
 
   it("fails closed before the authoritative catalog is available", () => {
@@ -44,5 +48,6 @@ describe("BronzeBannerAd", () => {
 
     expect(container).toBeEmptyDOMElement();
     expect(adsWindow.adsbygoogle).toHaveLength(0);
+    expect(document.getElementById("forthebaddiez-adsense-loader")).toBeNull();
   });
 });

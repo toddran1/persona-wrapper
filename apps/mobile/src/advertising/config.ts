@@ -6,6 +6,7 @@ const reportedMissingConfig = new Set<string>();
 const ADMOB_AD_UNIT_ID_PATTERN = /^ca-app-pub-\d{16}\/\d{10}$/;
 
 export const isProductionAdsEnvironment = adsMode === "production";
+export const isSsvTestAdsEnvironment = adsMode === "ssv-test";
 
 function unavailable(name: string): undefined {
   if (!reportedMissingConfig.has(name)) {
@@ -35,7 +36,10 @@ export function getBannerAdUnitId(): string | undefined {
 }
 
 export function getRewardedAdUnitId(): string | undefined {
-  if (!isProductionAdsEnvironment) return TestIds.REWARDED;
+  if (!isProductionAdsEnvironment && !isSsvTestAdsEnvironment) return TestIds.REWARDED;
+  if (isSsvTestAdsEnvironment && getAdMobTestDeviceIdentifiers().length === 0) {
+    return unavailable("EXPO_PUBLIC_ADMOB_TEST_DEVICE_IDS");
+  }
   if (Platform.OS === "android") {
     return configuredAdUnitId("EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID);
   }
@@ -43,4 +47,14 @@ export function getRewardedAdUnitId(): string | undefined {
     return configuredAdUnitId("EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID);
   }
   return undefined;
+}
+
+export function getAdMobTestDeviceIdentifiers(): string[] {
+  if (!isSsvTestAdsEnvironment) return [];
+  return [...new Set(
+    (process.env.EXPO_PUBLIC_ADMOB_TEST_DEVICE_IDS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  )];
 }

@@ -2,6 +2,10 @@ import type { ExpoConfig } from "expo/config";
 
 const appEnvironment = process.env.EXPO_PUBLIC_APP_ENV?.trim() || "development";
 const adsMode = process.env.EXPO_PUBLIC_ADS_MODE?.trim() || "test";
+const admobTestDeviceIds = (process.env.EXPO_PUBLIC_ADMOB_TEST_DEVICE_IDS ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 const apiUrl = process.env.EXPO_PUBLIC_API_URL?.trim() || "http://localhost:4000";
 const webAppUrl = process.env.EXPO_PUBLIC_WEB_APP_URL?.trim() || "http://localhost:5173";
 const GOOGLE_TEST_ANDROID_APP_ID = "ca-app-pub-3940256099942544~3347511713";
@@ -68,11 +72,14 @@ const admobAndroidAppId = appEnvironment === "production"
 const admobIosAppId = appEnvironment === "production"
   ? process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID?.trim()
   : GOOGLE_TEST_IOS_APP_ID;
-if (adsMode !== "test" && adsMode !== "production") {
-  throw new Error("EXPO_PUBLIC_ADS_MODE must be either test or production.");
+if (adsMode !== "test" && adsMode !== "ssv-test" && adsMode !== "production") {
+  throw new Error("EXPO_PUBLIC_ADS_MODE must be test, ssv-test, or production.");
 }
-if (adsMode === "production" && appEnvironment !== "production") {
-  throw new Error("Production ads are only allowed when EXPO_PUBLIC_APP_ENV=production.");
+if ((adsMode === "ssv-test" || adsMode === "production") && appEnvironment !== "production") {
+  throw new Error("SSV test and production ads are only allowed when EXPO_PUBLIC_APP_ENV=production.");
+}
+if (adsMode === "ssv-test" && admobTestDeviceIds.length === 0) {
+  throw new Error("SSV test ads require EXPO_PUBLIC_ADMOB_TEST_DEVICE_IDS so live ad units cannot be requested as unmarked traffic.");
 }
 if (appEnvironment === "production") {
   const required = [
@@ -90,11 +97,14 @@ if (appEnvironment === "production") {
   if (invalidAppIds.length > 0) {
     throw new Error(`Invalid AdMob app ID format: ${invalidAppIds.join(", ")}. App IDs must use ca-app-pub-…~… format.`);
   }
-  if (adsMode === "production") {
-    const requiredAdUnits = [
+  if (adsMode === "ssv-test" || adsMode === "production") {
+    const requiredAdUnits = adsMode === "production" ? [
       ["EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID", process.env.EXPO_PUBLIC_ADMOB_ANDROID_BANNER_ID?.trim()],
       ["EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID?.trim()],
       ["EXPO_PUBLIC_ADMOB_IOS_BANNER_ID", process.env.EXPO_PUBLIC_ADMOB_IOS_BANNER_ID?.trim()],
+      ["EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID?.trim()]
+    ] as const : [
+      ["EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID?.trim()],
       ["EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID", process.env.EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID?.trim()]
     ] as const;
     const invalidAdUnits = requiredAdUnits

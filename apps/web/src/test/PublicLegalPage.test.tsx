@@ -100,10 +100,13 @@ describe("PublicLegalPage", () => {
     expect(screen.getByRole("heading", { name: "4. Cookies, device storage, advertising, and telemetry" })).toBeInTheDocument();
     expect(screen.getByText("may ask for operating-system or browser foreground-location permission", { exact: false })).toBeInTheDocument();
     expect(screen.getByText("We do not request background or continuous location access.", { exact: false })).toBeInTheDocument();
-    for (const provider of ["OpenAI:", "Google Gemini:", "Google AdMob:", "Fish Audio:", "ElevenLabs:", "Cloudflare R2:", "Render:", "Google, Facebook, and Apple OAuth:", "Google Gmail SMTP:", "RevenueCat, Apple, and Google Play:", "Configured OpenTelemetry providers:"]) {
+    for (const provider of ["OpenAI:", "Google Gemini:", "Google AdSense and Google AdMob:", "Fish Audio:", "ElevenLabs:", "Cloudflare R2:", "Render:", "Google, Facebook, and Apple OAuth:", "Google Gmail SMTP:", "RevenueCat, Apple, and Google Play:", "Configured OpenTelemetry providers:"]) {
       expect(screen.getByText(provider, { exact: false })).toBeInTheDocument();
     }
     expect(screen.getByText("We do not send private conversation content", { exact: false })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "how Google uses information from partner sites and apps" })).toHaveAttribute("href", "https://policies.google.com/technologies/partner-sites");
+    expect(screen.getByRole("link", { name: "Google Ads Settings" })).toHaveAttribute("href", "https://adssettings.google.com/");
+    expect(screen.getByText("cookies, local storage, web beacons or pixels", { exact: false })).toBeInTheDocument();
   });
 
   it("discloses plan metering, pseudonymous abuse signals, and usage retention", () => {

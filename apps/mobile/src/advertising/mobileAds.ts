@@ -1,5 +1,6 @@
 import { isPlanAdSupported } from "@persona/shared";
 import mobileAds from "react-native-google-mobile-ads";
+import { getAdMobTestDeviceIdentifiers, isSsvTestAdsEnvironment } from "./config";
 import { resolveAdvertisingConsent } from "./privacy";
 import type { AdvertisingAccountContext } from "./types";
 
@@ -17,7 +18,16 @@ export async function initializeMobileAds(context: AdvertisingAccountContext): P
 
   initializationPromise ??= (async () => {
     try {
-      await mobileAds().initialize();
+      const ads = mobileAds();
+      if (isSsvTestAdsEnvironment) {
+        const testDeviceIdentifiers = getAdMobTestDeviceIdentifiers();
+        if (testDeviceIdentifiers.length === 0) {
+          console.warn("SSV test ads require at least one configured AdMob test device; ads remain disabled.");
+          return false;
+        }
+        await ads.setRequestConfiguration({ testDeviceIdentifiers });
+      }
+      await ads.initialize();
       return true;
     } catch (error) {
       console.warn("Google Mobile Ads initialization failed; ads remain disabled.", error);

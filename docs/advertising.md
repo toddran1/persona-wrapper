@@ -6,13 +6,25 @@ initialize, preload, or request ads.
 
 ## Web
 
-The AdSense verification loader remains static in `apps/web/index.html` while
-the site is reviewed. `BronzeBannerAd` is placed at the bottom of the
-conversation sidebar and only mounts an AdSense slot after the authenticated
-account's authoritative billing catalog confirms Bronze and
+`BronzeBannerAd` is placed at the bottom of the conversation sidebar. The
+AdSense loader and slot are created only after the authenticated account's
+authoritative billing catalog confirms Bronze and
 `VITE_ADSENSE_BRONZE_AD_SLOT` is configured. If the catalog request fails, the
-ad remains unmounted. After approval, the loader can be moved behind the same
-Bronze gate.
+loader and ad remain unmounted. Ad requests start paused and explicitly request
+non-personalized treatment. The slot resumes only after Google's published web
+consent message reports that applicable consent data is ready; when GDPR
+applies, a denial of storage access keeps the request paused.
+The static `google-adsense-account` meta tag verifies publisher ownership
+without loading the advertising runtime for ineligible or signed-out visitors.
+
+Before enabling the slot in production, publish the site's European regulations
+message in AdSense **Privacy & messaging**, associate it with the production
+domain and `/privacy` URL, and enable consent-mode support. Also configure the
+applicable US-state message. Test the published message and both consent choices
+in a clean browser profile before release. The legal policy links to Google's
+partner-data explanation and Ads Settings, while the site remains responsible
+for keeping the live message, selected ad technology providers, and policy text
+aligned.
 
 Web seller authorization is published at `/ads.txt` from
 `apps/web/public/ads.txt`.
@@ -37,10 +49,15 @@ AdMob app IDs use `ca-app-pub-…~…`; banner and rewarded ad-unit IDs use
 `EXPO_PUBLIC_ADS_MODE` independently controls which placement identifiers the
 app requests. `development`, `preview`, `play-internal`, and `testflight` EAS
 profiles set it to `test` and always use Google's official test banner and
-rewarded identifiers. Only the public `production` profile sets it to
-`production`. Production-ad builds fail during Expo configuration if any live
-placement ID is missing or malformed, and production ads are rejected outside
-the production app environment.
+rewarded identifiers. The `play-internal-ssv` and `testflight-ssv` profiles set
+it to `ssv-test`: banners remain on Google's demo unit, while rewarded ads use
+the app's configured unit so its AdMob SSV callback runs. SSV test builds require
+one or more comma-separated AdMob test-device hashes in
+`EXPO_PUBLIC_ADMOB_TEST_DEVICE_IDS`; request configuration marks those devices
+as test traffic before the SDK initializes. Only the public `production`
+profile sets the mode to `production`. Native configuration rejects SSV test or
+production modes outside the production app environment and fails closed when
+required IDs are absent.
 
 The mobile banner appears only after the conversation has at least one
 assistant response. It occupies a stable sponsored strip directly above the

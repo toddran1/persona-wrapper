@@ -47,6 +47,13 @@
         "EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID": "ca-app-pub-1555286261518615/6468992341"
       }
     },
+    "play-internal-ssv": {
+      "extends": "play-internal",
+      "channel": "play-internal-ssv",
+      "env": {
+        "EXPO_PUBLIC_ADS_MODE": "ssv-test"
+      }
+    },
     "testflight": {
       "autoIncrement": true,
       "environment": "production",
@@ -62,6 +69,13 @@
         "EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID": "ca-app-pub-1555286261518615/4021174432",
         "EXPO_PUBLIC_ADMOB_IOS_BANNER_ID": "ca-app-pub-1555286261518615/6700821437",
         "EXPO_PUBLIC_ADMOB_IOS_REWARDED_ID": "ca-app-pub-1555286261518615/6468992341"
+      }
+    },
+    "testflight-ssv": {
+      "extends": "testflight",
+      "channel": "testflight-ssv",
+      "env": {
+        "EXPO_PUBLIC_ADS_MODE": "ssv-test"
       }
     },
     "production": {

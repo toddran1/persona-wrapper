@@ -24,11 +24,15 @@ and the internal-distribution `preview` profile do not exercise the same signing
 permission, and store packaging paths.
 
 ```bash
-# Google Play internal testing: AAB signed for Play, using the development backend
+# Google Play internal testing: AAB signed for Play, using the production backend and demo ads
 npx eas-cli build --platform android --profile play-internal
 
-# TestFlight candidate using the production backend
+# TestFlight candidate using the production backend and demo ads
 npx eas-cli build --platform ios --profile testflight
+
+# End-to-end rewarded SSV tests using your real rewarded unit as test traffic
+npx eas-cli build --platform android --profile play-internal-ssv
+npx eas-cli build --platform ios --profile testflight-ssv
 
 # Final store candidates using production services
 npx eas-cli build --platform all --profile production
@@ -54,6 +58,12 @@ Required names:
 - `EXPO_PUBLIC_ANDROID_APP_LINK_HOST`
 - `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`
 - `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`
+
+The `play-internal-ssv` and `testflight-ssv` profiles additionally require
+`EXPO_PUBLIC_ADMOB_TEST_DEVICE_IDS`, containing comma-separated AdMob test-device
+hashes. Do not use those profiles until every device
+that will run the build is listed. The SSV profiles retain demo banners but use
+the real rewarded unit so AdMob calls the configured verification endpoint.
 
 The preview API/web URLs are pinned in `eas.json`; the store-testing and
 production profiles take their URLs from the EAS production environment. Confirm the Google, Facebook, and Apple
