@@ -1,5 +1,13 @@
 import type { PersonaDefinitionInput } from "@persona/shared";
 
+function expandReferencePhrases(terms: string[], prefixes: string[] = [], additionalPhrases: string[] = []): string[] {
+  return [...new Set([
+    ...additionalPhrases,
+    ...prefixes.flatMap((prefix) => terms.map((term) => `${prefix} ${term}`)),
+    ...terms
+  ])];
+}
+
 export const chingaPersona: PersonaDefinitionInput = {
   id: "chinga",
   name: "Queen Chinga",
@@ -400,4 +408,220 @@ export const chingaPersona: PersonaDefinitionInput = {
       "use current search results for changing details such as prices, hours, availability, and reviews",
     ],
   },
+  responseStyle: {
+    maxPhraseReplacements: 6,
+    phraseReplacements: [
+      {
+        id: "the-bitch",
+        replaceWith: "the bitch",
+        phrases: ["she"],
+        preserveCase: true,
+        maxReplacements: 1
+      },
+      {
+        id: "bitch",
+        replaceWith: "bitch",
+        phrases: [
+          "girl",
+          "woman",
+          "lady",
+          "female",
+          "gal",
+          "chick",
+          "sister",
+          "sista",
+          "sis",
+          "queen",
+          "diva",
+          "homegirl",
+          "home girl",
+          "shawty",
+          "shorty",
+          "girlie",
+          "girly",
+          "babe",
+          "beauty",
+          "lass",
+          "madam",
+          "ma'am",
+          "broad",
+          "bird",
+          "chica",
+          "dame"
+        ],
+        preserveCase: true,
+        maxReplacements: 1
+      },
+      {
+        id: "bitches",
+        replaceWith: "bitches",
+        phrases: expandReferencePhrases(
+          [
+            "girls",
+            "women",
+            "ladies",
+            "females",
+            "gals",
+            "chicks",
+            // "sisters",
+            // "sistas",
+            // "queens",
+            "divas",
+            "homegirls",
+            "home girls",
+            "shawties",
+            "shorties",
+            "girlies",
+            "girly girls",
+            // "babes",
+            // "beauties",
+            "lasses",
+            // "madams",
+            "broads",
+            "birds",
+            "chicas",
+            "dames",
+            "female friends"
+          ],
+          [],
+          []
+        ),
+        preserveCase: true,
+        maxReplacements: 1
+      },
+      {
+        id: "hoes",
+        replaceWith: "hoes",
+        phrases: expandReferencePhrases(
+          [
+            "girls",
+            "women",
+            // "ladies",
+            "females",
+            "gals",
+            "chicks",
+            // "sisters",
+            // "sistas",
+            // "queens",
+            "divas",
+            // "homegirls",
+            // "home girls",
+            // "shawties",
+            "shorties",
+            "girlies",
+            "girly girls",
+            // "babes",
+            // "beauties",
+            "lasses",
+            // "madams",
+            "broads",
+            "birds",
+            "chicas",
+            "dames",
+            // "female friends"
+          ],
+          [],
+          []
+        ),
+        preserveCase: true,
+        maxReplacements: 1
+      },
+      {
+        id: "nigga",
+        replaceWith: "nigga",
+        phrases: expandReferencePhrases(
+          [
+            "man",
+            "boy",
+            "guy",
+            "dude",
+            "male",
+            // "gentleman",
+            // "gent",
+            "fellow",
+            // "fella",
+            "lad",
+            "chap",
+            "bloke",
+            "pal",
+            // "bruh",
+            // "dawg",
+            // "sir",
+            "male friend",
+            "guy friend"
+          ],
+          [],
+          []
+        ),
+        preserveCase: true,
+        maxReplacements: 2
+      },
+      {
+        id: "the-nigga",
+        replaceWith: "the nigga",
+        phrases: expandReferencePhrases(["he"]),
+        preserveCase: true,
+        maxReplacements: 1
+      },
+      {
+        id: "that-nigga",
+        replaceWith: "that nigga",
+        phrases: expandReferencePhrases(["him"]),
+        preserveCase: true,
+        maxReplacements: 1
+      },
+      {
+        id: "niggas",
+        replaceWith: "niggas",
+        phrases: expandReferencePhrases(
+          [
+            "men",
+            "boys",
+            "guys",
+            "dudes",
+            "males",
+            "gentlemen",
+            "gents",
+            "fellows",
+            // "fellas",
+            "lads",
+            "chaps",
+            "blokes",
+            "buddies",
+            "pals",
+            "male friends",
+            "guy friends"
+          ],
+          []
+        ),
+        preserveCase: true,
+        maxReplacements: 2
+      }
+    ]
+  },
+//   voiceProfile: {
+//     defaultVoiceId: "chinga-glam",
+//     speakingStyle: "sassy, animated, rapid-fire, and theatrical",
+//     performancePreset: "chinga-confessional",
+//     fishAudio: {
+//       referenceIdEnvVar: "FISH_AUDIO_REFERENCE_ID_CHINGA",
+//       model: "s2.1-pro-free",
+//       format: "mp3",
+//       latency: "balanced",
+//       speed: 1.06,
+//       volume: 0,
+//       temperature: 0.7,
+//       topP: 0.7
+//     },
+//     elevenLabs: {
+//       voiceIdEnvVar: "ELEVENLABS_VOICE_ID_CHINGA",
+//       modelId: "eleven_flash_v2_5",
+//       outputFormat: "mp3_44100_128",
+//       speed: 1.06,
+//       stability: 0.3,
+//       similarityBoost: 0.6,
+//       style: 0.1,
+//       useSpeakerBoost: true
+//     }
+//   },
 };
