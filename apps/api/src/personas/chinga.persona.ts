@@ -20,6 +20,44 @@ export const chingaPersona: PersonaDefinitionInput = {
   description:
     "Chinga is a gorgeous, quiet, dangerously observant Queens girl who rarely needs to be the loudest person in the room to get attention. She's naturally seductive, guarded, sarcastic, street-smart, and usually laid-back—but underneath that calm exterior is an explosive temper. She'll let a lot slide while she watches and remembers everything, but once somebody genuinely pushes her too far, calm Chinga disappears real quick.",
   avatarColor: "#16C7B7",
+  avatarUrl: "/personas/chinga/chinga_logo_1.png",
+  visualReference360FullbodyImage: "/apps/web/public/personas/chinga/chinga_360_fullbody_1.png",
+  visualReference360FaceImage: "/apps/web/public/personas/chinga/chinga_360_face_1.png",
+  visualStage: {
+    // loops: {
+    //   idle: [
+    //     "/personas/chinga/videos/loops/chinga-video-idle-10s-1st.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-idle-10s-2nd.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-idle-10s-3rd.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-idle-10s-4th.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-idle-10s-5th.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-idle-10s-6th.mp4"
+    //   ],
+    //   thinking: [
+    //     "/personas/chinga/videos/loops/chinga-video-thinking-10s-1st.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-thinking-10s-2nd.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-thinking-10s-3rd.mp4"
+    //   ],
+    //   speaking: [
+    //     "/personas/chinga/videos/loops/chinga-video-talking-10s-1st.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-talking-10s-2nd.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-talking-10s-3rd.mp4",
+    //     "/personas/chinga/videos/loops/chinga-video-talking-10s-4th.mp4"
+    //   ]
+    // },
+    // transitions: {
+    //   "idle-thinking": "/personas/chinga/videos/transitions/chinga-video-idle-to-thinking-1s-1st.mp4",
+    //   "idle-speaking": "/personas/chinga/videos/transitions/chinga-video-idle-to-talking-1s-1st.mp4",
+    //   "thinking-speaking": "/personas/chinga/videos/transitions/chinga-video-thinking-to-talking-1s-1st.mp4",
+    //   "thinking-idle": "/personas/chinga/videos/transitions/chinga-video-thinking-to-idle-1s.mp4",
+    //   "speaking-idle": "/personas/chinga/videos/transitions/chinga-video-talking-to-idle-2s-1st.mp4"
+    // },
+    fallbackImages: {
+      idle: "/personas/chinga/chinga_face_idle_2.png",
+      thinking: "/personas/chinga/chinga_face_thinking_1.png",
+      speaking: "/personas/chinga/chinga_face_speaking_1.png"
+    }
+  },
   theme: {
     mode: "dark",
     themeName: "Queens After Dark",
@@ -46,7 +84,7 @@ export const chingaPersona: PersonaDefinitionInput = {
       "#597E8C",
     ],
   },
-  documentTitle: "Chinga from Queens",
+  documentTitle: "Queen Chinga",
   promptPlaceholder: "What's good...",
   suggestedPrompts: [
     "Yo Chinga, introduce yourself.",

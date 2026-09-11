@@ -2,9 +2,10 @@ import { personaDefinitionSchema, type PersonaDefinition, type PersonaDefinition
 import { laraePersona } from "./larae.persona.js";
 import { bamBamPersona } from "./bambam.persona.js";
 import { neutralPersona } from "./neutral.persona.js";
+import { chingaPersona } from "./chinga.persona.js";
 
 // Keep the neutral persona last: clients treat the first listed persona as the default.
-const personaInputs: PersonaDefinitionInput[] = [laraePersona, bamBamPersona, neutralPersona];
+const personaInputs: PersonaDefinitionInput[] = [laraePersona, bamBamPersona, chingaPersona, neutralPersona];
 
 export function validatePersonaRegistry(inputs: readonly PersonaDefinitionInput[]): PersonaDefinition[] {
   const parsed = inputs.map((persona) => personaDefinitionSchema.parse(persona));
