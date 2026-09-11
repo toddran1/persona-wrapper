@@ -182,6 +182,9 @@ const config: ExpoConfig = {
       "expo-build-properties",
       {
         android: {
+          // Google Mobile Ads 25.4.0 ships Kotlin 2.3 metadata. Keep this in
+          // Expo config so future prebuilds retain the compatible compiler.
+          kotlinVersion: "2.3.0",
           extraProguardRules: "-keep class com.google.android.gms.internal.consent_sdk.** { *; }"
         }
       }

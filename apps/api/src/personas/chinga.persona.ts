@@ -60,7 +60,7 @@ export const chingaPersona: PersonaDefinitionInput = {
   },
   theme: {
     mode: "dark",
-    themeName: "Queens After Dark",
+    themeName: "Aura Queen",
     background:
       "linear-gradient(135deg, #05090A 0%, #07191A 40%, #180A12 72%, #09070A 100%)",
     backgroundAlt: "#0B1718",
