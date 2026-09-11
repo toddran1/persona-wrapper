@@ -248,7 +248,7 @@ describe("OpenAIProvider instructions", () => {
     expect(tools).toContainEqual({
       type: "image_generation",
       action: "auto",
-      model: "gpt-image-2",
+      model: "gpt-image-2.5-flare",
       moderation: "low",
       size: "auto",
       quality: "auto"
