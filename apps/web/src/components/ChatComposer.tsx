@@ -141,7 +141,7 @@ export function ChatComposer(props: ChatComposerProps) {
   // Until the plan loads, show just the free options (the server enforces the same gates).
   const modelOptions = ([["openai", "ChatGPT"], ["gemini", "Gemini"]] as const)
     .filter(([value]) => value === "openai" || (props.planId !== undefined && props.planId !== "bronze"));
-  const imageOptions = ([["openai", "OpenAI Image 2"], ["flux", "FLUX.2 Pro"]] as const)
+  const imageOptions = ([["openai", "OpenAI Image 2.5"], ["flux", "FLUX.2 Pro"]] as const)
     .filter(([value]) => value === "openai" || (props.planId !== undefined && props.planId !== "bronze"));
   const fluxLocked = props.planId !== "gold";
   const selectedModel: ModelProviderPreference = props.provider === "gemini" ? "gemini" : "openai";

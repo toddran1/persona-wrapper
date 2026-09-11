@@ -1469,7 +1469,7 @@ export function MobileChatScreen() {
     try {
       const updatedUser = await api.updateProfile({ imageProvider });
       setAuthUser(updatedUser);
-      setAudioSettingsNotice(`${imageProvider === "flux" ? "FLUX.2 Pro" : "OpenAI Image 2"} will generate new images.`);
+      setAudioSettingsNotice(`${imageProvider === "flux" ? "FLUX.2 Pro" : "OpenAI Image 2.5"} will generate new images.`);
     } catch (providerError) {
       setAudioSettingsError(providerError instanceof Error ? providerError.message : "Could not update the image provider.");
     } finally {
@@ -4471,7 +4471,7 @@ export function MobileChatScreen() {
               <Text style={[styles.settingsPanelDescription, { color: theme.muted }]}>Image generation may use the app’s specialized image service even when Gemini is selected.</Text>
               <Text style={[styles.settingsSectionTitle, { color: theme.muted }]}>Image provider</Text>
               {([[
-                "openai", "OpenAI Image 2", "The default persona image experience. More precise and consistent. Best for detailed instructions, edits, and predictable results.", "image-outline"
+                "openai", "OpenAI Image 2.5", "The default persona image experience. More precise and consistent. Best for detailed instructions, edits, and predictable results.", "image-outline"
               ], [
                 "flux", "FLUX.2 Pro", "More flexible with fewer content refusals. Great for creative freedom, but results may be less precise or more unpredictable.", "color-wand-outline"
               ]] as const)
@@ -5244,7 +5244,7 @@ export function MobileChatScreen() {
               <>
                 <Text style={[styles.actionSheetTitle, { color: theme.muted, fontSize: 13 }]}>Image model</Text>
                 {([[
-                  "openai", "OpenAI Image 2", "Precise, consistent persona images and edits.", "image-outline"
+                  "openai", "OpenAI Image 2.5", "Precise, consistent persona images and edits.", "image-outline"
                 ], [
                   "flux", "FLUX.2 Pro", "More creative freedom, less predictable results.", "color-wand-outline"
                 ]] as const).map(([value, label, description, icon]) => {

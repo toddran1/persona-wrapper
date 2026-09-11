@@ -352,7 +352,7 @@ The choice is stored on the account and applies to new requests on web and mobil
 
 #### Image providers
 
-OpenAI Image 2 (`gpt-image-2.5-flare`) is the default image provider and is unchanged.
+OpenAI Image 2.5 (`gpt-image-2.5-flare`) is the default image provider and is unchanged.
 Signed-in users can switch to **Black Forest Labs FLUX.2 Pro** under
 **Settings → Provider settings → Image provider**. FLUX serves image-only
 requests (text-to-image and multi-reference editing with uploads or persona

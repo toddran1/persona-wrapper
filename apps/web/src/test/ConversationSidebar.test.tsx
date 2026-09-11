@@ -426,7 +426,7 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(dialog).getByRole("button", { name: "Provider settings" }));
 
     const fluxOption = await within(dialog).findByRole("radio", { name: /FLUX\.2 Pro/ });
-    expect(within(dialog).getByRole("radio", { name: /OpenAI Image 2/ })).toHaveAttribute("aria-checked", "true");
+    expect(within(dialog).getByRole("radio", { name: /OpenAI Image 2.5/ })).toHaveAttribute("aria-checked", "true");
     await user.click(fluxOption);
     await waitFor(() => expect(onUpdateProfile).toHaveBeenCalledWith({ imageProvider: "flux" }));
   });
@@ -441,7 +441,7 @@ describe("ConversationSidebar settings", () => {
     await user.click(within(screen.getByRole("menu", { name: "Account menu" })).getByRole("menuitem", { name: "Settings" }));
     const bronzeDialog = screen.getByRole("dialog", { name: "Settings" });
     await user.click(within(bronzeDialog).getByRole("button", { name: "Provider settings" }));
-    expect(await within(bronzeDialog).findByRole("radio", { name: /OpenAI Image 2/ })).toBeInTheDocument();
+    expect(await within(bronzeDialog).findByRole("radio", { name: /OpenAI Image 2.5/ })).toBeInTheDocument();
     expect(within(bronzeDialog).queryByRole("radio", { name: /FLUX\.2 Pro/ })).not.toBeInTheDocument();
     bronze.unmount();
 

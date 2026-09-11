@@ -109,7 +109,7 @@ function personaVisualBrief(persona: PersonaDefinition, imageProvider?: ImagePro
 
   // BFL's input moderation matches literal words like "nudity" and "explicit
   // sexual content" even inside a negated safety instruction, so FLUX prompts
-  // state the intent positively. OpenAI Image 2 refuses readily and benefits
+  // state the intent positively. OpenAI Image refuses readily and benefits
   // from the explicit boundary language, so it keeps the strict sentence.
   const safetyGuidance = imageProvider === "flux"
     ? [

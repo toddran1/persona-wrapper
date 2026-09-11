@@ -1140,7 +1140,7 @@ export function ConversationSidebar({
     setProviderNotice(undefined);
     try {
       await onUpdateProfile({ imageProvider });
-      setProviderNotice(`${imageProvider === "flux" ? "FLUX.2 Pro" : "OpenAI Image 2"} will generate new images.`);
+      setProviderNotice(`${imageProvider === "flux" ? "FLUX.2 Pro" : "OpenAI Image 2.5"} will generate new images.`);
     } catch (error) {
       setLocalAuthError(error instanceof Error ? error.message : "Could not update the image provider.");
     } finally {
@@ -2529,7 +2529,7 @@ export function ConversationSidebar({
                           <h4>Image provider</h4>
                           <div className="settings-provider-options" role="radiogroup" aria-label="Image provider">
                             {([[
-                              "openai", "OpenAI Image 2", "The default persona image experience. More precise and consistent. Best for detailed instructions, edits, and predictable results."
+                              "openai", "OpenAI Image 2.5", "The default persona image experience. More precise and consistent. Best for detailed instructions, edits, and predictable results."
                             ], [
                               "flux", "FLUX.2 Pro", "More flexible with fewer content refusals. Great for creative freedom, but results may be less precise or more unpredictable."
                             ]] as const)
