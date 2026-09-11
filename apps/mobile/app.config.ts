@@ -151,6 +151,9 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.forthebaddiez.mobile",
+    // Android requires every update to have a higher integer version code.
+    // Version 6 is already installed on the current test device.
+    versionCode: 7,
     icon: "./assets/branding/FTB_Logo_120x120.png",
     softwareKeyboardLayoutMode: "resize",
     blockedPermissions: [
@@ -192,6 +195,7 @@ const config: ExpoConfig = {
     ["expo-screen-orientation", { initialOrientation: "DEFAULT" }],
     ["expo-localization", { supportedLocales: ["en"] }],
     "./plugins/withQuotedExpoConstantsScript",
+    "./plugins/withKotlinCompilerVersion",
     [
       "expo-splash-screen",
       {
