@@ -637,29 +637,29 @@ export const chingaPersona: PersonaDefinitionInput = {
       }
     ]
   },
-//   voiceProfile: {
-//     defaultVoiceId: "chinga-glam",
-//     speakingStyle: "sassy, animated, rapid-fire, and theatrical",
-//     performancePreset: "chinga-confessional",
-//     fishAudio: {
-//       referenceIdEnvVar: "FISH_AUDIO_REFERENCE_ID_CHINGA",
-//       model: "s2.1-pro-free",
-//       format: "mp3",
-//       latency: "balanced",
-//       speed: 1.06,
-//       volume: 0,
-//       temperature: 0.7,
-//       topP: 0.7
-//     },
-//     elevenLabs: {
-//       voiceIdEnvVar: "ELEVENLABS_VOICE_ID_CHINGA",
-//       modelId: "eleven_flash_v2_5",
-//       outputFormat: "mp3_44100_128",
-//       speed: 1.06,
-//       stability: 0.3,
-//       similarityBoost: 0.6,
-//       style: 0.1,
-//       useSpeakerBoost: true
-//     }
-//   },
+  voiceProfile: {
+    defaultVoiceId: "chinga-queen",
+    speakingStyle: "sassy, animated, rapid-fire, and theatrical",
+    performancePreset: "chinga-queen",
+    fishAudio: {
+      referenceIdEnvVar: "FISH_AUDIO_REFERENCE_ID_CHINGA",
+      model: "s2.1-pro-free",
+      format: "mp3",
+      latency: "balanced",
+      speed: 1.06,
+      volume: 0,
+      temperature: 0.7,
+      topP: 0.7
+    },
+    elevenLabs: {
+      voiceIdEnvVar: "ELEVENLABS_VOICE_ID_CHINGA",
+      modelId: "eleven_flash_v2_5",
+      outputFormat: "mp3_44100_128",
+      speed: 1.06,
+      stability: 0.3,
+      similarityBoost: 0.6,
+      style: 0.1,
+      useSpeakerBoost: true
+    }
+  },
 };
