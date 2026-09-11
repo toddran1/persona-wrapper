@@ -9,7 +9,7 @@ Plan definitions are versioned in `apps/api/src/services/planCatalog.ts`.
 | Plan | Intended monthly price | Total monthly usage ceiling | Image credits / month | Medium-image equivalent | Image quality | Audio / month | Internal provider-cost target / ceiling | Personas | Ads | Concurrent media jobs |
 | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | ---: |
 | Bronze | Free | $3.00 internal cost | 24 | 12 | Auto, capped at medium | 20 minutes | $1.25 / $3.00 | LaRae | Planned | 1 |
-| Silver | $7.99 | $5.00 internal cost | 90 | 45 | Auto, capped at medium | 90 minutes | $2.75 / $5.00 | Most/current configured personas | No | 2 |
+| Silver | $7.99 | $5.00 internal cost | 90 | 45 | Auto, capped at medium | 90 minutes | $2.75 / $5.00 | Chinga, Bam Bam, and current Silver personas | No | 2 |
 | Gold | $11.99 | $8.00 internal cost | 180 | 90 | Unrestricted auto | 180 minutes | $4.50 / $8.00 | All/current configured personas | No | 3 |
 
 This catalog is the version 1 product baseline. These are initial product assumptions, not billing promises. Future material entitlement or allowance changes should introduce a new plan version rather than rewriting historical usage events.

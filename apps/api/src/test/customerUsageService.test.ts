@@ -208,6 +208,8 @@ describe("customer usage plans", () => {
     expect(getPlanDefinition("silver").version).toBe(1);
     expect(getPlanDefinition("gold").version).toBe(1);
     expect(planIncludesPersona(getPlanDefinition("bronze"), "larae")).toBe(true);
+    expect(planIncludesPersona(getPlanDefinition("bronze"), "chinga")).toBe(false);
+    expect(planIncludesPersona(getPlanDefinition("silver"), "chinga")).toBe(true);
     expect(planIncludesPersona(getPlanDefinition("bronze"), "future-gold-persona")).toBe(false);
     expect(planIncludesPersona(getPlanDefinition("gold"), "future-gold-persona")).toBe(true);
     expect(getPlanDefinition("gold").maxConcurrentMediaJobs).toBeGreaterThan(

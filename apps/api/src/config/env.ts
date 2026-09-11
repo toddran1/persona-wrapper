@@ -276,6 +276,7 @@ const envSchema = z.object({
   FISH_AUDIO_REFERENCE_ID: z.preprocess(optionalTrimmedString, z.string().optional()),
   FISH_AUDIO_REFERENCE_ID_LARAE: z.preprocess(optionalTrimmedString, z.string().optional()),
   FISH_AUDIO_REFERENCE_ID_BAMBAM: z.preprocess(optionalTrimmedString, z.string().optional()),
+  FISH_AUDIO_REFERENCE_ID_CHINGA: z.preprocess(optionalTrimmedString, z.string().optional()),
   FISH_AUDIO_MODEL: z.enum(["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"]).default("s2.1-pro"),
   FISH_AUDIO_FORMAT: z.enum(["mp3", "wav", "opus"]).default("mp3"),
   FISH_AUDIO_SAMPLE_RATE: z.coerce.number().int().refine((value) => [8000, 16000, 24000, 32000, 44100, 48000].includes(value), {
@@ -309,6 +310,7 @@ const envSchema = z.object({
   ELEVENLABS_VOICE_ID: z.preprocess(emptyStringToUndefined, z.string().optional()),
   ELEVENLABS_VOICE_ID_LARAE: z.preprocess(emptyStringToUndefined, z.string().optional()),
   ELEVENLABS_VOICE_ID_BAMBAM: z.preprocess(emptyStringToUndefined, z.string().optional()),
+  ELEVENLABS_VOICE_ID_CHINGA: z.preprocess(emptyStringToUndefined, z.string().optional()),
   ELEVENLABS_MODEL_ID: z.string().default("eleven_flash_v2_5"),
   ELEVENLABS_OUTPUT_FORMAT: z.string().default("mp3_44100_128"),
   ELEVENLABS_SPEED: z.coerce.number().min(0.7).max(1.2).default(1.06),

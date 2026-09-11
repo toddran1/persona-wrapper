@@ -23,6 +23,18 @@ describe("persona registry", () => {
     expect(personas[personas.length - 1]?.id).toBe("neutral");
   });
 
+  it("registers Chinga as a Silver-tier persona", () => {
+    const chinga = getPersonaById("chinga");
+
+    expect(chinga).toMatchObject({
+      id: "chinga",
+      available: true,
+      minimumPlan: "silver",
+      styleReference: { enabled: true, datasetKey: "chinga" },
+      voiceProfile: { performancePreset: "chinga-queen" }
+    });
+  });
+
   it("rejects duplicate stable persona IDs during startup validation", () => {
     const persona = getPersonaById("larae");
     expect(persona).toBeDefined();

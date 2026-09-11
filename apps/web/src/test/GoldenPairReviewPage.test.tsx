@@ -34,10 +34,18 @@ const personas = [
     avatarUrl: "/personas/bambam.png",
     datasetKey: "bambam",
     styleReferenceEnabled: false
+  },
+  {
+    id: "chinga",
+    name: "Queen Chinga",
+    shortName: "Chinga",
+    avatarUrl: "/personas/chinga/chinga_logo_1.png",
+    datasetKey: "chinga",
+    styleReferenceEnabled: true
   }
 ];
 
-function reviewData(personaId: "larae" | "bambam") {
+function reviewData(personaId: "larae" | "bambam" | "chinga") {
   const persona = personas.find((candidate) => candidate.id === personaId)!;
   const root = personaId === "larae" ? "/datasets" : `/personas/${persona.datasetKey}`;
   return {
@@ -60,7 +68,7 @@ describe("GoldenPairReviewPage", () => {
   beforeEach(() => {
     getStyleTransferReview.mockReset();
     getStyleTransferReview.mockImplementation((personaId?: string) =>
-      Promise.resolve(reviewData(personaId === "bambam" ? "bambam" : "larae"))
+      Promise.resolve(reviewData(personaId === "bambam" || personaId === "chinga" ? personaId : "larae"))
     );
   });
 
@@ -78,5 +86,21 @@ describe("GoldenPairReviewPage", () => {
     await waitFor(() => expect(getStyleTransferReview).toHaveBeenLastCalledWith("bambam"));
     expect(await screen.findByText("Test mode · Bam")).toBeInTheDocument();
     expect(screen.getByText("/personas/bambam/evals.jsonl")).toBeInTheDocument();
+  });
+
+  it("provides Chinga with an independent review workspace", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/review?persona=larae"]}>
+        <GoldenPairReviewPage />
+      </MemoryRouter>
+    );
+
+    await screen.findByText("Test mode · LaRae");
+    await user.click(screen.getByRole("button", { name: /Chinga/ }));
+
+    await waitFor(() => expect(getStyleTransferReview).toHaveBeenLastCalledWith("chinga"));
+    expect(await screen.findByText("Test mode · Chinga")).toBeInTheDocument();
+    expect(screen.getByText("/personas/chinga/evals.jsonl")).toBeInTheDocument();
   });
 });

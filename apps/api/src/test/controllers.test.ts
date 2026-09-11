@@ -149,9 +149,11 @@ describe("controllers", () => {
   it("makes the Bronze persona catalog available before sign-in", () => {
     const personas = personaSummariesForAccess();
     const larae = personas.find((persona) => persona.id === "larae");
+    const chinga = personas.find((persona) => persona.id === "chinga");
 
     expect(larae?.available).toBe(true);
     expect(personas.find((persona) => persona.id === "bambam")?.available).toBe(false);
+    expect(chinga?.available).toBe(false);
     expect(larae).not.toHaveProperty("directResponseInstructions");
     expect(larae).not.toHaveProperty("voiceProfile");
     expect(larae).not.toHaveProperty("phraseReplacements");

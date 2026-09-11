@@ -87,10 +87,27 @@ const bambamPartyPreset: PerformancePreset = {
   }
 };
 
+const chingaQueenPreset: PerformancePreset = {
+  transformMechanicalScript: (text) => text,
+  promptInstructions: (persona, modelId) => {
+    const name = persona.shortName ?? persona.name;
+    const common = [
+      `Perform the narration in ${name}'s low-key, controlled Queens confidence.`,
+      "Keep the delivery intimate, observant, dryly funny, and unhurried. Let sharper emphasis appear only when the meaning calls for it; avoid theatrical, high-energy, or shouty delivery."
+    ];
+    if (isFishS2Model(modelId)) return [...common, ...fishS2PromptInstructions()];
+    if (modelId === "eleven_v3") {
+      return [...common, "Use short ElevenLabs v3 audio tags sparingly when they improve the performance."];
+    }
+    return [...common, "Use punctuation and paragraph breaks to create natural pacing without provider-specific markup."];
+  }
+};
+
 const presets: Record<string, PerformancePreset> = {
   neutral: neutralPreset,
   "larae-confessional": laraeConfessionalPreset,
-  "bambam-party": bambamPartyPreset
+  "bambam-party": bambamPartyPreset,
+  "chinga-queen": chingaQueenPreset
 };
 
 function presetFor(persona: PersonaDefinition): PerformancePreset {

@@ -43,8 +43,8 @@ const PLAN_PRESENTATION: Record<PlanId, {
   },
   silver: {
     eyebrow: "The regular",
-    description: "More room to chat, create, and meet most personas without ads.",
-    features: ["90 monthly media credits", "90 audio minutes", "One-month usage rollover", "Most personas", "No ads"]
+    description: "More room to chat, create, and meet Chinga, Bam, and future Silver personas without ads.",
+    features: ["90 monthly media credits", "90 audio minutes", "One-month usage rollover", "Chinga + Silver personas", "No ads"]
   },
   gold: {
     eyebrow: "All access",
