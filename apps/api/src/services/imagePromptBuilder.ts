@@ -149,6 +149,18 @@ function personaCharacterInfluenceVisualBrief(persona: PersonaDefinition): strin
   ].join(" ");
 }
 
+const EXPLICIT_WARDROBE_ITEM_PATTERN =
+  /\b(?:(?:two|2)[-\s]?piece|(?:one|1)[-\s]?piece|bikini|swimsuit|swimwear|bathing\s+suit|dress|gown|skirt|shorts|pants|jeans|leggings|shirt|blouse|top|crop\s+top|tank\s+top|t[-\s]?shirt|sweater|hoodie|jacket|coat|suit|tuxedo|uniform|jersey|outfit|costume|robe|pajamas?|lingerie|underwear|heels?|boots?|sneakers?|sandals?)\b/i;
+
+function hasExplicitWardrobeRequest(message: string): boolean {
+  if (!EXPLICIT_WARDROBE_ITEM_PATTERN.test(message)) return false;
+  return [
+    /\b(?:wear|wearing|wore|dress|dressed|style|styled|outfit|clothing|clothes|wardrobe|put\s+(?:you|yourself|her|him|them)\s+in)\b/i,
+    /\b(?:you|yourself|her|him|them|persona|character)\s+(?:at|on|in|with)\b/i,
+    /\bin\s+(?:an?\s+|the\s+|my\s+|this\s+|that\s+|a\s+pair\s+of\s+)?(?:[\w-]+\s+){0,4}(?:(?:two|2)[-\s]?piece|(?:one|1)[-\s]?piece|bikini|swimsuit|swimwear|bathing\s+suit|dress|gown|skirt|shorts|pants|jeans|leggings|shirt|blouse|top|crop\s+top|tank\s+top|t[-\s]?shirt|sweater|hoodie|jacket|coat|suit|tuxedo|uniform|jersey|outfit|costume|robe|pajamas?|heels?|boots?|sneakers?|sandals?)\b/i
+  ].some((pattern) => pattern.test(message));
+}
+
 function imageFollowUpConversationContext(input: LLMInput): string {
   const hasHistoricalImageReference = (input.attachments ?? []).some((attachment) =>
     attachment.kind === "image" &&
@@ -196,6 +208,7 @@ export function buildImageGenerationPrompt(
   const includePersonaVisualReferences = includePersonaVisuals && options.includePersonaVisualReferences === true;
   const includeUserImageReferences = options.includeUserImageReferences === true &&
     (input.attachments ?? []).some((attachment) => attachment.kind === "image");
+  const explicitWardrobeRequest = includePersonaVisualReferences && hasExplicitWardrobeRequest(input.userMessage);
   // FLUX multi-reference edits lean on every hint in the prompt: for "wear
   // this" requests the character-influence brief reintroduces the persona's
   // default wardrobe and favorite accessories, so drop it there and spell
@@ -207,7 +220,7 @@ export function buildImageGenerationPrompt(
     includePersonaVisuals
       ? [
           personaVisualBrief(input.persona, input.imageProvider),
-          ...(fluxGarmentTransfer ? [] : [personaCharacterInfluenceVisualBrief(input.persona)])
+          ...(fluxGarmentTransfer || explicitWardrobeRequest ? [] : [personaCharacterInfluenceVisualBrief(input.persona)])
         ].filter(Boolean).join(" ")
       : "This image request is not about the current persona. Do not include persona appearance, biography, body details, voice, slang, or character styling unless the user explicitly asks for it.",
     includePersonaVisualReferences
@@ -220,6 +233,9 @@ export function buildImageGenerationPrompt(
       : "",
     fluxGarmentTransfer
       ? "Wardrobe override: the persona wears only the uploaded garment plus whatever the scene minimally requires. Remove any clothing from the persona's identity references that the upload replaces — for a swimsuit or dress that means no pants, skirts, shorts, or cover-ups carried over; for a suit or jacket, no conflicting tops or bottoms. Do not add bags, hats, jewelry, or other accessories unless they appear in the upload or the user explicitly asked for them."
+      : "",
+    explicitWardrobeRequest && !fluxGarmentTransfer
+      ? "User wardrobe requirement: follow the outfit or clothing in the cleaned user request exactly. The persona reference images establish identity only—their clothing, accessories, pose, and background are not part of the requested result. Remove every reference garment or accessory that conflicts with the requested wardrobe. For a swimsuit or bikini request, show the requested swimwear at the requested location with no reference jacket, pants, skirt, shorts, bag, or studio backdrop unless the user explicitly asks for one."
       : "",
     imageFollowUpConversationContext(input),
     `User visual request, cleaned for image generation: ${request}`,

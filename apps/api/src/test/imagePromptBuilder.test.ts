@@ -4,12 +4,12 @@ import { getPersonaById } from "../personas/index.js";
 import { PersonaEngine } from "../services/personaEngine.js";
 import { buildImageGenerationPrompt, directPersonaVisualReferencePaths } from "../services/imagePromptBuilder.js";
 
-function imageInput(message: string): LLMInput {
-  const persona = getPersonaById("larae");
-  if (!persona) throw new Error("LaRae persona not found");
+function imageInput(message: string, personaId = "larae"): LLMInput {
+  const persona = getPersonaById(personaId);
+  if (!persona) throw new Error(`${personaId} persona not found`);
 
   const input = new PersonaEngine().prepareInput(persona, {
-    personaId: "larae",
+    personaId,
     provider: "openai",
     message,
     audio: false,
@@ -74,10 +74,11 @@ describe("imagePromptBuilder", () => {
     expect(fluxPrompt).toContain("no pants, skirts, shorts, or cover-ups");
     expect(fluxPrompt).not.toContain("Persona character influences");
 
-    // OpenAI keeps the styling brief and gets no wardrobe-override block.
+    // OpenAI gets the same explicit-wardrobe protection, but no FLUX-specific override block.
     const openaiPrompt = buildImageGenerationPrompt(input, options);
     expect(openaiPrompt).not.toContain("Wardrobe override");
-    expect(openaiPrompt).toContain("Persona character influences");
+    expect(openaiPrompt).toContain("User wardrobe requirement");
+    expect(openaiPrompt).not.toContain("Persona character influences");
   });
 
   it("applies the wardrobe override persona-agnostically", () => {
@@ -185,6 +186,24 @@ describe("imagePromptBuilder", () => {
     expect(prompt).toContain("Fictional persona: LaRae the Baddest");
     expect(prompt).toContain("Use the persona profile only as visual identity guidance");
     expect(prompt).toContain("Miami");
+  });
+
+  it("lets Chinga's requested swimsuit and beach replace her reference wardrobe and background", () => {
+    const input = imageInput(
+      "Can you give me an image of you at the beach in a 2 piece swimsuit?",
+      "chinga"
+    );
+    const prompt = buildImageGenerationPrompt(input, { includePersonaVisualReferences: true });
+
+    expect(directPersonaVisualReferencePaths(input)).toEqual([
+      "/apps/web/public/personas/chinga/chinga_360_fullbody_1.png",
+      "/apps/web/public/personas/chinga/chinga_360_face_1.png"
+    ]);
+    expect(prompt).toContain("Fictional persona: Queen Chinga");
+    expect(prompt).toContain("User wardrobe requirement");
+    expect(prompt).toContain("reference jacket, pants, skirt, shorts, bag, or studio backdrop");
+    expect(prompt).toContain("at the beach in a 2 piece swimsuit");
+    expect(prompt).not.toContain("Persona character influences for scene and styling choices");
   });
 
   it("returns LaRae's two visual references only for persona image requests", () => {
