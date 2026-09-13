@@ -98,8 +98,20 @@ function isPersonaImageRequest(message: string, persona: PersonaDefinition): boo
   ].some((pattern) => pattern.test(normalizedMessage));
 }
 
-function personaVisualBrief(persona: PersonaDefinition, imageProvider?: ImageProviderId): string {
-  const visualStyle = sanitizeImageRequest(persona.visualStyle.join(", "), persona);
+const DEFAULT_WARDROBE_VISUAL_STYLE_PATTERN =
+  /\b(?:aesthetic|glamour|streetwear|nightlife|fashion|silhouettes?|leather|jackets?|jeans|dresses?|sneakers?|heels?|jewelry|earrings?|accessor(?:y|ies)?|outfits?|wardrobe|clothing|palette|accents?)\b/i;
+
+function personaVisualBrief(
+  persona: PersonaDefinition,
+  imageProvider?: ImageProviderId,
+  options: { identityOnly?: boolean } = {}
+): string {
+  const visualStyle = sanitizeImageRequest(
+    persona.visualStyle
+      .filter((style) => !options.identityOnly || !DEFAULT_WARDROBE_VISUAL_STYLE_PATTERN.test(style))
+      .join(", "),
+    persona
+  );
   const personaFacts = [
     `Fictional persona: ${persona.name}.`,
     persona.age ? `Age: ${persona.age}.` : "",
@@ -124,8 +136,11 @@ function personaVisualBrief(persona: PersonaDefinition, imageProvider?: ImagePro
   return [
     ...personaFacts,
     "Use the persona profile only as visual identity guidance for this image.",
+    options.identityOnly
+      ? "For this request, preserve only stable identity features such as face, hair, complexion, body proportions, and makeup. Do not use the persona's default wardrobe, accessories, styling, color palette, pose, or scene preferences."
+      : "",
     ...safetyGuidance
-  ].join(" ");
+  ].filter(Boolean).join(" ");
 }
 
 function personaCharacterInfluenceVisualBrief(persona: PersonaDefinition): string {
@@ -219,7 +234,9 @@ export function buildImageGenerationPrompt(
     "Image generation prompt for a safe visual tool request.",
     includePersonaVisuals
       ? [
-          personaVisualBrief(input.persona, input.imageProvider),
+          personaVisualBrief(input.persona, input.imageProvider, {
+            identityOnly: fluxGarmentTransfer || explicitWardrobeRequest
+          }),
           ...(fluxGarmentTransfer || explicitWardrobeRequest ? [] : [personaCharacterInfluenceVisualBrief(input.persona)])
         ].filter(Boolean).join(" ")
       : "This image request is not about the current persona. Do not include persona appearance, biography, body details, voice, slang, or character styling unless the user explicitly asks for it.",

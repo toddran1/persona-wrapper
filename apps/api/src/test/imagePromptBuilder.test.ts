@@ -203,6 +203,10 @@ describe("imagePromptBuilder", () => {
     expect(prompt).toContain("User wardrobe requirement");
     expect(prompt).toContain("reference jacket, pants, skirt, shorts, bag, or studio backdrop");
     expect(prompt).toContain("at the beach in a 2 piece swimsuit");
+    expect(prompt).toContain("preserve only stable identity features");
+    expect(prompt).not.toContain("black leather");
+    expect(prompt).not.toContain("cropped jackets");
+    expect(prompt).not.toContain("fitted jeans");
     expect(prompt).not.toContain("Persona character influences for scene and styling choices");
   });
 
