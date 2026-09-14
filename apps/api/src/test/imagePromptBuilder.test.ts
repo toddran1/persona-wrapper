@@ -207,7 +207,20 @@ describe("imagePromptBuilder", () => {
     expect(prompt).not.toContain("black leather");
     expect(prompt).not.toContain("cropped jackets");
     expect(prompt).not.toContain("fitted jeans");
+    expect(prompt).not.toContain("black glossy satin bomber jacket");
+    expect(prompt).not.toContain("white coated stretch faux-leather pants");
     expect(prompt).not.toContain("Persona character influences for scene and styling choices");
+  });
+
+  it("uses Chinga's documented signature outfit for an open-ended persona image request", () => {
+    const input = imageInput("Show me a full-body image of yourself.", "chinga");
+    const prompt = buildImageGenerationPrompt(input, { includePersonaVisualReferences: true });
+
+    expect(prompt).toContain("black glossy satin bomber jacket");
+    expect(prompt).toContain("teal-and-copper embroidered stylized crest graphic panels");
+    expect(prompt).toContain("white ribbed knit scoop-neck cropped tank top");
+    expect(prompt).toContain("white coated stretch faux-leather pants");
+    expect(prompt).toContain("clear PVC-strap open-toe stiletto sandals");
   });
 
   it("returns LaRae's two visual references only for persona image requests", () => {
