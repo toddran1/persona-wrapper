@@ -95,7 +95,7 @@ function PageFrame({ title, eyebrow, intro, sections, effectiveDate = DEFAULT_EF
         <a className="legal-back-link" href={mobileReturnHref ?? "/"} onClick={handleBack} aria-label="Back to For the Baddiez">← Back</a>
         <a className="legal-brand" href={mobileReturnHref ?? "/"} aria-label="For the Baddiez home"><img src="/FTB_logo/For_the_Baddiez_logo_transparent.png" alt="" /><span>For the Baddiez</span></a>
       </div>
-      <nav aria-label="Legal and support"><a href={publicPageHref("/privacy")}>Privacy</a><a href={publicPageHref("/terms")}>Terms</a><a href={publicPageHref("/delete-account")}>Delete account</a><a href={publicPageHref("/support")}>Support</a></nav>
+      <nav aria-label="Legal and support"><a href="/learn">Learn</a><a href={publicPageHref("/privacy")}>Privacy</a><a href={publicPageHref("/terms")}>Terms</a><a href={publicPageHref("/delete-account")}>Delete account</a><a href={publicPageHref("/support")}>Support</a></nav>
     </header>
     <article className="legal-document">
       <div className="legal-hero"><p className="legal-eyebrow">{eyebrow}</p><h1>{title}</h1><p>{intro}</p><span>Effective {effectiveDate}</span></div>

@@ -19,7 +19,6 @@ import { billingLifecyclePresentation, billingStoreDisplayName, clampFiniteNumbe
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import webPackage from "../../package.json";
-import { BronzeBannerAd } from "../advertising/BronzeBannerAd.js";
 import { clearPendingBillingCheckout, savePendingBillingCheckout } from "../lib/pendingBillingCheckout.js";
 import { PasswordInput } from "./PasswordInput.js";
 
@@ -1639,6 +1638,7 @@ export function ConversationSidebar({
           </button>
           {publicAboutOpen ? (
             <nav id="conversation-public-about-panel" className="conversation-public-about-links" aria-label="Public information">
+              <a href="/learn">Learn</a>
               <a href="/privacy">Privacy Policy</a>
               <a href="/terms">Terms of Use</a>
               <a href="/delete-account">Delete account policy</a>
@@ -1799,12 +1799,6 @@ export function ConversationSidebar({
           </button>
         ) : null}
       </div>
-
-      <BronzeBannerAd
-        authenticated={Boolean(authUser)}
-        {...(billingCatalog ? { billingCatalog } : {})}
-        className="conversation-sidebar-ad"
-      />
 
       {authUser ? (
         <div className="conversation-account-footer">
@@ -2628,6 +2622,7 @@ export function ConversationSidebar({
                           <p>Policies, account controls, and ways to reach us.</p>
                         </div>
                         <div className="settings-link-list">
+                          <a href="/learn"><span>Learn</span><span aria-hidden="true">↗</span></a>
                           <a href="/privacy"><span>Privacy Policy</span><span aria-hidden="true">↗</span></a>
                           <a href="/terms"><span>Terms of Use</span><span aria-hidden="true">↗</span></a>
                           <a href="/delete-account"><span>Delete account policy</span><span aria-hidden="true">↗</span></a>
