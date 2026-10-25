@@ -1,6 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { hydrateRoot } from "react-dom/client";
+import { renderLearnPage } from "../learnPrerender.js";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -65,5 +67,31 @@ describe("LearnPage", () => {
     renderLearn("/learn/privacy-memory-location");
     await waitFor(() => expect(mocks.getBillingCatalog).toHaveBeenCalledOnce());
     expect(screen.queryByRole("complementary", { name: "Advertisement" })).not.toBeInTheDocument();
+  });
+
+  it("serves article content before JavaScript and hydrates without losing it or requesting ads during rendering", async () => {
+    const path = "/learn/better-ai-images";
+    const container = document.createElement("div");
+    container.innerHTML = renderLearnPage(path);
+    document.body.append(container);
+    expect(container.querySelector("h1")?.textContent).toBe("Directing AI images without losing the persona");
+    expect(container.querySelectorAll(".learn-article-section")).toHaveLength(4);
+    expect(container.querySelector("ins.adsbygoogle")).toBeNull();
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    const recoverableError = vi.fn();
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => {
+        root = hydrateRoot(container, <MemoryRouter initialEntries={[path]}><Routes>
+          <Route path="/learn/:slug" element={<LearnPage />} />
+        </Routes></MemoryRouter>, { onRecoverableError: recoverableError });
+      });
+      expect(recoverableError).not.toHaveBeenCalled();
+      expect(container.querySelectorAll("ins.adsbygoogle")).toHaveLength(1);
+      expect(container.querySelectorAll(".learn-article-section")).toHaveLength(4);
+    } finally {
+      await act(async () => { root?.unmount(); });
+      container.remove();
+    }
   });
 });

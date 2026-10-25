@@ -16,7 +16,7 @@ import { queryClient } from "./lib/queryClient.js";
 
 installClientCrashReporting();
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const application = (
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <AppErrorBoundary>
@@ -40,3 +40,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </React.StrictMode>
 );
+
+const root = document.getElementById("root")!;
+if (root.dataset.prerendered === "true") {
+  ReactDOM.hydrateRoot(root, application);
+} else {
+  ReactDOM.createRoot(root).render(application);
+}

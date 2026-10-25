@@ -754,7 +754,11 @@ export function ConversationHistory({
         <span className="provider-pill">{messageCount} messages</span>
       </div>
       {messageCount === 0 ? (
-        <p className="empty-state">No conversation state yet. Ask anything.</p>
+        <div className="conversation-welcome">
+          <p className="empty-state">Ask anything, or start with a guide.</p>
+          <a className="conversation-learn-link" href="/learn">Explore Learn <span aria-hidden="true">↗</span></a>
+          <p className="conversation-learn-description">Tips for better prompts, image direction, privacy, and finding current answers.</p>
+        </div>
       ) : (
         <div className="chat-thread">
           {hasEarlierTurns ? (

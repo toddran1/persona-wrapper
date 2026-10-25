@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { PublisherContentAd } from "../advertising/PublisherContentAd.js";
 
 type GuideSection = {
@@ -186,15 +186,15 @@ const GUIDES: Guide[] = [
 
 function LearnHeader() {
   return <header className="learn-header">
-    <Link className="learn-brand" to="/learn" aria-label="For the Baddiez Learn home">
+    <a className="learn-brand" href="/learn" aria-label="For the Baddiez Learn home">
       <img src="/FTB_logo/For_the_Baddiez_logo_transparent.png" alt="" />
       <span><strong>For the Baddiez</strong><small>Learn</small></span>
-    </Link>
+    </a>
     <nav aria-label="Learn navigation">
-      <Link to="/learn">All guides</Link>
-      <Link to="/privacy">Privacy</Link>
-      <Link to="/support">Support</Link>
-      <Link className="learn-open-app" to="/">Open the app</Link>
+      <a href="/learn">All guides</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/support">Support</a>
+      <a className="learn-open-app" href="/">Open the app</a>
     </nav>
   </header>;
 }
@@ -202,7 +202,7 @@ function LearnHeader() {
 function LearnFooter() {
   return <footer className="learn-footer">
     <span>© {new Date().getFullYear()} For the Baddiez</span>
-    <nav aria-label="Learn footer"><Link to="/terms">Terms</Link><Link to="/privacy">Privacy</Link><Link to="/support">Support</Link></nav>
+    <nav aria-label="Learn footer"><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/support">Support</a></nav>
   </footer>;
 }
 
@@ -230,10 +230,10 @@ function GuideIndex() {
           <div className="learn-guide-marker" aria-hidden="true">{String(index + 1).padStart(2, "0")}</div>
           <div>
             <p className="learn-guide-meta"><span>{guide.category}</span><span>{guide.readingTime}</span></p>
-            <h3><Link to={`/learn/${guide.slug}`}>{guide.title}</Link></h3>
+            <h3><a href={`/learn/${guide.slug}`}>{guide.title}</a></h3>
             <p>{guide.dek}</p>
           </div>
-          <Link className="learn-guide-arrow" to={`/learn/${guide.slug}`} aria-label={`Read ${guide.title}`}>↗</Link>
+          <a className="learn-guide-arrow" href={`/learn/${guide.slug}`} aria-label={`Read ${guide.title}`}>↗</a>
         </article>)}
       </div>
     </section>
@@ -255,7 +255,7 @@ function GuideArticle({ guide }: { guide: Guide }) {
   return <main className="learn-shell learn-article-shell">
     <LearnHeader />
     <article className="learn-article">
-      <Link className="learn-back" to="/learn">← All guides</Link>
+      <a className="learn-back" href="/learn">← All guides</a>
       <header className="learn-article-header">
         <p className="learn-kicker">{guide.category}</p>
         <h1>{guide.title}</h1>
@@ -274,7 +274,7 @@ function GuideArticle({ guide }: { guide: Guide }) {
       </div>
       <nav className="learn-next" aria-label="More guides">
         <span>Keep learning</span>
-        {GUIDES.filter((candidate) => candidate.slug !== guide.slug).slice(0, 2).map((candidate) => <Link key={candidate.slug} to={`/learn/${candidate.slug}`}>{candidate.title}<b aria-hidden="true">↗</b></Link>)}
+        {GUIDES.filter((candidate) => candidate.slug !== guide.slug).slice(0, 2).map((candidate) => <a key={candidate.slug} href={`/learn/${candidate.slug}`}>{candidate.title}<b aria-hidden="true">↗</b></a>)}
       </nav>
     </article>
     <LearnFooter />
@@ -285,7 +285,7 @@ export function LearnPage() {
   const { slug } = useParams();
   if (!slug) return <GuideIndex />;
   const guide = GUIDES.find((candidate) => candidate.slug === slug);
-  if (!guide) return <main className="learn-shell"><LearnHeader /><section className="learn-missing"><p className="learn-kicker">Guide not found</p><h1>That page isn’t in the manual.</h1><Link to="/learn">Browse all guides</Link></section><LearnFooter /></main>;
+  if (!guide) return <main className="learn-shell"><LearnHeader /><section className="learn-missing"><p className="learn-kicker">Guide not found</p><h1>That page isn’t in the manual.</h1><a href="/learn">Browse all guides</a></section><LearnFooter /></main>;
   return <GuideArticle guide={guide} />;
 }
 

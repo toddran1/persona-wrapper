@@ -5940,6 +5940,30 @@ button:disabled {
   margin: 0;
 }
 
+.conversation-learn-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 10px 0;
+  color: var(--accent);
+  font-weight: 700;
+  text-underline-offset: 5px;
+}
+
+.conversation-learn-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 5px;
+}
+
+.conversation-learn-description {
+  margin: 4px 0 0;
+  max-width: 50ch;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
 .response-card {
   min-height: 240px;
 }

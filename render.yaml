@@ -328,6 +328,8 @@ services:
         value: 22.13.0
       - key: VITE_API_URL
         value: https://for-the-baddiez-api-dev.onrender.com
+      - key: VITE_SITE_URL
+        value: https://for-the-baddiez-web-dev.onrender.com
       - key: VITE_SUPPORT_EMAIL
         value: forthebaddiez.ai@gmail.com
       - key: VITE_ADSENSE_BRONZE_AD_SLOT
@@ -349,6 +351,21 @@ services:
         name: Permissions-Policy
         value: camera=(), geolocation=(self), payment=()
     routes:
+      - type: rewrite
+        source: /learn
+        destination: /learn/index.html
+      - type: rewrite
+        source: /learn/better-persona-conversations
+        destination: /learn/better-persona-conversations/index.html
+      - type: rewrite
+        source: /learn/better-ai-images
+        destination: /learn/better-ai-images/index.html
+      - type: rewrite
+        source: /learn/privacy-memory-location
+        destination: /learn/privacy-memory-location/index.html
+      - type: rewrite
+        source: /learn/sources-files-current-answers
+        destination: /learn/sources-files-current-answers/index.html
       - type: rewrite
         source: /*
         destination: /index.html
@@ -663,6 +680,8 @@ services:
         value: 22.13.0
       - key: VITE_API_URL
         value: https://for-the-baddiez-api.onrender.com
+      - key: VITE_SITE_URL
+        value: https://for-the-baddiez-web.onrender.com
       - key: VITE_SUPPORT_EMAIL
         value: forthebaddiez.ai@gmail.com
       - key: VITE_ADSENSE_BRONZE_AD_SLOT
@@ -684,6 +703,21 @@ services:
         name: Permissions-Policy
         value: camera=(), geolocation=(self), payment=()
     routes:
+      - type: rewrite
+        source: /learn
+        destination: /learn/index.html
+      - type: rewrite
+        source: /learn/better-persona-conversations
+        destination: /learn/better-persona-conversations/index.html
+      - type: rewrite
+        source: /learn/better-ai-images
+        destination: /learn/better-ai-images/index.html
+      - type: rewrite
+        source: /learn/privacy-memory-location
+        destination: /learn/privacy-memory-location/index.html
+      - type: rewrite
+        source: /learn/sources-files-current-answers
+        destination: /learn/sources-files-current-answers/index.html
       - type: rewrite
         source: /*
         destination: /index.html
